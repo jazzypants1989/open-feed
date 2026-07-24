@@ -222,7 +222,7 @@ interface Reaction {
 }
 ```
 
-Because reactions carry no content, clients SHOULD NOT render them as posts, and publishers SHOULD segregate them into a **separate activity feed** — listed under `feeds` in the identity document, with its own manifest (spec §8, §3.2) — so the primary feed and its manifest stay clean.
+**Reactions are delivered, not published** (spec §8). A `like` has exactly one reader — the author of the thing liked — and the inbox already reaches them, so the item carries no `_feed_url` and never enters a feed or manifest. This is not a minor preference: reactions are the highest-volume object in a family app, and publishing them would both dominate manifest growth and write the family's reaction graph into a world-readable file that encryption does not cover (spec §11.4). The cost, which the UI should not paper over: a reaction count is the entry author's own tally from their inbox, not something another member can independently verify. Reposts and quotes are meant to be seen and are published normally; if the app ever publishes content-less relations, they go in a **separate activity feed** listed under `feeds` with its own manifest (spec §8, §3.2), so the primary feed stays clean for plain readers.
 
 ---
 
@@ -383,9 +383,9 @@ Error bodies: `{ "error": "code", "message": "human text" }` with codes `invalid
 
 Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliveries are recovered by polling the sender's feed — the feed is the source of truth; the inbox is a latency optimization (spec §10.4, §1).
 
-**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in a replies endpoint if one is ever built (conventions extension §6.2), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
+**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in a replies endpoint if one is ever built (spec §16.4.1), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
 
-This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (spec §15 §7). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
+This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (spec §15.5). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
 
 ### Threading (nested replies)
 
@@ -399,7 +399,7 @@ To comment on, like, or reply to another identity's item, a hub user's action pr
 2. Sign it (hub-managed key, invisible to the user)
 3. Discover the recipient's inbox from their `openfeed.json` (`inbox` field)
 4. POST the signed item verbatim; retry with backoff on 5xx/timeout
-5. Optionally publish the same item in the sender's own feed (content-less relations go to the activity feed) so it's discoverable by polling
+5. For relations meant to be seen (`reply`, `repost`, `quote`, `mention`), also publish the same item in the sender's own feed so it's discoverable by polling. Likes stop at the inbox — no `_feed_url`, no feed, no manifest (spec §8)
 
 ### Reactions (inbox)
 
@@ -956,7 +956,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] **Publish + advance the signed, chained `manifest.json`** on every publish/edit/delete — committing each item as `[version, hash]` — retaining prior versions at `manifest/{seq}.json` once `seq > 1` (spec §9, §5.4). Advance immediately for tombstones; batching ordinary posts onto a cadence is allowed and bounds chain growth (spec §9.2)
 - [ ] Static HTML generation on publish (human page; not a discovery surface)
 - [ ] Atom feed generation (Level 0 readers)
-- [ ] Comments/reactions as signed items with `_rel` entries (internal API produces the same signed item the inbox path would; content-less relations → activity feed)
+- [ ] Comments/reactions as signed items with `_rel` entries (internal API produces the same signed item the inbox path would; likes are delivered-only, spec §8)
 - [ ] Basic family feed
 
 **Test**: Can Mom post a signed entry, Dad comment on it (as a `_rel` reply item), Grandma subscribe in a plain reader, and an independent verifier confirm every signature *and* the manifest chain?
@@ -978,14 +978,14 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Feed polling for external members — verify signatures, enforce `_feed_url` canonical/copy rule, pin + walk both the identity and manifest chains (spec §5.3, §7.5, §9.1)
 - [ ] Thread backfill during polling: reconcile external feed items whose `_rel` targets hub entries, healing replies whose inbox delivery was missed (the signed feed is the source of truth; the inbox is a latency optimization)
 - [ ] External entries in family feed
-- [ ] **Encrypted content** (spec §15) for `family`-visibility feeds — a **launch dependency** for cross-hub family sharing, not an optional extra. Broadcast to a known audience is specified and prototyped; group *replies* need the roster, which is explicitly not ready (extension §6.2). Until the roster lands, family replies are single-hub only
+- [ ] **Encrypted content** (spec §15) for `family`-visibility feeds — a **launch dependency** for cross-hub family sharing, not an optional extra. Broadcast to an **author-held** audience list is specified and shippable — the list never leaves the client, so §15.4's roster gate does not apply to it (spec §11.2). What needs a *published* roster is group **replies**, because a replier must wrap to an audience they did not choose, and the roster is explicitly not ready (spec §15.4). Until it lands, cross-hub family *posts* work and family *replies* are single-hub only
 - [ ] **Exit: export bundle + device-generated recovery keys** (spec §14, §4.5) — also a launch dependency; see §Leaving
 
 **Test**: Can Jesse (self-hosted) post a signed reply item to Mom's inbox and have his own signed entries appear verified (signature + manifest) in the family feed?
 
 ### Phase 4: Polish
 
-- [ ] Reactions polish (activity feed segregation, emoji via `_emoji` on `like` entries)
+- [ ] Reactions polish (emoji via `_emoji` on `like` entries; activity feed only if reposts are published)
 - [ ] Key rotation + revocation via identity-chain versions (spec §4.3, §4.4, §5.2); recovery-key generation confirmed at onboarding (spec §4.5); migration/recovery flow (spec §3.4)
 - [ ] Notifications (in-app)
 - [ ] Photo uploads with thumbnails (+ `_sha256` attachment integrity, spec §7.4)
@@ -1034,7 +1034,7 @@ If a family member moves from hub to self-hosted:
 1. Establish the new identity (new `openfeed.json`) with `"predecessor": "https://pence.family/~mom/"`
 2. **Cooperative** (old domain still controlled): the old `openfeed.json` publishes a new chain version adding `"successor": "https://mom.example/"`. Consumers follow the cross-signed pair
 3. **Recovery** (old domain lost): the new `openfeed.json` additionally carries a `_recovery_sig` by the offline recovery key committed in a pinned ancestor
-4. **Bulk re-sign** the back catalog at the new feed (same `id`s, bumped `_version`, new `_feed_url`) and commit it in the new feed's manifest — the sole exception to the id/feed binding (spec §3.4, §7.5)
+4. **Republish the back catalog byte-verbatim** at the new feed — same bytes, same signatures, same `_feed_url` naming the *old* feed — and commit those bytes in the new feed's manifest. Do **not** re-sign: rewriting every item would invalidate every hash any consumer or peer has pinned over the member's history. A consumer that has verified the migration treats an item whose `_feed_url` names a predecessor feed as canonical at the successor feed; because nothing is re-signed, the id/feed binding is never breached and needs no exception (spec §3.4, §7.5)
 
 Redirects are **not** identity equivalence — a cross-origin redirect is never followed for an identity document (spec §3.3). Portability across domain loss is the family-scale trade-off recovery keys + `pins` mitigate, not a full fix.
 
@@ -1177,7 +1177,7 @@ This is a cache, not source of truth. Re-fetch from their feed if stale. Record 
     /feed.json               # JSON Feed (signed items)
     /manifest.json           # Manifest (signed, chained)
     /manifest/1.json         # Retained prior manifest versions (once seq > 1)
-    /activity.json           # Optional activity feed (likes/reposts)
+    /activity.json           # Optional activity feed (published reposts; likes are delivered-only)
     /activity-manifest.json  # Its manifest (every listed feed is manifested)
     /activity-manifest/1.json
     /feed.xml                # Atom (optional)
@@ -1301,7 +1301,7 @@ Interactions are items with a `_rel` array (spec §8); build the model around th
 2. `type` is a registered token (`reply`, `like`, `repost`, `quote`, `mention`, `root`) or an absolute URL for custom relations; preserve unknown types
 3. `to` is `{feed_url}#{item_id}` for items (receivers split at the last `#`), or an identity URL for `mention`; multiplicity is expressed with multiple entries, never an array in `to`
 4. Threading: a `reply` entry points at the parent; add a `root` entry pointing at the thread root for nested replies (spec §8.1). Store as an adjacency list, build the tree client-side, render flat *or* nested, and cap walk depth (cycles possible in malicious data)
-5. Content-less relations (`like`, `repost`) go in the **activity feed**, not the primary feed
+5. `like` items are delivered to the inbox and never published — no `_feed_url`, no feed row, no manifest entry (spec §8). A published content-less relation (`repost`) goes in the **activity feed**, not the primary feed
 
 ### Signing Hub Content (default)
 

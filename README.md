@@ -192,7 +192,7 @@ This one signed file carries the profile, the keys, and the endpoints together. 
 
 Notes:
 
-- `feeds` is one array for every feed you publish — entries are `{url, manifest, rel}`, and `rel: "primary"` names the authoritative one. Every listed feed is manifested; there is no unproven feed. A high-volume activity feed of likes doesn't pay for that per reaction, because a manifest may advance on a schedule rather than per publication (§9.2).
+- `feeds` is one array for every feed you publish — entries are `{url, manifest, rel}`, and `rel: "primary"` names the authoritative one. Every listed feed is manifested; there is no unproven feed. A high-volume feed doesn't pay a chain advance per item, because a manifest may advance on a schedule rather than per publication (§9.2) — and the resulting lag window is bounded, so it can't quietly become a place to hide content from one reader (§9.4).
 - `keys` is a standard array of JWKs (RFC 7517). The `x` field is the base64url Ed25519 public key. `iat`/`revoked_at` are Unix seconds (JOSE convention); content timestamps use ISO 8601 (JSON Feed convention). The `crv`/`use` constraints apply to *signing* keys — extensions can add other key types to the same array, and core verifiers ignore them.
 - `seq`/`prev`/`updated`/`_sig` are the version-chain fields. `prev` is the base64url SHA-256 of the *full* previous version's bytes. Genesis (`seq: 1`) has no `prev`. Prior versions are retained at a **derived URL** — strip `.json`, append `/{seq}.json`, so version 6 of this document is at `https://pence.family/~mom/openfeed/6.json`. There is no history-index document to maintain. See §5.4.
 - The identity doc commits to the manifest **by URL, not by hash** — so ordinary publishing advances the manifest chain and never re-signs the identity doc.
@@ -291,6 +291,8 @@ Together, the manifest and `_feed_url` close both gaps: the manifest proves **pr
 
 A multi-author feed works because every item names its own single author and is independently signed. The feed-level `authors` list is display-only.
 
+Weigh one consequence before using a shared feed: the board *owner's* manifest is what commits the board, so a contributor gets no completeness proof of their own over content that is canonical there. The owner — or the owner's host — can drop a contributor's items and nothing in the contributor's chain records it, which is the protocol's central guarantee running the wrong way for the person who most wants it. Publishing to your own manifested feed and letting the board carry **copies** (§7.1, §7.5) keeps the proof where you want it, costs the board nothing, and is why a client-assembled aggregate view is usually the better shape than a shared canonical feed.
+
 ### Edited Post (Versioning)
 
 ```json
@@ -357,7 +359,6 @@ Core relation types (§8): `reply` and `quote` and `mention` carry content; `lik
 {
   "id": "urn:uuid:772fa622-1111-2222-3333-444455556666",
   "authors": [{ "url": "https://alice.example/" }],
-  "_feed_url": "https://alice.example/activity.json",
   "content_text": "",
   "date_published": "2025-12-07T17:00:00Z",
   "_version": 1,
@@ -372,7 +373,9 @@ Core relation types (§8): `reply` and `quote` and `mention` carry content; `lik
 }
 ```
 
-A `like` carries no *displayable* content (`content_text` is `""`, since JSON Feed requires a content field, §7.2); a reaction adds `_emoji` to the `_rel` entry (entries are open objects — unknown keys are preserved). Content-less relations (likes, reposts) SHOULD live in a separate **activity feed** — listed under `feeds` in the identity doc, with its own manifest — so a plain feed reader doesn't render bare likes as posts and the primary manifest isn't dominated by them (§8).
+A `like` carries no *displayable* content (`content_text` is `""`, since JSON Feed requires a content field, §7.2); a reaction adds `_emoji` to the `_rel` entry (entries are open objects — unknown keys are preserved).
+
+Note what this example doesn't have: a `_feed_url`. A like should be **delivered, not published** (§8). Its only reader is the person whose post was liked and the inbox already reaches them, while publishing it makes reactions the dominant driver of manifest volume and writes the interaction graph — who reacted to whom, and when — into a world-readable file. The trade the spec asks you to make knowingly: a public like *count* becomes the post author's own unverifiable assertion, since the evidence is in their inbox. Relations meant to be seen (`reply`, `repost`, `quote`, `mention`) are published as ordinary items, and anyone who does publish content-less relations puts them in a separate **activity feed** — listed under `feeds` with its own manifest — so a plain reader doesn't render bare likes as posts.
 
 **Nested reply (threading with `root`):**
 
@@ -463,7 +466,9 @@ For inbox-delivered items, apply the revocation check against **receipt time** (
 
 Migration and recovery are **one operation** — *this identity continues over there* — differing only in which key attests (§3.4). You establish the new identity with a `predecessor` link, and then either the old side publishes a matching `successor` (a cross-signature verifiable against its pinned chain), or, if the old domain is gone, the new document carries a `_recovery_sig` by a **recovery key** committed in a pinned ancestor. Either way the chained identity document *is* the attestation; there is no separate claim document, and a one-sided link with no recovery co-signature is not a migration.
 
-Two consequences worth knowing before you move. Previously-published items carry the old feed's URL in their signed `_feed_url`, so migration ends with **bulk re-signing** the back catalog at the new feed — a verified migration is the one exception to "an id belongs to one feed forever." And replies you already received point at the old feed URL inside *other people's* signed items, which nobody can re-sign, so consumers treat predecessor and successor targets as the same thing once the migration verifies (§3.4, §10.2). Without that, exercising your exit would make every inbound reply start bouncing.
+Your back catalog comes with you **byte-verbatim** — you do not re-sign it. Previously-published items carry the old feed's URL in their signed `_feed_url`, and rewriting that would change the bytes of everything you ever published, invalidating every hash any consumer's manifest pin or any peer's published pin already holds. A wholesale rewrite of your own past is the exact pattern the compare rule exists to flag, and exit shouldn't require producing one. So the verified migration carries the binding instead: republish the same bytes at the new feed, commit them in the new manifest, and a consumer who has verified the migration treats an item whose `_feed_url` names a predecessor feed as canonical there (§3.4, §7.5). Because nothing is re-signed, "an id belongs to one feed forever" stays true and no longer needs a migration exception carved out of it — what moves is where the unaltered bytes are served.
+
+The same equivalence covers the other loose end: replies you already received point at the old feed URL inside *other people's* signed items, which nobody can re-sign, so consumers treat predecessor and successor targets as the same thing once the migration verifies (§3.4, §10.2). Without that, exercising your exit would make every inbound reply start bouncing.
 
 **Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). The `pins` convention (§16) is how a family propagates and cross-checks a recovery claim.
 
@@ -581,6 +586,8 @@ Before any of the comparisons below, the boring answer: **your feed is a JSON Fe
 
 Those last two matter more than they look, because **existing bridges already eat them.** A site serving a discoverable Atom feed plus an h-card can be bridged into the fediverse by a third-party service like [Bridgy Fed](https://fed.brid.gy/) — no gateway to run, no bridge spec to implement, nothing in this repository required. It even represents you as `@yourdomain.com`, domain-bound, which is what your Open Feed identity URL already is, so there's no mapping to invent.
 
+One more static file extends the same idea to everything that speaks DIDs. Your identity URL maps mechanically to a `did:web` identifier (`https://pence.family/~mom/` → `did:web:pence.family:~mom`, resolving to `did.json` alongside your identity document), and serving a DID document there that carries the same Ed25519 keys makes your key resolvable by atproto tooling, DIF tooling, and verifiable-credential verifiers (Appendix B). No signature crosses in either direction — Open Feed signs the JWS signing input directly, the DID ecosystem's Ed25519 suites sign other bytes — but the *key* does, which is the whole of what's shareable. Keep it in step with `keys`, or you're advertising a revoked key the identity chain already retired.
+
 The trade is the honest one: content reaching another network this way arrives **unsigned and with no completeness proof** — it's a copy (§7.5). But that's the same trade a purpose-built gateway makes, at none of the cost. Exhaust this before building a bridge (above).
 
 ### vs ActivityPub
@@ -597,7 +604,9 @@ ActivityPub is comprehensive but complex: JSON-LD, HTTP Signatures, and a large 
 
 ### vs AT Protocol (Bluesky)
 
-atproto is technically decentralized but practically Bluesky-centric today, with DIDs, repos, lexicons, and significant infrastructure. Its signed repo gives it the same anti-omission guarantee Open Feed gets from the manifest, and its DID indirection buys real account portability across hosts. Open Feed deliberately trades that DID-grade portability for URL-native simplicity — no DID resolution, no repo sync, static hosting works. The clean identity seam for a bridge is **did:web ↔ Open Feed URL** (both domain-bound); a full bridge is a heavy mirror PDS with no transparent path.
+atproto is technically decentralized but practically Bluesky-centric today, with DIDs, repos, lexicons, and significant infrastructure. Its signed repo gives it the same anti-omission guarantee Open Feed gets from the manifest, and its DID indirection buys real account portability across hosts.
+
+The portability gap is narrower than it looks, and worth stating precisely. `did:plc` is a chained log of key-rotation operations with recovery keys — structurally the same thing as Open Feed's identity chain (§5) plus recovery keys (§4.5). The difference isn't sophistication, it's *where the log lives*: Bluesky operates it at a neutral third party, so losing your domain doesn't orphan you. Open Feed keeps the log at your own URL and pays for that with the domain-loss risk, mitigated but not fixed by recovery keys and pins. `did:web`, the DID method that isn't centrally operated, is domain-bound exactly as an Open Feed identity URL is — which is why it's both the clean identity seam for a bridge and the cheap interop file described above. A full content bridge is still a heavy mirror PDS with no transparent path.
 
 ### vs Nostr
 
@@ -607,9 +616,13 @@ Nostr and Open Feed are both plain-JSON and Ed25519-signed, and both let you sel
 - **Completeness.** A Nostr relay can silently withhold your notes and you can't prove it; Open Feed's signed, chained manifest makes omission and rollback detectable. This is the core distinction.
 - **Delegation.** Nostr's NIP-26 delegation foundered partly for lack of an authoritative revocation substrate; Open Feed's pinned chain *is* exactly that substrate (a planned delegation extension).
 
+The trade runs the other way too, and it's the sharpest thing Nostr has on us: **relay redundancy**. A Nostr note lives on many relays, so no single operator can withhold everything. An Open Feed identity is served from one origin, and the manifest makes withholding *detectable*, not *impossible* — different property, and the weaker one when your host simply goes dark. The copy rule (§7.5) means a follower's cached copy of your feed still verifies and can be served on your behalf, which is the ingredient for redundancy; what isn't specified is how anyone finds that mirror.
+
 ### vs IndieWeb / Webmention
 
-IndieWeb shares Open Feed's "your identity is a URL you own" philosophy and its build-on-the-open-web ethos. Webmention is available as an optional **bridge gateway** (Appendix E): outbound rides on published h-entry HTML, inbound synthesizes `_unverified` items from microformats. What Open Feed adds over vanilla IndieWeb is cryptographic authorship and the completeness proof — Webmention has no signatures. Everything ingested from IndieWeb is `_unverified`, without exception; that isn't a slight on Webmention, it's that nobody but you can hold your Open Feed key.
+IndieWeb shares Open Feed's "your identity is a URL you own" philosophy and its build-on-the-open-web ethos. What Open Feed adds over vanilla IndieWeb is cryptographic authorship and the completeness proof — Webmention has no signatures. Everything ingested from IndieWeb is `_unverified`, without exception; that isn't a slight on Webmention, it's that nobody but you can hold your Open Feed key.
+
+The two directions are separable and priced very differently (Appendix E). **Outbound is nearly free**: sending a Webmention when you publish a reply whose target dereferences to an HTTP URL mints no proxy identity, ingests nothing, keeps no state, and widens no audience — the item was already published at your own URL. It's a POST, and it reaches the whole IndieWeb. **Inbound is the expensive half**: synthesizing `_unverified` items from microformats is a gateway, with an audience test, a durability test, and a trust argument attached. Do outbound first; the trust argument starts at ingest.
 
 ### vs RSS/Atom
 

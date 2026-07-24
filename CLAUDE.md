@@ -63,6 +63,45 @@ URL-native protocol, and it is what makes cross-hub `family` visibility a launch
 
 ## Decisions taken — do not relitigate without new information
 
+- **Migration does not re-sign the back catalog.** An earlier draft ended §3.4 with bulk re-signing,
+  because old items' signed `_feed_url` names the old feed. That rewrites the bytes of everything
+  the identity ever published, invalidating every hash held in any consumer's manifest pin or peer's
+  published pin — a wholesale rewrite of the past, which is the pattern §5.3.1 exists to flag, made
+  mandatory on the *exit* path. The fix reuses a rule already present: §3.4 already makes
+  predecessor and successor **relation targets** equivalent under a verified migration, so §7.5's
+  canonical test now honors a predecessor `_feed_url` the same way. Back catalog moves byte-verbatim;
+  hashes survive; zero new consumer state (the predecessor feed URLs are already recorded at
+  migration time). Side effect worth keeping: the id/feed binding rule loses its one exception,
+  because nothing is re-signed and no id is ever signed with two `_feed_url` values.
+- **Likes are delivered, not published** (§8, SHOULD). A `like`'s only reader is the author of the
+  liked item, and the inbox already reaches them. Publishing made reactions the dominant driver of
+  manifest volume — the problem §9.2's cadence was invented to solve — and wrote §11.4's interaction
+  graph into a world-readable file for no reader benefit. Reposts/quotes/mentions/replies stay
+  published; the activity feed survives for reposts but is no longer something most identities need.
+  Stated cost: a public like *count* becomes the post author's unverifiable assertion.
+- **Manifest lag is bounded, and the bound is derived, not declared** (§9.4 invariant 3). §9.2's
+  cadence created a standing window in which a host could serve an item to one reader and not
+  another with no fork produced, and nothing ever converted "still pending" into "violation." A
+  consumer that has walked the chain can read the publisher's real cadence from successive `updated`
+  values, so the bound needs no new field: RECOMMENDED max(1h, 2× median of the last 10 intervals).
+- **A membership document is not necessarily a published one** (§11.2). §11.2's absolute rule read
+  as forbidding what §15.4 recommends shipping first. An author broadcasting to a list only *they*
+  address holds it client-side and is unaffected by the roster ship gate; a *published* roster is
+  required exactly when someone else — a replier — must wrap to the same audience. This is the
+  reference product's critical path, so the distinction is now explicit in both documents.
+- **A shared feed gives its contributors no completeness proof** (§7.1). The *owner's* manifest
+  commits a multi-author board, so the owner or the owner's host can drop a contributor's items with
+  nothing recorded in the contributor's chain — the §9 guarantee running backwards for the family
+  persona. Stated rather than fixed: contributors publish to their own manifested feed and the board
+  carries copies, which is what DISTRIBUTION-MODEL's client-side aggregate already does. Note that
+  multi-author feeds are the *only* capability `_feed_url` uniquely buys, and the reference product
+  does not use them.
+- **`did:web` is an OPTIONAL alias, not a second identity system** (Appendix B, alongside
+  WebFinger). One static `did.json` carrying the same Ed25519 keys makes the key resolvable to
+  atproto/DIF/VC tooling. No signature crosses in either direction — this is the operational form of
+  "only the key is shareable" from the FEP-8b32 finding. The alias resolves to the identity URL and
+  stops there; the identity document remains authoritative.
+
 - **Exit, not confidentiality, is the answer for the hostile-custodian case.** Encryption is offered
   and honestly bounded; it is never marketed as protection from your own host.
 - **Cross-hub `family` = published + encrypted.** The feed is a public, manifested, CORS-`*` file of
@@ -162,7 +201,11 @@ Use this as explanation, not as a rule that licenses deletions.
   argument. **Do the no-bridge route first**: an Atom mirror + h-card reaches the fediverse via
   existing bridges (Bridgy Fed) with nothing in this repo implemented, and its bridged handle is
   already `@yourdomain.com` — the identity URL — so no mapping exists to design. That may make the
-  Webmention profile optional rather than the starting point.
+  Webmention profile optional rather than the starting point. Two things have since narrowed what a
+  profile has to cover: `did:web` (Appendix B) fixes the atproto identity seam without a profile,
+  and Appendix E now states that the **directions are separable** — outbound notification of your
+  own published items mints no proxy identity, ingests nothing, and needs none of the inbound
+  machinery, so a "Webmention profile" is really just the inbound half.
 - Author-side dual signing — parked, see "Decisions taken"
 - **Split custody** (hub holds the signing key, client holds only the enc key) is an attractive
   product pattern and is *not* claimed in the spec, because its guarantee holds only when the client
@@ -195,6 +238,7 @@ Use this as explanation, not as a rule that licenses deletions.
 | JWE | RFC 7516 | Encrypted item content (`_enc`, §15) |
 | X25519 / OKP | RFC 8037 | Encryption keys, ECDH-ES (§15) |
 | WebFinger | RFC 7033 | Optional `@user@domain` discovery |
+| did:web | W3C DID Core | Optional key-resolvability alias (Appendix B); no signature crosses |
 | JSON Feed | 1.1 | Feed format |
 | WebSub | W3C Rec | Optional real-time (via JSON Feed `hubs`) |
 
@@ -262,6 +306,6 @@ taken," restricted feeds).
 | **Conventions (OPTIONAL)** — follows, pins, replies | 16 |
 | Consuming pins (anti-equivocation, recovery propagation, timestamping, TOFU corroboration) | 16.2 |
 | Replies endpoint (published replies only) | 16.4–16.4.1 |
-| Media types / WebFinger / WebSub | Appendix A / B / C |
+| Media types / identifier aliases (WebFinger, did:web) / WebSub | Appendix A / B / C |
 | Test vectors | Appendix D |
 | Gateways: the one rule, both directions, proxy identities | Appendix E |
