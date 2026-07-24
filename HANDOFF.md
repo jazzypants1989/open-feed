@@ -1,4 +1,4 @@
-# Hand-off: Open Feed extensions & open questions
+# Hand-off: Open Feed v0.2.0 — remaining questions, with a focus on interoperability
 
 > Paste this whole file to a fresh agent as its opening prompt. It is written to be
 > self-contained. The human (repo owner) will work **with** you — this is collaborative,
@@ -6,139 +6,142 @@
 
 ---
 
-You are picking up the **Open Feed Protocol** in `/Users/jessepence/repos/open-feed`. The core spec is frozen at **v0.1.0** (`open-feed-spec.md`); `README.md`, `DISTRIBUTION-MODEL.md`, and `CLAUDE.md` match it. `tmp/regen.js` regenerates and self-verifies **all** the test vectors — core **Appendix D**, restricted-feeds **Appendix R**, and conventions **Appendix C**. **Two extensions are drafted:** restricted feeds (`open-feed-restricted-feeds.md` v0.1.0) and the follows/pins conventions (`open-feed-conventions.md` v0.1.0). **A skeptical-review pass landed nine fixes and two new vectors across both extensions, and a follow-up patch has since closed the two known-open correctness gaps (F2/F3) in the restricted-feeds extension** (see "What recent sessions did"). Your job is to work through the **remaining documents and open questions** the spec defers — **and to skeptically re-examine everything already proposed or drafted, including the fixes just made and this hand-off itself** — collaboratively with the owner.
+You are picking up the **Open Feed Protocol** in `/Users/jessepence/repos/open-feed`. The core spec is at **v0.2.0** (`open-feed-spec.md`), committed on branch `v0.2.0-privacy-and-exit`. Two extensions are drafted: `open-feed-conventions.md` (v0.2.0, follows + pins) and `open-feed-encrypted-content.md` (v0.1.0, new). `README.md`, `DISTRIBUTION-MODEL.md`, and `CLAUDE.md` all match.
 
-## Your mandate — question everything (read before Step 0)
+Your job is to work through the **remaining open questions** with the owner, **with an added focus on interoperability with other platforms** — currently the largest unaddressed area in the project, and deliberately your headline (§3).
 
-This hand-off is a set of *suggestions*, not a spec of your work. Treat it — the two drafted extensions, the fixes recorded below, and every design call — with **active skepticism**. The owner has explicitly asked that you:
+## Your mandate — question everything
 
-- **Challenge the suggestions and the fixes.** For each backlog item, each decision already made, and each fix landed last session, ask: is this actually right? What did it miss? Where does it conflict with another part of the system? Is there a simpler, safer, or more *innovative* alternative? A well-argued "the hand-off is wrong here" — or "that fix is incomplete" — is a better outcome than faithfully implementing a flaw. The last session's fixes were **not** independently reviewed; they are exactly the kind of thing to re-derive.
-- **Hunt for missed connections.** These documents interlock (two chains + one pin-and-walk discipline, one object model, one signing construction, the honest trust model, `_feed_url` canonical/copy, migration=recovery). Look for places where a proposal in one doc has unnoticed consequences in another — or where two open questions share one answer. (Examples already found: (1) the conventions doc's **self-commitments** turned out to be the fix for the restricted-feeds §8.2 cross-reader-equivocation gap; (2) last session found that a **hub-held delegate signing a self-commitment gives no cross-reader guarantee** — a live constraint the not-yet-written delegation doc must honor.)
-- **Surface issues and improvements in what's already written**, both extensions included. Re-run and re-derive their vectors, stress their threat models, look for gaps or overclaims. "Signed off" does **not** mean "correct."
-- **Ask the owner as many questions as you like — including ones this hand-off never raises.** The owner *wants* questions: clarifying, challenging, or entirely off-script (naming, philosophy, scope, threat model, whether an item belongs at all). Do **not** ration them or default to guessing when a call is genuinely the owner's. Propose, then write — but question first, and keep questioning throughout.
+This hand-off is a set of *suggestions*, not a spec of your work. The owner has explicitly asked, across sessions, that you:
 
-The invariants below are the one thing not to discard casually — but even those are open to challenge if you have a real argument; just flag an invariant-level change loudly and get the owner's explicit buy-in.
+- **Challenge what's here.** v0.2.0 made large, opinionated calls — deleting an entire extension, adding an exit story, reversing a scope boundary on encryption. They were argued, but arguments can be wrong. A well-reasoned "this is wrong here" beats faithful implementation of a flaw. `CLAUDE.md` has a "Decisions taken — do not relitigate without new information" list; *new information is exactly what you should hunt for.*
+- **Hunt for missed connections.** These documents interlock (two chains + one pin-and-walk discipline, one object model, one signing construction, `_feed_url` canonical/copy, migration = recovery, exit = three parts that only work together). The best findings in this project's history came from noticing that a proposal in one document had unnoticed consequences in another.
+- **Ask the owner as many questions as you like**, including ones this hand-off never raises — naming, philosophy, scope, threat model, whether an item belongs at all. The owner *wants* questions and has said so repeatedly. Do not ration them. Propose, then write.
+
+The invariants in §5 are the one thing not to discard casually — but even those are open to challenge if you have a real argument; flag an invariant-level change loudly and get explicit buy-in.
 
 ## Step 0 — Orient before doing anything
 
-1. Read `open-feed-spec.md` in full, then `open-feed-restricted-feeds.md`, `open-feed-conventions.md`, and `CLAUDE.md`. Skim `README.md` and `DISTRIBUTION-MODEL.md`.
-2. Run `node tmp/regen.js` and confirm **all** vectors self-verify: core (item, both manifests, both identity docs), restricted-feeds (R.1 assertion / R.2 grant / R.3 gated manifest / **R.3b chained gated manifest seq 2**), and conventions (C.1 observer pins / C.2 self-commitment / **C.2b chained commitment log seq 1→2** / C.3 follows). That's your signing/canonicalization reference implementation. The script also cross-checks that every canonical vector string printed matches what's embedded in the docs.
-3. **Skeptically review both drafted extensions AND recent sessions' fixes** (the nine review fixes *and* the F2/F3 patch — all uncommitted, none independently verified) against the core and the invariants before moving on. Bring anything you find to the owner.
-4. Do **not** start drafting the next doc. First confirm priority order with the owner (a default order is below), then for the chosen work present a short **design proposal** — surfacing the decisions listed *and* any you think were missed — and get the owner's calls **before** writing normative text. Propose, then write. Iterate.
+1. Read `open-feed-spec.md` in full, then `open-feed-encrypted-content.md`, `open-feed-conventions.md`, and `CLAUDE.md`. Skim `README.md` and `DISTRIBUTION-MODEL.md`.
+2. Run `node tmp/regen.js`. It regenerates and self-verifies core Appendix D and conventions Appendix C, **and** reads both published docs to confirm every vector string appears verbatim. It exits non-zero on failure. That script is your signing/canonicalization reference implementation.
+3. Run `node tmp/enc-prototype.js` (CLAIM 5 is the ciphertext-relay attack and its rejection) and `node tmp/circles-prototype.js` (rollback only — see §2.1).
+4. Read spec **Appendix E** — it records what was removed and why, including the tests that justify the removals. Several questions you might be tempted to reopen are answered there.
+5. **Do not start drafting.** Confirm priority order with the owner first, then present a short design proposal for the chosen work and get their calls before writing normative text.
 
-## What recent sessions did (re-challenge freely)
+## 1. What v0.2.0 decided (context, not instructions)
 
-Two waves of uncommitted work sit in the working tree. **None of it was independently verified — treat every item as a claim to re-derive, not a settled fact.** All changes are in `open-feed-restricted-feeds.md`, `open-feed-conventions.md`, `tmp/regen.js`, and the `.md` context files; nothing was committed until the commit that also introduced this note.
+Two facts drove the release, and you should hold both:
 
-### Most recent — the F2/F3 patch (restricted-feeds)
+**The threat model.** The operator of a family hub may be a loved one who is an abuser. That adversary controls the serving path, the inbox, and — by default in the reference product — the keys. No confidentiality mechanism defeats them. What the protocol can offer is **exit**: a device-generated recovery key the host never held (§4.5), a migration that needs no cooperation from the old host (§3.4), and a complete signed export bundle on demand (§15). All three are Level 3 MUSTs and **only work together**.
 
-The two known-open correctness gaps are now **closed** (they are *not* open work; do not re-implement them). Re-derive freely.
+**The missing persona, finally named: two self-hosting family members.** Passes 6, 8, and 9 each asked for a host-trusted cross-hub audience and each concluded none existed. It is the modal case for a URL-native protocol. It makes cross-hub `family` visibility a launch requirement, answered by **published + encrypted** content — a public, manifested, CORS-`*` file of ciphertext — rather than by an authorization gate.
 
-- **F2 — existence-private grant→manifest authorization + discovery.** Every grant now carries an explicit **`manifest` field** (restricted-feeds §6.2), so authorization and manifest-URL discovery no longer depend on a public identity-document `feed`→`manifest` mapping that existence-private mode (§9) omits. This also retired the imprecise "sibling manifest URL" derivation in existence-public mode. Grant-verification step 5 now resolves feed ownership via the public identity doc **or** the host's own private routing, and confirms `manifest` really is the manifest the host serves for `feed` (so a grantor can't bind an unrelated manifest). *Fast-revocation face:* the grant-revocation list is public-only and therefore **incompatible with existence-private** — folded into the conventions §5.3 tradeoff triangle.
-- **F3 — `_grant_revocations` placement.** The old inline `_grant_revocations` array in the identity document is replaced by a **chained `grant_revocations` side-document** (restricted-feeds §6.2.2): manifest-§9 discipline (`seq`/`prev`/`history`, pin-and-walk by the enforcing host), referenced by URL from the identity doc, signed with core construction #1. So a revocation advances the *revocation* chain, not the identity chain (which must stay short). Consumed by the host at grant-verification step 6.
-- **New vectors:** **R.4** (grant-revocation list genesis) and **R.4b** (`seq: 2`, chained); **R.2** regenerated to carry `manifest`. All self-verify in `tmp/regen.js`.
-- **Consistency sweep done:** `CLAUDE.md` file-table/Open-Questions updated; conventions §5.3 triangle names the grant-revocation list. **Deferred within this patch:** `scope` still reserved (not defined); the CORS/browser-reader limitation (R-7) is still documented-only, not solved; the `_grant` carrier-item encoding is still under-specified with no vector (see the review backlog below).
+The two rules that replaced the deleted machinery:
 
-### The skeptical-review pass (nine fixes + two vectors)
+- **Existence-privacy, not confidentiality, is what a completeness proof excludes.** A completeness proof is public; content whose *existence* must be private cannot have one. Content whose *bytes* are opaque still can.
+- **Any audience larger than one requires a membership document.** DMs need no roster; groups do. This holds identically whether content is encrypted or cleartext — it is a membership problem, not a cryptography problem.
 
-A skeptical review of both extensions surfaced ten findings; nine were fixed and landed (the tenth, F2/F3, became the patch above). **Not independently verified.**
+## 2. The open questions, in rough priority order
 
-**Correctness / security fixes:**
-- **R-6** (restricted-feeds §6.2) — `scope` now **fails closed**: a host that doesn't recognize a *present* `scope` value MUST reject the grant. Previously it "ignored unrecognized scope conservatively (no broader than default)," which fails *open* — since scope only ever narrows, an old host would serve the whole feed to a reader a future narrowing-scope grant meant to restrict.
-- **R-9** (restricted-feeds §6.2.1) — grant delivery fixed. A grant is **not** a JSON Feed item (no `id`/`authors`/`_feed_url`/`content_text`), so the old "the grant *is* the inbox item whose `_rel` references the reader" was impossible — the inbox (core §10.2) would reject it. Now the grant is delivered **inside a carrier item**: a signed item with a `_rel` mention of the reader carrying the grant bytes in a `_grant` field.
-- **C-1** (conventions §5.2) — removed the overclaim that "delegated signing" keeps the commitment key off the serving host. A **hub-held** delegate does not: if one host can sign both the restricted manifest and its commitment, it can equivocate on both together. Only a key the serving host does not hold (client-side, or an off-host delegate) gives the self-commitment its external-check property. *This is the forward hook for the delegation doc.*
-- **C-5** (conventions §5.1 + restricted-feeds §8.2) — named the **commitment-withholding evasion**: a key-custodian host can equivocate at `seq: N` and then simply never publish any commitment for `seq: N`, claiming perpetual "commitment lag," leaving §4.1 nothing to compare. The "reduces restricted-feed equivocation to public-feed equivocation" claim is now scoped to *versions the owner actually commits to*, with a reader detection rule (flag a served version that stays uncommitted while other versions of the same chain get committed).
+The owner sets priority; this is a starting proposal, not a decision.
 
-**New vectors:**
-- **C-3** — added restricted-manifest **R.3b** (`seq: 2`, chained to R.3) and a two-version chained **C.2b** commitment log, giving coverage to the conventions doc's own `SHOULD` that commitment logs be chained (§5.2). Demonstrates a reader walking `prev` to its pin to catch commitment rollback.
+### 2.1. Circle rosters are specified but NOT shippable — the live gap
 
-**Clarifications (low-risk doc text):**
-- **C-2** (conventions §4.1) — the compare rule flags a legitimate post-theft §5.5 fork as same-`seq`/different-`hash`; added that this is correct (it *is* a fork) and that core §5.5 is how a consumer picks the honest (`_recovery_sig`) branch.
-- **R-10** (restricted-feeds §9) — existence-private `404` equalizes status but not *timing*: an authenticated-but-unauthorized reader triggers the step-6 outbound fetch that an absent path skips. Note added; suggested equalizing timing against authenticated probers.
-- **C-4** (conventions §2) — a published `follows` with `name` petnames leaks your private labels; called out.
-- **R-7** (restricted-feeds §3) — a **browser** reader of a restricted feed is effectively same-origin-only (the `Authorization` header forces a preflight and `ACAO: *` is forbidden with credentials), dropping the core's zero-proxy browser-reader property. Server-to-server readers are unaffected. Documented.
+`open-feed-encrypted-content.md` §6 specifies rosters; §6.2 says plainly they must not ship yet. This blocks **group replies to encrypted family content**, which is the one thing the owner's chosen design cannot yet do. Cross-hub family *posts* work; cross-hub family *replies* do not.
 
-**Checked and cleared (no change):** cross-protocol confusion between the fetch-assertion JWT and core detached-JWS (R-4: the `b64:false`+`crit` vs `typ` header differences and `header..sig` vs `header.payload.sig` structures don't collide); grant reuse across feeds/readers (R-5: bound to `grant`==`iss` and one `feed`). Re-challenge these too if you disagree.
+Before rosters can be offered, a second prototype must model:
 
-## Invariants you MUST NOT break (these are why the design is good)
+- **Withholding, not just rollback.** `tmp/circles-prototype.js` tests rollback (host serves a stale roster) and passes. The real attack is different: a host simply **declines to serve the newest version** to a chosen replier, and pin-and-walk cannot distinguish that from "no new version exists." §6.1 proposes that a member seeing others cite a higher `seq` treats it as a compromise signal — that needs testing, and it may not be enough.
+- **Identity-document-published encryption keys**, not the freestanding ones the current spike uses. This is the check that stops a roster owner substituting a key they control, and it is exactly the part the spike skips.
+- **Carrier binding on roster-wrapped replies** (extension §4.1).
+- **The real fetch cost**: N identity-document fetches and pins per reply.
 
-- **One signing construction in the core.** Detached JWS, RFC 7797 unencoded payload (`b64:false`, `crit:["b64"]`), Ed25519, over RFC 8785 canonical bytes, signing header **and** payload. The restricted-feed fetch assertion (an *encoded* JWT) is the **only** sanctioned second construction and it lives in an **extension**, never the core. The conventions doc (follows/pins/self-commitments) reuses construction #1 unchanged. **Delegation must reuse construction #1** — it adds a key-resolution step, not new crypto. Do not introduce a third construction anywhere.
-- **One object model.** Everything publishable is a signed JSON Feed item; interactions are items carrying `_rel`. Don't reintroduce standalone interaction objects. (Note the R-9 fix keeps this: a grant rides *inside* an item, it does not become a new inbox object type.)
-- **Byte-exact signing.** No verify-time Unicode normalization (producers emit NFC); reject duplicate JSON keys (I-JSON). Item `authors` is a single signed entry; `_feed_url` drives canonical-vs-copy.
-- **Two chains, one pin-and-walk discipline.** Identity document (§5) and manifest (§9) are both hash-chained, retain+serve history, and are pinned TOFU. Anything you add that needs tamper-evidence should reuse this discipline, not invent another. (Pins/commitment documents that carry self-commitments are RECOMMENDED to reuse it too — conventions §3.3; C.2b now demonstrates it.)
-- **Honest, family-scale-first trust model** (§14.2). Audience control ≠ confidentiality. Static-hosting (Level 0–2) must keep working. Extensions must not force core changes; if one does, that's a spec change to call out explicitly.
-- **Every normative document** uses RFC 2119 keywords and ships **reproducible, self-verifying test vectors** (extend `tmp/regen.js`; never hand-write a signature or hash).
+Worth putting to the owner early: **is the roster the right shape at all?** It was inherited from a prototype built when the audience was assumed secret. The owner has since chosen a hidden audience for association-graph reasons, so the constraint stands — but "encrypted chained roster" was never independently derived, only inherited.
 
-## Definition of done for any new document
+### 2.2. Interoperability — your headline; see §3
 
-- Consistent with the spec's model, terminology, and section-numbering conventions; cross-references resolve. (Watch bare `§N.M` refs that actually live in a *different* doc — write "restricted-feeds §8.2", not "§8.2".)
-- Test vectors added to `tmp/regen.js` and self-verifying; any `_sig`/hash in the doc is reproduced by the script (and the script cross-checks that the doc-embedded strings match — keep that passing).
-- When a planned doc graduates from stub to real: update the spec's forward-reference (e.g. §11, Appendix G/H) from "planned — not yet drafted" to a real link, and update `CLAUDE.md`'s file-structure table and "Open Questions" list. **Also sweep `README.md` and `DISTRIBUTION-MODEL.md` for stale "planned/not yet drafted" language.**
-- Owner has signed off on the design decisions before normative text was written.
-- Do not commit unless the owner asks; when they do, follow the repo's commit-message trailer convention (see prior commits).
+### 2.3. Key delegation extension (`open-feed-delegation.md`, planned, not drafted)
 
----
+The highest-value trust upgrade available. A delegation is a statement signed by a root identity key — `{delegate: {JWK}, kid, exp, scope}` — published in the identity document; a hub or extra device holds only the *delegated* key while the root stays client-side or offline. The pinned chain is exactly the revocation substrate whose absence killed Nostr's NIP-26.
 
-## The backlog (updated priority order)
+Two constraints from prior sessions that must survive into the draft:
 
-> **F2/F3 are DONE** (the restricted-feeds patch above) — no longer a backlog item. Their residual, still-open pieces (`scope` still reserved, `_grant` encoding, CORS) live under the review item below, not here.
+- **`scope` must fail closed.** An unrecognized scope grants nothing. (This was a real finding from an earlier review of a now-deleted extension; the reasoning carries over.)
+- **Delegation interacts with the exit story.** §4.5 requires the recovery key to be device-generated and never transmitted. A delegation design that lets a hub-held delegate touch anything exit-related would silently undo that. Check explicitly.
 
-### P1 — `open-feed-delegation.md` (moves hub deployments off the key-custodian tier)
+Related: `CLAUDE.md`'s open question on **split custody** (hub holds the signing key, client holds only the encryption key). Attractive product pattern, deliberately *not* claimed in the spec, because its guarantee holds only when the client is not distributed by the custodian — which the reference product does not satisfy. Delegation is where that tension resurfaces.
 
-**The top remaining *new-document* item.** Let a hub or extra device hold a scoped, revocable **delegated** key while the root key stays offline/client-side. Appendix H has the core idea; the mechanics need pinning down.
+### 2.4. Export bundle: specified, unbuilt, load-bearing
 
-**Design space / ameliorations:**
-- **Location = identity document.** Delegations live *in* `openfeed.json` (e.g. a `delegations` array), so the identity chain is the authoritative revocation ledger — the substrate NIP-26 lacked. Revoking = an ordinary chain version. (Note the tension with "identity chain stays short" — same shape as F3; the answer should be consistent across both.)
-- **Resolution.** A delegate signs with construction #1; its `kid` resolves to the delegation entry in the pinned identity doc (define precedence vs `keys`). Verifier confirms the delegation is unexpired (`exp`) and unrevoked at the content's effective signing time.
-- **Scope — the load-bearing safety design.** A delegate MUST be allowed to sign **items and manifests**, and MUST be **forbidden from advancing the identity chain or acting as a continuity/recovery key** (else a leaked delegate rewrites identity or keys). Define the `scope` vocabulary (feed-scoped, interactions-only, all-content, …) and the hard prohibitions. Recovery/migration remain root-only.
-- **⚠ Load-bearing decision — self-commitments (from last session's C-1).** May a delegate sign a `pins`/self-commitment document (conventions §5)? A hub-held delegate signing a self-commitment provides **no cross-reader equivocation guarantee** (the host controls both the manifest and the commitment — conventions §5.2 as amended). So the scope design should either forbid a hub-held delegate from signing self-commitments, or state loudly that a commitment so signed is worthless for its purpose. This ties the delegation `scope` vocabulary directly to the conventions doc — get it right or the two docs contradict.
-- **Multi-device** falls out: one delegation per device; lose a device → revoke that one delegation via a chain version.
+§15 defines it and Level 3 MUSTs it. `DISTRIBUTION-MODEL.md` now requires it at launch. Nobody has built one and no vector exercises it. Worth an early sanity pass: is the shape right, does "byte-verbatim as published" survive a real implementation, and what happens with a 10 GB family photo archive?
 
-**Decisions to bring to the owner:** the `scope` vocabulary and defaults; whether a delegate may publish the manifest (almost certainly yes) and pins/commitments (see the ⚠ above); precedence/ID rules when a `kid` could match both `keys` and `delegations`.
+### 2.5. Smaller deferred items
 
-### P1 — Finish/re-open the skeptical review of the conventions & restricted-feeds docs
+- `_rel` type registry governance pre-1.0.
+- External time anchoring (transparency log / witness network) beyond the family-scale `pins` convention.
+- Whether content warnings / moderation need anything at the protocol level (currently: barely addressed).
 
-Recent sessions covered a lot but not exhaustively, and their fixes (including the F2/F3 patch) are unreviewed. Worth a fresh pass if the owner prefers consolidating before new-doc work:
-- Re-derive the **R-6 fail-closed** and **R-9 carrier-item** changes — are they complete and consistent with the rest of each doc?
-- **`_grant` carrier-item encoding is under-specified and has no vector (from R-9).** Restricted-feeds §6.2.1 says the grant rides "in a `_grant` field" as "the grant's canonical bytes" but never says whether `_grant` is a **base64url string** of those bytes or a **nested JSON object**. It matters: the grant's `_sig` is byte-exact over its own canonical bytes, so a string is unambiguous while a nested object forces the reader to re-canonicalize (RFC 8785 is deterministic, so it works, but the requirement is unstated). No test vector exercises a carrier item. Recommend: specify base64url string (matches the `OpenFeed-Grant` header transport, §6.2) and add a carrier-item vector to `tmp/regen.js`. **Touches normative text — get owner sign-off.**
-- **Two distinct "step 6"s in restricted-feeds (readability nit).** §5 step 6 = the outbound identity-document fetch; the §6.2 grant-variant's own sub-step 6 = the revocation-list check. Both are correct and §-qualified, but "grant-verification step 6" (§6.2.2) and "step-6 … (§5)" (§9) are easy to conflate. Optional: renumber the grant-variant sub-steps (e.g. 7a–7f) so only §5 owns a "step 6".
-- **F2/F3 residuals still open** (deferred within that patch, not fixed): should **`scope` be *defined*** now rather than reserved (R-6 made it fail-closed but left it reserved)? Are the **CORS / `Cache-Control: private, no-store`** rules complete for the browser-reader story (R-7 documented the limitation, did not solve it)? Re-confirm grant soundness against **confused-deputy / grant-reuse-across-feeds** (last session cleared this as R-5 — recheck against the new explicit `manifest` binding at step 5).
-- Stress the **C-5 withholding** rule: is the "flag a version uncommitted while others are committed" heuristic actually implementable/soundly-specified, or does it need a concrete staleness bound?
-- Re-examine the **self-commitment ↔ delegation** interaction (C-1) end to end.
-- **§4.1 compare-rule** other false positives beyond the recovery fork (C-2)?
-- Does anything in either extension force a **core** change? (It shouldn't.)
+## 3. Interoperability — the focus area
 
-### P2 — Small spec gaps (fold into the spec, not new docs)
+The largest genuinely unaddressed part of the project. Today it is **Appendix F**: one page, three sketches, no normative text. The owner wants it taken seriously this session.
 
-- **Activity-feed discovery (F4, confirmed real).** Nothing in `feeds` (§3.2) marks *which* additional feed is the activity feed; an implementer had to invent a filename. Add an optional marker (e.g. a `"rel": "activity"` on the `feeds` entry) or a documented convention.
-- **Checkpointing worked example.** §9.3 describes the mechanics abstractly; add a concrete worked example (with vectors) showing a checkpoint that prunes old `deleted` entries while preserving the anti-omission proof.
+### 3.1. Where it stands
 
-### P2 — `open-feed-webmention-bridge.md` (recover prior art)
+Appendix F states the honest frame and little else: bridges are **trusted intermediaries, never transparent adapters**, because each target protocol has a different trust primitive and no bridge can hold a foreign author's Open Feed key. A gateway may (1) ingest foreign content as an `_unverified` copy (§7.5), (2) sign a claim *about* it under its own identity, or (3) proxy the foreign actor as a gateway-hosted Open Feed identity with disclosed key custody. All three are the §14.2 honest-hub-trust model extended across a boundary.
 
-**Problem.** Appendix F names Webmention as the cheapest bridge. Much of the design already exists in the superseded spec (git history, old §7.2).
+Sketched targets, ascending difficulty:
 
-**Design space / ameliorations:**
-- **Recover the security rule verbatim from git history:** an unsigned source's claimed author identity URL (normalized, trailing slash intact) MUST be a **string prefix of the `source` URL** — same-origin is insufficient on shared/path-scoped hosts (`~dad` could impersonate `~mom`). This is the crux; don't reinvent it.
-- Inbound: fetch source, parse mf2 (h-entry/h-card), synthesize an `_unverified` item with an appropriate `_rel`, route to moderation. Outbound: publish h-entry HTML, send Webmention on `_rel` targets that are external URLs.
-- Everything ingested is `_unverified` (§7.5) and displayed distinctly. The gateway is a disclosed trusted intermediary, never a transparent adapter.
+- **Webmention / IndieWeb** — cheapest, half-built. Outbound rides on published h-entry HTML; inbound synthesizes `_unverified` items from mf2. No core changes. Named as the place to start.
+- **ActivityPub** — the brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox. The one real convergence seam is **FEP-8b32** (`eddsa-jcs-2022` = Ed25519 over RFC 8785 — *the same primitive Open Feed already uses*), where a near-transparent object-level bridge becomes conceivable.
+- **atproto** — heaviest: a mirror PDS (DID + DAG-CBOR + MST), no transparent path. The clean seam is **did:web ↔ Open Feed URL**, both domain-bound.
 
-### P3 — Research / backlog (scope with the owner before investing)
+### 3.2. What v0.2.0 changed that interop has not caught up with
 
-- **`_rel` type registry governance** — likely a short `REGISTRY.md` + lightweight process; or defer to post-1.0 and lean on namespaced-URL types.
-- **External time anchoring** beyond `pins` — the conventions doc's informal timestamping (§4.3) is the family-scale answer; a true witness network (co-signed `(url, seq, hash)` observations gossiped as a protocol — essentially `pins` promoted to a transport) is still genuinely research-grade. Defer unless the owner wants it.
-- **Signed export bundle** — archive format (identity history + feed + manifest + manifest history) for backup/migration; ties into the migration story (§3.4).
-- **ActivityPub / atproto bridge profiles** — heavier; convergence seams are FEP-8b32 (`eddsa-jcs-2022`, same primitive) for AP and did:web ↔ Open Feed URL for atproto (Appendix F).
-- **Conformance & schemas** — JSON Schemas per document type; a conformance test harness; and hardening `tmp/regen.js` (its inline canonicalizer is a stand-in — a real implementation should use a vetted RFC 8785 library and cover the number/Unicode edge cases the old spec's Appendix F.6/F.7 enumerated).
+**This is the part nobody has thought through, and it is why interop is timely rather than merely next.** Four things moved under Appendix F's feet:
 
----
+1. **The identity document changed shape** — `feed` + `manifest` + `feeds` collapsed into one `feeds` array of `{url, manifest?, rel}` (§3.2.1), and `history` became an index. Any bridge that discovers feeds from an identity document is reading a different document than Appendix F assumed.
+2. **Encrypted content exists** (§11.3). What does a bridge do with an item it cannot read? Skipping it silently is an omission a completeness proof would otherwise catch; forwarding ciphertext is meaningless to the target network; announcing "there is content here you can't see" may itself be the leak. **No answer is written down.** Probably the sharpest new interop question.
+3. **The delivered axis exists** (§11.1). Delivered-only content has no `_feed_url` and appears in no feed or manifest. A polling bridge will never see it, which is correct — but the *rule* should be stated so no bridge author "helpfully" republishes inbox content to a public network.
+4. **Exit exists** (§15, §3.4). If a gateway proxies a foreign actor as a gateway-hosted identity, that identity is captive by construction: the gateway holds its keys and there is no device to generate a recovery key on. §4.5 now requires disclosure in exactly this situation. **Check whether Appendix F's option (3) is still conformant as written** — it likely needs an explicit carve-out or disclosure requirement, and that is a real finding if so.
 
-## Suggested first move
+### 3.3. Questions to work through with the owner
 
-Both extensions are **drafted and reviewed, and the F2/F3 gaps are patched** (all uncommitted-until-the-note-commit, all unverified). The two strongest openings — let the owner pick, and ask freely:
+- **Which bridge, and how normative?** Appendix F says start with Webmention. Is that still right given the product is a family hub, where ActivityPub reach (relatives on Mastodon) may matter more than IndieWeb correctness? And is the deliverable a normative profile, or a non-normative implementation note?
+- **What is the minimum honest bridge?** The `_unverified` mechanism (§7.5) already exists and needs no new machinery. Is a bridge that *only* ingests `_unverified` copies and never proxies identities the right v1 — smaller, honest, impossible to misuse?
+- **Does FEP-8b32 actually converge?** Both use Ed25519 over RFC 8785. If the primitive genuinely matches, how close to a transparent object-level AP bridge can you get, and what breaks first — the actor model, addressing, or delete semantics? Deserves real investigation rather than Appendix F's one sentence. Likely blocker: Open Feed binds authorship to an HTTPS identity URL serving a signed document; AP binds to an actor URL with an inline public key. Close enough to tempt, different enough to be dangerous.
+- **What does a bridge do about the manifest?** Open Feed's completeness proof has no analog in AP or Webmention, so bridged content loses it. Should bridged content be marked as carrying no completeness guarantee, the way §3.2.1 marks manifest-less feeds?
+- **Reverse direction: is Open Feed a good bridge *target*?** Everything above is Open Feed reaching out. Static-hostability plus a single signing construction might make it an unusually good *archival* target for content originating elsewhere. Nobody has considered this.
 
-1. **Draft `open-feed-delegation.md`** (P1) — the top remaining new document; moves hub deployments off the key-custodian tier. Present a design proposal (scope vocabulary, precedence, whether delegates may sign manifests and — critically — pins/self-commitments, per the C-1 hook) before writing normative text.
-2. **Consolidate: re-run the skeptical review** of both extensions and every recent fix (the nine review fixes *and* the F2/F3 patch), starting with the concrete residuals now logged under the P1 review item — the `_grant` encoding gap, the two-"step 6"s nit, and the still-reserved `scope`. Bring the owner anything you find before starting new-doc work.
+## 4. Working agreements the owner has established
 
-A lighter third option: pick a **P2 spec gap** (activity-feed discovery F4, or the checkpointing worked example) — small, self-contained, and independent of the extensions.
+- **Prototype before committing** to anything cryptographic. Both encryption prototypes exist because the owner refused to reverse a scope decision on argument alone — and adversarial review then found real defects in them. Hold that bar.
+- **Adversarial review of unreviewed work.** The pattern that works: draft, then have a fresh agent attack it blind from first principles. v0.2.0's biggest corrections came from exactly that. Everything in v0.2.0 has been through it **once**; `open-feed-encrypted-content.md` has **not** been independently reviewed at all.
+- **Honesty over marketing.** The owner repeatedly chose the weaker true claim over the stronger convenient one. Match that: if a mechanism does not deliver what its name implies, say so in the spec text.
+- **Simplicity is a real constraint.** The owner's words: *"we don't need to go too far if it will sacrifice any simplicity. The protocol is called 'open feed' after all."* Weigh additions against it.
 
-Either way: **question first, propose second, write third — and ask the owner as many questions as you need, on or off the script above.**
+## 5. Invariants (challenge loudly, don't erode quietly)
+
+1. **One signing construction**, core and extensions: detached JWS, RFC 7797 unencoded payload, Ed25519, over RFC 8785 canonical bytes, signing header *and* payload. Encryption is not a second construction.
+2. **One object model** — every content object is a signed JSON Feed item; interactions are items with `_rel`.
+3. **Two chains, one pin-and-walk discipline** — identity and manifest, pinned on first observation, walked to the pin thereafter.
+4. **Single-valued documents** — no artifact is ever served in audience-varying forms. This is what the deleted extension violated.
+5. **The core has no privacy mechanism.** Privacy is a publication decision; confidentiality is an optional extension bounded by recipient key custody.
+6. **Exit is three parts that only work together** (§4.5, §3.4, §15). Do not let a design weaken one in isolation.
+
+## 6. Repo map
+
+| File | What it is |
+|---|---|
+| `open-feed-spec.md` | Normative core, **v0.2.0** |
+| `open-feed-encrypted-content.md` | OPTIONAL extension v0.1.0 — **never independently reviewed** |
+| `open-feed-conventions.md` | OPTIONAL extension v0.2.0 — follows + pins |
+| `README.md` | Human-facing docs, examples, FAQ |
+| `DISTRIBUTION-MODEL.md` | Reference product plan (family AI-journaling hub) |
+| `CLAUDE.md` | Agent context; carries the "decisions taken" list |
+| `tmp/regen.js` | Vector generator + validator + doc cross-check |
+| `tmp/enc-prototype.js` | Encrypted item; CLAIM 5 = relay attack and rejection |
+| `tmp/circles-prototype.js` | Roster spike — **rollback only, not withholding** |
+| `PROPOSALS*.md` | The nine-pass debate record |
+| `ENCRYPTED-CONTENT-FINDINGS.md` | Prototype findings, with three corrections marked in place |
+
+**Note on `PROPOSALS*.md`:** these are a *record*, not a plan. Several conclusions were adopted, several rejected with reasons, and pass 9's central "theorem" is false. `CLAUDE.md` and spec Appendix E carry the authoritative outcomes — read those first, and use the proposals only to understand *why* something was decided before reopening it.
