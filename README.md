@@ -94,7 +94,7 @@ Client-side keys move you from the first tier toward the third. They're supporte
 
 ### What's Out of Scope
 
-- End-to-end encrypted content. (Restricted-visibility feeds are a planned **extension** — see below — but that's audience control, not confidentiality.)
+- End-to-end encrypted content. (Restricted-visibility feeds are an **extension** — see below — but that's audience control, not confidentiality.)
 - Global-scale firehoses / aggregators. Open Feed scales *across* identities (each is self-contained and independently verifiable), not to millions of items per identity; the manifest is a deliberate family-scale boundary.
 - Content moderation policy (left to hub operators).
 - Storage formats and sync protocols (files on disk are fine).
@@ -501,16 +501,17 @@ Extension fields on any JSON object MUST be prefixed with `_`, and implementatio
 
 Interaction *types* are values, not field names, so they namespace cleanly by URL — e.g. `"type": "https://example.com/ns#bookmark"`. Receivers store unknown types and MAY hide them from display. This replaces the old `x-` interaction-type convention.
 
-### Restricted (private) feeds — planned extension
+### Restricted (private) feeds — optional extension
 
-Restricted-visibility feeds are an **optional extension**, to be specified separately as `open-feed-restricted-feeds.md` (planned, not yet drafted) and kept out of the core so the core has exactly one signing construction (§11). The intended design: an unauthenticated GET returns `401 WWW-Authenticate: OpenFeed-Sig`; the reader retries with a short-lived, self-signed EdDSA token (modeled on DPoP, RFC 9449) binding method + URL, using the same keys they already publish; the host serves the feed only to identities on the owner's reader list. The restricted feed carries its own signed manifest. This is **audience control, not confidentiality** — the serving host can read it.
+Restricted-visibility feeds are an **optional extension**, specified in [`open-feed-restricted-feeds.md`](open-feed-restricted-feeds.md) and kept out of the core so the core has exactly one signing construction (§11). An unauthenticated GET returns `401 WWW-Authenticate: OpenFeed-Sig`; the reader retries with a short-lived, self-signed EdDSA fetch assertion (modeled on DPoP, RFC 9449) binding method + URL, using the same keys they already publish. Authorization is primarily by owner-issued, identity-bound **capability grants** (a core-construction signed document delivered via the inbox, so nothing about the audience is published); a published reader list and unguessable capability URLs are simpler fallbacks. The restricted feed carries its own signed, gated manifest. This is **audience control, not confidentiality** — the serving host can read it. Cross-reader equivocation is softer to detect than for public feeds, but an existence-public feed can restore it via **self-commitments** ([`open-feed-conventions.md`](open-feed-conventions.md) §5).
 
-### Follows and pins — conventions (Appendix G)
+### Follows and pins — conventions
 
-Two optional documents referenced from the identity document, both *outside* the trust core:
+Two optional documents referenced from the identity document, both *outside* the trust core, specified in full in [`open-feed-conventions.md`](open-feed-conventions.md) (spec Appendix G is now a pointer):
 
-- **`follows`** — who you read (`{ "follows": [...], "updated": "..." }`). Turns "which feeds does my hub poll?" into protocol. MAY be kept private/client-local.
-- **`pins`** — your `(identity, seq, hash)` observations of others' chains. Publishing them gives a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography.
+- **`follows`** — who you read (`{ "follows": [...], "updated": ... }`). Turns "which feeds does my hub poll?" into protocol. MAY be kept private/client-local.
+- **`pins`** — your **signed** `(url, seq, hash)` observations of others' chains (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). Publishing them gives a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography.
+- **Self-commitments** — a pins document an owner publishes about *its own* restricted manifest is a public commitment to its `(seq, hash)`. This is what restores cross-reader equivocation detection to restricted feeds (which otherwise can't be publicly gossiped), for owners willing to disclose the feed's existence and cadence but never its content.
 
 ### Media integrity and alt text
 
@@ -620,7 +621,7 @@ A: Not directly. A stateful ActivityPub gateway could bridge them, but that's ou
 
 **Q: How do I handle private content?**
 
-A: Via the **restricted-feeds extension** (planned `open-feed-restricted-feeds.md`; summarized in spec §11), *not* the core. A reader proves who they are by signing the GET with a short-lived self-signed token (using the keys they already publish); the host checks that identity against the owner's reader list. It works across hubs with no shared passwords. Simpler options: a fully-authed private hub, or unguessable capability URLs. Note this is **audience control, not confidentiality** — the serving host can still read it; true privacy needs an encryption layer that's out of scope.
+A: Via the **restricted-feeds extension** ([`open-feed-restricted-feeds.md`](open-feed-restricted-feeds.md); summarized in spec §11), *not* the core. A reader proves who they are by signing the GET with a short-lived self-signed fetch assertion (using the keys they already publish); the host authorizes that identity via an owner-issued capability grant (which publishes nothing about the audience). It works across hubs with no shared passwords. Simpler options: a private server-side allowlist, a published reader list, or unguessable capability URLs. Note this is **audience control, not confidentiality** — the serving host can still read it; true privacy needs an encryption layer that's out of scope.
 
 **Q: How do I send a private message?**
 

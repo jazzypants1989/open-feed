@@ -10,10 +10,11 @@ Open Feed Protocol is a minimal specification for decentralized publishing and i
 | --------------------- | ------------------------------------------------------ |
 | `open-feed-spec.md`   | Normative specification (source of truth), **v0.1.0**  |
 | `open-feed-restricted-feeds.md` | OPTIONAL extension (v0.1.0): restricted (audience-controlled) feeds — fetch assertion + capability grants (Appendix R vectors) |
+| `open-feed-conventions.md` | OPTIONAL extension (v0.1.0): `follows` + `pins` documents; **self-commitments** (§5) restore cross-reader equivocation detection to restricted feeds (Appendix C vectors) |
 | `README.md`           | Human-friendly docs, examples, comparisons, FAQ        |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub built on the protocol |
 | `CLAUDE.md`           | This file - context for AI agents                      |
-| `tmp/regen.js`       | Test-vector generator/validator (spec Appendix D + restricted-feeds Appendix R) |
+| `tmp/regen.js`       | Test-vector generator/validator (spec Appendix D + restricted-feeds Appendix R + conventions Appendix C) |
 
 ## Current Status
 
@@ -83,7 +84,8 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 - `_rel` type registry governance pre-1.0
 - Key delegation extension (`open-feed-delegation.md`, planned) — multi-device + hub custody without a second signing construction; the pinned chain is the revocation substrate NIP-26 lacked
 - ~~Restricted-feeds extension doc~~ **DONE** — `open-feed-restricted-feeds.md` v0.1.0 (fetch assertion = the one sanctioned second construction; capability grants primary + reader-list/capability-URL fallbacks; gated §9 manifest; Appendix R vectors in `tmp/regen.js`)
-- External time anchoring (transparency log / witness network) beyond the family-scale `pins` convention
+- ~~`follows` + `pins` conventions doc~~ **DONE** — `open-feed-conventions.md` v0.1.0 (URL-keyed signed pins; §4.1 compare rule; **self-commitments** §5 close the restricted-feeds §8.2 cross-reader-equivocation gap for existence-public feeds — the missed connection between pins and §8.2; Appendix C vectors reuse D.4/D.3/R.3 hashes). Core Appendix G shrunk to a pointer; restricted-feeds §2/§8.2 now reference it. **Still open:** F2 (existence-private mode breaks grant→manifest authz + discovery, restricted-feeds §6.2/§7/§9) and F3 (`_grant_revocations` placement vs. identity-chain-stays-short) — logged for a follow-up patch to the restricted-feeds extension.
+- External time anchoring (transparency log / witness network) beyond the family-scale `pins` convention — partially served by conventions §4.3 (informal timestamping); a true witness network remains deferred
 - Signed export bundle format (identity history + feed + manifest + manifest history)
 - Normative bridge profiles (Webmention / ActivityPub / atproto), starting with Webmention
 
@@ -138,4 +140,4 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 | Test vectors | Appendix D |
 | Design history (what changed) | Appendix E |
 | Gateways / bridges | Appendix F |
-| Follows & pins conventions | Appendix G |
+| Follows & pins conventions | Appendix G (pointer) → `open-feed-conventions.md`; self-commitments = §5 |

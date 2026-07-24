@@ -768,26 +768,12 @@ Bridges to other protocols are **out of scope for the core but feasible as gatew
 
 ## Appendix G: Conventions — Follows and Pins (OPTIONAL)
 
-Two optional documents, both **outside the trust core** (nothing needs to verify them to verify content), referenced from the identity document.
+Two optional documents, both **outside the trust core** (nothing needs to verify them to verify content), referenced from the identity document (`follows` / `pins`, §3.2). Specified in full in [`open-feed-conventions.md`](open-feed-conventions.md).
 
-**`follows`** — who you read. Turns "which feeds does my hub poll?" from configuration into protocol (the core operation of the pull-canonical model). Follow lists MAY be kept private (client-local) instead.
+- **`follows`** — who you read. Turns "which feeds does my hub poll?" from configuration into protocol (the core operation of the pull-canonical model). MAY be kept private (client-local).
+- **`pins`** — signed `(url, seq, hash)` observations of others' identity documents or manifests. Publishing them gives a family, with no new cryptography, four properties at once: **anti-equivocation** (peers cross-check each other's view of a chain, turning §5.3's / §9.1's out-of-band comparison into published data), **recovery propagation** (a recovery-based successor, §3.4, gossips through the social graph), **informal timestamping** (a pin observed at wall-clock T witnesses that `(seq, hash)` existed by T, §14.10), and **first-contact web-of-trust** (consistent pins from already-trusted identities soften TOFU). This is the family-scale substitute for a transparency log, a DID directory, and a timestamp authority.
 
-```json
-{ "follows": ["https://pence.family/~mom/", "https://jessepence.com/"], "updated": "2025-12-07T00:00:00Z" }
-```
-
-**`pins`** — `(identity, seq, hash)` observations you have made of others' identity documents or manifests. Publishing them gives a family, with no new cryptography, four properties at once:
-
-1. **Anti-equivocation** — peers cross-check each other's view of a chain automatically, turning §5.3's / §9.1's out-of-band comparison into published data.
-2. **Recovery propagation** — a successor claimed via recovery (§3.4) reaches consumers who lost the old pointer, gossiped through the social graph.
-3. **Informal timestamping** — a pin observed at wall-clock T is a witnessed lower bound that `(seq, hash)` existed by T (§14.10).
-4. **First-contact web-of-trust** — consistent pins from identities you already trust soften TOFU's first-contact weakness.
-
-```json
-{ "pins": [ { "identity": "https://jessepence.com/", "seq": 12, "hash": "..." } ], "updated": "..." }
-```
-
-This is the family-scale substitute for a transparency log, a DID directory, and a timestamp authority — the highest-value-per-byte extension in the design.
+A pins document an identity publishes about **its own** restricted chain is a **self-commitment**, the mechanism that restores cross-reader equivocation detection to restricted feeds (conventions §5; restricted-feeds §8.2).
 
 ## Appendix H: Open Questions
 

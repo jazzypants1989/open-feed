@@ -190,15 +190,68 @@ console.log(' ', canon(rmanifest));
 console.log('  (fetched with an assertion whose htu =', RMANIFEST + ')');
 console.log();
 
+// ==== Conventions extension vectors (open-feed-conventions.md) ====
+// Pins + follows: signed when published (construction #1, reused unchanged).
+const IDENTITY_DOC = ID + 'openfeed.json';        // https://test.example/openfeed.json
+const PUB_MANIFEST = 'https://test.example/manifest.json';
+
+// ---- C.1 Pins document (observer witnesses the OWNER's public chains) ----
+// The reader (https://reader.example/) pins what it has observed of the owner's
+// identity doc (D.4, seq 1) and public manifest (D.3, seq 1). `hash` = base64url
+// SHA-256 of each pinned version's full published bytes (the same value its own
+// `prev` successor hashes). Signed => a peer can trust these came from the reader.
+const pins = {
+  url: READER,
+  pins: [
+    { url: IDENTITY_DOC, seq:1, hash:id1Hash,       observed:1739577600 },
+    { url: PUB_MANIFEST, seq:1, hash:manifestHash1, observed:1739577600 }
+  ],
+  updated: 1739577600
+};
+pins._sig = sign(pins, kReader.priv, READER_KID);
+console.log('== C.1 pins document (observer, full published canonical bytes) ==');
+console.log(' ', canon(pins));
+console.log();
+
+// ---- C.2 Self-commitment (F1: restricted-manifest transparency) ----
+// The OWNER publicly pins its OWN restricted manifest (R.3). Because url==owner and
+// the pinned chain is the owner's, this is a *commitment*, not a witness: a reader
+// served R.3 checks sha256(R.3 bytes) == this hash; a key-custodian host that wants
+// to equivocate must now fork THIS public, gossipable log. Leaks existence+cadence,
+// never content (hash is preimage-resistant).
+const rmanifestHash = b64u(sha256(Buffer.from(canon(rmanifest),'utf8')));
+const commit = {
+  url: ID,
+  pins: [
+    { url: RMANIFEST, seq:1, hash:rmanifestHash, observed:1739577600 }
+  ],
+  updated: 1739577600
+};
+commit._sig = sign(commit, k1.priv, KID1);
+console.log('== C.2 self-commitment / F1 (owner pins own restricted manifest) ==');
+console.log('  R.3 restricted-manifest hash :', rmanifestHash);
+console.log(' ', canon(commit));
+console.log();
+
+// ---- C.3 Follows document ----
+const follows = {
+  url: READER,
+  follows: [ ID, 'https://gran.example/~gran/' ],
+  updated: 1739577600
+};
+follows._sig = sign(follows, kReader.priv, READER_KID);
+console.log('== C.3 follows document (full published canonical bytes) ==');
+console.log(' ', canon(follows));
+console.log();
+
 // ---- self-verify everything ----
-function verify(obj, kid){
+function verify(obj, kid, xPub){
   const {_sig, _recovery_sig, ...rest} = obj;
   const [hb,,sb] = _sig.split('.');
   const input = Buffer.concat([Buffer.from(hb+'.','ascii'), Buffer.from(canon(rest),'utf8')]);
-  const idUrl = kid.slice(0, kid.lastIndexOf('#'));
   const kidName = kid.slice(kid.lastIndexOf('#')+1);
-  const jwk = obj.keys ? obj.keys.find(k=>k.kid===kidName) : {x:k1.x};
-  const pub = crypto.createPublicKey({key:{kty:'OKP',crv:'Ed25519',x:jwk.x}, format:'jwk'});
+  const x = xPub !== undefined ? xPub : (obj.keys ? obj.keys.find(k=>k.kid===kidName).x : k1.x);
+  const pub = crypto.createPublicKey({key:{kty:'OKP',crv:'Ed25519',x}, format:'jwk'});
   return crypto.verify(null, input, pub, Buffer.from(sb,'base64url'));
 }
 console.log('SELF-VERIFY:');
@@ -210,3 +263,8 @@ console.log('  id seq2  :', verify(id2, KID1));
 console.log('  R.1 assertion :', verifyJWT(assertion, kReader.x), '(bound htu=RFEED, exp-iat<=300:', assertClaims.exp-assertClaims.iat<=300, ')');
 console.log('  R.2 grant     :', verify(grant, KID1), '(grantor url==kid identity:', grant.url===KID1.slice(0,KID1.lastIndexOf('#')), ')');
 console.log('  R.3 rmanifest :', verify(rmanifest, KID1));
+console.log('  C.1 pins      :', verify(pins, READER_KID, kReader.x),
+  '(pinned hashes match D.4/D.3:', pins.pins[0].hash===id1Hash && pins.pins[1].hash===manifestHash1, ')');
+console.log('  C.2 commit    :', verify(commit, KID1),
+  '(reader-side check sha256(R.3)==commit hash:', commit.pins[0].hash===rmanifestHash, ')');
+console.log('  C.3 follows   :', verify(follows, READER_KID, kReader.x));
