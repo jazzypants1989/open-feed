@@ -1,865 +1,508 @@
 # Open Feed Protocol Specification
 
-**Version 0.5.1**
+**Version 0.1.0 — Draft.** This is the first public, self-contained specification of Open Feed. It is a clean-slate design and does not depend on any earlier document. Several prior internal drafts (never publicly released) explored an expansive design; this version collapses that exploration into a minimal core. Appendix E records what changed and why. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive.
 
 ## Abstract
 
-Open Feed is a protocol for decentralized publishing and interaction. Identities are HTTPS URLs. Content is published as signed JSON Feed items. Interactions are signed JSON objects delivered to inboxes. This specification defines the wire formats and verification procedures for interoperability.
+Open Feed is a protocol for decentralized publishing and interaction. An identity is an HTTPS URL that serves **one signed identity document** — profile, keys, endpoints, and a tamper-evident chain of its own versions. Content is published as signed JSON Feed items; a **separately-signed, chained manifest** commits the feed's contents so a host cannot silently drop, reorder, or roll them back. Interactions (replies, likes, reposts, quotes, mentions) **are** feed items carrying a `_rel` relation array, delivered by POSTing the signed item to the recipient's inbox.
 
-## 1. Terminology
+The protocol is a few conventional documents and one endpoint:
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
+```
+https://pence.family/~mom/               ← identity URL (human page, optional)
+https://pence.family/~mom/openfeed.json  ← identity document (signed: profile + keys + chain)
+https://pence.family/~mom/feed.json      ← JSON Feed 1.1, signed items
+https://pence.family/~mom/manifest.json  ← signed, chained commitment to the feed's contents
+https://pence.family/~mom/inbox          ← POST signed items here (Level 3 only)
+```
 
-## 2. Identity
+plus a **history** document for each chain (identity and manifest), referenced from the document it versions.
 
-### 2.1. Identity URL
+Built on four standards and nothing else: **HTTPS**, **JSON Feed 1.1**, **JOSE** (JWK/JWS/JWT, RFC 7515/7517/7519/7797), and **JSON canonicalization** (RFC 8785 + I-JSON RFC 7493).
 
-An identity is an HTTPS URL. The URL:
+## 1. Design Principles
+
+1. **Identity in one signed document; content in one signed manifest.** Everything a verifier needs about an identity — its keys and its endpoints — is in one signed JSON document at one conventional path. What content that identity has published is committed by one separately-signed manifest. Both are chained and pinned by the same discipline (§5, §9); neither requires HTML parsing, link-relation discovery, or a cross-document key-ownership check.
+2. **One object model.** A like is an item. A reply is an item. There is exactly one signed schema for content, one update mechanism (versioning), one delete mechanism (tombstones), and one verifier.
+3. **The feed is the source of truth; the inbox is a push cache.** Delivery makes things fast; polling the signed feed makes them complete. Nothing exists only in transit.
+4. **Convention over configuration.** Fixed paths (`openfeed.json`, `manifest.json`). One relation array. Prefix rules for extension fields; a small registered vocabulary (plus namespaced URLs) for relation *types*.
+5. **Byte-exact signing, one construction.** Documents are signed as published bytes (RFC 8785) with a single detached-JWS construction (§6). No verify-time normalization, no remote contexts, no second signing scheme in the core (the restricted-feed token is an extension, §11).
+6. **Honest trust model.** Hubs that hold keys can impersonate their users, like email providers can. This is documented, not hidden. Client-side keys are supported for those who want them; the two chains defend against a *host* that turns malicious, which is a distinct threat from a *key custodian* (§14.2).
+
+## 2. Terminology
+
+RFC 2119 keywords (MUST, SHOULD, MAY, …) apply.
+
+- **Identity**: an HTTPS URL controlled by a person or group.
+- **Identity document**: the signed JSON document at `{identity_url}openfeed.json`.
+- **Item**: a JSON Feed item, signed, the universal content object.
+- **Relation item**: an item carrying a `_rel` array (§8) — what other protocols call an interaction.
+- **Manifest**: the separately-signed, chained document committing to a feed's item set (§9).
+- **Chain**: a hash-linked sequence of versions of a document (identity document, §5; or manifest, §9).
+- **Pin**: a consumer's stored `(seq, hash)` observation of an identity document or a manifest.
+
+## 3. Identity
+
+### 3.1. Identity URL
+
+An identity is an HTTPS URL. Normalization (applied whenever identity URLs are stored or compared):
 
 - MUST use the `https` scheme
-- MUST return an HTML document (the profile)
-- MUST be treated as case-sensitive for the path component
-- MUST have the domain component normalized to lowercase
-- MUST have default ports removed (`:443` for HTTPS)
-- MUST have query parameters stripped when stored or compared
-- MUST have fragment identifiers stripped when stored or compared
-- MUST have a trailing slash appended if not present
-
-Normalization examples:
+- Domain lowercased; default port (`:443`) removed
+- Query string and fragment stripped
+- Trailing slash appended if absent
+- Path treated as case-sensitive
 
 | Input | Normalized |
 |-------|------------|
 | `https://Alice.Example/~mom` | `https://alice.example/~mom/` |
 | `https://example.com:443/~alice/` | `https://example.com/~alice/` |
-| `https://example.com/~alice?ref=twitter` | `https://example.com/~alice/` |
-| `https://example.com/~alice/#about` | `https://example.com/~alice/` |
+| `https://example.com/~alice?ref=x#about` | `https://example.com/~alice/` |
 
-### 2.2. Profile Document
+The identity URL SHOULD serve a human-readable page (HTML, a profile, anything). Nothing in this protocol reads it. Machines read the identity document.
 
-The profile is an HTML document at the identity URL. It MUST include `<link>` elements for endpoint discovery.
+### 3.2. Identity Document
 
-Required links:
+The identity document lives at the fixed path `{identity_url}openfeed.json` (the normalized identity URL, which ends in `/`, plus the literal filename). Examples:
 
-| Relation | Purpose |
-|----------|---------|
-| `jwks` | URL of JWKS document (type `application/jwk-set+json`) |
+- `https://pence.family/~mom/` → `https://pence.family/~mom/openfeed.json`
+- `https://jessepence.com/` → `https://jessepence.com/openfeed.json`
 
-Optional links:
-
-| Relation | Purpose |
-|----------|---------|
-| `feed` | URL of JSON Feed (type `application/feed+json`) |
-| `inbox` | URL of Open Feed inbox endpoint |
-| `webmention` | URL of Webmention endpoint (W3C standard) |
-| `profile` | URL of structured profile metadata (type `application/json`) |
-| `authorization_endpoint` | OAuth 2.0 authorization endpoint |
-| `token_endpoint` | OAuth 2.0 token endpoint |
-
-Implementations MUST support `rel="jwks"`. For backwards compatibility, implementations SHOULD also accept `rel="pubkey"` as an alias.
-
-Example:
-
-```html
-<link rel="jwks" href="https://example.com/~alice/keys.json" type="application/jwk-set+json">
-<link rel="feed" href="https://example.com/~alice/feed.json" type="application/feed+json">
-<link rel="inbox" href="https://example.com/~alice/inbox">
-<link rel="webmention" href="https://example.com/~alice/webmention">
-```
-
-### 2.3. Redirect Handling
-
-When fetching a profile document:
-
-- Implementations MUST follow HTTP redirects (301, 302, 307, 308)
-- Implementations MUST NOT follow more than 5 redirects
-- Implementations MUST NOT follow redirects to a different origin for the profile document itself
-- Discovered endpoint URLs MAY be on different origins
-
-A cross-origin redirect on the profile document MUST NOT be treated as identity equivalence: if `https://old.example/~alice/` redirects to `https://new.example/`, the two remain distinct identities. Identity migration across origins is expressed with `rel="successor"` and `rel="canonical"` links served at the old identity URL (see Migration in the README), not with cross-origin redirects. Same-origin redirects (e.g., adding a trailing slash, or moving a path within one domain) are followed normally.
-
-### 2.4. Profile Metadata
-
-If `rel="profile"` is present, the linked document MUST be JSON with this structure:
+It is a signed JSON document:
 
 ```json
 {
-  "name": "Display Name",
-  "bio": "Short biography",
-  "avatar": "https://example.com/avatar.jpg",
-  "url": "https://example.com/~alice/",
-  "created": "2025-01-15T00:00:00Z",
-  "content_warning": "This account posts adult content"
-}
-```
-
-All fields are OPTIONAL. The `url` field, if present, MUST match the identity URL after normalization.
-
-The `content_warning` field, if present, indicates that all content from this identity should be treated as potentially sensitive. Clients SHOULD display this warning before showing any content from the identity.
-
-## 3. Keys
-
-### 3.1. Key Document (JWKS)
-
-The public key document MUST be a JSON Web Key Set (JWKS) per RFC 7517.
-
-The Content-Type MUST be `application/jwk-set+json`.
-
-```json
-{
-  "keys": [
-    {
-      "kid": "key-1",
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "x": "base64url-encoded-public-key",
-      "iat": 1704067200
-    }
-  ]
-}
-```
-
-An active key omits `revoked_at`. Implementations SHOULD omit the field rather than serializing `revoked_at: null`; a present-but-null value MUST be treated identically to an absent one (the key is not revoked).
-
-Required JWK fields:
-
-| Field | Description |
-|-------|-------------|
-| `kid` | Key ID (unique within this JWKS) |
-| `kty` | Key type. MUST be `OKP` for Ed25519. |
-| `crv` | Curve. MUST be `Ed25519`. |
-| `x` | Base64url-encoded public key bytes (32 bytes for Ed25519) |
-
-Optional JWK fields:
-
-| Field | Description |
-|-------|-------------|
-| `iat` | Issued-at timestamp (Unix seconds) |
-| `revoked_at` | Revocation timestamp (Unix seconds). Open Feed extension. |
-| `use` | Key usage. If present, MUST be `sig`. |
-| `alg` | Algorithm. If present, MUST be `EdDSA`. |
-
-The `keys` array MUST contain at least one non-revoked key.
-
-A JWKS MAY additionally carry document-level chain fields (`_seq`, `_prev`, `_updated`, `_sig`) for tamper-evident key history; see section 3.7.
-
-**Timestamp formats:**
-
-| Context | Format | Example |
-|---------|--------|---------|
-| JWK fields (`iat`, `revoked_at`) | Unix seconds (integer) | `1704067200` |
-| Content fields (`date_published`, `published`) | ISO 8601 (string) | `"2025-01-01T00:00:00Z"` |
-
-This follows JWT conventions (RFC 7519) for key metadata and JSON Feed conventions for content.
-
-### 3.2. Key ID Construction
-
-The full key identifier used in JWS `kid` headers is constructed by appending a fragment to the JWKS URL:
-
-```
-{jwks_url}#{kid}
-```
-
-Example: If JWKS is at `https://example.com/~alice/keys.json` and key has `kid: "key-1"`, the full identifier is:
-
-```
-https://example.com/~alice/keys.json#key-1
-```
-
-### 3.3. Supported Algorithms
-
-Implementations MUST support:
-
-| `kty` | `crv` | JWS `alg` | Description |
-|-------|-------|-----------|-------------|
-| `OKP` | `Ed25519` | `EdDSA` | EdDSA with Curve25519 |
-
-Implementations MUST ignore keys with unrecognized `kty` or `crv` values.
-
-Future versions MAY define additional algorithms (e.g., post-quantum).
-
-### 3.4. Key Rotation
-
-To rotate keys:
-
-1. Generate a new keypair
-2. Add the new key to the `keys` array
-3. Begin signing new content with the new key
-4. Optionally set `revoked_at` on the old key
-
-Old keys SHOULD remain in the document for at least 30 days after revocation to allow verification of previously-signed content. Producers publishing a Key History Chain MUST additionally keep a rotated-out key listed in any chain version whose `_sig` it produces (section 3.7.2).
-
-### 3.5. Key Revocation
-
-When a key is revoked:
-
-- The `revoked_at` field MUST be set to a Unix timestamp (seconds)
-- The timestamp indicates when the key became untrusted
-- Signatures on content timestamped after `revoked_at` MUST be rejected
-- Signatures on content timestamped before `revoked_at` remain valid
-
-### 3.6. Recovery Keys
-
-Identities MAY designate recovery keys for domain loss scenarios. Recovery keys provide a mechanism to claim identity succession when the original domain becomes inaccessible.
-
-#### 3.6.1. Recovery Key in JWKS
-
-Recovery keys are included in the JWKS with `"use": "recovery"`:
-
-```json
-{
-  "keys": [
-    {
-      "kid": "primary-1",
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "x": "...",
-      "iat": 1704067200
-    },
-    {
-      "kid": "recovery-1",
-      "kty": "OKP",
-      "crv": "Ed25519",
-      "x": "...",
-      "use": "recovery",
-      "iat": 1704067200
-    }
-  ]
-}
-```
-
-Recovery keys:
-
-- MUST NOT be used for regular content signing
-- MAY co-sign Key History Chain versions for fork resolution (section 3.7.6)
-- MUST be stored securely offline (not on the hub)
-- SHOULD be generated at identity creation time
-- MAY have multiple recovery keys for redundancy
-
-#### 3.6.2. Recovery Attestation
-
-A recovery attestation is a signed document authorizing recovery key holders to claim succession:
-
-```json
-{
-  "type": "recovery_attestation",
-  "identity": "https://example.com/~alice/",
-  "recovery_keys": [
-    "https://example.com/~alice/keys.json#recovery-1"
-  ],
-  "created": "2025-01-15T00:00:00Z",
-  "expires": "2030-01-15T00:00:00Z",
-  "_sig": "..."
-}
-```
-
-The attestation:
-
-- MUST be signed by a non-recovery key (proving current control)
-- MUST list the authorized recovery key IDs
-- SHOULD include an expiration date
-- SHOULD be stored securely offline alongside recovery private keys
-- MAY be published at `rel="recovery"` for transparency
-
-#### 3.6.3. Claiming Succession via Recovery
-
-To claim succession when the original domain is inaccessible:
-
-1. Establish new identity at new location
-2. Create a recovery claim signed by the recovery key:
-
-```json
-{
-  "type": "recovery_claim",
-  "original_identity": "https://old.example/~alice/",
-  "new_identity": "https://new.example/~alice/",
-  "recovery_attestation": {...},
-  "claimed": "2025-06-15T00:00:00Z",
-  "_sig": "..."
-}
-```
-
-3. Publish the recovery claim at the new identity
-4. Notify known contacts through out-of-band channels
-
-#### 3.6.4. Verifying Recovery Claims
-
-Verifiers encountering a recovery claim SHOULD:
-
-1. Verify the recovery claim signature against the recovery key
-2. Verify the recovery attestation signature (if available from cache)
-3. Verify the recovery key was in the original JWKS (if cached)
-4. Check that the attestation has not expired
-5. Accept or flag the succession for manual review
-
-Verifiers MAY:
-
-- Require additional out-of-band confirmation
-- Maintain a cache of known identity-to-recovery-key mappings
-- Reject claims if the original domain is still accessible (potential hijack)
-
-If the identity publishes a Key History Chain (section 3.7) and the verifier has a pinned observation, steps 2–3 above become cryptographically verifiable against the pin rather than dependent on an ad-hoc cache (section 3.7.4).
-
-The recovery mechanism is designed for legitimate domain loss. It does not protect against key theft.
-
-### 3.7. Key History Chain
-
-A JWKS is fetched over TLS, but nothing stops a compromised host (or a hijacked domain) from **rolling back** to an older JWKS to un-revoke a key, or **equivocating** by serving different key sets to different readers. The Key History Chain makes both tamper-evident to any consumer who has seen the JWKS even once (trust-on-first-observation), and it is what makes revocation (3.5) and recovery (3.6) verifiable rather than advisory.
-
-Support is OPTIONAL to produce but, once a producer publishes a chain, consumers that have pinned a prior version MUST enforce it (below).
-
-#### 3.7.1. Chained JWKS Fields
-
-A chained JWKS adds these top-level fields (Open Feed extensions, `_` prefixed):
-
-| Field | Description |
-|-------|-------------|
-| `_seq` | Monotonic version counter (integer). Starts at 1; MUST strictly increase with each published version. |
-| `_prev` | Base64url SHA-256 of the **full canonical bytes** (RFC 8785, section 4.3) of the immediately preceding published JWKS document, including its `_sig` and, if present, its `_recovery_sig`. Omitted only for `_seq: 1` (genesis). |
-| `_updated` | Publication time of this version (Unix seconds). |
-| `_sig` | Detached JWS (section 4) over the canonical JWKS document with the signature fields removed. For `_seq: 1`, signed by a non-revoked key listed in this document; for later versions, signed by a continuity key per section 3.7.2. |
-| `_history_url` | OPTIONAL. URL of the chain history document (section 3.7.5). |
-| `_recovery_sig` | OPTIONAL. Second detached JWS by a recovery key, for fork resolution (section 3.7.6). |
-
-The `_sig` is self-referential (signed by a key in the document it certifies), like a self-signed certificate. It provides continuity and tamper-evidence **between versions**; it does not bootstrap first-contact trust (that remains TOFU).
-
-Genesis example (`_seq: 1`):
-
-```json
-{
+  "url": "https://pence.family/~mom/",
+  "name": "Mom",
+  "bio": "Grandmother, gardener, cat enthusiast.",
+  "avatar": "https://pence.family/~mom/avatar.jpg",
+  "feed": "https://pence.family/~mom/feed.json",
+  "manifest": "https://pence.family/~mom/manifest.json",
+  "inbox": "https://pence.family/~mom/inbox",
+  "history": "https://pence.family/~mom/history.json",
+  "seq": 7,
+  "prev": "aNy3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
+  "updated": 1739577600,
   "keys": [
     { "kid": "key-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "iat": 1736899200 },
     { "kid": "recovery-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "use": "recovery", "iat": 1736899200 }
   ],
-  "_seq": 1,
-  "_updated": 1736899200,
-  "_sig": "<detached JWS by key-1 over the canonical document without _sig>"
+  "_sig": "..."
 }
 ```
 
-Next version (`_seq: 2`) — rotate to `key-2`, revoke `key-1`, chained to the genesis via `_prev`:
+Fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `url` | MUST | The identity URL. MUST match the URL the document was fetched under (after normalization). Author binding for the document itself. |
+| `keys` | MUST | Array of JWKs (§4). At least one non-revoked, non-recovery key. |
+| `seq` | MUST | Version counter, starts at 1, strictly increasing (§5). Advances on **identity** changes (keys, profile, endpoints, migration) — *not* on content publication. |
+| `updated` | MUST | Publication time of this version (Unix seconds). |
+| `_sig` | MUST | Detached JWS over the document (§6). |
+| `prev` | MUST if `seq > 1` | Base64url SHA-256 of the full canonical bytes of the previous version, including its `_sig` and `_recovery_sig` if present. |
+| `history` | MUST if `seq > 1` | URL of the version history document (§5.4). |
+| `feed` | SHOULD (MUST for Level 2) | URL of the identity's JSON Feed. |
+| `manifest` | MUST if `feed` present | URL of the feed's signed manifest (§9). |
+| `feeds` | MAY | Additional feeds beyond the primary — array of `{ "url": ..., "manifest": ... }` objects, each committed by its **own** signed manifest (§9). Used e.g. for the activity feed (§8). |
+| `inbox` | MAY (MUST for Level 3) | Inbox endpoint URL. |
+| `replies` | MAY | Replies-endpoint URL (§12). |
+| `follows`, `pins` | MAY | URLs of the follow list / observed-pins document (Appendix G). Outside the trust core. |
+| `name`, `bio`, `avatar`, `content_warning` | MAY | Profile metadata. `content_warning`, if present, marks all content from this identity as sensitive. |
+| `successor`, `predecessor` | MAY | Migration links (§3.4). |
+| `_recovery_sig` | MAY | Recovery co-signature for fork resolution (§5.5). |
+
+Unknown fields MUST be preserved when re-serializing and ignored otherwise. Extension fields SHOULD use a `_` prefix.
+
+Note that the identity document commits to the manifest by **URL**, not by hash. Content freshness is proven by the manifest's own signature and chain (§9), so ordinary publishing does **not** re-sign or re-version the identity document. The identity chain versions identity state, which changes rarely (5–20 versions over a lifetime); the manifest chain versions content, which changes often. Two chains, one pinning discipline.
+
+Every identity document is signed and versioned — there is no unsigned or unchained mode. Verification is trust-on-first-observation (§5.3): the signature proves continuity between versions, not first-contact authenticity.
+
+### 3.3. Fetching and Redirects
+
+When fetching an identity document:
+
+- Follow at most 5 redirects
+- MUST NOT follow a redirect to a different origin
+- The response MUST parse as JSON; reject `text/html` or any non-JSON Content-Type; accept `application/json`
+- The response MUST carry `Access-Control-Allow-Origin: *` (§13); this applies to every publicly-readable document, so browser Level-1 readers work without a proxy
+
+A cross-origin redirect is never identity equivalence. Migration is expressed in-band (§3.4), not with redirects. Same-origin redirects (trailing slash, path moves) are followed normally.
+
+### 3.4. Migration and Recovery
+
+Migration and recovery are one operation — *this identity continues over there* — differing only in **which key attests**.
+
+To move from `https://old.example/~alice/` to `https://alice.new/`:
+
+1. Establish the new identity (new identity document, new or same keys), adding `"predecessor": "https://old.example/~alice/"`.
+2. **Cooperative migration** (old domain still under control): the old identity document publishes a new chain version adding `"successor": "https://alice.new/"`. Consumers follow `successor` when both links exist and agree — each is inside a signed document, so the pair is a cryptographic cross-signature verifiable against the old identity's pinned chain.
+3. **Recovery** (old domain lost): the new identity document additionally carries a `_recovery_sig` — a detached JWS by a **recovery key** (§4.5) that was committed in a pinned ancestor of the predecessor. A consumer holding a pin of the old identity verifies the co-signature against that recovery key and follows `predecessor` even though the old side can no longer publish a `successor`.
+
+Migration makes the new feed canonical for *new* content, but previously-published items carry the old feed's URL in their signed `_feed_url`, so at the new home they would be mere copies (§7.5). The migration procedure therefore ends with **bulk re-signing**: republish the back catalog at the new feed — same `id`s, bumped `_version`, `date_modified` set to the re-signing time, `_feed_url` naming the new feed — and commit it all in the new feed's manifest. A verified migration is the sole exception to the id/feed binding rule (§7.5): the binding follows the identity to its successor feed. Consumers that verified the migration treat the re-signed versions as superseding the predecessor's.
+
+A consumer that has **not** verified the migration will see the same `id` presented as canonical at two feeds — the old one (lower `_version`, old `_feed_url`) and the new one (higher `_version`, new `_feed_url`). It MUST treat the higher-`_version` copy as *unverified pending migration verification*, not as an equivocation to reject, and reconcile once the `successor`/`predecessor` pair (or the recovery co-signature) verifies against a pin. This is the one situation where the same `id` legitimately carries two live `_feed_url` values, and it resolves the moment migration is confirmed.
+
+A `successor` claim without a matching `predecessor` (or vice versa), and unaccompanied by a valid recovery co-signature, MUST NOT be treated as migration. Consumers without a prior pin of the old identity can only treat a recovery-based migration as unverified (out-of-band confirmation recommended); Appendix G's `pins` convention is how a family propagates such a claim through its social graph. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself.
+
+There is no separate "recovery claim" or "recovery attestation" document: the chained identity document — signed by an active key, carrying `predecessor`, and co-signed by a committed recovery key — *is* the attestation.
+
+## 4. Keys
+
+### 4.1. Key Entries
+
+Keys are JWK objects (RFC 7517) in the identity document's `keys` array:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `kid` | MUST | Key ID, unique within this identity, MUST NOT contain `#` |
+| `kty` | MUST | `OKP` |
+| `crv` | MUST | `Ed25519` |
+| `x` | MUST | Base64url public key (32 bytes) |
+| `iat` | SHOULD | Issued-at (Unix seconds) |
+| `revoked_at` | MAY | Revocation time (Unix seconds). Absent or `null` = active. |
+| `use` | MAY | `sig` (default) or `recovery` (§4.5) |
+| `alg` | MAY | If present, `EdDSA` |
+
+Implementations MUST ignore keys with unrecognized `kty`/`crv` (future algorithms slot in additively). Timestamp convention: key and chain fields use Unix seconds (JOSE convention); content fields use ISO 8601 strings (JSON Feed convention).
+
+### 4.2. Key Identifiers
+
+The full key identifier used in JWS headers is:
+
+```
+{identity_url}#{kid}
+```
+
+e.g. `https://pence.family/~mom/#key-1`. Verifiers split at the **last** `#`: the left side is the identity URL (normalize it; normalization strips fragments, so the split happens first), the right side is the `kid` to find in that identity's document.
+
+Because keys live *in* the identity document, key ownership is structural: the identity named by the `kid` either lists the key or it doesn't. There is no separate ownership check, and possession of a key that merely *verifies* proves nothing about any identity.
+
+### 4.3. Rotation
+
+1. Publish a new chain version (§5.2) adding the new key
+2. Sign new content and manifests with the new key
+3. Optionally set `revoked_at` on the old key in the same or a later version
+
+Rotated-out keys SHOULD remain listed for at least 30 days (verification of old content). A key MUST remain listed in any chain version whose `_sig` it produces (§5.2).
+
+### 4.4. Revocation
+
+- Signatures on content whose effective signing time (§6.5) is after `revoked_at` MUST be rejected; before, they remain valid.
+- Because content timestamps are self-reported, a key thief can backdate. For inbox-delivered items, receivers SHOULD apply the revocation check against **receipt time**, which the sender cannot backdate. Revocation limits damage from honest rotation far more than it stops an active thief (§14.10).
+- The pull path has a receipt-time analog. Consumers SHOULD record the wall-clock time each item id was **first observed** in a signed manifest (one timestamp alongside the manifest pin, §9) and apply the revocation check against that first-observed time. A thief can backdate an item's `date_published`, but cannot backdate when a consumer's polling loop first saw a manifest commit to it — a "years-old" item first entering the manifest after `revoked_at` is rejected. (Consumers with no observation history for an identity fall back to the self-reported check; first contact is TOFU here as everywhere, §5.3.)
+
+### 4.5. Recovery Keys
+
+A key with `"use": "recovery"`:
+
+- MUST NOT sign regular content or manifests
+- MUST be stored offline (not on the hub)
+- SHOULD be generated at identity creation
+- Co-signs a migration for domain-loss recovery (§3.4) and MAY co-sign a chain version for fork resolution (§5.5)
+
+Because recovery keys are committed in the chain, any consumer holding a pin can verify a later recovery-based migration or fork resolution against the recovery key present at a pinned `(seq, hash)`. Verifiers MAY reject a recovery-based migration while the original domain still serves a conflicting chain.
+
+## 5. The Version Chain
+
+The identity document is served over TLS, but a compromised host or hijacked domain could roll back to an older version (un-revoking a key) or serve different versions to different readers. The chain makes both tamper-evident to any consumer who has seen the identity even once.
+
+The chain versions **identity state** — keys, profile, endpoints, migration links. Content freshness is protected separately, by the same mechanism, by the signed manifest chain (§9): a consumer pins the manifest exactly as it pins the identity document. Splitting the two means ordinary publishing advances the manifest chain, not the identity chain, so the identity chain stays short (5–20 versions over a lifetime) regardless of how often content is posted.
+
+### 5.1. Chain Fields
+
+`seq`, `prev`, `updated`, `_sig` (and optionally `_recovery_sig`), as defined in §3.2. `prev` hashes the *full published canonical bytes* of the predecessor — including its signature fields — so byte-preserving storage of old versions is the simplest correct implementation.
+
+### 5.2. Producing a Version
+
+1. Start from the current version; apply changes (keys, profile, endpoints, migration links)
+2. `seq` += 1; `prev` = hash of the previous version; set `updated`
+3. Sign with a **continuity key**: a key that was valid (non-revoked, non-recovery) in the *previous* version
+4. Append the previous version to the history document
+
+The continuity key is often revoked *in the very version it signs* — that is normal rotation. Validity is judged against the previous version's state. The continuity key MUST remain listed in the version it signs (else the version cannot be verified from its own bytes); it MAY be dropped in later versions. Genesis (`seq: 1`) has no predecessor and is signed by a non-revoked key it contains.
+
+### 5.3. Consumer Enforcement (Pinning)
+
+A consumer that has verified an identity document at `(seq: N, hash: H)` MUST store that pin. On any later fetch:
+
+1. Verify the new document's `_sig`; the signing key named by its `kid` MUST be listed in the document itself
+2. Walk `prev` links (fetching intermediates from `history`) back to `(N, H)`. At each hop, verify that version's `_sig` and confirm its signing key was valid in *its* predecessor — hash linkage alone is not sufficient, since a fabricated intermediate could introduce an attacker's key
+3. Reject if `seq` decreased, if any `prev` mismatches, or if two documents claim the same `seq` with different hashes (equivocation)
+
+The consumer separately pins the **manifest** at its own `(seq, hash)` and walks it by the identical procedure (§9.1). The identity chain and the manifest chain are two applications of one mechanism: pin on first observation, walk `prev` to the pin on every later fetch, treat any divergence as an attack.
+
+First contact is TOFU: accept and pin. Tampering is detectable from the second observation onward, or immediately for any two consumers comparing pins out-of-band. A consumer that cannot connect its pin to the current document (missing history) MUST treat the chain as unverifiable rather than silently re-pin.
+
+### 5.4. History
+
+Producers MUST retain all prior identity-document versions and serve them at the `history` URL:
 
 ```json
-{
-  "keys": [
-    { "kid": "key-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "iat": 1736899200, "revoked_at": 1739577600 },
-    { "kid": "key-2", "kty": "OKP", "crv": "Ed25519", "x": "...", "iat": 1739577600 },
-    { "kid": "recovery-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "use": "recovery", "iat": 1736899200 }
-  ],
-  "_seq": 2,
-  "_prev": "<base64url SHA-256 of the canonical _seq:1 document, including its _sig>",
-  "_updated": 1739577600,
-  "_sig": "<detached JWS by key-1 over the canonical document without _sig>"
-}
+{ "versions": [ { "...": "verbatim seq:1 document" }, { "...": "verbatim seq:2 document" } ] }
 ```
 
-Here `_prev` is the base64url SHA-256 of the full canonical bytes of the `_seq: 1` document above (including that document's `_sig`). A fully-computed chain vector — with the real key `x` from Appendix F and reproducible `_prev`/`_sig` values — is given in Appendix F.8.
+Ascending order; every version from genesis; entries MUST canonicalize to bytes matching the successor's `prev`. Because the identity chain advances only on identity changes (not on publication), this history grows slowly; consumers SHOULD still cap the versions walked per update (RECOMMENDED: 1000) and the history size fetched (§14.4). The manifest has its own history (§9.2), which grows with publication and is bounded by checkpointing (§9.3).
 
-Note that `_seq: 2` is signed by `key-1` — the continuity key that was valid in `_seq: 1` — even though this same document revokes it. Signing with the newly-introduced `key-2` would violate section 3.7.2, since `key-2` was not present in the previous version.
+### 5.5. Fork Resolution
 
-#### 3.7.2. Producing a New Version
+Equivocation detection reveals *that* the chain forked, not *which* branch is honest — after key theft, both branches carry valid continuity signatures. A version MAY carry `_recovery_sig`: a second detached JWS by a recovery key committed in a pinned ancestor. `_sig` and `_recovery_sig` are each computed over the canonical document with **both** signature fields removed.
 
-1. Start from the current published document
-2. Apply key changes (add/rotate/revoke)
-3. Set `_seq` to previous `_seq + 1`
-4. Set `_prev` to the base64url SHA-256 of the previous document's full canonical bytes
-5. Set `_updated`
-6. Sign with a current non-revoked key → `_sig`
+A thief of the online key cannot produce `_recovery_sig` (the recovery key is offline). Verifiers detecting a fork SHOULD prefer the branch carrying a valid recovery co-signature; a fork where neither branch has one is unresolvable and SHOULD be flagged for manual review. Producers SHOULD co-sign the first version published after a suspected compromise.
 
-Each version MUST be signed by a key that was **valid (non-revoked) in the previous version**, so an attacker who steals a current key cannot fork the chain forward without also having been in the trusted prior state.
+## 6. Signatures
 
-The continuity key will often be revoked **in the new version** — that is the normal rotation case. Validity is assessed against the previous version's state: verifiers MUST NOT reject a chain `_sig` merely because the signing key carries `revoked_at` in the very document it signs. The genesis (`_seq: 1`) has no previous version and is signed by a non-revoked key it contains.
+### 6.1. Format
 
-The continuity key MUST remain listed in the `keys` array of the version it signs (normally with `revoked_at` set). If it were removed, the document's `_sig` could not be verified from the document alone. It MAY be removed in *later* versions (each version contains its own signing key, which is all a history walk needs); the 30-day retention guidance of section 3.4 still applies for verifying previously-signed content.
-
-#### 3.7.3. Consumer Enforcement (Pinning)
-
-A consumer that has verified a JWKS at `(_seq: N, hash: H)` MUST store that pin. On any later fetch of the same identity's JWKS, the consumer MUST:
-
-1. Verify the new document's `_sig`: the key named by its `kid` MUST be listed in the document itself (section 3.7.2 requires this) and the signature MUST verify against it
-2. Verify the new document chains back to the pin: following `_prev` links — retrieving any intermediate versions via the chain history (section 3.7.5) — reaches `(N, H)` as an ancestor. At each hop, verify that version's `_sig` and confirm its signing key was **valid (non-revoked) in the predecessor version** (the continuity rule, section 3.7.2)
-3. Reject if `_seq` decreased, if `_prev` does not match the known predecessor, or if two documents claim the same `_seq` with different hashes (equivocation)
-
-A consumer encountering a chained JWKS for the first time accepts it (TOFU) and pins it. Rollback and equivocation are detectable from the **second** observation onward, or immediately for any two consumers who compare pins out-of-band.
-
-Consumers that do not implement chaining ignore the `_` fields (they are preserved per the extension rules) and fall back to plain JWKS semantics.
-
-#### 3.7.4. Interaction with Recovery
-
-When recovery keys (3.6) are committed in the chain, a recovery claim becomes verifiable by anyone holding one honest prior observation: the verifier confirms the claimed recovery key was present at a pinned `(_seq, hash)`. This upgrades section 3.6.4 steps 2–3 from "if cached" to "verifiable against the pin," closing the domain-hijack gap for consumers who observed the identity before the hijack. First-contact-after-hijack still cannot be protected without an external anchor (transparency log / witness network — deferred).
-
-#### 3.7.5. Chain History Retrieval
-
-Only the latest JWKS version is served at the JWKS URL, but consumer enforcement (3.7.3) requires walking `_prev` links across every version published since the consumer's pin. Producers publishing a chain therefore MUST retain all prior versions and make them retrievable. The RECOMMENDED mechanism is a `_history_url` field in the chained JWKS pointing to a JSON document:
-
-```json
-{
-  "versions": [
-    { "...": "verbatim _seq:1 document" },
-    { "...": "verbatim _seq:2 document" }
-  ]
-}
-```
-
-Requirements:
-
-- Each entry in `versions` MUST canonicalize (section 4.3, with no fields removed) to bytes whose SHA-256 matches the successor version's `_prev` (byte-preserving storage is the simplest way to guarantee this)
-- Entries MUST be in ascending `_seq` order and SHOULD include every version from genesis onward; the current version MAY be included
-- Consumers SHOULD cap the number and size of history versions they process (section 10.6)
-
-A consumer that cannot obtain the intermediate versions needed to connect its pin to the current document MUST treat the chain as unverifiable (equivalent to a `_prev` mismatch) rather than silently re-pinning.
-
-#### 3.7.6. Fork Resolution via Recovery Co-Signature
-
-Equivocation detection (3.7.3) reveals *that* two documents claim the same `_seq`; it cannot reveal *which* branch is honest — after a key theft, the thief holds the same continuity key as the owner and can sign a competing successor version.
-
-To resolve forks, a chained JWKS MAY carry `_recovery_sig`: a second detached JWS signed by a key with `"use": "recovery"` that was present in a pinned ancestor version. When both signature fields are present, `_sig` and `_recovery_sig` are each computed over the canonical document with **both** fields removed (they sign the same payload, each under its own JWS header). The successor version's `_prev` hashes the full published document — including both signature fields (section 3.7.1).
-
-Because recovery keys are stored offline (3.6.1), a thief of the online signing key cannot produce `_recovery_sig`. A verifier that detects a fork SHOULD prefer the branch carrying a valid recovery co-signature. A fork where neither branch carries one is cryptographically unresolvable and SHOULD be flagged for manual review.
-
-Producers SHOULD add `_recovery_sig` to the first version published after a suspected key compromise.
-
-## 4. Signatures
-
-### 4.1. Signature Format
-
-Signatures use JWS Compact Serialization (RFC 7515) with a detached, **unencoded** payload per RFC 7797 (JWS Unencoded Payload Option):
+Detached JWS Compact Serialization with **unencoded payload** (RFC 7515 + RFC 7797):
 
 ```
 base64url(header)..base64url(signature)
 ```
 
-The payload is not included in the serialization (detached mode). The two consecutive dots (`..`) indicate the empty payload section.
-
-The payload is the canonical JSON bytes (section 4.3). Because the payload is unencoded (`b64: false`), the JWS Signing Input is:
+The payload is the canonical JSON bytes (§6.3). The JWS Signing Input is:
 
 ```
 ASCII(BASE64URL(UTF8(header)) || '.') || canonical-json-bytes
 ```
 
-This is critical: the signature covers **both the protected header and the payload**. A construction that signs only the canonical payload bytes (omitting the header) MUST NOT be used — it would leave `alg` and `kid` unauthenticated, allowing an attacker to swap the referenced key.
+The signature covers **header and payload**. Signing only the payload bytes MUST NOT be done — it leaves `alg` and `kid` unauthenticated, letting an attacker swap the referenced key.
 
-### 4.2. JWS Header
+This is the **only** signing construction in the core. It signs identity documents, items, and manifests identically. (The restricted-feed extension, §11, uses a standard encoded-JWS token; that construction is deliberately kept out of the core.)
 
-The JWS protected header MUST include:
+### 6.2. Header
 
 ```json
-{
-  "alg": "EdDSA",
-  "b64": false,
-  "crit": ["b64"],
-  "kid": "https://example.com/~alice/keys.json#key-1"
-}
+{ "alg": "EdDSA", "b64": false, "crit": ["b64"], "kid": "https://pence.family/~mom/#key-1" }
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `alg` | MUST | Algorithm identifier. MUST be `EdDSA` for Ed25519. |
-| `b64` | MUST | MUST be `false` (unencoded payload, RFC 7797). |
-| `crit` | MUST | MUST be `["b64"]`, marking `b64` as a header parameter that MUST be understood. |
-| `kid` | MUST | Full key identifier: `{jwks_url}#{kid}` (see section 3.2) |
+All four fields MUST be present with exactly these `alg`/`b64`/`crit` values. Verifiers MUST reject unrecognized `alg`, `crit` entries they don't understand, and signatures where the referenced key's `crv` is not `Ed25519` (the `alg` alone does not fix the curve).
 
-Implementations MUST reject signatures with unrecognized `alg` values, and MUST reject signatures where `alg` is `EdDSA` but the referenced key's `crv` is not `Ed25519` (the `alg` value alone does not fix the curve). Implementations MUST reject a signature whose `crit` includes a parameter they do not understand.
+### 6.3. Canonicalization
 
-### 4.3. Canonicalization
+1. Remove `_sig` (and `_recovery_sig` if present)
+2. Serialize per RFC 8785: UTF-8, no whitespace, keys sorted, ES6 number formatting
 
-Before signing or verifying, JSON MUST be canonicalized:
+Strings are signed **byte-exact as published** — no Unicode normalization at sign or verify time. Producers SHOULD emit NFC. Implementations MUST reject JSON containing duplicate member names (I-JSON, RFC 7493).
 
-1. Remove the `_sig` field if present (for chained JWKS documents carrying `_recovery_sig`, remove both signature fields; section 3.7.6)
-2. Serialize per RFC 8785 (JSON Canonicalization Scheme):
-   - UTF-8 encoding
-   - No whitespace between tokens
-   - Object keys sorted lexicographically (recursive)
-   - No trailing commas
-   - Numbers serialized without unnecessary leading zeros or trailing zeros after decimal
+### 6.4. Signing
 
-String values are signed and verified **byte-exact as published** — no Unicode normalization is applied at signing or verification time. Producers SHOULD emit all string values in NFC form. (Verify-time NFC normalization was removed in v0.5.0: stock RFC 8785 libraries do not normalize, so the extra step invited silent divergence between conformant and de facto implementations, and it made NFC-equivalent byte variants signature-compatible — a malleability. A pipeline that re-normalizes Unicode after signing breaks its own signatures, which is detectable and is that pipeline's bug.)
+1. Remove signature fields; canonicalize → payload bytes
+2. Build the header; `header-b64 = BASE64URL(UTF8(header))`
+3. Sign `ASCII(header-b64 || '.') || payload-bytes` with Ed25519
+4. Set `_sig` = `header-b64 || '..' || BASE64URL(signature)`
 
-Implementations MUST reject JSON in which any object contains duplicate member names (I-JSON, RFC 7493). Parsers disagree on which duplicate wins, so a duplicate-key payload could verify against one interpretation while the application acts on another.
+### 6.5. Verification
 
-### 4.4. Signing Process
+1. Extract and remove signature fields; canonicalize → payload bytes
+2. Parse header; enforce §6.2
+3. Split `kid` at the last `#` → identity URL + key id
+4. **Author binding**: the `kid` identity URL MUST equal the claimed author (§6.6) after normalization. Reject otherwise.
+5. Fetch the identity document at `{identity_url}openfeed.json`; enforce pinning (§5.3); find the key
+6. If the key has `iat`: verify it predates the content's **effective signing time** — for items, `date_modified` if present else `date_published`; for manifests and identity documents, `updated`. (No `iat` → skip.)
+7. Verify the key was not revoked before the effective signing time
+8. Verify the Ed25519 signature over the reconstructed Signing Input
 
-To sign a JSON object:
+The effective-signing-time rule lets content be legitimately re-signed after rotation: bump `_version`, set `date_modified` to the actual signing time, keep `date_published`.
 
-1. Remove any existing `_sig` field
-2. Canonicalize the object (section 4.3) → `canonical-json-bytes`
-3. Construct the protected header (section 4.2) and compute `header-b64 = BASE64URL(UTF8(header))`
-4. Compute the JWS Signing Input: `ASCII(header-b64 || '.') || canonical-json-bytes`
-5. Sign the Signing Input with the private key (Ed25519)
-6. Set `_sig` to `header-b64 || '..' || BASE64URL(signature)`
+### 6.6. Author Binding
 
-### 4.5. Verification Process
+Every signed document carries its author's identity URL **inside the signed bytes**:
 
-To verify a signed JSON object:
+- **Items**: the item-level `authors` array MUST contain **exactly one entry**, whose `url` is the signer's identity URL. (Feed-level `authors` are not covered by item signatures and MUST NOT be relied on. A multi-author *feed* still works — every item names its own single author.) Clients MUST attribute solely to this entry; they MUST NOT display any other self-asserted author name.
+- **Manifests**: the `url` field (the identity that owns the feed).
+- **Identity documents**: the `url` field.
 
-1. Extract and remove the `_sig` field
-2. Canonicalize the object (section 4.3) → `canonical-json-bytes`
-3. Parse the JWS header. Confirm `alg` is `EdDSA`, `b64` is `false`, and `crit` is `["b64"]`; reject otherwise
-4. Extract `kid` and split it into `{jwks_url}#{key_id}`
-5. **Determine the claimed author** and confirm key ownership: the `jwks_url` in `kid` MUST match a JWKS URL discovered from the claimed author's profile (section 4.6). Reject if it does not. Possession of a public key MUST NOT be treated as ownership of an identity.
-6. Fetch the claimed author's JWKS document and find the key matching `key_id`
-7. Reconstruct the Signing Input: `ASCII(header-b64 || '.') || canonical-json-bytes`
-8. If the key has `iat`, verify the key was created before the content's **effective signing time** — `date_modified` if present, otherwise `date_published` (feed items) / `published` (interactions)
-9. Verify the key was not revoked before the effective signing time (check `revoked_at`)
-10. Verify the Ed25519 signature over the Signing Input
+The claimed author MUST equal the `kid`'s identity URL. This prevents republishing someone's signed content under a different name: the binding travels with the bytes.
 
-If `iat` is not present on the key, skip step 8 (assume the key existed at the time of signing).
+Items MUST also include `_feed_url` (the containing feed's URL) in the signed payload when served in a feed; this drives the canonical/copy rule (§7.5). Inbox-only items omit it (§8).
 
-Using the effective signing time (step 8) rather than `date_published` alone allows content to be legitimately re-signed with a newer key after key rotation or compromise (section 3.4, 3.5) while retaining its original publication date: the re-signer sets `date_modified` to the actual signing time and bumps `_version`.
+## 7. Feeds and Items
 
-### 4.6. Author Binding
+### 7.1. Feed Document
 
-A signature proves that some key signed some bytes. To prevent an attacker from republishing another identity's signed content under their own name (by copying that identity's public key into their own JWKS), the signed payload MUST cryptographically bind the signing identity:
+A feed MUST conform to JSON Feed 1.1. Content-Type `application/feed+json` or `application/json` (reject non-JSON; the check exists to avoid parsing HTML error pages, not to police vendor types — static hosts serve `application/json` and MUST be accepted). Like every public document, a feed MUST be served with `Access-Control-Allow-Origin: *`.
 
-- **Feed items** MUST include an item-level `authors` array (JSON Feed 1.1) in the signed payload, containing an entry whose `url` is the identity URL of the signer. Because feed-level `authors` live in the feed document (not the item), they are **not** covered by the item signature and MUST NOT be relied on for author binding.
-- **Interaction objects** already bind the author via the required top-level `author` field (section 6.1).
+Required: `version`, `title`, `feed_url`, and `items`. Feed-level `authors` MAY be present for display; they carry no authority.
 
-During verification, the claimed author (step 5 above) is:
+A feed is owned by the identity whose identity document lists it under `feed`, and its contents are committed by the manifest that identity lists under `manifest` (§9). Feeds MAY contain items from multiple authors (family boards); every item is independently signed and attributed by its own signed single-entry `authors`.
 
-- For a feed item: the `url` of an entry in the item's signed `authors` array.
-- For an interaction: the top-level `author` field.
+### 7.2. Items
 
-The signing key's owner MUST match the claimed author. Implementations MUST reject content where the signed author binding is absent or does not match the identity whose JWKS contains the signing key.
-
-Items MAY additionally include a `_feed_url` field in the signed payload to bind the item to its containing feed; verifiers MAY reject items whose `_feed_url` does not match the feed they were retrieved from.
-
-## 5. Feeds
-
-### 5.1. Feed Document
-
-Feeds MUST conform to JSON Feed 1.1 (https://jsonfeed.org/version/1.1).
-
-The Content-Type MUST be `application/feed+json`.
-
-Required fields:
+Every item MUST include:
 
 | Field | Description |
 |-------|-------------|
-| `version` | MUST be `https://jsonfeed.org/version/1.1` |
-| `title` | Feed title |
-| `feed_url` | Canonical URL of this feed |
-| `authors` | Array with at least one author |
+| `id` | Globally unique, permanent (UUID URN or tag URI RECOMMENDED). MUST NOT contain `#` — ids appear as URI fragments in relation references (§8) |
+| `date_published` | ISO 8601 |
+| `authors` | Single-entry author binding (§6.6) |
+| `_feed_url` | The containing feed's URL (MUST for feed-served items; omitted only for inbox-only items) |
+| `_version` | Integer, starts at 1 |
+| `_sig` | Detached JWS (§6) |
 
-At least one author's `url` field MUST be a valid Open Feed identity URL. For single-author feeds, this SHOULD match the feed owner's identity URL.
+plus at least one of `content_text` / `content_html`. A content-less relation item (a `like` or `repost`, §8) satisfies this with `content_text: ""`, exactly as a tombstone does (§7.3) — JSON Feed 1.1 requires a content field to be present, so "NONE" in the §8 relation table means no *displayable* content, not an absent field. Consumers MUST preserve unknown `_` fields; signatures depend on it. A relation item additionally carries `_rel` (§8).
 
-### 5.1.1. Feed Ownership
+### 7.3. Versioning and Tombstones
 
-A feed is owned by the identity whose profile links to it via `rel="feed"`.
+To edit: bump `_version`, set `date_modified`, re-sign. Same `id` forever; `(author, id, _version)` names an exact signed revision. Feeds carry only the latest version.
 
-Feeds MAY have multiple authors. Each item is signed by its author, who MUST be listed in the feed's `authors` array or the item's `authors` array.
+To delete: publish a **tombstone** — same `id`, bumped `_version`, `date_modified` set, `_deleted: true`, content fields removed (`content_text` set to `""` to stay JSON-Feed-valid), `authors`/`date_published`/`_feed_url`/`_rel` retained, re-signed. Consumers seeing a valid tombstone SHOULD drop cached content and retain the tombstone (higher `_version` wins over any replayed earlier revision). Tombstones SHOULD stay in the feed for ≥30 days; the manifest remembers them until folded into a checkpoint (§9). Deletion is best-effort — consumers that never re-fetch can't be forced.
 
-The feed owner:
+### 7.4. Attachments and Pagination
 
-- Controls who may publish to the feed
-- Is responsible for serving the feed document
-- MAY be different from item authors
+Attachments use JSON Feed's `attachments` (metadata signed; bytes not — `_sha256` SHOULD carry a content hash for images and other integrity-sensitive media). Pagination uses JSON Feed's `next_url`; feeds SHOULD carry at least the 50 most recent items.
 
-For single-author feeds, the owner and sole author are the same identity.
+### 7.5. Canonical and Copied Items
 
-### 5.2. Feed Items
+An item is **canonical** only in the feed its signed `_feed_url` names. The same signed item may legitimately appear elsewhere — a family aggregate feed, a follower's cache, a bridge — as a **copy**. Because the signature travels with the bytes, a copy is still verifiable as *authored* by its signer. But a copy carries **no authority over current publication state**: it does not prove the item is still live, is not evidence of manifest membership, and cannot resurrect content the author has tombstoned.
 
-Each item MUST include:
+Rules:
 
-| Field | Description |
-|-------|-------------|
-| `id` | Globally unique identifier (see 5.3) |
-| `date_published` | ISO 8601 timestamp |
-| `authors` | Array with at least one author; one entry's `url` MUST be the signer's identity URL (author binding, section 4.6) |
-| `_sig` | JWS signature (see section 4) |
+- A consumer MUST verify an item's `_feed_url` matches the feed URL it was fetched from (after normalization) before treating it as canonical. A mismatch marks the item a copy — display it (e.g. "via …"), attribute it to its signer, but do not grant it liveness or manifest standing.
+- To determine whether a copied item is currently live or deleted, consult the manifest at its `_feed_url` (§9). The canonical manifest is authoritative; a copy cannot override a tombstone recorded there.
+- An `id` is permanently bound to a single `_feed_url`. The same `id` MUST NOT be signed with two different `_feed_url` values: the bytes would differ while `(author, id, _version)` claims to name one exact revision (§7.3), and inbox dedup (§10.3) would silently drop one variant. Cross-posting the same content to another feed (one's own feed *and* a family board, say) uses a **new item** with a fresh `id` carrying a `repost` or `quote` relation to the original. (A verified migration is the sole exception: §3.4's bulk re-signing moves the binding to the successor feed.)
 
-Each item SHOULD include:
+Together with the manifest this closes both omission and injection: the manifest proves **presence** (a host can't drop your content), and `_feed_url` proves **exclusivity** (a host can't inject or resurrect your content by copying it into its own feed). It also gives availability for free — a follower may serve its cached copy of your feed when your host is down, and it still verifies.
 
-| Field | Description |
-|-------|-------------|
-| `content_text` | Plain text content |
-| `_version` | Integer version number (starts at 1) |
-| `_feed_url` | Canonical URL of the containing feed (binds the item to its feed, section 4.6) |
+**Bridged and unverified items.** Content ingested from another protocol (ActivityPub, Webmention/IndieWeb, atproto — Appendix F) cannot be a native signed item, because no one holds the foreign author's Open Feed key. Such content MUST be marked `_unverified: true` (a copy the gateway merely observed) **or** authored by a disclosed gateway/proxy identity whose key custody is stated. It MUST NOT be presented as a native, verified identity. This is the same honest-hub-trust model (§14.2) extended across a protocol boundary.
 
-For HTML content, `content_html` MAY be used instead of or in addition to `content_text`.
+## 8. Interactions Are Items
 
-The item-level `authors` array is REQUIRED (not optional) because it is the only author information covered by the item signature; feed-level `authors` are not part of the item's signed bytes (section 4.6). The signing key MUST belong to one of the item's `authors`. In a single-author feed, the item's `authors` entry is the same identity as the feed owner.
-
-### 5.3. Item Identifiers
-
-Item `id` values MUST be globally unique. RECOMMENDED formats:
-
-- UUID URN: `urn:uuid:550e8400-e29b-41d4-a716-446655440000`
-- Tag URI: `tag:example.com,2025-12-07:alice:001`
-
-Once published, an item's `id` MUST NOT change.
-
-### 5.4. Item Versioning
-
-To edit a post:
-
-1. Increment the `_version` field
-2. Set `date_modified` to the edit timestamp
-3. Update content fields as needed
-4. Generate a new `_sig` over the updated item
-
-The `id` MUST remain the same across versions. The combination of `id` and `_version` uniquely identifies a signed item.
-
-Feeds SHOULD contain only the latest version of each item. Historical versions MAY be made available via `_history_url`.
-
-#### 5.4.1. Item Deletion (Tombstones)
-
-To delete a published item, publish a final version that is a **tombstone**:
-
-1. Keep the same `id`
-2. Increment `_version` and set `date_modified` to the deletion time
-3. Set `_deleted: true`
-4. Remove content fields (`title`, `content_html`, `attachments`, `summary`, `image`); set `content_text` to the empty string (JSON Feed requires a content field to be present)
-5. Retain the fields required for verification: `authors`, `date_published`, and `_feed_url` if used
-6. Sign the tombstone (section 4)
-
-Consumers encountering a valid tombstone SHOULD delete cached content for that `id` and SHOULD retain the tombstone itself, so the content is not resurrected from a stale cache or a replayed earlier version (the tombstone's higher `_version` wins). The tombstone SHOULD remain in the feed (or its archive) for at least 30 days.
-
-Deletion is best-effort: consumers that never re-fetch cannot be forced to delete. See the README's discussion of legal deletion for the policy implications.
-
-### 5.5. Attachments
-
-Media attachments use the JSON Feed `attachments` array:
+There is no separate interaction object. An interaction is an item carrying a **`_rel` array**: one entry per relation, each an object with a `type` and a target `to`.
 
 ```json
 {
-  "attachments": [
-    {
-      "url": "https://example.com/photo.jpg",
-      "mime_type": "image/jpeg",
-      "size_in_bytes": 245000,
-      "title": "Alt text description"
-    }
-  ]
-}
-```
-
-Attachment metadata is covered by the item signature. The media bytes themselves are not signed.
-
-### 5.6. Feed Pagination
-
-Feeds SHOULD contain at least the 50 most recent items.
-
-For older items, use JSON Feed's `next_url` field:
-
-```json
-{
-  "items": [...],
-  "next_url": "https://example.com/~alice/feed.json?before=2025-01-01"
-}
-```
-
-## 6. Interactions
-
-### 6.1. Interaction Object
-
-An interaction is a signed JSON object with this structure:
-
-```json
-{
-  "type": "reply",
   "id": "urn:uuid:...",
-  "target": "https://example.com/~alice/feed.json",
-  "target_item": "urn:uuid:...",
-  "author": "https://example.com/~bob/",
-  "content": "Reply text",
-  "published": "2025-12-07T15:00:00Z",
-  "_sig": "..."
-}
-```
-
-Required fields:
-
-| Field | Description |
-|-------|-------------|
-| `type` | Interaction type (see 6.2) |
-| `id` | Globally unique identifier |
-| `target` | Feed URL or identity URL being interacted with |
-| `author` | Identity URL of the interaction author |
-| `published` | ISO 8601 timestamp |
-| `_sig` | JWS signature by the author |
-
-Optional fields:
-
-| Field | Description |
-|-------|-------------|
-| `target_item` | Specific item ID within the feed |
-| `content` | Text content (required for `reply`) |
-| `source` | Source URL where interaction originates (required for `mention`) |
-| `_in_reply_to` | ID of parent interaction for nested threading (see 6.6) |
-
-The `content` field is plain text. Receivers MUST NOT interpret it as HTML and MUST escape it when rendering into an HTML context. Rich formatting in interactions is out of scope; hubs that display comments as HTML derive that HTML themselves (escaping, optional autolinking).
-
-The `id` MUST be globally unique for each distinct **original** interaction from an author. Two different original interactions (e.g., a `like` and a `reply`) MUST NOT share an `id`.
-
-Two operations deliberately reuse an existing `id` and are not new original interactions:
-
-- An **update** (section 6.4) reuses the `id` of the interaction it replaces and keeps the same `type`.
-- A **delete** (section 6.5) reuses the `id` of the interaction it removes, with `type: "delete"`.
-
-An update MUST NOT change the `type` of an interaction. To change type (for example, to switch a reaction), send a `delete` for the original and a new interaction with a fresh `id`.
-
-### 6.2. Interaction Types
-
-| Type | Description | `content` | `target_item` |
-|------|-------------|-----------|---------------|
-| `reply` | Textual response | REQUIRED | REQUIRED |
-| `like` | Endorsement | MUST NOT | REQUIRED |
-| `repost` | Share to own feed | MUST NOT | REQUIRED |
-| `mention` | Notification of mention | MUST NOT | MUST NOT |
-| `delete` | Remove previous interaction | MUST NOT | MUST NOT |
-
-**Type-specific requirements:**
-
-For `mention`:
-- `target` MUST be the mentioned identity URL (not feed URL)
-- `source` MUST be the URL where the mention appears
-- `target_item` MUST NOT be present
-- `content` MUST NOT be present
-
-For `delete`:
-- `id` MUST match the interaction being deleted
-- The author MUST be the same as the original interaction
-
-Custom types MUST be prefixed with `x-` (e.g., `x-emoji-react`).
-
-### 6.2.1. Reply Publication
-
-Replies create a dual record for discoverability and verification:
-
-1. **Inbox delivery** - Notify the target that a reply exists
-2. **Feed publication** - Create a permanent, signed, discoverable record
-
-When sending a `reply` interaction:
-
-- The reply SHOULD be published to the author's own feed with `_reply_to` field
-- The reply SHOULD be delivered to the target's inbox
-- The `id` in the feed item and inbox interaction MUST match
-
-Example feed item (in author's feed):
-
-```json
-{
-  "id": "urn:uuid:661f9511-f3ac-52e5-b827-557766551111",
-  "authors": [{ "url": "https://example.com/~bob/" }],
-  "_feed_url": "https://example.com/~bob/feed.json",
-  "content_text": "Great post!",
+  "authors": [{ "url": "https://pence.family/~dad/" }],
+  "_feed_url": "https://pence.family/~dad/feed.json",
+  "content_text": "Those cookies were delicious!",
   "date_published": "2025-12-07T16:00:00Z",
-  "_reply_to": "https://example.com/~alice/feed.json#urn:uuid:550e8400-e29b-41d4-a716-446655440000",
+  "_version": 1,
+  "_rel": [{ "type": "reply", "to": "https://pence.family/~mom/feed.json#urn:uuid:550e8400-..." }],
   "_sig": "..."
 }
 ```
 
-Example inbox interaction (sent to target):
+Core relation types:
+
+| `type` | Meaning | Content |
+|--------|---------|---------|
+| `reply` | Reply to the referenced item | REQUIRED |
+| `root` | Thread root of a nested reply; accompanies `reply` (§8.1) | (governed by `reply`) |
+| `like` | Endorsement of the referenced item | NONE (add `_emoji` to the entry for reactions) |
+| `repost` | Share of the referenced item | NONE |
+| `quote` | Quote of the referenced item | REQUIRED |
+| `mention` | Mentions the referenced identity | REQUIRED |
+
+Entry shape:
+
+- **`type`** — a registered token from the table above **or** an absolute URL for custom relations (`"type": "https://example.com/ns#bookmark"`). This mirrors HTML link relations: a small registered vocabulary plus permissionless namespaced URIs. Namespacing by URL is collision-free; the `_` field convention is not, which is why relation *types* are values, not field names.
+- **`to`** — a single target URI. For items: `{feed_url}#{item_id}` (RECOMMENDED — receivers resolve relevance structurally by splitting at the last `#`, unambiguous because ids never contain `#`, §7.2) or the target's permalink `url` (which forces receivers to recognize their own permalinks — workable for hubs, fuzzier for anyone else). For `mention`: the mentioned identity URL. Multiplicity is expressed with **multiple entries**, never an array in `to` (so a reply that mentions two people is three entries).
+- Entries are **open objects**: unknown keys MUST be preserved. This is where per-relation extension and bridge round-trip data live (`_emoji` on a `like`; a foreign activity id on a bridged `reply`).
+
+Custom-typed entries follow the same shape; receivers store unknown types and MAY hide them. Clients SHOULD NOT render content-less relation items (`like`, `repost`) as posts; they are activity. Publishers SHOULD segregate content-less relation items into a separate **activity feed** — listed in `feeds` (§3.2) with its own manifest — rather than the primary feed. This keeps the primary feed clean for Level 0 readers (a plain feed reader would otherwise render bare likes as posts) and keeps the primary manifest, where every id lives (§9), from being dominated by likes.
+
+Interaction items live in their author's feed like any other item (SHOULD — they MAY be inbox-only, in which case `_feed_url` is omitted). One object, one signature: publishing it and delivering it are the same bytes, so there is nothing to keep in sync.
+
+### 8.1. Threading
+
+A `reply` entry's `to` points at the **parent** — a post, or another reply item (in the parent author's feed). When the parent is not itself the thread root, the item SHOULD also carry a `root` entry pointing at the thread root. Without it, deep replies never reach the conversation's host: inbox relevance (§10.2) is judged per `_rel` entry, so a reply-to-a-reply references only the parent's author, and the root author's inbox would reject it as `not_relevant` — the person hosting the thread would be the one who can't see it. Because the relevance check is type-agnostic, `root` entries are honored even by receivers that predate the type. Senders SHOULD deliver a nested reply to both the parent author's and the root author's inboxes.
+
+Threads are trees built by walking parents; clients display flat or nested and SHOULD cap walk depth (loops are possible in malicious data; treat re-visited references as leaves). The replies endpoint (§12) accelerates discovery.
+
+### 8.2. Updating and Deleting Interactions
+
+Same as any item: edit = bump `_version` + re-sign; unlike/retract = tombstone, delivered to the same inbox. Tombstones SHOULD retain their `_rel` array (routing), and receivers MUST accept a tombstone whose `(author, id)` matches a stored item even if `_rel` is absent. To *change* a reaction, tombstone the old item and publish a new one with a fresh `id` — `id` reuse across different relations is not permitted.
+
+## 9. The Manifest
+
+The manifest commits an identity to a feed's contents. Each feed an identity publishes — primary or additional (`feeds`, §3.2) — has its own manifest, keyed by its `feed_url`. It is a **separately-signed, chained** document: signed by a key valid in the identity's chain, carrying its own monotonic `seq` and `prev` hash-linkage. It is the **same pin-and-walk discipline as the identity chain (§5), applied to content instead of identity.** Publishing a new item advances the manifest chain; it never touches the identity chain, which stays short.
 
 ```json
 {
-  "type": "reply",
-  "id": "urn:uuid:661f9511-f3ac-52e5-b827-557766551111",
-  "target": "https://example.com/~alice/feed.json",
-  "target_item": "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
-  "author": "https://example.com/~bob/",
-  "content": "Great post!",
-  "published": "2025-12-07T16:00:00Z",
+  "url": "https://pence.family/~mom/",
+  "feed_url": "https://pence.family/~mom/feed.json",
+  "seq": 412,
+  "prev": "Jq3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
+  "history": "https://pence.family/~mom/manifest-history.json",
+  "updated": 1739577600,
+  "items": { "urn:uuid:550e8400-...": 3, "urn:uuid:661f9511-...": 1 },
+  "deleted": { "urn:uuid:99aa2222-...": 4 },
   "_sig": "..."
 }
 ```
 
-This dual publication ensures:
+Fields:
 
-- **Discoverability** - Others can find the reply in the author's feed
-- **Notification** - The target knows a reply exists
-- **Verification** - Both records are signed by the same key with the same ID
-- **Permanence** - The reply exists even if the target's inbox is cleared
+- `url`: the owning identity (author binding, §6.6); MUST match the identity that lists this manifest under `manifest` / `feeds`
+- `feed_url`: the feed this manifest commits to
+- `seq`: monotonic version counter, starts at 1, strictly increasing; a consumer rejects any manifest whose `seq` is below its pin (rollback)
+- `prev`: **MUST if `seq > 1`.** Base64url SHA-256 of the full published canonical bytes (including `_sig`) of the immediately preceding manifest version. Genesis (`seq: 1`) omits it.
+- `history`: **MUST if `seq > 1`.** URL of the manifest history document (§9.2), from which a consumer retrieves intermediate versions to walk `prev` back to its pin.
+- `updated`: publication time (Unix seconds); the effective signing time for the revocation/`iat` check (§6.5)
+- `items`: map of live item `id` → current `_version`
+- `deleted`: map of tombstoned `id` → tombstone `_version`. Omit when empty. Entries persist (a few dozen bytes each) until folded into a checkpoint (§9.3), so deletion history is verifiable
+- `checkpoint_seq`, `checkpoint_hash`: OPTIONAL. Names a retained earlier manifest version, bounding growth (§9.3)
+- `_sig`: detached JWS (§6) by a chain-valid key
 
-Receivers MAY verify that a reply exists in the author's feed, but MUST NOT require it (the author may not have a feed, or may be using inbox-only replies).
+Item *content* integrity needs no hash here: each item carries its own signature, and the `_version` in the manifest binds to the exact signed revision — a host cannot present a version the author never signed. The manifest adds what per-item signatures cannot: **presence, freshness, and — via the chain — tamper-evidence against a host that equivocates on what was published.**
 
-### 6.3. Replay Prevention
+### 9.1. Chain Mechanics
 
-Interactions MUST be rejected if:
+Producing and verifying a manifest version follow §5.2 and §5.3 exactly, with the manifest standing in for the identity document:
 
-- The `target` does not match the inbox owner's feed or identity
-- The `id` has already been received from this author with an equal or later `published` timestamp
-- The `published` timestamp is more than 7 days in the past
-- The `published` timestamp is more than 24 hours in the future
+**Producing:** from the current version, apply content changes; `seq += 1`; `prev` = hash of the previous manifest; set `updated`; sign with a key valid in the identity chain; append the previous version to the manifest history (§9.2).
 
-Interactions with the same `id` and a later `published` timestamp replace the previous version (see 6.4).
+**Consumer enforcement (pinning):** a consumer that verified a manifest at `(seq: N, hash: H)` MUST store that pin. On any later fetch:
 
-### 6.4. Interaction Updates
+1. Verify `_sig` per §6.5, with the `kid` identity equal to `url` and the key found in that identity's pinned document
+2. Walk `prev` links (fetching intermediates from `history`) back to `(N, H)`. Reject if `seq` decreased, any `prev` mismatches, or two manifests claim the same `seq` with different hashes (equivocation)
+3. Enforce the invariants (§9.4)
+4. Update the pin
 
-To update an interaction, send a new interaction with:
+Because prior manifest versions are retained and served (§9.2), a manifest fork is detectable across consumers exactly as an identity-document fork is (§5.3): two observers — or a `pins` aggregator (Appendix G) — reconstruct the manifest at a shared `seq` and compare hashes; divergence surfaces as same-`seq`/different-hash. This is the property the host-trust analysis (§14.2) relies on: a signer that equivocates on *what content exists* is as catchable as one that equivocates on *what keys exist*.
 
-- The same `id`
-- A later `published` timestamp
-- A valid signature
+First contact is TOFU (§5.3): accept and pin.
 
-The recipient SHOULD replace the previous version. This mechanism allows correcting typos or editing the `content` of a reply. It MUST NOT be used to change the interaction `type`; to change type (e.g., switch a reaction), delete the original and send a new interaction (section 6.1).
+### 9.2. Manifest History
 
-### 6.5. Interaction Deletion
-
-To delete an interaction:
-
-1. Create an interaction with `type: "delete"`
-2. Set `id` to the ID of the interaction being deleted
-3. Sign and send to the same inbox
-
-The recipient SHOULD remove or hide the original interaction.
-
-### 6.6. Threading
-
-Reply interactions support nested threading via the `_in_reply_to` field.
-
-| Field | Description |
-|-------|-------------|
-| `target_item` | REQUIRED. The root post being discussed. |
-| `_in_reply_to` | OPTIONAL. The specific interaction this replies to. |
-
-If `_in_reply_to` is omitted, the reply is a direct response to the root post.
-
-If `_in_reply_to` is present, it MUST be the `id` of another interaction on the same `target_item`.
-
-Example nested reply:
+Producers MUST retain prior manifest versions and serve them at the `history` URL, in the shape of §5.4:
 
 ```json
-{
-  "type": "reply",
-  "id": "urn:uuid:charlie-reply-1",
-  "target": "https://example.com/~alice/feed.json",
-  "target_item": "urn:uuid:root-post-id",
-  "_in_reply_to": "urn:uuid:bob-reply-1",
-  "author": "https://example.com/~charlie/",
-  "content": "Replying to Bob's reply",
-  "published": "2025-12-07T16:30:00Z",
-  "_sig": "..."
-}
+{ "versions": [ { "...": "verbatim seq:1 manifest" }, { "...": "verbatim seq:2 manifest" } ] }
 ```
 
-Clients MAY display threads as flat (sorted by time) or nested (grouped by `_in_reply_to`). Clients SHOULD provide controls to collapse deeply nested threads.
+Ascending `seq` order; each entry MUST canonicalize to bytes matching the successor's `prev`. Unlike the identity chain, the manifest advances on every publication, so this history is the long one — §9.3 bounds it.
 
-## 7. Interaction Delivery
+### 9.3. Checkpointing (OPTIONAL)
 
-Open Feed supports two delivery mechanisms for interactions:
+Left unbounded, `items` grows with the catalog and `deleted` grows forever, against the §14.4 caps. A manifest MAY declare a **checkpoint** to bound both:
 
-1. **Open Feed Inbox** - Rich, signed interaction objects (section 7.1)
-2. **Webmention** - W3C standard, simpler but less structured (section 7.2)
+- `checkpoint_seq` + `checkpoint_hash` name an earlier manifest version that MUST remain retrievable via `history`.
+- A manifest that declares a checkpoint MUST still carry its full **live** set in `items` (so the current manifest remains self-sufficient for what is live), but MAY **omit `deleted` entries whose tombstone was committed at or before the checkpoint.** Their permanence is preserved by the retained checkpoint: a consumer that does not find an id in the current manifest and needs its disposition consults the checkpoint (fetched from `history`, hash-verified against `checkpoint_hash`).
+- Manifest history *before* a checkpoint MAY be pruned down to the checkpoint version itself. A consumer whose pin predates a pruned checkpoint MUST treat the chain as unverifiable (§5.3) rather than silently re-pin.
 
-Implementations MAY support one or both. If both endpoints are advertised, senders SHOULD prefer the inbox for richer semantics.
+Checkpointing trades a little walk complexity for a bounded live manifest. It is OPTIONAL; a family-scale identity may never need it.
 
-### 7.1. Open Feed Inbox
+### 9.4. Invariants
 
-#### 7.1.1. Endpoint
+Violations MUST be treated like chain equivocation:
 
-The inbox accepts interactions via HTTP POST:
+1. An `id`, once present in `items`, MUST appear in every later manifest — in `items` (same or higher version) or in `deleted` — until folded into a checkpoint (§9.3). Content cannot silently vanish; removal requires a signed tombstone.
+2. `seq` and per-item versions never decrease.
+3. A served feed MUST NOT contain an item version lower than the manifest's, and MUST NOT contain live items absent from the manifest — **except** transiently newer content (an item newer than the manifest is *manifest lag*, e.g. mid-publish caching; consumers treat its presence as unverified rather than as a violation, and expect the next manifest version to commit it). Because the manifest is cheap to re-sign, publishers SHOULD advance it together with the feed, keeping this window small.
 
-```
-POST /~alice/inbox HTTP/1.1
-Host: example.com
-Content-Type: application/json
+Consumers verify incrementally: any item read from the feed is checked against its manifest entry (one map lookup). Detecting omission of an item you have never seen requires comparing manifests across pins, which the chain (§9.1) makes sound.
 
-{...interaction object...}
-```
+### 9.5. Manifest Verification (summary)
 
-#### 7.1.2. CORS
+(1) Verify `_sig` per §6.5, with the `kid` identity equal to `url` and the key found in that identity's pinned document. (2) Enforce the pin and walk `prev` to it (§9.1). (3) Enforce the invariants (§9.4). (4) Update the pin.
 
-Inbox endpoints MUST include CORS headers to allow cross-origin requests:
+## 10. Inbox
+
+### 10.1. Endpoint
+
+`POST {inbox}` with `Content-Type: application/json`; the body is a **signed item**, verbatim. The inbox MUST allow cross-origin requests:
 
 ```
 Access-Control-Allow-Origin: *
@@ -867,1065 +510,288 @@ Access-Control-Allow-Methods: POST, OPTIONS
 Access-Control-Allow-Headers: Content-Type
 ```
 
-#### 7.1.3. Verification
+Reading one's own inbox (authenticated GET) is implementation-specific and out of scope; how a user authenticates to their own hub is out of scope entirely.
 
-The inbox MUST perform these verification steps. Cheap, local checks are done **before** any outbound network fetch, so that unauthenticated senders cannot force the server to make requests (see section 10.5 and 10.11):
+### 10.2. Verification
 
-1. Parse the interaction JSON (enforce body size limits, section 10.6)
-2. Validate required fields are present
-3. Validate `type` is known or prefixed with `x-`
-4. Apply replay-prevention timestamp bounds and per-source-IP rate limits (section 6.3, 7.3) **before** fetching anything
-5. Extract `author` URL and normalize it per section 2.1
-6. Parse the `_sig` header; extract `kid` and split into `{jwks_url}#{key_id}`
-7. Confirm the `jwks_url` from `kid` belongs to the `author`'s profile: fetch the author's profile document and discover its `rel="jwks"` link. The `jwks_url` MUST match a JWKS URL advertised by that profile. Reject otherwise (do not fetch an arbitrary attacker-supplied JWKS URL). Cache negative results to avoid repeated fetches for the same bad author.
-8. Fetch the JWKS document and find the key matching `key_id`
-9. Verify the key was not revoked before the effective signing time (section 4.5)
-10. Verify the signature per section 4.5 (including author binding, section 4.6)
-11. Apply the remaining replay prevention rules per section 6.3
+Cheap local checks run **before** any outbound fetch (the sender is unauthenticated until step 7; see §14.9):
 
-Because verification requires outbound fetches (profile, JWKS), and the `author` URL is attacker-controlled until step 10 succeeds, implementations MUST rate-limit by source IP (not only by `author`) and SHOULD negatively cache failed author/JWKS fetches, so a stream of interactions bearing forged author URLs cannot be used to amplify requests toward a third party.
+1. Enforce body-size limits; parse JSON; reject duplicate keys (I-JSON)
+2. Validate required item fields (§7.2)
+3. **Relevance**: some `_rel` entry's `to` MUST reference this inbox's owner — their identity URL, their feed URL (with or without fragment), or an item of theirs. This is one lookup over `_rel` and works even for relation *types* the receiver doesn't understand (so unknown-typed interactions genuinely about the owner are accepted, per §8). Reject otherwise (`not_relevant`). Exception: a tombstone whose `(author, id)` matches a stored item is always relevant. A bare feed-URL `mention` alone SHOULD NOT authorize unbounded volume — treat it as low-priority/moderated
+4. Timestamp bounds: effective signing time not more than 7 days past nor 24 hours future
+5. Dedup (§10.3) — reject without fetching if stale
+6. Rate-limit by source IP (always) and by author (once known)
+7. Verify the signature per §6.5 (one outbound fetch: the author's identity document; cache it, and negatively cache failures)
+8. Apply the revocation check against receipt time (§4.4)
 
-#### 7.1.4. Response Codes
+### 10.3. Replay and Deduplication
 
-| Status | Meaning |
-|--------|---------|
-| `202 Accepted` | Interaction received and queued for processing |
-| `400 Bad Request` | Malformed JSON or missing required fields |
-| `401 Unauthorized` | Invalid signature or revoked key |
-| `403 Forbidden` | Author is blocked |
-| `404 Not Found` | Target item does not exist |
-| `409 Conflict` | Duplicate interaction ID (with equal or later timestamp) |
-| `429 Too Many Requests` | Rate limited |
+Receivers store `(author, id) → version`. A delivery is:
 
-Implementations SHOULD NOT distinguish between "queued for moderation" and "auto-approved" in the response.
+- **new** if the `(author, id)` is unknown → accept
+- an **update** (including tombstones) if `_version` is greater than stored → accept, replace
+- **stale** if `_version` is equal or lower → reject `409`
 
-#### 7.1.5. Reading Interactions
+Receivers MAY additionally verify the item appears in the sender's manifest (extra assurance that the interaction is really published), but MUST NOT require it — inbox-only items are legitimate.
 
-Inbox endpoints SHOULD support authenticated GET requests to retrieve received interactions.
-
-```
-GET /~alice/inbox HTTP/1.1
-Host: example.com
-Authorization: Bearer {token}
-```
-
-The response format is implementation-specific. Hubs MAY support:
-
-- Pagination via query parameters
-- Filtering by type, author, or target
-- Real-time updates via WebSub, SSE, or WebSocket
-
-Authentication MUST be required for GET requests. The inbox owner (or their delegates) are the only authorized readers.
-
-#### 7.1.6. Error Responses
-
-Error responses SHOULD include a JSON body:
-
-```json
-{
-  "error": "error_code",
-  "message": "Human-readable description"
-}
-```
-
-Standard error codes:
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `invalid_json` | 400 | Request body is not valid JSON |
-| `missing_field` | 400 | Required field is missing |
-| `invalid_signature` | 401 | Signature verification failed |
-| `key_revoked` | 401 | Signing key was revoked before `published` |
-| `author_blocked` | 403 | Author is blocked by recipient |
-| `target_not_found` | 404 | `target_item` does not exist |
-| `duplicate_id` | 409 | Interaction with this ID already exists (not an update) |
-| `rate_limited` | 429 | Too many requests |
-
-### 7.2. Webmention (W3C Standard)
-
-Webmention is a W3C Recommendation for cross-site interaction notification. Open Feed implementations MAY support Webmention as an alternative or complement to the inbox.
-
-#### 7.2.1. Endpoint
-
-```
-POST /~alice/webmention HTTP/1.1
-Host: example.com
-Content-Type: application/x-www-form-urlencoded
-
-source=https://bob.example/posts/123&target=https://alice.example/posts/456
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `source` | URL of the page containing the interaction |
-| `target` | URL of the page being interacted with |
-
-#### 7.2.2. Verification
-
-The Webmention endpoint MUST:
-
-1. Validate `source` and `target` are valid URLs
-2. Fetch the `source` URL
-3. Verify `source` contains a link to `target`
-4. Parse the source to extract interaction details
-
-For Open Feed sources, the receiver SHOULD:
-
-1. Parse the source as JSON Feed or locate the relevant feed item
-2. Verify the item's signature per section 4.5
-3. Extract interaction type from `_reply_to`, `_like_of`, or `_repost_of` fields (see 7.2.3)
-
-For sources that do not carry a verifiable Open Feed signature, any author identity claimed inside the source markup (e.g., an h-card `p-author` URL) is self-asserted by the page containing it. Receivers MUST NOT treat such a claim as an authenticated identity unless the claimed identity URL (normalized per section 2.1, including its trailing slash) is a **string prefix of the `source` URL**. Author claims that fail the prefix check SHOULD be treated as unverified (queued for moderation or displayed as unauthenticated) — otherwise any page could impersonate any identity simply by naming it as author.
-
-A same-origin check alone is NOT sufficient: origins are scheme + host + port, but Open Feed identities are commonly path-scoped (`https://example.com/~alice/` and `https://example.com/~bob/` share an origin). Under a same-origin rule, any page on a shared host could impersonate any identity on that host. The prefix rule confines a claim to pages under the identity's own path: `https://example.com/~alice/replies/1.html` may claim `https://example.com/~alice/`, but not `https://example.com/~bob/`. An apex-domain identity (`https://jessepence.com/`) is a prefix of every path on its origin, so it retains same-origin semantics. The trailing slash required by section 2.1 normalization prevents sibling-path confusion (`/~alice/` is not a prefix of `/~alice-evil/...`).
-
-#### 7.2.3. Feed Item Extensions for Webmention
-
-When publishing interactions to your own feed (for Webmention discovery), use these extension fields:
-
-| Field | Interaction Type | Value |
-|-------|-----------------|-------|
-| `_reply_to` | Reply | URL identifying the post being replied to |
-| `_like_of` | Like | URL identifying the post being liked |
-| `_repost_of` | Repost | URL identifying the post being reposted |
-
-The URL value identifies the target post. It is either the post's HTML permalink (for Webmention discovery, the target's page must link back), or, when referring to a feed item that has no standalone permalink, `{feed_url}#{item_id}` (as used in the dual-publication example in section 6.2.1). Both forms are permitted; use the permalink when one exists, since Webmention verification (section 7.2.2) fetches the `source` and looks for a link to `target`.
-
-Example reply published to own feed:
-
-```json
-{
-  "id": "urn:uuid:...",
-  "content_text": "Great post!",
-  "date_published": "2025-12-07T15:00:00Z",
-  "_reply_to": "https://alice.example/posts/456",
-  "_sig": "..."
-}
-```
-
-The author then sends a Webmention with `source` pointing to their feed item.
-
-#### 7.2.4. Response Codes
-
-Per the Webmention specification:
+### 10.4. Responses
 
 | Status | Meaning |
 |--------|---------|
-| `200 OK` or `201 Created` | Webmention accepted |
-| `202 Accepted` | Webmention queued for async processing |
-| `400 Bad Request` | Invalid source or target (including a target that does not exist) |
+| `202` | Accepted / queued (do not distinguish moderation from auto-approval — and see below) |
+| `400` | Malformed, missing fields, or not relevant to this inbox |
+| `401` | Signature invalid or key revoked |
+| `404` | Referenced target item does not exist |
+| `409` | Stale version |
+| `429` | Rate limited (include `Retry-After`) |
 
-### 7.3. Rate Limiting
+Error bodies: `{ "error": "code", "message": "human text" }` with codes `invalid_json`, `missing_field`, `not_relevant`, `invalid_signature`, `key_revoked`, `target_not_found`, `stale_version`, `rate_limited`.
 
-Implementations SHOULD rate limit by:
+**Blocked authors SHOULD receive `202`** with the content silently discarded — signalling a block with a distinct status tells a harasser to make a new identity and confirms the account exists. Reserve an explicit refusal status only for policy denials you actually want visible.
 
-- Author identity URL (for inbox)
-- Source domain (for Webmention)
-- Source IP address (as fallback)
+Senders retry 5xx/timeouts with exponential backoff for 24 hours. Recipients recover missed deliveries by polling the sender's feed (the feed is the source of truth); hubs SHOULD reconcile relation items found by polling against the inbox record.
 
-Rate limit values are implementation-specific. RECOMMENDED: 100 interactions per hour per author.
+### 10.5. Rendering Untrusted Content
 
-Rate limited responses SHOULD include `Retry-After` header.
+Item content from anyone other than the local user is untrusted — whether it arrives by inbox delivery **or** by polling a stranger's feed. Receivers MUST either render only `content_text` (escaped) or aggressively sanitize `content_html` through an allowlist. Never render untrusted HTML as-is. Content marked `_unverified` (§7.5) MUST be displayed distinctly and never cached as verified.
 
-### 7.4. Replies Endpoint
+## 11. Restricted Feeds (Extension)
 
-Profile documents MAY include a replies endpoint for thread discovery:
+Restricted (e.g. family-only) feeds are an **OPTIONAL extension**, to be specified separately (`open-feed-restricted-feeds.md`, planned — not yet drafted) and kept out of the core so the core has exactly one signing construction (§6.1). Level 3 implementations serving restricted feeds SHOULD implement it. Summary of the intended design:
 
-```html
-<link rel="replies" href="https://example.com/~alice/replies">
-```
+- Restricted feeds are **audience control, not confidentiality** — the serving host can read them; E2E encryption is out of scope.
+- An unauthenticated GET returns `401` with `WWW-Authenticate: OpenFeed-Sig`. The reader retries with a short-lived, self-signed **encoded** EdDSA JWT (modeled on DPoP, RFC 9449) binding method + resource-normalized URL, replay-guarded by `jti`, using the same Ed25519 keys they already publish. The host serves the feed only to identities on the owner's reader list.
+- A restricted feed carries its **own signed manifest** (same §9 mechanics), gated behind the same authentication.
+- **Discovery:** the restricted feed's URL MAY be listed publicly in the identity document (its *existence* is metadata; its *contents* stay gated), or delivered to authorized readers as a signed inbox item when even the existence is sensitive. The identity document itself MUST NOT be served in audience-varying forms — two views at one `seq` would be equivocation (§5.3).
 
-#### 7.4.1. Query Parameters
+## 12. Replies Endpoint (OPTIONAL)
 
-The replies endpoint MUST accept:
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `item` | MUST | Item ID to retrieve replies for |
-
-The `item` value is an item `id`, which commonly contains reserved characters (e.g., the `:` in `urn:uuid:...` or `tag:...`). Clients MUST percent-encode the value; servers MUST percent-decode it before comparison. The unencoded examples below are shown for readability only.
-
-The endpoint SHOULD accept:
-
-| Parameter | Description |
-|-----------|-------------|
-| `since` | ISO 8601 timestamp; return replies after this time |
-| `limit` | Maximum number of replies to return (default: 50) |
-
-Example request:
+An identity MAY expose thread discovery via a `replies` field in its identity document. The response is a **JSON Feed** (§7.1) whose `items` are the reply items reproduced **byte-verbatim** as received, with the queried id echoed in a feed-level `_replies_to`:
 
 ```
-GET /~alice/replies?item=urn:uuid:550e8400-e29b-41d4-a716-446655440000
+GET {replies}?item={percent-encoded-item-id}
 ```
 
-#### 7.4.2. Response Format
-
-The response MUST be JSON with Content-Type `application/json`:
-
-```json
-{
-  "item": "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
-  "replies": [
-    {
-      "type": "reply",
-      "id": "urn:uuid:661f9511-f3ac-52e5-b827-557766551111",
-      "target": "https://example.com/~alice/feed.json",
-      "target_item": "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
-      "author": "https://example.com/~bob/",
-      "content": "Great post!",
-      "published": "2025-12-07T16:00:00Z",
-      "_sig": "..."
-    }
-  ],
-  "next_url": "https://example.com/~alice/replies?item=...&since=2025-12-07T16:00:00Z"
-}
-```
-
-The `replies` array contains interaction objects reproduced **verbatim** as received via inbox, so that their signatures remain verifiable. Servers MUST NOT add, remove, or reorder fields within a reply object (doing so invalidates the signature); in particular, an absent `_in_reply_to` MUST be omitted, not serialized as `null`. Threading structure is read from `_in_reply_to` when present (its absence means a direct reply to the item).
+Optional params: `since` (ISO 8601), `limit` (default 50); pagination via the feed's own `next_url`. Because the response is a JSON Feed, consumers reuse the feed parser and the verbatim rule (fields never added, dropped, or reordered; absent fields stay absent, never `null`) is the same rule that already governs feeds. Consumers re-verify each reply's signature and build the tree from `_rel` `reply` entries (`root` entries, §8.1, index deep replies to their thread). The endpoint MAY be moderated or filtered; consumers handle gaps gracefully.
 
-#### 7.4.3. Access Control
+## 13. Conformance
 
-The replies endpoint:
+### Level 0 — Consume (non-verifying)
 
-- MAY be publicly accessible (unauthenticated GET)
-- MAY require authentication for full access
-- MAY return a filtered subset for unauthenticated requests
-- SHOULD allow the identity owner to moderate (hide/show) replies
+A plain feed reader that fetches the JSON Feed and ignores `_sig` is a valid consumer — it just gets no authenticity guarantee. Open Feed is strictly additive to the existing feed ecosystem: JSON Feed 1.1 readers (and, if an Atom mirror is published, RSS/Atom readers) work today with no Open Feed code. Level 0 has no requirements; it is named so the additive relationship is explicit.
 
-Implementations MAY return only replies the owner has approved for public display.
+### Level 1 — Read
 
-#### 7.4.4. Reply Discovery
+MUST: fetch and parse identity documents, feeds, and manifests; verify signatures (§6); enforce revocation; handle unknown fields and relation types gracefully.
+SHOULD: pin and enforce both chains — the identity document and the manifest (§5.3, §9.1); check items against manifests; enforce the canonical/copy rule (§7.5); honor content warnings; follow pagination; cache identity documents (≤1 h).
 
-Consumers discovering threads SHOULD:
+No infrastructure required.
 
-1. Fetch the replies endpoint for the target item
-2. Verify each reply's signature against the reply author's JWKS
-3. Build thread structure using `_in_reply_to` relationships
-4. Handle missing replies gracefully (author may have moderated them)
+### Level 2 — Publish
 
-### 7.5. Outbox Endpoint
+Level 1, plus MUST: serve an identity document (signed, chained, with history once `seq > 1`), a signed feed, and a signed, chained manifest (with manifest history once its `seq > 1`); produce valid signatures and canonical JSON; generate unique ids; serve every public document with `Access-Control-Allow-Origin: *`.
 
-Profile documents MAY include an outbox endpoint:
+Fully static-hostable: every Level 2 artifact is a file; signing happens at build time. (Sending interactions requires Level 2 — you need published keys for anyone to verify you.)
 
-```html
-<link rel="outbox" href="https://example.com/~alice/outbox">
-```
+### Level 3 — Interact
 
-The outbox contains interactions sent by the identity owner, providing:
+Level 2, plus MUST: inbox endpoint with the §10 verification, dedup, CORS, and response codes.
+SHOULD: replies endpoint; the restricted-feeds extension (§11) when serving restricted feeds; recovery keys and rotation UI for hosted users.
 
-- Sync across multiple clients
-- Audit trail of sent interactions
-- Discoverability of public interactions
+| Feature | L0 | L1 | L2 | L3 |
+|---------|----|----|----|----|
+| Read feed (no verify) | ✓ | ✓ | ✓ | ✓ |
+| Verify signatures | | ✓ | ✓ | ✓ |
+| Publish signed content | | | ✓ | ✓ |
+| Send interactions | | | ✓ | ✓ |
+| Static hosting sufficient | ✓ | ✓ | ✓ | |
+| Receive interactions | | | | ✓ |
+| Restricted feeds (extension) | | | | ✓ |
 
-#### 7.5.1. Endpoint Requirements
+### Transient Failures
 
-GET requests to the outbox:
+If an identity-document or manifest fetch fails transiently, cache the failure and retry (1 h, 4 h, 24 h) before permanent rejection.
 
-- MUST require authentication (see section 8)
-- MUST return only interactions sent by the authenticated identity
-- SHOULD support pagination via `next_url`
-- SHOULD support filtering by `type` query parameter
+## 14. Security Considerations
 
-```
-GET /~alice/outbox?type=reply
-Authorization: Bearer {token}
-```
+1. **Signature limitations.** Signatures prove a key signed bytes — not when (timestamps are self-reported), not who a person is, not that content is true.
+2. **Hub trust vs host trust — a gradient, not a binary.** Three adversary tiers:
+   - **Key custodian** (hub holds the user's signing key): forward impersonation is unpreventable — the email trust model, stated plainly. But even a key custodian cannot *silently rewrite the past* against pinned consumers. Both chains are retained and served (§5.4, §9.2), so removals must surface as signed tombstones (attributable actions), and per-consumer rewriting — of keys *or of content* — surfaces as a fork: two observers reconstruct the document at a shared `seq` and find different hashes (equivocation, detectable via pins, Appendix G). Transparency rather than integrity — but transparency with teeth, the certificate-transparency bargain. Content equivocation is exactly as detectable as key equivocation *because* the manifest is chained, not merely cumulative.
+   - **Serving-path compromise** (CDN, static bucket, web tier — anything outside the signing boundary): the most common real-world compromise. The attacker cannot sign, so chain and manifest give hub users **full integrity**: no undetectable omission, rollback, or injection. Hubs SHOULD keep signing behind a narrower boundary than serving.
+   - **Dumb host, external signer** (build-time signing on static hosting; client-side keys): full integrity against the host by construction.
 
-#### 7.5.2. Response Format
-
-Delivery metadata MUST be carried in an envelope around the signed interaction, never as extra fields inside it (which would invalidate the signature):
-
-```json
-{
-  "interactions": [
-    {
-      "delivered": true,
-      "delivered_at": "2025-12-07T16:00:01Z",
-      "interaction": {
-        "type": "reply",
-        "id": "urn:uuid:...",
-        "target": "https://bob.example/feed.json",
-        "target_item": "urn:uuid:...",
-        "author": "https://example.com/~alice/",
-        "content": "Great post!",
-        "published": "2025-12-07T16:00:00Z",
-        "_sig": "..."
-      }
-    }
-  ],
-  "next_url": "..."
-}
-```
-
-The `delivered` and `delivered_at` fields are implementation-specific envelope metadata. The `interaction` object is reproduced verbatim (including its `_sig`) so it remains independently verifiable.
-
-#### 7.5.3. Writing to Outbox
-
-Implementations MAY support POST to outbox as an alternative to direct inbox delivery:
-
-```
-POST /~alice/outbox
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{...interaction object without _sig...}
-```
-
-The hub:
-
-1. Validates the request
-2. Signs the interaction with the user's key
-3. Stores in outbox
-4. Delivers to target inbox
-5. Returns the signed interaction with delivery status
-
-This pattern allows hub-managed keys while maintaining the interaction model.
-
-## 8. Authentication
-
-### 8.1. Operator Authentication (OAuth)
-
-For operations where a user authenticates to **their own hub** (posting to one's own feed, managing identity, reading one's inbox/outbox), implementations SHOULD use OAuth 2.0 with discovery per IndieAuth.
-
-The profile document links to endpoints:
-
-```html
-<link rel="authorization_endpoint" href="...">
-<link rel="token_endpoint" href="...">
-```
-
-Token format and authentication methods (WebAuthn, magic link, etc.) are implementation-specific.
-
-### 8.2. Authorized Fetch (Restricted Feeds)
-
-OAuth (8.1) authenticates a user to their own hub. It does not solve the cross-hub case: a reader on hub A fetching a **restricted-visibility feed** served by hub B, where A and B share no accounts. Open Feed solves this with **Authorized Fetch** — the reader proves control of their identity by signing the request with the same Ed25519 keys used everywhere else. No shared secrets, no pre-provisioned tokens.
-
-#### 8.2.1. Restricted Feeds
-
-A feed (or feed variant) MAY be restricted. A restricted feed:
-
-- MUST return `401 Unauthorized` to an unauthenticated GET, with a `WWW-Authenticate: OpenFeed-Sig` challenge header
-- MUST NOT be advertised in a way that leaks its contents to unauthenticated clients
-- Is served only to readers whose identity appears on the feed owner's authorized-reader list (an implementation-maintained allowlist; format is out of scope)
-
-Restricted feeds are for audience control (family-only, friends-only), **not** confidentiality: the serving hub can read the content. End-to-end encryption is out of scope (section 10.2).
-
-#### 8.2.2. Fetch Assertion
-
-To fetch a restricted resource, the reader presents a short-lived, self-signed EdDSA JWT (RFC 7519) in the `Authorization` header:
-
-```
-GET /~mom/feed.json HTTP/1.1
-Host: pence.family
-Authorization: OpenFeed-Sig eyJhbGciOiJFZERTQSIsInR5cCI6Im9wZW5mZWVkLWZldGNoK2p3dCIsImtpZCI6...
-```
-
-The JWT uses standard JWS Compact Serialization (encoded payload — this is a token, not detached content). Header:
-
-```json
-{ "alg": "EdDSA", "typ": "openfeed-fetch+jwt", "kid": "https://reader.example/keys.json#test-key-1" }
-```
-
-Claims:
-
-| Claim | Description |
-|-------|-------------|
-| `iss` | Reader's identity URL (normalized, section 2.1). The identity being authenticated. |
-| `htm` | HTTP method, uppercase (`GET`). Binds the assertion to a method. |
-| `htu` | Target URL (resource-normalized, below), without query string. Binds the assertion to this resource. |
-| `iat` | Issued-at (Unix seconds). |
-| `exp` | Expiry (Unix seconds). MUST be no more than 300 seconds after `iat`. |
-| `jti` | Unique token identifier (nonce) for replay detection. |
-
-**Resource-URL normalization** (for `htu`): lowercase the scheme and host, remove the default port (`:443`), and strip the query string and fragment. The path is preserved **byte-for-byte** — the identity-URL normalization of section 2.1 (which appends a trailing slash) MUST NOT be applied, since it would corrupt resource paths like `/~mom/feed.json`.
-
-The `htm`/`htu` binding prevents a captured assertion from being replayed against a different endpoint or method; the short `exp` and `jti` bound replay within the same endpoint. Because `htu` excludes the query string, one assertion covers all query-string variants of the path (e.g., pagination) within its validity window — this is intentional.
-
-This assertion format is modeled on OAuth 2.0 DPoP (RFC 9449): `htm`, `htu`, `jti`, and `iat` carry DPoP's semantics. It differs in binding the key via `kid` plus JWKS discovery rather than an embedded `jwk`, because Open Feed identities already publish their keys (section 3) and the verifier must tie the key to the `iss` identity anyway.
-
-#### 8.2.3. Verification
-
-To verify a fetch assertion, the serving hub MUST:
-
-1. Parse the JWT; confirm `alg` is `EdDSA` and `typ` is `openfeed-fetch+jwt`
-2. Confirm `htm` matches the request method and `htu` matches the requested URL after the same resource-URL normalization (section 8.2.2)
-3. Confirm `iat` ≤ now < `exp`, allowing at most 60 seconds of clock skew on each bound (in particular, accept `iat` up to 60 seconds in the future), and `exp - iat` ≤ 300 seconds
-4. Confirm `jti` has not been seen before within the token's validity window (replay cache)
-5. Extract `kid`; confirm its JWKS URL is advertised by the `iss` identity's profile (key-ownership check, section 4.6)
-6. Fetch the `iss` JWKS, find the key, verify the JWT signature; reject revoked keys (section 4.5)
-7. Confirm `iss` appears on this feed's authorized-reader list
-
-If all checks pass, serve the restricted resource. On failure return `401` (bad/absent/expired assertion) or `403` (valid assertion, but `iss` is not authorized).
-
-The `WWW-Authenticate: OpenFeed-Sig` challenge MAY carry `error` and `error_description` parameters in the style of RFC 6750 (e.g., `WWW-Authenticate: OpenFeed-Sig error="expired_assertion"`). No other challenge parameters are defined.
-
-The same SSRF, timeout, size, and fetch-amplification protections as inbox verification apply (section 10.5, 10.11) — the `iss`/`kid` are attacker-controlled until step 6 succeeds, so cheap checks (steps 1–4) run before any outbound fetch.
-
-#### 8.2.4. Discovery
-
-A hub MAY advertise that a feed has a restricted variant; the simplest conformant behavior is to serve `401 … WWW-Authenticate: OpenFeed-Sig` on the restricted URL and let authorized readers retry with an assertion. Readers learn restricted-feed URLs out-of-band or from an authenticated profile variant; specifying a discovery document is deferred.
-
-## 9. Conformance
-
-Open Feed defines three conformance levels to support incremental adoption and varied deployment scenarios.
-
-### 9.1. Conformance Levels
-
-#### 9.1.1. Level 1: Read (Feed Consumer)
-
-A Level 1 implementation MUST:
-
-- Fetch and parse JSON Feed 1.1 documents
-- Discover JWKS via profile document `rel="jwks"` link
-- Verify Ed25519 signatures per section 4.5
-- Check key revocation status via `revoked_at` field
-- Handle unknown fields and interaction types gracefully
-
-A Level 1 implementation SHOULD:
-
-- Display content warnings (`_content_warning` or profile-level) before revealing content
-- Cache JWKS documents (RECOMMENDED: 1 hour or until signature verification fails)
-- Follow `next_url` for paginated feeds
-- Support WebFinger for `@user@domain` identifier resolution
-- Pin and enforce the Key History Chain when an identity publishes one (section 3.7.3), to detect key rollback and equivocation
-
-Level 1 allows reading and verifying Open Feed content without publishing or interacting. This level requires no server infrastructure.
-
-#### 9.1.2. Level 2: Publish (Feed Producer)
-
-A Level 2 implementation MUST meet all Level 1 requirements and:
-
-- Serve a profile document (HTML) at the identity URL
-- Include `rel="jwks"` link in profile document
-- Serve valid JWKS document per section 3
-- Serve valid JSON Feed 1.1 with signed items per section 5
-- Generate valid signatures per section 4
-- Generate globally unique item IDs
-- Canonicalize JSON per section 4.3 (byte-exact RFC 8785; emit NFC strings)
-
-A Level 2 implementation SHOULD:
-
-- Include `_version` field starting at 1 for new items
-- Provide `rel="profile"` with structured metadata
-- Provide `rel="feed"` link in profile document
-- Support WebFinger discovery per Appendix D
-
-Level 2 can be fully static-hosted (e.g., GitHub Pages, Netlify, S3). No server-side processing is required. Interactions are not received at this level.
-
-#### 9.1.3. Level 3: Interact (Full Hub)
-
-A Level 3 implementation MUST meet all Level 2 requirements and:
-
-- Accept interactions via inbox endpoint (section 7.1)
-- Verify incoming interaction signatures per section 7.1.3
-- Apply replay prevention rules per section 6.3
-- Support CORS on inbox endpoint per section 7.1.2
-- Return appropriate HTTP status codes per section 7.1.4
-
-A Level 3 implementation SHOULD:
-
-- Implement OAuth 2.0 for authenticated operations
-- Support authenticated GET on inbox per section 7.1.5
-- Support Webmention endpoint per section 7.2
-- Support WebSub for real-time feed updates per Appendix E
-- Provide `rel="replies"` endpoint per section 7.4
-- Provide `rel="outbox"` endpoint per section 7.5
-
-Level 3 requires server-side processing for the inbox endpoint. This is the full hub experience.
-
-### 9.2. Feature Support Matrix
-
-| Feature | Level 1 | Level 2 | Level 3 |
-|---------|---------|---------|---------|
-| Read feeds | ✓ | ✓ | ✓ |
-| Verify signatures | ✓ | ✓ | ✓ |
-| Publish signed content | | ✓ | ✓ |
-| Static hosting compatible | ✓ | ✓ | |
-| Receive interactions | | | ✓ |
-| Send interactions | | ✓ | ✓ |
-| OAuth authentication | | | ✓ |
-
-Sending interactions requires signing them, which requires a published identity, profile, and JWKS — i.e., Level 2 infrastructure. A pure Level 1 reader can read and verify but cannot produce signatures others can verify.
-
-### 9.3. Hub Conformance (Level 3)
-
-In addition to Level 3 requirements, a conforming multi-user hub SHOULD:
-
-- Isolate user data appropriately
-- Implement rate limiting per section 7.3
-- Provide user-facing key management
-- Support key rotation per section 3.4
-- Support recovery keys per section 3.6
-- Publish a Key History Chain per section 3.7
-- Support Authorized Fetch (section 8.2) if it serves restricted-visibility feeds
-
-### 9.4. Transient Failure Handling
-
-When signature verification fails due to inability to fetch the author's JWKS:
-
-1. Implementations SHOULD cache the failure and retry
-2. Retry schedule: 1 hour, 4 hours, 24 hours
-3. After 3 failed attempts, the interaction MAY be permanently rejected
-4. Implementations SHOULD NOT reject interactions permanently on first transient failure
-
-For inbox delivery failures, see section 7.3 (Rate Limiting) for retry guidance.
-
-### 9.5. Content-Type Handling
-
-When fetching JWKS or Feed documents:
-
-- Implementations MUST send appropriate `Accept` headers (`application/jwk-set+json` or `application/feed+json`)
-- Implementations MUST reject responses whose Content-Type is `text/html` (or any non-JSON type), and MUST reject a response that does not parse as JSON
-- Implementations MUST accept the type-specific Content-Type (`application/jwk-set+json`, `application/feed+json`)
-- Implementations MUST accept `application/json` (optionally logging a warning)
-
-The purpose of this check is to avoid parsing an HTML error page (`<html>404 Not Found</html>`) as JSON — that is the actual attack surface. It is **not** to require an exact vendor Content-Type: most static hosts (GitHub Pages, S3, Netlify) serve `.json` files as `application/json`, and Level 1/2 conformance depends on those hosts working. Rejecting `application/json` would make the static-hosting story in section 9.1.2 unattainable, so implementations MUST accept it.
-
-## 10. Security Considerations
-
-### 10.1. Signature Limitations
-
-Signatures prove that content was signed by whoever controls a private key. They do not prove:
-
-- When the content was actually created (timestamps are self-reported)
-- That the identity belongs to a particular person
-- That the content is true
-
-### 10.2. Hub Trust
-
-Hub operators who store private keys can:
-
-- Sign content as any user they host
-- Modify feed content
-- Read private keys
-
-This trust model is similar to email providers. Users requiring higher security SHOULD use client-side key generation.
-
-### 10.3. TLS Requirements
-
-All URLs in this specification MUST use HTTPS.
-
-Implementations MUST validate TLS certificates.
-
-Implementations SHOULD reject connections with invalid or expired certificates.
-
-### 10.4. Key Storage
-
-Private keys SHOULD be stored encrypted at rest.
-
-Implementations MAY use hardware-backed key storage (WebAuthn/FIDO2) for enhanced security.
-
-### 10.5. Server-Side Request Forgery (SSRF)
-
-When fetching author profiles, JWKS documents, feed URLs, or source URLs for Webmention:
-
-Implementations MUST:
-
-- Validate URLs use the HTTPS scheme
-- Follow redirect limits (max 5 per section 2.3)
-- Apply connection timeout limits (RECOMMENDED: 10 seconds)
-- Apply response size limits (RECOMMENDED: 1MB for profiles/JWKS, 10MB for feeds)
-
-Implementations SHOULD:
-
-- Reject URLs resolving to private IP addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-- Reject URLs resolving to loopback addresses (127.0.0.0/8, ::1)
-- Reject URLs resolving to link-local addresses (169.254.0.0/16, fe80::/10)
-- Validate DNS responses before connecting
-- Use a dedicated HTTP client with restrictive defaults
-
-### 10.6. Resource Exhaustion
-
-Malicious actors may attempt to exhaust server resources. Implementations SHOULD enforce limits:
-
-| Resource | Recommended Limit |
-|----------|-------------------|
-| Keys in JWKS document | 100 |
-| JWKS chain history versions walked per update | 100 |
-| Items in feed (single page) | 1000 |
-| Interaction body size | 100KB |
-| Attachment metadata per item | 1MB |
-| Total feed document size | 10MB |
-| Concurrent fetches per origin | 10 |
-
-Implementations SHOULD return appropriate error responses (413, 429) when limits are exceeded.
-
-### 10.7. Enumeration Attacks
-
-WebFinger endpoints and inbox endpoints may be probed to enumerate users or content.
-
-Implementations SHOULD:
-
-- Rate limit WebFinger requests by source IP
-- Return consistent response timing regardless of whether a user exists
-- Consider requiring authentication for enumeration-sensitive queries
-- Log and monitor for enumeration patterns
-
-Implementations MUST NOT include detailed error messages that reveal internal state.
-
-### 10.8. Signature Stripping
-
-Content may be re-served without signatures by malicious intermediaries.
-
-Consumers MUST:
-
-- Not trust content claimed to be from an identity without a valid `_sig`
-- Display unsigned content distinctly from verified content
-- Not cache unsigned content as if it were verified
-
-Producers SHOULD:
-
-- Include signatures on all content, including cached/proxied content
-- Re-validate signatures when re-serving content from cache
-
-### 10.9. Replay and Timing Attacks
-
-The replay prevention window (section 6.3) mitigates but does not eliminate timing attacks.
-
-Implementations SHOULD:
-
-- Use constant-time comparison for signature verification
-- Synchronize clocks via NTP
-- Log timestamp anomalies for security monitoring
-
-Implementations MUST NOT use system time as the sole source of truth for ordering.
-
-### 10.10. Identity Portability Limitations
-
-URL-based identity depends on domain availability. If domain access is lost:
-
-- With recovery keys (section 3.6): Identity can be reclaimed
-- Without recovery keys: Identity is orphaned
-- If domain is hijacked: Attacker can potentially claim false succession
-
-Users requiring stronger guarantees SHOULD:
-
-- Maintain recovery keys stored securely offline (not on hub)
-- Use domains they control directly (not subdomains of platforms)
-- Publish recovery attestations before they are needed
-
-The trust model is similar to email: losing access to your email provider means losing that email address. For family hubs where the administrator is trusted, this is acceptable. For other deployments, consider additional safeguards.
-
-### 10.11. Inbox Fetch Amplification
-
-Inbox verification (section 7.1.3) makes outbound HTTP fetches (profile, JWKS) driven by the sender-supplied `author` URL, which is unauthenticated until verification succeeds. Without care, an attacker can POST a stream of interactions bearing forged `author` URLs pointing at a victim domain, turning the inbox into a request-amplification proxy against that victim.
-
-Implementations MUST:
-
-- Apply per-source-IP rate limiting **before** any outbound fetch (do not rate-limit solely by the unverified `author`).
-- Perform cheap, local checks (parse, required fields, timestamp bounds) before fetching.
-- Only fetch the JWKS URL advertised by the claimed author's own profile (section 7.1.3 step 7); never fetch an arbitrary JWKS URL taken directly from the `kid`.
-
-Implementations SHOULD:
-
-- Negatively cache failed profile/JWKS fetches so repeated forged authors do not each trigger a fetch.
-- Apply the SSRF protections of section 10.5 to every such fetch.
-
-### 10.12. Key Revocation and Self-Reported Timestamps
-
-Key revocation (section 3.5) checks the signing key's `revoked_at` against the content's self-reported effective signing time (section 4.5). Because that timestamp is attacker-controllable once a key is stolen (section 10.1), a thief can backdate forged content to before `revoked_at` and have it accepted. Revocation therefore limits ongoing damage from an *honestly* rotated key far more than it stops an active thief.
-
-To reduce this exposure, implementations SHOULD:
-
-- For **interactions**, use the inbox **receipt time** as the effective time for the revocation check, not the sender's `published` value (the receipt time is a trustworthy lower bound the attacker cannot backdate).
-- Treat feed-item timestamps as claims, and prefer independent evidence of time (receipt logs, WebSub delivery time, or a trusted timestamp) when the ordering matters for security decisions.
-
-A hash-chained JWKS or transparency log (see the project's open questions) would let any consumer with one honest prior observation detect backdating and rollback; this is deferred.
-
----
+   Client-side keys (or the delegation extension sketched in Appendix H) move a user from the first tier toward the third.
+3. **TLS and CORS.** Everything HTTPS; validate certificates. Every publicly-readable document is served with `Access-Control-Allow-Origin: *` so browser Level-1 readers need no proxy.
+4. **Resource limits and scale.** Suggested caps: identity document 100 KB / 100 keys; manifest 1 MB (~10–15k live items — a deliberate family-scale ceiling; use checkpointing, §9.3, to keep the live manifest bounded and offload deletion history); feed page 10 MB / 1000 items; inbox body 100 KB; chain versions walked per update 1000; concurrent fetches per origin 10. Open Feed scales **across identities** — each is self-contained and independently verifiable — not in items-per-identity; the manifest is that boundary by construction, and a global-scale aggregator (firehose) is explicitly out of scope.
+5. **SSRF.** For every outbound fetch: HTTPS only, ≤5 redirects, 10 s timeout, size limits, reject private/loopback/link-local addresses, dedicated restrictive HTTP client.
+6. **Signature stripping.** Never attribute unsigned content; display unverified content distinctly; never cache it as verified.
+7. **Replay/timing.** Constant-time comparisons; NTP; never trust self-reported time as sole ordering.
+8. **Enumeration.** Rate-limit discovery endpoints; uniform timing for exists/doesn't-exist. The `deleted` map (§9) makes "this identity deleted something at version N" a lasting public fact — fine for family use, worth noting for anyone else.
+9. **Inbox fetch amplification.** The `author` in a delivered item is attacker-controlled until verification succeeds. Rate-limit by source IP before fetching; run all local checks first; fetch only the fixed-path identity document of the claimed author (never an arbitrary URL from the `kid` — the path convention makes this structural); negatively cache failures. Collapsing discovery to one document also halves the amplification factor by construction.
+10. **Rollback vs self-reported time.** The chains detect identity-document and content rollback — both relative to a consumer's pin. Neither detects item *backdating* (self-reported timestamps); receipt time is the trustworthy lower bound for inbox items, and manifest first-observation time (§4.4) is its pull-path analog, and the `pins` convention (Appendix G) is a family-scale external time anchor. A true transparency log / witness network remains future work.
+11. **Inbound and copied HTML.** §10.5. Escape or sanitize any content not authored by the local user, always.
+12. **Thread loops.** `_rel` `reply` graphs from malicious parties may contain cycles; cap walk depth.
+13. **Manifest lag vs violation.** Content *newer* than the manifest is lag (tolerate briefly); content *vanished* from the manifest without a tombstone, or a copied item contradicting the canonical manifest, is a violation (treat as equivocation).
+14. **Identity portability.** Losing the domain without recovery keys orphans the identity — the email trade-off. Recovery keys + pins close the hijack gap for anyone who observed the identity before the hijack; first contact after a hijack is unprotectable **by design**. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity, and recovery keys + pins are the family-scale mitigation, not a fix. External anchors (transparency logs, witnesses) remain deferred.
 
 ## Appendix A: Media Types
 
-| Document | Media Type |
-|----------|------------|
-| Profile | `text/html` |
-| JWKS | `application/jwk-set+json` |
-| Feed | `application/feed+json` |
-| Profile metadata | `application/json` |
-| Interaction (POST body) | `application/json` |
-| WebFinger | `application/jrd+json` |
+| Document | Content-Type (serve) | Accept (consume) |
+|----------|---------------------|------------------|
+| Identity document, manifest, both history documents, inbox body | `application/json` | any JSON; reject non-JSON |
+| Feed | `application/feed+json` | that, or `application/json` |
 
-## Appendix B: Link Relations
+All served with `Access-Control-Allow-Origin: *`.
 
-| Relation | Specification |
-|----------|---------------|
-| `jwks` | This specification (JWKS document) |
-| `pubkey` | This specification (alias for `jwks`, deprecated) |
-| `feed` | JSON Feed 1.1 |
-| `inbox` | This specification (interaction receiving) |
-| `outbox` | This specification (interaction sending history) |
-| `replies` | This specification (thread discovery) |
-| `recovery` | This specification (recovery attestation) |
-| `webmention` | W3C Webmention |
-| `profile` | This specification |
-| `authorization_endpoint` | IndieAuth / OAuth 2.0 |
-| `token_endpoint` | IndieAuth / OAuth 2.0 |
-| `following` | Convention (non-normative) |
-| `successor` | This specification (identity migration) |
-| `canonical` | RFC 6596 (preferred URL) |
+## Appendix B: WebFinger (OPTIONAL)
 
-**Note:** The relation values defined by this specification (`jwks`, `pubkey`, `inbox`, `outbox`, `replies`, `recovery`, `profile`, `successor`) are not registered in the IANA Link Relations registry. Registration (or migration to URL-form extension relations) is planned before 1.0; collisions with future registered relations are a known pre-1.0 risk.
+`@user@domain` identifiers resolve via WebFinger (RFC 7033): `GET /.well-known/webfinger?resource=acct:mom@pence.family` returns the identity URL in `aliases` / `rel="self"` links. Clients MUST then fetch the identity document as the authoritative source. Purely a human-friendly aliasing layer; nothing else depends on it.
 
-## Appendix C: References
+## Appendix C: Real-Time Updates (OPTIONAL)
 
-- RFC 2119: Key words for use in RFCs
-- RFC 6596: The Canonical Link Relation
-- RFC 7033: WebFinger
-- RFC 7493: The I-JSON Message Format
-- RFC 7515: JSON Web Signature (JWS)
-- RFC 7517: JSON Web Key (JWK)
-- RFC 7519: JSON Web Token (JWT)
-- RFC 7797: JWS Unencoded Payload Option (`b64`)
-- RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA) — Ed25519 test vectors
-- RFC 8785: JSON Canonicalization Scheme
-- RFC 9449: OAuth 2.0 Demonstrating Proof of Possession (DPoP)
-- JSON Feed 1.1: https://jsonfeed.org/version/1.1
-- IndieAuth: https://indieauth.spec.indieweb.org/
-- Webmention: https://www.w3.org/TR/webmention/
-- WebSub: https://www.w3.org/TR/websub/
+JSON Feed 1.1 already defines a `hubs` field for WebSub. Feeds MAY advertise one; subscribers get pushes instead of polling, and MUST still verify item signatures — the WebSub hub is untrusted infrastructure. Nothing Open-Feed-specific is added. Real-time *inbox* notification to one's own clients (SSE, WebSocket) is implementation-specific.
 
-## Appendix D: WebFinger Discovery
+## Appendix D: Test Vectors
 
-WebFinger (RFC 7033) provides an optional discovery mechanism for `@user@domain` style identifiers.
+All vectors are computed and self-verifying (regenerated by `tmp/regen.cjs`, which validates the canonicalizer against D.2's known SHA-256 and cryptographically self-verifies every `_sig`). Keys are **deterministic, testing-only** Ed25519 keys — not for any real identity.
 
-### D.1. WebFinger Request
+### D.1. Keys
 
-```
-GET /.well-known/webfinger?resource=acct:alice@example.com HTTP/1.1
-Host: example.com
-Accept: application/jrd+json
-```
+Identity: `https://test.example/`. Public keys (`x`, base64url):
 
-### D.2. WebFinger Response
+| `kid` | role | `x` |
+|-------|------|-----|
+| `test-key-1` | primary | `EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0` |
+| `recovery-1` | recovery | `1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk` |
+| `test-key-2` | rotation | `KOvPWZT35Xzwcsw6vfQzO3idc8oa67BdHZ0oXpriOQA` |
+
+JWS header for every `_sig` below (signed by `test-key-1`):
 
 ```json
-{
-  "subject": "acct:alice@example.com",
-  "aliases": [
-    "https://example.com/~alice/"
-  ],
-  "links": [
-    {
-      "rel": "self",
-      "type": "text/html",
-      "href": "https://example.com/~alice/"
-    },
-    {
-      "rel": "jwks",
-      "type": "application/jwk-set+json",
-      "href": "https://example.com/~alice/keys.json"
-    },
-    {
-      "rel": "feed",
-      "type": "application/feed+json",
-      "href": "https://example.com/~alice/feed.json"
-    },
-    {
-      "rel": "inbox",
-      "href": "https://example.com/~alice/inbox"
-    },
-    {
-      "rel": "webmention",
-      "href": "https://example.com/~alice/webmention"
-    }
-  ]
-}
+{"alg":"EdDSA","b64":false,"crit":["b64"],"kid":"https://test.example/#test-key-1"}
 ```
 
-### D.3. Resource Identifier
-
-The `resource` parameter uses the `acct:` URI scheme:
+base64url (the header segment of each `_sig`):
 
 ```
-acct:{user}@{domain}
+eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0
 ```
 
-Hubs SHOULD support WebFinger queries for all hosted identities.
+### D.2. Signed Item
 
-### D.4. Mapping to Identity URL
+Canonical bytes (no `_sig`; `ö` is NFC U+00F6, wave is U+1F44B):
 
-The canonical identity URL is found in:
+```
+{"_feed_url":"https://test.example/feed.json","_version":1,"authors":[{"url":"https://test.example/"}],"content_text":"Hello, wörld! 👋","date_published":"2025-01-15T12:00:00Z","id":"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"}
+```
 
-1. The `aliases` array (HTTPS URL)
-2. The `href` of the link with `rel="self"` and `type="text/html"`
+SHA-256 (hex): `7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168`
 
-Clients resolving `@user@domain` MUST fetch the identity URL and use the profile document as the authoritative source for endpoint discovery.
+`_sig`:
 
-## Appendix E: WebSub Real-Time Updates
+```
+eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..MnPQcvR9PB4E_pJ1YZTggDoRwu0_uOcPegHfebTbKpdtzv8k4O8tbLtnk4VNDyjGa3mWLc15wtkMRK7nTVcoDQ
+```
 
-WebSub (W3C Recommendation) provides real-time push notifications for feed updates. This appendix defines OPTIONAL WebSub integration for Open Feed.
+### D.3. Manifest (genesis, `seq: 1`)
 
-### E.1. Hub Discovery
+Full published canonical bytes (signed by `test-key-1`, `updated` = 1736899200):
 
-Feed documents MAY advertise a WebSub hub:
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..jeougogRyjJFslTe1xYIqGGJ7kbpccQN59PDKSN1Yd9ghO78rn97mIX0BwwhZGLMZaHw_Zkr9NhF2YlCHRMfAg","feed_url":"https://test.example/feed.json","items":{"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":1},"seq":1,"updated":1736899200,"url":"https://test.example/"}
+```
+
+Base64url SHA-256 of these canonical bytes (this is `seq: 2`'s `prev`): `GPbjqBsIVHRzgMlbfqXu5IU29SqEhMQnAlukdt8j7DY`
+
+### D.3b. Manifest, `seq: 2` (chained)
+
+Adds a second item and chains to the genesis via `prev`. Signed by `test-key-1`, `updated` = 1739577600:
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..UQHPRbpNJhtsUEIkILVzAKyKEPgO5oJtHtkKQXC8X2NPet3YpjB-S8HtSuDoDx5zLLk6j7Ow9BD09CnpxOJ_Cg","feed_url":"https://test.example/feed.json","history":"https://test.example/manifest-history.json","items":{"urn:uuid:00112233-4455-6677-8899-aabbccddeeff":1,"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":1},"prev":"GPbjqBsIVHRzgMlbfqXu5IU29SqEhMQnAlukdt8j7DY","seq":2,"updated":1739577600,"url":"https://test.example/"}
+```
+
+Its `prev` equals the D.3 genesis hash, demonstrating manifest chaining (§9.1).
+
+### D.4. Identity Document, `seq: 1` (genesis)
+
+Full published canonical bytes (this exact string is what `seq: 2`'s `prev` hashes):
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..znmg27jptvmexlzgMLe5i9IcRU6SErrqZrvtpmmx_eby5uetMAnZx6HaaSarRcoQQB9WtpSJ1dAub5aPi30-Dw","feed":"https://test.example/feed.json","history":"https://test.example/history.json","inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"manifest":"https://test.example/manifest.json","name":"Test Identity","seq":1,"updated":1736899200,"url":"https://test.example/"}
+```
+
+Hash (base64url SHA-256, = `seq: 2`'s `prev`): `f7lGHylIOM-swVa0Fg8DlFCJ5k-fPCgucLPmXhGQ9ns`
+
+### D.5. Identity Document, `seq: 2` (rotation)
+
+Adds `test-key-2`, revokes `test-key-1`. Signed by `test-key-1` — the continuity key, valid in `seq: 1`, revoked by the very version it signs, and still listed in it (§5.2):
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..Iakri50AKxBHLr2-1MQW0GnVXBmmWL85fjDC9Dv7hSOfkgfmpBQBZEYPp8B4aXXv5pwFuEgg0to8f2AQqaHuBw","feed":"https://test.example/feed.json","history":"https://test.example/history.json","inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","revoked_at":1739577600,"x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1739577600,"kid":"test-key-2","kty":"OKP","x":"KOvPWZT35Xzwcsw6vfQzO3idc8oa67BdHZ0oXpriOQA"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"manifest":"https://test.example/manifest.json","name":"Test Identity","prev":"f7lGHylIOM-swVa0Fg8DlFCJ5k-fPCgucLPmXhGQ9ns","seq":2,"updated":1739577600,"url":"https://test.example/"}
+```
+
+**Validation recipe:** verify all five `_sig` values (D.2 item, D.3/D.3b manifests, D.4/D.5 identity documents) against `test-key-1`; recompute D.3's full-bytes hash and confirm it equals D.3b's `prev` (manifest chaining); recompute D.4's full-bytes hash and confirm it equals D.5's `prev` (identity chaining); verify the manifests' `_sig` against `test-key-1` as listed in the (pinned) identity document; confirm the item in D.2 matches the manifest entry `(id, 1)`. `tmp/regen.cjs` performs all of these checks.
+
+## Appendix E: Design History
+
+This v0.1.0 is a clean-slate synthesis. Several prior internal drafts (never publicly released; the last was numbered 0.5.1 and is preserved in git history) explored a larger surface: profile HTML with link-relation discovery, a separate JWKS document, standalone interaction objects with a type matrix, dual publication, Webmention in the core, and Authorized Fetch in the core. This version collapses that surface. The table records where each earlier construct went, as design rationale:
+
+| Prior construct | Fate | Where it went |
+|------------------|------|---------------|
+| Profile HTML + `<link>` discovery | **Removed** | Fixed-path identity document; HTML parsing eliminated from the trust chain |
+| Profile metadata document | **Merged** | Identity document fields |
+| Separate JWKS document | **Merged** | `keys` in the identity document; `kid` = `{identity_url}#{kid}` |
+| Key-ownership check | **Made structural** | Keys live only in the identity's own document; the check is a string comparison |
+| Key History Chain on JWKS | **Generalized, then split** | One chain versions the identity document (keys/profile/endpoints); a **second, separately-signed chain** — the manifest — versions the feed. One pin-and-walk discipline, two artifacts; publishing advances the manifest chain, not the identity chain |
+| Feed-omission open question | **Resolved** | Signed, chained manifest (§9) proves presence and makes omission/rollback tamper-evident; `_feed_url` (§7.5) proves exclusivity |
+| Recovery attestation / recovery-claim document | **Removed** | Folded into migration: `predecessor` + a recovery-key `_recovery_sig` (§3.4) |
+| Interaction objects, type matrix, `x-` types, dual publication, `target`/`target_item`/`source` | **Removed / collapsed** | Items with a `_rel` array; one schema, one verifier; feed and inbox carry the same bytes |
+| Outbox endpoint | **Removed** | Your feed is your outbox |
+| Webmention in core | **Removed from core** | Inbox is the sole core delivery path; Webmention returns as a **bridge gateway** (Appendix F), ingesting `_unverified` copies |
+| Authorized Fetch in core | **Moved to extension** | §11 stub; the restricted-feed token is the only second signing construction and lives outside the core |
+| Replies-endpoint envelope | **Simplified** | Returns a JSON Feed (§12) |
+| Bespoke relation fields (`_reply_to`, …) | **Unified** | `_rel` array with registered-token-or-URL types (§8) |
+| OAuth/IndieAuth, `pubkey`/link-relation registry, Content-Type strictness, timestamp duality | **Removed / reduced** | Out of scope, gone, one rule, JOSE-boundary only |
+
+What deliberately survived unchanged: byte-exact RFC 8785 + I-JSON, RFC 7797 header-covering signatures, author binding, effective signing time, tombstones, conformance levels, the static-hosting story, and the honest hub-trust model.
+
+## Appendix F: Interoperability (Gateways)
+
+Bridges to other protocols are **out of scope for the core but feasible as gateways** — trusted intermediaries, never transparent adapters, because each target protocol has a different trust primitive and no bridge can hold a foreign author's Open Feed key. A gateway may (1) ingest foreign content as an `_unverified` copy (§7.5), (2) sign a claim *about* it under its own identity, or (3) proxy the foreign actor as a gateway-hosted Open Feed identity whose key custody is disclosed. All three are the honest-hub-trust model (§14.2) extended across a boundary; Open Feed's pull-canonical model (§1, principle 3) makes them resumable and drift-free.
+
+- **Webmention / IndieWeb** — cheapest, and half-built: outbound rides on published h-entry HTML; inbound synthesizes `_unverified` items from mf2. No core changes.
+- **ActivityPub** — the brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, and mirrors AP replies into the inbox. The one convergence seam is **FEP-8b32** (`eddsa-jcs-2022` = Ed25519 over RFC 8785 — the same primitive), where a near-transparent object-level bridge becomes conceivable.
+- **atproto** — heaviest: a mirror PDS (DID + DAG-CBOR + MST), no transparent path. The clean identity seam is **did:web ↔ Open Feed URL** (both domain-bound).
+
+## Appendix G: Conventions — Follows and Pins (OPTIONAL)
+
+Two optional documents, both **outside the trust core** (nothing needs to verify them to verify content), referenced from the identity document.
+
+**`follows`** — who you read. Turns "which feeds does my hub poll?" from configuration into protocol (the core operation of the pull-canonical model). Follow lists MAY be kept private (client-local) instead.
 
 ```json
-{
-  "version": "https://jsonfeed.org/version/1.1",
-  "title": "Alice's Feed",
-  "feed_url": "https://example.com/~alice/feed.json",
-  "hubs": [
-    {
-      "type": "WebSub",
-      "url": "https://example.com/websub"
-    }
-  ],
-  "items": [...]
-}
+{ "follows": ["https://pence.family/~mom/", "https://jessepence.com/"], "updated": "2025-12-07T00:00:00Z" }
 ```
 
-Alternatively, the HTTP response MAY include Link headers:
+**`pins`** — `(identity, seq, hash)` observations you have made of others' identity documents or manifests. Publishing them gives a family, with no new cryptography, four properties at once:
 
-```
-Link: <https://example.com/websub>; rel="hub"
-Link: <https://example.com/~alice/feed.json>; rel="self"
-```
-
-### E.2. Subscription
-
-Subscribers follow the standard WebSub flow:
-
-1. Discover hub URL from feed
-2. POST subscription request to hub:
-   ```
-   POST /websub HTTP/1.1
-   Host: example.com
-   Content-Type: application/x-www-form-urlencoded
-
-   hub.mode=subscribe
-   &hub.topic=https://example.com/~alice/feed.json
-   &hub.callback=https://subscriber.example/callback
-   ```
-3. Hub verifies intent (GET to callback with challenge)
-4. Hub confirms subscription
-
-### E.3. Content Distribution
-
-When new content is published:
-
-1. Publisher notifies hub (or hub detects change)
-2. Hub POSTs to all subscriber callbacks:
-   ```
-   POST /callback HTTP/1.1
-   Host: subscriber.example
-   Content-Type: application/feed+json
-   Link: <https://example.com/~alice/feed.json>; rel="self"
-   Link: <https://example.com/websub>; rel="hub"
-
-   {
-     "version": "https://jsonfeed.org/version/1.1",
-     ...full or partial feed...
-   }
-   ```
-
-### E.4. Signature Verification
-
-Subscribers MUST still verify item signatures per Section 4.5, even for content received via WebSub push. The WebSub hub is not trusted to verify signatures.
-
-### E.5. Fat Pings vs Light Pings
-
-Hubs MAY send:
-
-- **Fat pings**: Full feed content in POST body (shown above)
-- **Light pings**: Empty or minimal body; subscriber fetches feed
-
-Fat pings are RECOMMENDED for efficiency. Subscribers MUST support both.
-
-### E.6. Inbox Notifications
-
-WebSub is designed for feed updates, not inbox notifications. For real-time inbox updates, implementations MAY:
-
-1. Expose inbox as a subscribable feed (interactions as items)
-2. Use Server-Sent Events (SSE) on an authenticated endpoint
-3. Use WebSocket connections
-
-These mechanisms are implementation-specific and not standardized by this specification.
-
-### E.7. Security Considerations
-
-- Callback URLs MUST use HTTPS
-- Hubs SHOULD implement the WebSub `hub.secret` mechanism for authenticated content distribution
-- Subscribers SHOULD verify the `Link: rel="self"` header matches the subscribed topic
-- Subscribers MUST NOT trust content without verifying Open Feed signatures
-
-## Appendix F: Test Vectors
-
-This appendix provides test vectors for verifying implementations of canonicalization and signature verification.
-
-### F.1. Test Keypair
-
-The following Ed25519 keypair is for testing only. **DO NOT USE IN PRODUCTION.** It is RFC 8032 test vector 1.
+1. **Anti-equivocation** — peers cross-check each other's view of a chain automatically, turning §5.3's / §9.1's out-of-band comparison into published data.
+2. **Recovery propagation** — a successor claimed via recovery (§3.4) reaches consumers who lost the old pointer, gossiped through the social graph.
+3. **Informal timestamping** — a pin observed at wall-clock T is a witnessed lower bound that `(seq, hash)` existed by T (§14.10).
+4. **First-contact web-of-trust** — consistent pins from identities you already trust soften TOFU's first-contact weakness.
 
 ```json
-{
-  "kid": "test-key-1",
-  "kty": "OKP",
-  "crv": "Ed25519",
-  "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-  "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
-}
+{ "pins": [ { "identity": "https://jessepence.com/", "seq": 12, "hash": "..." } ], "updated": "..." }
 ```
 
-Key details:
-- Public key (`x`): `d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a` (hex)
-- Private key seed (`d`): `9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60` (hex)
+This is the family-scale substitute for a transparency log, a DID directory, and a timestamp authority — the highest-value-per-byte extension in the design.
 
-The full `kid` for JWS headers, assuming the JWKS is served at `https://test.example/keys.json`, is `https://test.example/keys.json#test-key-1`.
+## Appendix H: Open Questions
 
-### F.2. Canonicalization Test Vector
-
-Input JSON (with whitespace for readability). Note the required author binding (`authors`) and feed binding (`_feed_url`) per section 4.6:
-
-```json
-{
-  "id": "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
-  "authors": [ { "url": "https://test.example/" } ],
-  "_feed_url": "https://test.example/feed.json",
-  "content_text": "Hello, wörld! 👋",
-  "date_published": "2025-01-15T12:00:00Z",
-  "_version": 1,
-  "attachments": [
-    {
-      "url": "https://example.com/photo.jpg",
-      "mime_type": "image/jpeg"
-    }
-  ]
-}
-```
-
-After RFC 8785 canonicalization (no whitespace, keys sorted; string values are already NFC as published):
-
-```
-{"_feed_url":"https://test.example/feed.json","_version":1,"attachments":[{"mime_type":"image/jpeg","url":"https://example.com/photo.jpg"}],"authors":[{"url":"https://test.example/"}],"content_text":"Hello, wörld! 👋","date_published":"2025-01-15T12:00:00Z","id":"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"}
-```
-
-Canonical UTF-8 bytes (hex) — the `ö` is NFC codepoint U+00F6 (`c3 b6`) and the wave emoji is U+1F44B (`f0 9f 91 8b`):
-
-```
-7b225f666565645f75726c223a2268747470733a2f2f746573742e6578616d706c652f666565642e6a736f6e222c225f76657273696f6e223a312c226174746163686d656e7473223a5b7b226d696d655f74797065223a22696d6167652f6a706567222c2275726c223a2268747470733a2f2f6578616d706c652e636f6d2f70686f746f2e6a7067227d5d2c22617574686f7273223a5b7b2275726c223a2268747470733a2f2f746573742e6578616d706c652f227d5d2c22636f6e74656e745f74657874223a2248656c6c6f2c2077c3b6726c642120f09f918b222c22646174655f7075626c6973686564223a22323032352d30312d31355431323a30303a30305a222c226964223a2275726e3a757569643a66383164346661652d376465632d313164302d613736352d303061306339316536626636227d
-```
-
-SHA-256 hash of the canonical UTF-8 bytes (hex):
-
-```
-0439a53bd612316fdcbed8c49ddde784a49e005658970fc3cd9faf752f18bcdf
-```
-
-### F.3. Signature Test Vector
-
-Using the test keypair from F.1 and canonical bytes from F.2.
-
-JWS protected header:
-
-```json
-{"alg":"EdDSA","b64":false,"crit":["b64"],"kid":"https://test.example/keys.json#test-key-1"}
-```
-
-JWS header (base64url):
-
-```
-eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2tleXMuanNvbiN0ZXN0LWtleS0xIn0
-```
-
-The JWS Signing Input (RFC 7797, unencoded payload) is the ASCII of the header-b64 followed by `.` followed by the raw canonical bytes from F.2:
-
-```
-ASCII("eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2tleXMuanNvbiN0ZXN0LWtleS0xIn0.") || <canonical-json-bytes>
-```
-
-Signature (base64url):
-
-```
-NaLhABk56k12vyKlkxSZWE8i5Vls_fXsUWYKYQ0cdD3lvXYOaJgJ0-CkG9XTzwyNqPkHbGycwcYSQdiC_qKeBw
-```
-
-Complete `_sig` value (detached, unencoded payload):
-
-```
-eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2tleXMuanNvbiN0ZXN0LWtleS0xIn0..NaLhABk56k12vyKlkxSZWE8i5Vls_fXsUWYKYQ0cdD3lvXYOaJgJ0-CkG9XTzwyNqPkHbGycwcYSQdiC_qKeBw
-```
-
-### F.4. Complete Signed Item
-
-```json
-{
-  "id": "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
-  "authors": [ { "url": "https://test.example/" } ],
-  "_feed_url": "https://test.example/feed.json",
-  "content_text": "Hello, wörld! 👋",
-  "date_published": "2025-01-15T12:00:00Z",
-  "_version": 1,
-  "attachments": [
-    {
-      "url": "https://example.com/photo.jpg",
-      "mime_type": "image/jpeg"
-    }
-  ],
-  "_sig": "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2tleXMuanNvbiN0ZXN0LWtleS0xIn0..NaLhABk56k12vyKlkxSZWE8i5Vls_fXsUWYKYQ0cdD3lvXYOaJgJ0-CkG9XTzwyNqPkHbGycwcYSQdiC_qKeBw"
-}
-```
-
-### F.5. Verification Steps
-
-To verify the test vector:
-
-1. Parse the JSON and extract `_sig`
-2. Remove `_sig` from the object
-3. Serialize per RFC 8785 (sorted keys, no whitespace; string bytes verbatim) → canonical bytes
-4. Decode the JWS header (first segment before the first `.`); confirm `alg=EdDSA`, `b64=false`, `crit=["b64"]`
-5. Extract `kid` → JWKS URL (`https://test.example/keys.json`) and key ID (`test-key-1`)
-6. Confirm the claimed author (`authors[].url` = `https://test.example/`) advertises that JWKS URL in its profile (section 4.6); in this offline vector, assume it does
-7. Fetch JWKS and find the matching key
-8. Reconstruct the Signing Input: `ASCII(header-b64 || '.') || canonical-bytes`
-9. Verify the Ed25519 signature over the Signing Input
-
-### F.6. Number Canonicalization
-
-RFC 8785 requires specific number formatting:
-
-| Input | Canonical Output |
-|-------|------------------|
-| `1.0` | `1` |
-| `-0` | `0` |
-| `1.5` | `1.5` |
-| `1e10` | `10000000000` |
-| `1.23e-5` | `0.0000123` |
-| `1.7976931348623157e+308` | `1.7976931348623157e+308` |
-
-Implementations MUST use ES6 `Number.prototype.toString()` semantics for number serialization.
-
-### F.7. Unicode Sorting
-
-Object keys are sorted by UTF-16 code unit values, not Unicode codepoints:
-
-```json
-{"a":1,"aa":2,"b":3,"é":4}
-```
-
-Keys containing characters outside the BMP (emoji, etc.) are sorted by their UTF-16 surrogate pairs.
-
-### F.8. Key History Chain Test Vector
-
-A fully-reproducible two-version chain (section 3.7), signed with the Appendix F.1 test key at JWKS URL `https://test.example/keys.json`, key id `key-1`. (For brevity the genesis has a single key; a real chain would also carry recovery keys.)
-
-**Genesis (`_seq: 1`)** — canonical form (this exact byte string is what `_prev` hashes):
-
-```
-{"_seq":1,"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2tleXMuanNvbiNrZXktMSJ9..DLcqU3UkibsZJ9Rjw2hV1NlS1nMnW9hxFLTj2Fwau38N4JPUgdHk6pgJlOMY-_yqzT8ftDs6JBFvS7IX15tmCg","_updated":1736899200,"keys":[{"crv":"Ed25519","iat":1736899200,"kid":"key-1","kty":"OKP","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}]}
-```
-
-Its `_sig` is a detached JWS by `key-1` over the canonical document with `_sig` removed.
-
-Base64url SHA-256 of the canonical genesis bytes above (this is `_seq:2`'s `_prev`):
-
-```
-wmHz_OurgNfoKYRC84u7fZEFULOjzopSvehSa_MDEf8
-```
-
-**Version 2 (`_seq: 2`)** — revokes `key-1`, adds `key-2`, chains to the genesis. `key-2`'s public key is RFC 8032 test vector 2 (`x` hex: `3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c`) — a distinct key, so implementations that confuse which key verifies which version fail this vector:
-
-```
-{"_prev":"wmHz_OurgNfoKYRC84u7fZEFULOjzopSvehSa_MDEf8","_seq":2,"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2tleXMuanNvbiNrZXktMSJ9..wcAEf_4H97HC7NDl9j9QiuS9DoieiwfsJdSiYigyTUvy8r_4T2oEb5uBnIn7mTkh78XP0s16pBntgJyJqvPPAw","_updated":1739577600,"keys":[{"crv":"Ed25519","iat":1736899200,"kid":"key-1","kty":"OKP","revoked_at":1739577600,"x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"},{"crv":"Ed25519","iat":1739577600,"kid":"key-2","kty":"OKP","x":"PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw"}]}
-```
-
-To validate a chain implementation: recompute the SHA-256 of the genesis canonical bytes, confirm it equals `_seq:2`'s `_prev`, and verify each `_sig` per section 4.5. (Both versions are signed by `key-1`, per the continuity rule of section 3.7.2: `_seq:2` MUST be signed by a key that was valid in `_seq:1` — even though `_seq:2` revokes that key. Note that `key-1` remains listed in `_seq:2`, as section 3.7.2 requires.)
+- **`_rel` type registry governance** — how the registered core token set (vs namespaced URLs) is maintained pre-1.0.
+- **Key delegation (extension, sketched; `open-feed-delegation.md`, planned — not yet drafted)** — the highest-value trust upgrade available. A delegation is a statement signed by a root identity key — `{delegate: {JWK}, kid, exp, scope}` — published in the identity document; a hub or extra device holds only the *delegated* key while the root stays client-side or offline. Content signs with the delegate key; verifiers resolve the `kid` to the delegation entry in the pinned identity document and confirm it unexpired and unrevoked. Revoking a delegate is an ordinary chain version — the pinned chain is exactly the authoritative revocation substrate whose absence killed Nostr's NIP-26. This one statement type answers both multi-device *and* hub custody (moving hub deployments from the key-custodian tier to the serving-path tier of §14.2) without adding a second signing construction.
+- **External time anchoring** — a true transparency log / witness network beyond the family-scale `pins` convention; deferred.
+- **Export bundle** — signed archive format (identity history + feed + manifest + manifest history) for backup and migration.
+- **Bridge profiles** — normative gateway specs for Webmention / ActivityPub / atproto (Appendix F), starting with the Webmention gateway.

@@ -74,6 +74,23 @@ console.log('== D.3 manifest (full published canonical bytes) ==');
 console.log(' ', canon(manifest));
 console.log();
 
+// ---- D.3b manifest seq 2 (chained) ----
+const manifestBytes1 = canon(manifest);
+const manifestHash1 = b64u(sha256(Buffer.from(manifestBytes1,'utf8')));
+const manifest2 = {
+  url: ID, feed_url:'https://test.example/feed.json', seq:2,
+  prev: manifestHash1,
+  history:'https://test.example/manifest-history.json',
+  updated:1739577600,
+  items:{'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6':1,'urn:uuid:00112233-4455-6677-8899-aabbccddeeff':1}
+};
+manifest2._sig = sign(manifest2, k1.priv, KID1);
+console.log('== D.3b manifest seq 1 hash (= seq 2 prev) ==');
+console.log(' ', manifestHash1);
+console.log('== D.3b manifest seq 2 (full published canonical bytes) ==');
+console.log(' ', canon(manifest2));
+console.log();
+
 // ---- D.4 identity seq 1 ----
 const id1 = {
   feed:'https://test.example/feed.json', history:'https://test.example/history.json',
@@ -124,5 +141,6 @@ function verify(obj, kid){
 console.log('SELF-VERIFY:');
 console.log('  item     :', verify(item, KID1));
 console.log('  manifest :', verify(manifest, KID1));
+console.log('  manifest2:', verify(manifest2, KID1), '(prev chains seq1->seq2:', manifest2.prev===manifestHash1, ')');
 console.log('  id seq1  :', verify(id1, KID1));
 console.log('  id seq2  :', verify(id2, KID1));
