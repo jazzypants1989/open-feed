@@ -2,7 +2,7 @@
 
 A family journaling app with AI assistance, built as a conforming **Open Feed** implementation (see `open-feed-spec.md`, Version 0.1.0). Start simple, add complexity only when needed — but stay on-protocol from day one, so hub users and self-hosted members interoperate through the same signed formats rather than a private API that diverges from the spec.
 
-**Relationship to the spec:** This app is a Level 3 hub (spec §12). Every identity serves **one signed identity document** at `{identity_url}openfeed.json` — profile, keys, endpoints, and a tamper-evident version chain (spec §3.2, §4, §5). Content is published as signed JSON Feed items (spec §7), and a **separately-signed, chained manifest** commits each feed's contents so the host can't silently drop, reorder, or roll them back (spec §9). Interactions (replies, likes, reposts) **are** feed items carrying a `_rel` relation array (spec §8), delivered by POSTing the signed item to the recipient's inbox (spec §10). `family`-visibility feeds are handled two ways depending on reach: on this hub, by ordinary host authorization (a login wall — software, not protocol); across hubs, by **publishing the feed encrypted** to the family audience (spec §11.3, `open-feed-encrypted-content.md`). Keys follow the rotation/recovery/chain model (spec §4, §5, §3.4), and members generate their own recovery keys (spec §4.5). Where this document previously described spec-divergent shortcuts, it has been brought into line; the app's own additions (AI companion, drafting flow) are layered on top and never replace the wire formats.
+**Relationship to the spec:** This app is a Level 3 hub (spec §12). Every identity serves **one signed identity document** at `{identity_url}openfeed.json` — profile, keys, endpoints, and a tamper-evident version chain (spec §3.2, §4, §5). Content is published as signed JSON Feed items (spec §7), and a **separately-signed, chained manifest** commits each feed's contents so the host can't silently drop, reorder, or roll them back (spec §9). Interactions (replies, likes, reposts) **are** feed items carrying a `_rel` relation array (spec §8), delivered by POSTing the signed item to the recipient's inbox (spec §10). `family`-visibility feeds are handled two ways depending on reach: on this hub, by ordinary host authorization (a login wall — software, not protocol); across hubs, by **publishing the feed encrypted** to the family audience (spec §11.3, spec §15). Keys follow the rotation/recovery/chain model (spec §4, §5, §3.4), and members generate their own recovery keys (spec §4.5). Where this document previously described spec-divergent shortcuts, it has been brought into line; the app's own additions (AI companion, drafting flow) are layered on top and never replace the wire formats.
 
 ---
 
@@ -32,7 +32,7 @@ Earlier drafts of this doc took spec-divergent shortcuts to save effort. Followi
 |------------------|--------------------|-----|
 | No signatures on hub content | **Sign all feed items** (spec §6, §7.2) | Signing on write is cheap (sign once, cache). It makes hub content portable and verifiable off-hub, and is required for a conforming feed. Hub-managed keys keep it invisible to users (spec §13.2). |
 | Separate JWKS + profile-HTML discovery | **One signed identity document** at `{identity}openfeed.json` (spec §3.2) | Keys, profile, and endpoints live in one signed, chained JSON file at a fixed path. No HTML parsing, no `<link rel="jwks">`, no cross-document key-ownership check — key ownership is structural (spec §4.2). |
-| Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix F) that ingests lower-trust `_unverified` copies. |
+| Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix E) that ingests lower-trust `_unverified` copies. |
 | Standalone interaction objects (`type`/`target`/`target_item`) | **Interactions are items with a `_rel` array** (spec §8) | A comment = an item with `_rel:[{type:"reply", to:"{feed_url}#{item_id}"}]`; a reaction = an item with `_rel:[{type:"like",...}]` and `_emoji`. One schema, one verifier; publishing and delivering are the same bytes. |
 | Flat comments only | **Nested threading** via `_rel` `reply` + `root` entries (spec §8.1) | Store the parent reference; render flat *or* nested. Deep replies carry a `root` entry so the thread host's inbox accepts them. |
 | No feed-integrity commitment | **Publish + advance a signed, chained manifest** (spec §9) | The manifest proves *presence* (a host can't drop your content) and, via its chain, tamper-evidence against rollback/equivocation. `_feed_url` proves *exclusivity* (spec §7.5). |
@@ -47,7 +47,7 @@ Earlier drafts of this doc took spec-divergent shortcuts to save effort. Followi
 - [RFC 8785](https://tools.ietf.org/html/rfc8785) - JSON Canonicalization Scheme (for signing)
 - [I-JSON (RFC 7493)](https://www.rfc-editor.org/rfc/rfc7493) - Duplicate-key rejection
 - [Ed25519 (RFC 8032)](https://www.rfc-editor.org/rfc/rfc8032) - Signature algorithm
-- [Webmention](https://www.w3.org/TR/webmention/) + [Microformats2](https://microformats.org/wiki/microformats2) - Optional IndieWeb bridge only (spec Appendix F)
+- [Webmention](https://www.w3.org/TR/webmention/) + [Microformats2](https://microformats.org/wiki/microformats2) - Optional IndieWeb bridge only (spec Appendix E)
 
 ### Deployment Models
 
@@ -157,7 +157,7 @@ When published, an entry becomes a signed JSON Feed item carrying `id`, `date_pu
 | Visibility | Who can see it |
 |------------|----------------|
 | `public` | Anyone |
-| `family` | Logged-in family members on this hub (host authorization); across hubs, **published encrypted** to the family audience (spec §11.3, `open-feed-encrypted-content.md`) |
+| `family` | Logged-in family members on this hub (host authorization); across hubs, **published encrypted** to the family audience (spec §11.3, spec §15) |
 | `private` | Only the author **and the hub operator** — see the note below |
 | `unlisted` | Anyone with the link (not in feeds) |
 
@@ -311,7 +311,7 @@ Keep it simple:
 
 When family members self-host, they can't use `POST /api/comments`. The **sole core path** is the Open Feed **inbox** (spec §10): the self-hoster signs a feed item carrying a `_rel` `reply` entry and POSTs it, verbatim, to `pence.family/~mom/inbox`; the hub runs the §10.2 verification (author binding, signature, revocation, dedup) and stores it as a verified comment.
 
-Webmention is **not** part of the core. It is available only as an optional IndieWeb **bridge** (spec Appendix F), producing lower-trust `_unverified` content — see "Optional Webmention Bridge" below.
+Webmention is **not** part of the core. It is available only as an optional IndieWeb **bridge** (spec Appendix E), producing lower-trust `_unverified` content — see "Optional Webmention Bridge" below.
 
 ### How It Works (Inbox)
 
@@ -385,7 +385,7 @@ Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliver
 
 **Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in a replies endpoint if one is ever built (conventions extension §6.2), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
 
-This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (`open-feed-encrypted-content.md` §7). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
+This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (spec §15 §7). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
 
 ### Threading (nested replies)
 
@@ -454,7 +454,7 @@ interface ExternalMember {
 
 ### Optional Webmention Bridge
 
-Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix F). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
+Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix E). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
 
 If you implement the bridge:
 
@@ -978,7 +978,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Feed polling for external members — verify signatures, enforce `_feed_url` canonical/copy rule, pin + walk both the identity and manifest chains (spec §5.3, §7.5, §9.1)
 - [ ] Thread backfill during polling: reconcile external feed items whose `_rel` targets hub entries, healing replies whose inbox delivery was missed (the signed feed is the source of truth; the inbox is a latency optimization)
 - [ ] External entries in family feed
-- [ ] **Encrypted content** (`open-feed-encrypted-content.md`) for `family`-visibility feeds — a **launch dependency** for cross-hub family sharing, not an optional extra. Broadcast to a known audience is specified and prototyped; group *replies* need the roster, which is explicitly not ready (extension §6.2). Until the roster lands, family replies are single-hub only
+- [ ] **Encrypted content** (spec §15) for `family`-visibility feeds — a **launch dependency** for cross-hub family sharing, not an optional extra. Broadcast to a known audience is specified and prototyped; group *replies* need the roster, which is explicitly not ready (extension §6.2). Until the roster lands, family replies are single-hub only
 - [ ] **Exit: export bundle + device-generated recovery keys** (spec §14, §4.5) — also a launch dependency; see §Leaving
 
 **Test**: Can Jesse (self-hosted) post a signed reply item to Mom's inbox and have his own signed entries appear verified (signature + manifest) in the family feed?
@@ -992,7 +992,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Profile customization (advances the identity chain)
 - [ ] Search (entries, comments)
 - [ ] Signing tools for self-hosters
-- [ ] Optional `pins`/`follows` documents (spec Appendix G) for family-scale anti-equivocation and recovery propagation
+- [ ] Optional `pins`/`follows` documents (spec §16) for family-scale anti-equivocation and recovery propagation
 
 **Test**: Does it feel good to use daily?
 
@@ -1000,7 +1000,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 - [ ] Email digests for family
 - [ ] WebSub for real-time feed updates (spec Appendix C)
-- [ ] Optional Webmention bridge (spec Appendix F) — `_unverified` ingest only
+- [ ] Optional Webmention bridge (spec Appendix E) — `_unverified` ingest only
 - [ ] Mastodon cross-posting (bridge, see below)
 
 **Test**: Can Grandma get a daily email with the family's posts?
@@ -1009,13 +1009,13 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 ## Future: Broader Federation
 
-Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_unverified`, without exception** (spec §7.5, Appendix F).
+Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_unverified`, without exception** (spec §7.5, Appendix E).
 
-**Try spec Appendix F.1 before building any of this.** Publishing the optional Atom mirror this document already describes, discoverable from the identity page, plus an h-card, is enough for a third-party service such as Bridgy Fed to bridge a member into the fediverse — with no gateway to operate and no bridge code to maintain. The bridged handle is `@yourdomain.com`, which is already the member's identity URL. For "relatives on Mastodon," that is the whole feature, and it ships in an afternoon.
+**Try README's "What already interoperates, today" before building any of this.** Publishing the optional Atom mirror this document already describes, discoverable from the identity page, plus an h-card, is enough for a third-party service such as Bridgy Fed to bridge a member into the fediverse — with no gateway to operate and no bridge code to maintain. The bridged handle is `@yourdomain.com`, which is already the member's identity URL. For "relatives on Mastodon," that is the whole feature, and it ships in an afternoon.
 
 ### ActivityPub (Mastodon/Fediverse)
 
-The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (spec Appendix F.4).
+The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (spec Appendix E.4).
 
 Two things this bridge MUST NOT do, both of which a naive implementation does by default (spec §11.1.1, F.2): emit an item with no `_feed_url` (delivered, not published — the family comment threads), and emit anything derived from an encrypted item, **including a placeholder**. Encrypted posts are skipped entirely, not announced as "encrypted post."
 
@@ -1221,7 +1221,7 @@ Keep it simple for a family app, but honest about the trust model (spec §13).
 
 ### Trust model (be honest)
 
-The hub holds users' signing keys, so it *can* impersonate them forward — the email trust model, stated plainly (spec §13.2). What it **cannot** do is silently rewrite the past against a consumer who has pinned: both chains (identity and manifest) are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins. Offering client-side keys (or, later, the delegation extension, spec Appendix H) moves a user off the key-custodian tier.
+The hub holds users' signing keys, so it *can* impersonate them forward — the email trust model, stated plainly (spec §13.2). What it **cannot** do is silently rewrite the past against a consumer who has pinned: both chains (identity and manifest) are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins. Offering client-side keys (or, later, the delegation extension, CLAUDE.md open questions) moves a user off the key-custodian tier.
 
 **The case this hub has to take seriously**, because it is the one the protocol names as its own fourth adversary tier (spec §13.2): the operator of a family hub is a family member, and family members are sometimes the danger. That adversary reads everything the hub can read, sees the metadata no mechanism hides, is not deterred by transparency because they are entitled to look, and can decline to let someone leave. Nothing in the integrity machinery helps, and neither does encryption if the operator supplies the client and generated the keys.
 
@@ -1270,7 +1270,7 @@ For every outbound fetch (verifying inbox items, polling feeds, resolving `openf
 
 To keep scope manageable:
 
-- **End-to-end encryption *by default*** - With hub-managed keys the admin can read everything; say so rather than implying otherwise. Encrypted content is available as an optional extension (`open-feed-encrypted-content.md`) and is what makes cross-hub `family` visibility work at all — but its guarantee is exactly as strong as the recipient's key custody, so for hub-managed members it protects content from *other* hosts and CDNs, not from this one. Client-held encryption keys are the upgrade path; offer them, don't assume them.
+- **End-to-end encryption *by default*** - With hub-managed keys the admin can read everything; say so rather than implying otherwise. Encrypted content is available as an optional extension (spec §15) and is what makes cross-hub `family` visibility work at all — but its guarantee is exactly as strong as the recipient's key custody, so for hub-managed members it protects content from *other* hosts and CDNs, not from this one. Client-held encryption keys are the upgrade path; offer them, don't assume them.
 - **Algorithmic feeds** - Chronological only. No engagement optimization.
 - **Global-scale firehose/aggregator** - Open Feed scales across identities, not into a global index (spec §13.4). Public discovery is share-your-URL.
 - **Real-time chat** - This is journaling, not messaging.
@@ -1312,7 +1312,7 @@ Hub content is signed on write (spec §6, §6.6):
 3. Advance and re-sign the **manifest** on every publish/edit/delete (spec §9)
 4. Keys live in `openfeed.json`; `kid` = `{identity_url}#{kid}` (no separate JWKS)
 5. Sign once on write and cache the signature (don't re-sign on read)
-6. Key custody: hub-managed is the default (invisible, hub can impersonate — documented, spec §13.2); offer client-side keys for members who want them, and watch for the delegation extension (spec Appendix H) that moves hub custody down a trust tier without a second signing construction
+6. Key custody: hub-managed is the default (invisible, hub can impersonate — documented, spec §13.2); offer client-side keys for members who want them, and watch for the delegation extension (CLAUDE.md open questions) that moves hub custody down a trust tier without a second signing construction
 
 ### If You Need Real-Time Updates
 
@@ -1324,7 +1324,7 @@ Current design uses polling for external feeds. For real-time:
 
 ### If You Need ActivityPub Compatibility
 
-Treat it as a **gateway** (spec Appendix F), not a transparent adapter:
+Treat it as a **gateway** (spec Appendix E), not a transparent adapter:
 1. A stateful actor proxy per user, polling the feed and fanning out `Create`/`Like`/`Announce`
 2. HTTP Signatures (different from JWS — Mastodon's requirement)
 3. Mirror inbound AP replies into the Open Feed inbox as `_unverified` items
@@ -1334,7 +1334,7 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 
 ### Nostr / atproto
 
-- **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — relevant if you explore the delegation extension (spec Appendix H)
+- **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — relevant if you explore the delegation extension (CLAUDE.md open questions)
 - **atproto**: heaviest bridge (mirror PDS: DID + DAG-CBOR + MST); the clean identity seam is **did:web ↔ Open Feed URL** (both domain-bound)
 
 ### Known Libraries
@@ -1359,7 +1359,7 @@ If you need to add custom fields to JSON objects:
 
 ### Optional Bridge Reference — Microformat Classes
 
-These belong **only** to the optional Webmention/IndieWeb bridge (spec Appendix F), not the core. For h-entry parsing/generation:
+These belong **only** to the optional Webmention/IndieWeb bridge (spec Appendix E), not the core. For h-entry parsing/generation:
 
 | Class | Purpose |
 |-------|---------|

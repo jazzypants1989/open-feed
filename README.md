@@ -96,12 +96,12 @@ Client-side keys move you from the first tier toward the third. They're supporte
 
 ### What's Out of Scope
 
-- Confidentiality. Privacy in the core is a publication decision — publish or deliver (§11). Encrypted content is an **optional extension**, and its guarantee is bounded by the recipient's key custody; there is no restricted-visibility feed mechanism, and the extension that once provided one was deleted rather than slimmed (Appendix E).
+- Confidentiality. Privacy in the core is a publication decision — publish or deliver (§11). Encrypted content is an **optional layer** (§15) whose guarantee is bounded by the recipient's key custody; there is no restricted-visibility feed mechanism.
 - Global-scale firehoses / aggregators. Open Feed scales *across* identities (each is self-contained and independently verifiable), not to millions of items per identity; the manifest is a deliberate family-scale boundary.
 - Content moderation policy (left to hub operators).
 - Storage formats and sync protocols (files on disk are fine).
 - Specific authentication methods (how you log in to your own hub is your business).
-- Protocol bridges (ActivityPub, atproto, Webmention, Nostr) — feasible as gateways, but out of the core (Appendix F). Note that the *cheapest* interop needs no bridge at all: see below.
+- Protocol bridges (ActivityPub, atproto, Webmention, Nostr) — feasible as gateways, but out of the core (Appendix E). Note that the *cheapest* interop needs no bridge at all: see below.
 
 ---
 
@@ -144,9 +144,9 @@ Every public document MUST be served with `Access-Control-Allow-Origin: *` so br
 | Path              | Purpose                                        |
 | ----------------- | ---------------------------------------------- |
 | `/{user}/inbox`   | POST endpoint for receiving signed items (§10) |
-| `/{user}/replies` | Optional thread discovery (conventions extension §6) |
+| `/{user}/replies` | Optional thread discovery (spec §16.4) |
 
-The old `outbox` is gone — your feed *is* your outbox. Webmention and OAuth endpoints are no longer part of the core.
+Your feed is your outbox; there is no separate outbox endpoint.
 
 See the [specification](open-feed-spec.md) for full requirements.
 
@@ -167,7 +167,7 @@ All examples use the `https://pence.family/~mom/` family framing. Signatures are
 
 ### Identity Document (`openfeed.json`)
 
-This single signed file replaces the old profile HTML, the JWKS document, and the profile-metadata JSON. It lives at the fixed path `{identity}openfeed.json`.
+This one signed file carries the profile, the keys, and the endpoints together. It lives at the fixed path `{identity}openfeed.json`.
 
 ```json
 {
@@ -428,7 +428,7 @@ GET /.well-known/webfinger?resource=acct:mom@pence.family
 }
 ```
 
-This is purely a human-friendly aliasing layer (Appendix B). Nothing else depends on it — and note there is no `rel="jwks"` link anymore; keys live in `openfeed.json`.
+This is purely a human-friendly aliasing layer (Appendix B). Nothing else depends on it; keys live in `openfeed.json`, so there is no key-document link to discover.
 
 ### Thread Discovery (Replies Endpoint, Optional)
 
@@ -438,9 +438,9 @@ An identity MAY expose a `replies` endpoint in its identity document. The respon
 GET /~mom/replies?item=urn:uuid:550e8400-e29b-41d4-a716-446655440000
 ```
 
-Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries. It lives in the [conventions extension](open-feed-conventions.md) (§6), not the core: everything it returns is obtainable by polling the participants' feeds, so it buys discovery, never trust.
+Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries. It is an OPTIONAL convention (§16.4), not part of the trust core: everything it returns is obtainable by polling the participants' feeds, so it buys discovery, never trust.
 
-The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see spec §11.1.1 and conventions §6.2. That rule travelled with the endpoint when it moved out of the core, because an implementer who wants thread discovery will build *something*, and it is better that the thing they build comes with the guard attached.
+The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see spec §11.1.1 and §16.4.1. The rule travels with the endpoint because an implementer who wants thread discovery will build *something*, and it is better that the thing they build comes with the guard attached.
 
 ---
 
@@ -457,25 +457,17 @@ To verify any signed document (item, manifest, or identity document):
 
 For inbox-delivered items, apply the revocation check against **receipt time** (which a sender can't backdate); for polled content, against the time you first saw the id in a signed manifest (§4.4). If an identity-document or manifest fetch fails transiently, cache the failure and retry (1h, 4h, 24h) rather than rejecting permanently.
 
-The old steps — fetch profile HTML, discover `rel="jwks"`, confirm the JWKS URL is one the profile advertises — are all gone. Keys live in the identity document, so ownership is a string comparison.
-
 ---
 
 ## Migration and Recovery
 
-Migration and recovery are **one operation** — *this identity continues over there* — differing only in which key attests (§3.4).
+Migration and recovery are **one operation** — *this identity continues over there* — differing only in which key attests (§3.4). You establish the new identity with a `predecessor` link, and then either the old side publishes a matching `successor` (a cross-signature verifiable against its pinned chain), or, if the old domain is gone, the new document carries a `_recovery_sig` by a **recovery key** committed in a pinned ancestor. Either way the chained identity document *is* the attestation; there is no separate claim document, and a one-sided link with no recovery co-signature is not a migration.
 
-To move from `https://old.example/~alice/` to `https://alice.new/`:
+Two consequences worth knowing before you move. Previously-published items carry the old feed's URL in their signed `_feed_url`, so migration ends with **bulk re-signing** the back catalog at the new feed — a verified migration is the one exception to "an id belongs to one feed forever." And replies you already received point at the old feed URL inside *other people's* signed items, which nobody can re-sign, so consumers treat predecessor and successor targets as the same thing once the migration verifies (§3.4, §10.2). Without that, exercising your exit would make every inbound reply start bouncing.
 
-1. Establish the new identity (new `openfeed.json`, new or same keys), adding `"predecessor": "https://old.example/~alice/"`.
-2. **Cooperative migration** (you still control the old domain): the old identity document publishes a new chain version adding `"successor": "https://alice.new/"`. The matching `successor`/`predecessor` pair — each inside a signed document — is a cryptographic cross-signature a consumer verifies against the old identity's pinned chain.
-3. **Recovery** (old domain lost): the new identity document also carries a `_recovery_sig` — a detached JWS by a **recovery key** that was committed in a pinned ancestor of the old identity. A consumer who pinned the old identity verifies that co-signature and follows `predecessor` even though the old side can no longer publish a `successor`.
+**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). The `pins` convention (§16) is how a family propagates and cross-checks a recovery claim.
 
-There is no separate "recovery attestation" document — the chained identity document, signed by an active key, carrying `predecessor`, and co-signed by a committed recovery key, *is* the attestation. A `successor`/`predecessor` claim without its counterpart and without a valid recovery co-signature MUST NOT be treated as migration.
-
-Because previously-published items carry the old feed's URL in their signed `_feed_url`, migration ends with **bulk re-signing**: republish the back catalog at the new feed (same id's, bumped `_version`, `date_modified` set, new `_feed_url`) and commit it in the new manifest. A verified migration is the one exception to the "an id belongs to one feed forever" rule — the binding follows the identity to its successor.
-
-**Recovery keys** (§4.5): a key with `"use": "recovery"` must be generated at identity creation, stored offline (never on the hub), and never signs regular content. It exists to co-sign a domain-loss migration and to resolve forks. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). The `pins` convention (Appendix G) is how a family propagates and cross-checks a recovery claim.
+The part that turns this from a domain-loss feature into an **exit** is who generated the key. A recovery key the hub generated and handed you is no check on the hub, so a Level 3 host must generate it on your device and never receive it — and must show you your genesis `(seq, hash)` and the key's fingerprint at signup so you can compare them out of band with someone else. Otherwise the hub can honor the letter of the rule and serve everyone else a different genesis document.
 
 ### Key rotation and compromise
 
@@ -504,7 +496,7 @@ Extension fields on any JSON object MUST be prefixed with `_`, and implementatio
 
 ### Custom relation types
 
-Interaction *types* are values, not field names, so they namespace cleanly by URL — e.g. `"type": "https://example.com/ns#bookmark"`. Receivers store unknown types and MAY hide them from display. This replaces the old `x-` interaction-type convention.
+Interaction *types* are values, not field names, so they namespace cleanly by URL — e.g. `"type": "https://example.com/ns#bookmark"`. Receivers store unknown types and MAY hide them from display. 
 
 ### Privacy — publish or deliver
 
@@ -513,19 +505,19 @@ The core has no privacy mechanism, and that is the design rather than a gap. Con
 - **Published** — in a feed, committed by a manifest. Gets the completeness proof, gossip, pinning, the export bundle, migration. Public.
 - **Delivered** — POSTed to an inbox, no `_feed_url`. Private from everyone but the two hosts. Works today, no mechanism needed.
 
-There is no third cell — *published but not public* does not exist. An earlier draft tried to build it (authenticated fetch, capability grants, a gated manifest) and every artifact it needed was a consequence of serving different bytes to different readers, which is exactly what breaks pinning. It's gone; spec Appendix E records why, and the test that shows it can come back as a pure extension if anyone ever wants it.
+There is no third cell — *published but not public* does not exist. Serving different bytes to different readers is exactly what breaks pinning, so anything built on that axis (authenticated fetch, capability grants, a gated manifest) costs the completeness proof it was meant to preserve. Audience control at a single host is host authorization — software, not protocol.
 
 What's genuinely incompatible is narrower than "privacy": a completeness proof is a public artifact, so content whose **existence** must be private can't have one. Content whose **bytes** are opaque still can — which is why encryption and the manifest compose fine.
 
 Because "delivered" is a choice the author makes and *other people* enforce, the spec makes it a MUST: **publication is the author's decision, and only the author's** (§11.1.1). A receiver holds a delivered item as a custodian, not an author, and must never put it in a feed, a manifest, the replies endpoint, or a bridge. This binds the bytes, not the information — nothing stops someone describing in their own post what you told them privately.
 
-**Encrypted content** ([`open-feed-encrypted-content.md`](open-feed-encrypted-content.md), optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
+**Encrypted content** (spec §15, optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
 
 One rule predicts the rest: **any audience larger than one needs a membership document.** A DM needs no roster. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not.
 
 ### Follows and pins — conventions
 
-Two optional documents referenced from the identity document, both *outside* the trust core, specified in full in [`open-feed-conventions.md`](open-feed-conventions.md) (spec Appendix G is now a pointer):
+Two optional documents referenced from the identity document, both *outside* the trust core, specified in spec §16:
 
 - **`follows`** — who you read (`{ "follows": [...], "updated": ... }`). Turns "which feeds does my hub poll?" into protocol. MAY be kept private/client-local.
 - **`pins`** — your **signed** `(url, seq, hash)` observations of others' chains (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). Publishing them gives a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography.
@@ -563,7 +555,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify 
 
 ### Hub Trust
 
-**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier; the sketched key-delegation extension (Appendix H) would let a hub hold only a revocable delegated key while your root key stays offline.
+**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier; the sketched key-delegation extension (a planned delegation extension) would let a hub hold only a revocable delegated key while your root key stays offline.
 
 ### Legal and Deletion
 
@@ -589,7 +581,7 @@ Before any of the comparisons below, the boring answer: **your feed is a JSON Fe
 
 Those last two matter more than they look, because **existing bridges already eat them.** A site serving a discoverable Atom feed plus an h-card can be bridged into the fediverse by a third-party service like [Bridgy Fed](https://fed.brid.gy/) — no gateway to run, no bridge spec to implement, nothing in this repository required. It even represents you as `@yourdomain.com`, domain-bound, which is what your Open Feed identity URL already is, so there's no mapping to invent.
 
-The trade is the honest one: content reaching another network this way arrives **unsigned and with no completeness proof** — it's a copy (§7.5). But that's the same trade a purpose-built gateway makes, at none of the cost. Exhaust this before building a bridge (Appendix F.1).
+The trade is the honest one: content reaching another network this way arrives **unsigned and with no completeness proof** — it's a copy (§7.5). But that's the same trade a purpose-built gateway makes, at none of the cost. Exhaust this before building a bridge (above).
 
 ### vs ActivityPub
 
@@ -601,7 +593,7 @@ ActivityPub is comprehensive but complex: JSON-LD, HTTP Signatures, and a large 
 - **It requires remote `@context` resolution** — an SSRF, availability, and mutability surface Open Feed simply doesn't have.
 - **In practice nobody uses the graph** — most AP implementations treat JSON-LD as JSON with a magic `@context`. Open Feed makes that de facto practice normative.
 
-**Bridge:** feasible only as a stateful gateway (the brid.gy model — see below), never a transparent adapter. **FEP-8b32 is not the convergence seam it looks like:** its `eddsa-jcs-2022` shares Open Feed's curve (Ed25519) and canonicalization (RFC 8785), but signs different bytes — a 64-byte pair of hashes, where Open Feed signs the JWS signing input directly. No signature crosses in either direction. What *can* be shared is the key itself (Appendix F).
+**Bridge:** feasible only as a stateful gateway (the brid.gy model — see below), never a transparent adapter. **FEP-8b32 is not the convergence seam it looks like:** its `eddsa-jcs-2022` shares Open Feed's curve (Ed25519) and canonicalization (RFC 8785), but signs different bytes — a 64-byte pair of hashes, where Open Feed signs the JWS signing input directly. No signature crosses in either direction. What *can* be shared is the key itself (Appendix E).
 
 ### vs AT Protocol (Bluesky)
 
@@ -613,15 +605,32 @@ Nostr and Open Feed are both plain-JSON and Ed25519-signed, and both let you sel
 
 - **Identity.** Nostr identity is a raw `npub` public key; Open Feed identity is a human-readable URL you control, which also gives you rotation and recovery a bare keypair can't.
 - **Completeness.** A Nostr relay can silently withhold your notes and you can't prove it; Open Feed's signed, chained manifest makes omission and rollback detectable. This is the core distinction.
-- **Delegation.** Nostr's NIP-26 delegation foundered partly for lack of an authoritative revocation substrate; Open Feed's pinned chain *is* exactly that substrate (Appendix H).
+- **Delegation.** Nostr's NIP-26 delegation foundered partly for lack of an authoritative revocation substrate; Open Feed's pinned chain *is* exactly that substrate (a planned delegation extension).
 
 ### vs IndieWeb / Webmention
 
-IndieWeb shares Open Feed's "your identity is a URL you own" philosophy and its build-on-the-open-web ethos. Webmention (which earlier drafts had in the core) is now an optional **bridge gateway** (Appendix F): outbound rides on published h-entry HTML, inbound synthesizes `_unverified` items from microformats. What Open Feed adds over vanilla IndieWeb is cryptographic authorship and the completeness proof — Webmention has no signatures. Everything ingested from IndieWeb is `_unverified`, without exception; that isn't a slight on Webmention, it's that nobody but you can hold your Open Feed key.
+IndieWeb shares Open Feed's "your identity is a URL you own" philosophy and its build-on-the-open-web ethos. Webmention is available as an optional **bridge gateway** (Appendix E): outbound rides on published h-entry HTML, inbound synthesizes `_unverified` items from microformats. What Open Feed adds over vanilla IndieWeb is cryptographic authorship and the completeness proof — Webmention has no signatures. Everything ingested from IndieWeb is `_unverified`, without exception; that isn't a slight on Webmention, it's that nobody but you can hold your Open Feed key.
 
 ### vs RSS/Atom
 
 Open Feed builds on JSON Feed, the modern JSON equivalent of RSS/Atom. Plain feed readers (Level 0) can consume the feed and ignore signatures — Open Feed is strictly additive. Publishing an Atom mirror alongside maximizes compatibility.
+
+### Writing a bridge profile
+
+Spec Appendix E states the one rule that governs every gateway — *a gateway may not change the terms under which content was published*: not the **audience**, not the **durability**, not the **verification status**. Because that rule is protocol-independent, a profile for a specific protocol is a filled-in table rather than a fresh trust argument. None is written yet; this is the template.
+
+| Slot | What it fixes |
+|---|---|
+| **Identity mapping** | Foreign actor → identity URL and back; whether proxy identities are minted per actor or everything rides one gateway identity |
+| **Object mapping** | Foreign object type → item, and where applicable → `_rel` type, as a registered token or a namespaced URL |
+| **Source URI form** | What `external_url` carries, and whether it is dereferenceable |
+| **Audience test** | How the profile decides an object was published *publicly*. Safety-critical |
+| **Durability test** | How the profile decides an object is durable enough to ingest. Safety-critical |
+| **Update and delete mapping** | Foreign edit → `_version` bump; foreign delete → tombstone. The gateway owns its item ids, so both are ordinary |
+| **What does not map** | Foreign objects with no item representation — `Follow`, `Accept`, `Block`, lexicon records, room state. Bridge-internal state; never invent `_rel` types for them |
+| **Failure semantics** | The foreign object disappears; a delete arrives for something never ingested; the foreign side is unreachable |
+
+Those last two are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
 
 ---
 
@@ -645,11 +654,11 @@ A: So your host can't lie about *what you published*. Without it, a host could q
 
 **Q: Is this compatible with Mastodon?**
 
-A: Not directly. A stateful ActivityPub gateway could bridge them, but that's out of the core (Appendix F). Bridges are trusted intermediaries, never transparent — no bridge can hold your Open Feed key.
+A: Not directly. A stateful ActivityPub gateway could bridge them, but that's out of the core (Appendix E). Bridges are trusted intermediaries, never transparent — no bridge can hold your Open Feed key.
 
 **Q: How do I handle private content?**
 
-A: Two answers, depending on who you're hiding it from. **From the public:** don't publish it — deliver it to the recipients' inboxes. No mechanism, works today. **From your host:** encrypt it ([`open-feed-encrypted-content.md`](open-feed-encrypted-content.md)) — the feed stays public and the host serves bytes it can't read. **From someone you already gave it to:** impossible, and no protocol claims otherwise.
+A: Two answers, depending on who you're hiding it from. **From the public:** don't publish it — deliver it to the recipients' inboxes. No mechanism, works today. **From your host:** encrypt it (spec §15) — the feed stays public and the host serves bytes it can't read. **From someone you already gave it to:** impossible, and no protocol claims otherwise.
 
 Note what stays visible on a published feed even when encrypted: who posted, when, how often, and who replied to whom. Encryption hides what you said, not that you said it.
 
@@ -673,7 +682,7 @@ A: Yes. Every item is signed by its own author (named in the item's single-entry
 
 **Q: Where did the outbox / JWKS document / profile HTML go?**
 
-A: Consolidated. Your feed is your outbox. Keys, profile, and endpoints all live in the one signed `openfeed.json`. See the spec's Appendix E for the full before/after.
+A: Consolidated. Your feed is your outbox. Keys, profile, and endpoints all live in the one signed `openfeed.json`, so key ownership is a string comparison instead of a cross-document check.
 
 ---
 

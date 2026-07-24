@@ -187,12 +187,12 @@ console.log('  retained seq 1 is served at: https://test.example/openfeed/1.json
 console.log();
 embed('D.5 identity seq2 bytes', id2Bytes, 'spec');
 
-// ==== Conventions extension vectors (open-feed-conventions.md) ====
+// ==== Conventions vectors (spec Appendix D.6-D.7) ====
 const kReader = keyFromLabel('reader-key-1');
 const READER = 'https://reader.example/';
 const READER_KID = READER + '#reader-key-1';
 
-// ---- C.1 pins document (observer) ----
+// ---- D.6 pins document (observer) ----
 const pins = {
   url: READER,
   pins: [
@@ -205,9 +205,9 @@ pins._sig = sign(pins, kReader.priv, READER_KID);
 console.log('== C.1 pins document (full published canonical bytes) ==');
 console.log(' ', canon(pins));
 console.log();
-embed('C.1 pins bytes', canon(pins), 'conventions');
+embed('D.6 pins bytes', canon(pins), 'spec');
 
-// ---- C.2 follows document ----
+// ---- D.7 follows document ----
 const follows = {
   url: READER,
   follows: [ ID, 'https://gran.example/~gran/' ],
@@ -217,7 +217,7 @@ follows._sig = sign(follows, kReader.priv, READER_KID);
 console.log('== C.2 follows document (full published canonical bytes) ==');
 console.log(' ', canon(follows));
 console.log();
-embed('C.2 follows bytes', canon(follows), 'conventions');
+embed('D.7 follows bytes', canon(follows), 'spec');
 
 // ---- self-verify everything ----
 function verify(obj, kid, xPub){
@@ -246,9 +246,9 @@ const checks = [
   ['D.4 id seq1',     verify(id1, KID1)],
   ['D.5 id seq2',     verify(id2, KID1) && id2.prev===id1Hash],
   ['no history field', !('history' in id1) && !('history' in id2) && !('history' in manifest2)],
-  ['C.1 pins',        verify(pins, READER_KID, kReader.x)
+  ['D.6 pins',        verify(pins, READER_KID, kReader.x)
                         && pins.pins[0].hash===id1Hash && pins.pins[1].hash===manifestHash1],
-  ['C.2 follows',     verify(follows, READER_KID, kReader.x)],
+  ['D.7 follows',     verify(follows, READER_KID, kReader.x)],
 ];
 
 console.log('SELF-VERIFY:');
@@ -265,7 +265,6 @@ console.log();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const docs = {
   spec:        fs.readFileSync(path.join(here, '..', 'open-feed-spec.md'), 'utf8'),
-  conventions: fs.readFileSync(path.join(here, '..', 'open-feed-conventions.md'), 'utf8'),
 };
 console.log('DOC CROSS-CHECK (vector strings present verbatim in the published docs):');
 for (const {label, str, file} of embedded){
