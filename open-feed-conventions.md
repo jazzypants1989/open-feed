@@ -1,8 +1,8 @@
 # Open Feed — Follows and Pins (Conventions Extension)
 
-**Extension version 0.2.0 — Draft.** Targets the Open Feed core specification **v0.2.0** (`open-feed-spec.md`). This is an OPTIONAL extension; it is not part of the core and MUST NOT be required for core conformance. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive. RFC 2119 keywords (MUST, SHOULD, MAY, …) apply.
+**Extension version 0.1.0 — Draft. Unreleased.** Targets the Open Feed core specification **v0.1.0** (`open-feed-spec.md`). This is an OPTIONAL extension; it is not part of the core and MUST NOT be required for core conformance. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive. RFC 2119 keywords (MUST, SHOULD, MAY, …) apply.
 
-**Changed in 0.2.0:** §5 (self-commitments) is **removed**, along with vectors C.2/C.2b. It existed solely to restore cross-reader equivocation detection to restricted feeds, and the restricted-feeds extension no longer exists (core Appendix E). `pins` is once again cleanly "observations of others."
+**A note on what is deliberately absent.** An earlier draft of this document carried a §5 defining *self-commitments* — a public commitment to the hash of a private artifact. It existed solely to restore cross-reader equivocation detection to restricted feeds, and the privacy-and-exit pass removed both (core Appendix E). `pins` is therefore cleanly "observations of others," and should stay that way.
 
 ## Abstract
 

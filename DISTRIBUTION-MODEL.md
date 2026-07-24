@@ -384,6 +384,10 @@ Error bodies: `{ "error": "code", "message": "human text" }` with codes `invalid
 
 Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliveries are recovered by polling the sender's feed — the feed is the source of truth; the inbox is a latency optimization (spec §10.4, §1).
 
+**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in a replies endpoint if one is ever built (spec §12), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
+
+This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (`open-feed-encrypted-content.md` §7). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
+
 ### Threading (nested replies)
 
 A `reply` entry's `to` points at the **parent** item (spec §8.1). When the parent is not itself the thread root, the item SHOULD also carry a `root` entry pointing at the thread root, and the sender SHOULD deliver the nested reply to **both** the parent author's and the root author's inboxes. Without the `root` entry, the inbox relevance check (judged per `_rel` entry) would cause the thread host to reject a reply-to-a-reply as `not_relevant`. Clients build the tree by walking parents and SHOULD cap walk depth (malicious data can contain cycles).
@@ -451,7 +455,7 @@ interface ExternalMember {
 
 ### Optional Webmention Bridge
 
-Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix F). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly, or authored under a disclosed gateway identity (spec §7.5). Treat it as lower-trust throughout; never present it as a native, verified identity.
+Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix F). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
 
 If you implement the bridge:
 
@@ -1003,11 +1007,15 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 ## Future: Broader Federation
 
-Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so bridged content is `_unverified` or gateway-authored (spec §7.5, Appendix F).
+Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_unverified`, without exception** (spec §7.5, Appendix F).
+
+**Try spec Appendix F.1 before building any of this.** Publishing the optional Atom mirror this document already describes, discoverable from the identity page, plus an h-card, is enough for a third-party service such as Bridgy Fed to bridge a member into the fediverse — with no gateway to operate and no bridge code to maintain. The bridged handle is `@yourdomain.com`, which is already the member's identity URL. For "relatives on Mastodon," that is the whole feature, and it ships in an afternoon.
 
 ### ActivityPub (Mastodon/Fediverse)
 
-The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. The one convergence seam is **FEP-8b32** (`eddsa-jcs-2022` = Ed25519 over RFC 8785 — the same primitive Open Feed uses).
+The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (spec Appendix F.4).
+
+Two things this bridge MUST NOT do, both of which a naive implementation does by default (spec §11.1.1, F.2): emit an item with no `_feed_url` (delivered, not published — the family comment threads), and emit anything derived from an encrypted item, **including a placeholder**. Encrypted posts are skipped entirely, not announced as "encrypted post."
 
 ### Public Discovery
 

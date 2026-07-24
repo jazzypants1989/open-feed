@@ -1,15 +1,17 @@
 # Open Feed Protocol Specification
 
-**Version 0.2.0 — Draft.** This is the second public draft of Open Feed. It is a clean-slate design and does not depend on any earlier document. Several prior internal drafts (never publicly released) explored an expansive design; v0.1.0 collapsed that exploration into a minimal core, and this version completes the collapse. Appendix E records what changed and why. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive.
+**Version 0.1.0 — Draft. Unreleased:** this document has had no readers outside its author, and nothing implements it. Version numbers here mark releases, not edits; they begin moving when someone outside this repository can depend on them.
 
-**Breaking changes in 0.2.0**, all pre-1.0 and all deliberate:
+It is a clean-slate design and does not depend on any earlier document. Several prior internal drafts explored a much larger surface; a nine-pass simplification debate collapsed it, and a subsequent **privacy-and-exit pass** set the shape below. Appendix E records what was removed and why. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive.
 
-- The **restricted-feeds extension is removed entirely** — not slimmed. Confidentiality moved to an optional encrypted-content extension (§11.3); audience control at a single host is host authorization, i.e. software. Conventions §5 (self-commitments), which existed only to patch a hole restricted feeds opened, is removed with it. Appendix E records the reasoning and the test that shows the removal is a real layering.
-- Identity-document `feed` + `manifest` + `feeds` collapse into **one `feeds` array** of `{url, manifest?, rel}` entries (§3.2.1), with `manifest` OPTIONAL.
-- `history` becomes an **index** of `(seq, hash, url)` rather than a container of full prior versions (§5.4), and prior versions are served individually.
-- Attachment `_sha256` is now **MUST**, not SHOULD (§7.4).
+**What the privacy-and-exit pass settled** — recorded because the reasoning is load-bearing, not because anyone needs to migrate:
+
+- There is **no restricted-feeds mechanism**, and an extension that provided one was removed rather than slimmed. Confidentiality is an optional encrypted-content extension (§11.3); audience control at a single host is host authorization, i.e. software. Appendix E records the reasoning and the test that shows the removal is a real layering.
+- Every feed an identity publishes lives in **one `feeds` array** of `{url, manifest?, rel}` entries (§3.2.1), with `manifest` OPTIONAL — not in separate `feed` / `manifest` fields.
+- `history` is an **index** of `(seq, hash, url)` rather than a container of full prior versions (§5.4); prior versions are served individually.
+- Attachment `_sha256` is a **MUST** (§7.4).
 - Tombstones are defined by an **allowlist** of retained fields (§7.3).
-- New: **§15 Export and Exit**, and a fourth adversary tier in §14.2.
+- **§15 Export and Exit** exists, answering the fourth adversary tier in §14.2.
 
 ## Abstract
 
@@ -390,7 +392,7 @@ The effective-signing-time rule lets content be legitimately re-signed after rot
 
 Every signed document carries its author's identity URL **inside the signed bytes**:
 
-- **Items**: the item-level `authors` array MUST contain **exactly one entry**, whose `url` is the signer's identity URL. (Feed-level `authors` are not covered by item signatures and MUST NOT be relied on. A multi-author *feed* still works — every item names its own single author.) Clients MUST attribute solely to this entry; they MUST NOT display any other self-asserted author name.
+- **Items**: the item-level `authors` array MUST contain **exactly one entry**, whose `url` is the signer's identity URL. (Feed-level `authors` are not covered by item signatures and MUST NOT be relied on. A multi-author *feed* still works — every item names its own single author.) Clients MUST attribute solely to this entry; they MUST NOT display any other self-asserted author name. Bridged content is not an exception: an ingested item is signed by its gateway, so the gateway (or a proxy identity it operates) *is* the author here, and the foreign author is named by that proxy's own identity document rather than by a second entry (§7.5, Appendix F.3).
 - **Manifests**: the `url` field (the identity that owns the feed).
 - **Identity documents**: the `url` field.
 
@@ -459,7 +461,15 @@ Rules:
 
 Together with the manifest this closes both omission and injection: the manifest proves **presence** (a host can't drop your content), and `_feed_url` proves **exclusivity** (a host can't inject or resurrect your content by copying it into its own feed). It also gives availability for free — a follower may serve its cached copy of your feed when your host is down, and it still verifies.
 
-**Bridged and unverified items.** Content ingested from another protocol (ActivityPub, Webmention/IndieWeb, atproto — Appendix F) cannot be a native signed item, because no one holds the foreign author's Open Feed key. Such content MUST be marked `_unverified: true` (a copy the gateway merely observed) **or** authored by a disclosed gateway/proxy identity whose key custody is stated. It MUST NOT be presented as a native, verified identity. This is the same honest-hub-trust model (§14.2) extended across a protocol boundary.
+**Bridged and unverified items.** Content ingested from another protocol (ActivityPub, Webmention/IndieWeb, atproto, Nostr — Appendix F) cannot be a native signed item, because no one holds the foreign author's Open Feed key. It is therefore signed by the **gateway** that observed it, and:
+
+- It MUST carry `_unverified: true`. There is **no exception and no second form.** Nothing that crosses a protocol boundary is natively authentic, precisely because no bridge holds a foreign author's key; a gateway presenting ingested content any other way is making a claim it cannot support. §10.5 governs how such content is displayed.
+- Its `authors` entry names the **signer** — the gateway, or a proxy identity the gateway operates — per §6.6, never the foreign author, who signed nothing here. Naming the foreign author is what proxy identities are for (Appendix F.3).
+- It SHOULD carry `external_url` naming the foreign original. On an `_unverified` item this MAY be a non-HTTP URI (`nostr:note1…`, `at://did:plc:…`), since not every protocol identifies objects with URLs. Consumers MUST NOT dereference it; §14.5's fetch discipline governs anything they do dereference.
+
+This is the same honest-hub-trust model (§14.2) extended across a protocol boundary.
+
+Ingest is only half of a bridge, and a gateway publishes other people's content in **both** directions. Appendix F.2 states the rule that governs it — *a gateway may not change the terms under which content was published* — of which §11.1.1 is the case the core enforces directly: a delivered-only item, one with no `_feed_url`, MUST NOT be emitted to a foreign network.
 
 ## 8. Interactions Are Items
 
@@ -666,6 +676,16 @@ What is genuinely incompatible is narrower than "privacy":
 
 > **A completeness proof is a public artifact.** Its power is that strangers can compare it (§9.1, §14.2). Content whose **existence** must be private therefore cannot have one. Content whose **bytes** are opaque still can — encryption and the manifest compose fine.
 
+#### 11.1.1. Publication is the author's decision, and only the author's
+
+An item with no `_feed_url` was **delivered, not published** (§8) — its author chose the right-hand column above. Whoever receives it holds someone else's signed bytes as a **custodian, not an author** (§15 uses the same words for the same reason). Therefore:
+
+> A receiver MUST NOT place a delivered-only item into any publicly-readable artifact: not a feed (§7.1), not a manifest (§9), not a replies-endpoint response (§12), and not a gateway emission to a foreign network (§7.5, Appendix F).
+
+This is the **only** enforcement the delivered column has. Without it, choosing that column is not a privacy mechanism at all: any one recipient can undo it unilaterally, at no cost, and the author gets no signal that it happened. Note the asymmetry that makes this worth a MUST — the author's choice is visible in the signed bytes and is trivially checkable, while its violation is invisible to the person it harms.
+
+The rule binds the **bytes**, not the information — the same by-value/by-reference limit as §6.6. Nothing stops a recipient publishing their own signed item describing what you told them privately. That is ordinary indiscretion, no protocol prevents it, and this one does not pretend to.
+
 ### 11.2. Audience of one, audience of many
 
 The second rule predicts what breaks, and it cuts across the first:
@@ -695,6 +715,14 @@ Not offered. Serving a feed only to selected readers means serving audience-vary
 The replies endpoint is **a read view over the inbox**, not a second store. Everything it returns was delivered by `POST {inbox}` (§10) and is held verbatim there; this endpoint is the public projection of that data, filtered to one target id. Implementers should build it as a query, not as a parallel collection to keep in sync.
 
 It keeps its own URL rather than being folded into `GET {inbox}` on purpose: §10.1 reserves authenticated GET on the inbox for the owner reading their own mail, and an inbox may hold delivered-private content (§11.1). One URL serving both an owner-scoped private view and an unauthenticated public projection is the shape most authorization bugs take. Two URLs, one store.
+
+That separation settles *who may query*. It does not settle *what may be returned*, and the second rule is the one that carries the weight:
+
+> **The projection is of published replies only.** An item with no `_feed_url` MUST NOT appear in a replies-endpoint response, whatever its `_rel` targets. Its author delivered it rather than publishing it (§11.1.1), and this endpoint MUST NOT overrule that.
+
+The check is a single field lookup inside the signed bytes — the author's own statement that the item is published — so it costs nothing and needs no manifest fetch (§10.3 forbids requiring one). An author who later promotes a delivered item to published, by bumping `_version` and adding `_feed_url`, makes it eligible from that revision onward; a receiver serves whichever revision it actually holds.
+
+An implementation that skips this check converts every delivered-private interaction it receives into a public one, silently and by default. The encrypted-content extension routes group interactions down the delivered path precisely to keep a reply graph off the public web (`open-feed-encrypted-content.md` §7); that design depends entirely on this rule holding here.
 
 An identity MAY expose thread discovery via a `replies` field in its identity document. The response is a **JSON Feed** (§7.1) whose `items` are the reply items reproduced **byte-verbatim** as received, with the queried id echoed in a feed-level `_replies_to`:
 
@@ -774,7 +802,8 @@ If an identity-document or manifest fetch fails transiently, cache the failure a
 11. **Inbound and copied HTML.** §10.5. Escape or sanitize any content not authored by the local user, always.
 12. **Thread loops.** `_rel` `reply` graphs from malicious parties may contain cycles; cap walk depth.
 13. **Manifest lag vs violation.** Content *newer* than the manifest is lag (tolerate briefly); content *vanished* from the manifest without a tombstone, or a copied item contradicting the canonical manifest, is a violation (treat as equivocation).
-14. **Identity portability.** Losing the domain without recovery keys orphans the identity — the email trade-off. Recovery keys + pins close the hijack gap for anyone who observed the identity before the hijack; first contact after a hijack is unprotectable **by design**. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity, and recovery keys + pins are the family-scale mitigation, not a fix. External anchors (transparency logs, witnesses) remain deferred.
+14. **Receiver-side republication.** The publish/deliver choice (§11.1) is the core's only privacy mechanism, and it is enforced entirely at parties other than the author. Any surface that projects received content publicly — the replies endpoint (§12), a bridge (§7.5), an aggregate feed — MUST filter out delivered-only items (§11.1.1). This is the failure mode most likely to be introduced by an implementer who is being *helpful*: republishing what arrived in the inbox looks like completeness and is a disclosure the author declined.
+15. **Identity portability.** Losing the domain without recovery keys orphans the identity — the email trade-off. Recovery keys + pins close the hijack gap for anyone who observed the identity before the hijack; first contact after a hijack is unprotectable **by design**. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity, and recovery keys + pins are the family-scale mitigation, not a fix. External anchors (transparency logs, witnesses) remain deferred.
 
 ## 15. Export and Exit
 
@@ -893,7 +922,7 @@ Its `prev` equals the D.3 genesis hash, demonstrating manifest chaining (§9.1).
 
 ### D.4. Identity Document, `seq: 1` (genesis)
 
-Full published canonical bytes (this exact string is what `seq: 2`'s `prev` hashes). Note the v0.2.0 shape: one `feeds` array (§3.2.1) in place of the former `feed` + `manifest` fields, and `history` naming a version **index** (§5.4):
+Full published canonical bytes (this exact string is what `seq: 2`'s `prev` hashes). Note the shape: one `feeds` array (§3.2.1) rather than separate `feed` + `manifest` fields, and `history` naming a version **index** (§5.4):
 
 ```
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..WUNXi_EE0O0rqiZfcyBfjwFObOBD17zMuhj_bqjLOribrahSZky5voMzVTW1LEJ2tAL5KMyWiBEuF4oSxI_yDQ","feeds":[{"manifest":"https://test.example/manifest.json","rel":"primary","url":"https://test.example/feed.json"}],"history":"https://test.example/history.json","inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"name":"Test Identity","seq":1,"updated":1736899200,"url":"https://test.example/"}
@@ -939,8 +968,8 @@ This specification is a clean-slate synthesis. Several prior internal drafts (ne
 | Interaction objects, type matrix, `x-` types, dual publication, `target`/`target_item`/`source` | **Removed / collapsed** | Items with a `_rel` array; one schema, one verifier; feed and inbox carry the same bytes |
 | Outbox endpoint | **Removed** | Your feed is your outbox |
 | Webmention in core | **Removed from core** | Inbox is the sole core delivery path; Webmention returns as a **bridge gateway** (Appendix F), ingesting `_unverified` copies |
-| Authorized Fetch (`401` challenge, fetch assertions, capability grants, gated manifest, reader lists) | **Removed entirely** (v0.2.0) | It tried to occupy a cell that does not exist: *published but not public* (§11.1). Every artifact it needed — the second signing construction, the CORS carve-out, timing equalization, a documented cross-reader equivocation hole, and the self-commitment mechanism invented to patch that hole — was a consequence of serving audience-varying bytes. Confidentiality moved to encrypted content (§11.3); audience control at a single host is host authorization, i.e. software, not protocol. **It can return as a pure extension with zero core changes** — a `401` is host behavior, an assertion is extension-local, a reader list is an extension field — which is the test that the removal is a real layering and not a deletion of capability |
-| Self-commitments (conventions §5) | **Removed** (v0.2.0) | Existed solely to patch the above. The insight is worth keeping even though the mechanism is gone: *a public commitment to the hash of a private artifact restores cross-observer equivocation detection over it, for versions the owner actually commits to.* It is the reason §11.1's trade is stated over **existence**-privacy rather than confidentiality |
+| Authorized Fetch (`401` challenge, fetch assertions, capability grants, gated manifest, reader lists) | **Removed entirely** (privacy-and-exit pass) | It tried to occupy a cell that does not exist: *published but not public* (§11.1). Every artifact it needed — the second signing construction, the CORS carve-out, timing equalization, a documented cross-reader equivocation hole, and the self-commitment mechanism invented to patch that hole — was a consequence of serving audience-varying bytes. Confidentiality moved to encrypted content (§11.3); audience control at a single host is host authorization, i.e. software, not protocol. **It can return as a pure extension with zero core changes** — a `401` is host behavior, an assertion is extension-local, a reader list is an extension field — which is the test that the removal is a real layering and not a deletion of capability |
+| Self-commitments (conventions §5) | **Removed** (privacy-and-exit pass) | Existed solely to patch the above. The insight is worth keeping even though the mechanism is gone: *a public commitment to the hash of a private artifact restores cross-observer equivocation detection over it, for versions the owner actually commits to.* It is the reason §11.1's trade is stated over **existence**-privacy rather than confidentiality |
 | Deriving an X25519 encryption key from the Ed25519 signing key | **Considered and rejected** | Tempting (one keypair, no new key type, no lifecycle, no discovery — `age` does exactly this for `ssh-ed25519`), and wrong here for three reasons that do not depend on each other. **(1) Lifecycle divergence:** a rotated-out signing key MAY be dropped after 30 days (§4.3), while an encryption key must be retained for as long as any ciphertext wrapped to it matters — derivation makes signing-key rotation silently destroy readability, or freezes signing keys forever. **(2) Merged blast radius:** one compromise would cost both future impersonation and all past confidentiality. **(3) Cross-primitive hygiene:** exposing a signing oracle and a Diffie-Hellman oracle on one keypair is a security-proof burden a small specification should not take on. Recorded here so the question is not re-opened annually |
 | Replies-endpoint envelope | **Simplified** | Returns a JSON Feed (§12) |
 | Bespoke relation fields (`_reply_to`, …) | **Unified** | `_rel` array with registered-token-or-URL types (§8) |
@@ -948,13 +977,87 @@ This specification is a clean-slate synthesis. Several prior internal drafts (ne
 
 What deliberately survived unchanged: byte-exact RFC 8785 + I-JSON, RFC 7797 header-covering signatures, author binding, effective signing time, tombstones, conformance levels, the static-hosting story, and the honest hub-trust model.
 
-## Appendix F: Interoperability (Gateways)
+## Appendix F: Interoperability
 
-Bridges to other protocols are **out of scope for the core but feasible as gateways** — trusted intermediaries, never transparent adapters, because each target protocol has a different trust primitive and no bridge can hold a foreign author's Open Feed key. A gateway may (1) ingest foreign content as an `_unverified` copy (§7.5), (2) sign a claim *about* it under its own identity, or (3) proxy the foreign actor as a gateway-hosted Open Feed identity whose key custody is disclosed. All three are the honest-hub-trust model (§14.2) extended across a boundary; Open Feed's pull-canonical model (§1, principle 3) makes them resumable and drift-free.
+Open Feed reaches other systems two ways, and the cheap one is not a bridge.
 
-- **Webmention / IndieWeb** — cheapest, and half-built: outbound rides on published h-entry HTML; inbound synthesizes `_unverified` items from mf2. No core changes.
-- **ActivityPub** — the brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, and mirrors AP replies into the inbox. The one convergence seam is **FEP-8b32** (`eddsa-jcs-2022` = Ed25519 over RFC 8785 — the same primitive), where a near-transparent object-level bridge becomes conceivable.
-- **atproto** — heaviest: a mirror PDS (DID + DAG-CBOR + MST), no transparent path. The clean identity seam is **did:web ↔ Open Feed URL** (both domain-bound).
+### F.1. Interoperability without a bridge
+
+Most of what Open Feed interoperates with, it interoperates with **today, with nothing new built and no gateway operated**, because its wire formats are other people's wire formats:
+
+- **A feed is a JSON Feed 1.1 document.** Every JSON Feed reader already works, ignoring `_sig` and getting no authenticity guarantee — Level 0 (§13). This is not a fallback; it is the default relationship to the existing ecosystem.
+- **An Atom or RSS mirror** of the same items reaches the entire feed-reader installed base. It carries no signatures and is a copy in the sense of §7.5.
+- **h-entry / h-card markup** on the optional human-readable page at the identity URL (§3.1) makes the identity legible to IndieWeb tooling.
+
+Those last two are worth more than they look, because **existing bridges consume them**. A publisher serving an Atom feed discoverable from their home page, plus an h-card, can be bridged into the fediverse by a third-party service such as Bridgy Fed without this specification defining anything. The identity models even agree: such a service represents the site as `@yourdomain.com`, domain-bound, which is what an Open Feed identity URL already is — so there is no mapping to design.
+
+The trade is the honest one stated throughout this appendix: content that reaches another network by any of these routes arrives **unsigned and without a completeness proof**. It is a copy (§7.5). That is the same trade a gateway makes, at none of the cost, which is why a deployment wanting reach should exhaust this section before building anything in the rest of the appendix.
+
+### F.2. Gateways, and the one rule that governs them
+
+A gateway is a **trusted intermediary, never a transparent adapter** — each target protocol has a different trust primitive, and no bridge can hold a foreign author's Open Feed key. A gateway is an ordinary Open Feed identity: it has an identity document, keys, a chained manifest, and an inbox, so a gateway that equivocates about what it bridged forks its own chain and is caught by §9.1 like any other signer. Open Feed's pull-canonical model (§1, principle 3) makes gateways resumable and drift-free.
+
+Everything a gateway must and must not do follows from one rule, applied in both directions:
+
+> **A gateway may not change the terms under which content was published.** Not the **audience** — never widen it. Not the **durability** — never make permanent what was ephemeral. Not the **verification status** — never present an assertion as a signature.
+
+Those three questions are the test for any protocol, including one that does not exist yet.
+
+**Outbound** (Open Feed → foreign network):
+
+- **Delivered-only items MUST NOT be emitted** *(audience)*. An item with no `_feed_url` was kept off the public web by its author (§11.1.1); emitting it is a publication decision the author declined to make.
+- **A gateway MUST NOT emit content it cannot read, including as a placeholder** *(audience)*. For an encrypted item (§11.3) the ciphertext, an "encrypted post" stub, and a bare timestamped entry are all forbidden. The reasoning matters, because the naive reading is that the metadata is public anyway: it is public **incidentally**, as the price of keeping the completeness proof (§11.4), not as a decision to announce. An author publishing opaque bytes at their own URL has accepted that whoever fetches that URL learns they posted. They have not asked a gateway to tell a foreign follower graph the same thing, and §14.8 is explicit that posting cadence is the leak that survives encryption and matters most against the fourth-tier adversary (§14.2). Skipping is always safe; announcing is not.
+- **A gateway MUST NOT claim a completeness guarantee for bridged content** *(verification)*. No target protocol has an analog of the manifest (§9), so the proof does not survive the crossing.
+
+**Inbound** (foreign network → Open Feed). This is the half implementations are likeliest to get wrong, because ingest feels like observation. It is publication: an ingested item lands in the gateway's own feed, is committed by the gateway's manifest, is retained permanently (§5.4, §9.2), and is served with `Access-Control-Allow-Origin: *`.
+
+- **Ingest only what the source published publicly** *(audience)*. ActivityPub content not addressed to `Public` — followers-only, or a direct message — MUST NOT be ingested, and the same holds for any protocol's restricted or end-to-end-encrypted content. One followers-only post ingested into a manifested feed is a permanent, world-readable, cryptographically-committed disclosure its author never authorized.
+- **Do not durabilize the ephemeral** *(durability)*. Content the source protocol expires, or allows to be genuinely withdrawn, MUST NOT be ingested: §9's retention rules turn removal into a permanent public record rather than a deletion (§14.8). A protocol whose deletions are real is not compatible with a protocol whose deletions are tombstones.
+- **Everything ingested is `_unverified`** *(verification)*. §7.5, without exception.
+
+### F.3. Proxy identities
+
+A gateway signs what it ingests, so §6.6 places the gateway in the `authors` entry — which leaves the *foreign author* unnamed. A **proxy identity** is how a gateway names them: an ordinary Open Feed identity, minted and key-held by the gateway, one per foreign actor, whose identity document carries that actor's `name`, `bio`, and `avatar`. Items ingested from that actor are signed by their proxy, so attribution is **structural** rather than an unverified string in a field the core would otherwise have to define.
+
+It is also the only representation available for actors whose native identifiers cannot be URLs — a Nostr `npub`, a phone number, a handle on a closed network.
+
+A proxy identity is **not** a hosted identity in §13's sense, and that distinction is what keeps §15 coherent: its principal never asked for it, holds no keys, and has a real home elsewhere. Because everything a proxy publishes is `_unverified` (§7.5), it never claims to *be* that person — it claims to mirror them, which is a claim the gateway can support. §13's device-generated recovery key, `(seq, hash)` disclosure, and export bundle therefore do not apply: there is no captive user, because there is no user.
+
+The price of that carve-out is honesty about what a proxy is. A gateway minting proxy identities MUST:
+
+- **Disclose** in each proxy's identity document that it is a gateway-operated mirror, who operates it, and where the actor's real home is.
+- **Never claim exit** (§15) for a proxy identity.
+- **Withdraw the proxy on the foreign actor's request.** This stands where exit stands for a real hosted identity, and it is weaker; say so rather than dressing it up.
+
+A gateway unwilling to meet these should not mint proxies. Ingesting everything under the gateway's own single identity is always available, and costs only per-actor attribution.
+
+### F.4. The targets
+
+- **Webmention / IndieWeb** — cheapest, and half-built by F.1: outbound rides on published h-entry HTML; inbound synthesizes `_unverified` items from mf2. No core changes.
+- **ActivityPub** — the brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, and mirrors AP replies into the inbox.
+
+  **FEP-8b32 does not converge, and earlier drafts of this appendix claimed it did.** Its `eddsa-jcs-2022` cryptosuite and Open Feed share a curve (Ed25519) and a canonicalization scheme (RFC 8785), but they sign **different bytes**: FEP-8b32 signs the 64-byte `SHA-256(canonical proof config) || SHA-256(canonical document)`, while Open Feed signs `ASCII(BASE64URL(header) || '.') || canonical-bytes` directly (§6.1). No signature is portable in either direction — and that is before the payloads differ, an ActivityStreams object being nothing like a JSON Feed item. There is no transparent object-level bridge on this seam.
+
+  What does converge is narrower and still useful: the **key**. One Ed25519 keypair can serve as an Open Feed signing key and as an AP `assertionMethod` (FEP-521a), and the two signing inputs cannot be confused — an Open Feed signing input always begins with the fixed ASCII prefix `eyJhbGciOiJFZERTQSI`, while an `eddsa-jcs-2022` input is exactly 64 bytes of hash output. That makes an author-side dual-signing publisher conceivable, which is a different thing from a bridge and is deferred (Appendix H).
+- **atproto** — heaviest: a mirror PDS (DID + DAG-CBOR + MST), no transparent path. The clean identity seam is **did:web ↔ Open Feed URL** (both domain-bound, and `did.json` sits beside `openfeed.json` at the same path).
+- **Nostr** — events map onto items cleanly (id, pubkey, `created_at`, content), and relays are a push transport a gateway can subscribe to. Two frictions this appendix has already named: `npub` identities are not URLs, so ingest requires proxy identities (F.3), and event references are `nostr:` URIs rather than HTTP URLs (§7.5).
+
+### F.5. What a bridge profile must specify
+
+Because F.2's rule is protocol-independent, a profile for a specific protocol is a filled-in table rather than a fresh trust argument. A profile MUST specify:
+
+| Slot | What it fixes |
+|---|---|
+| **Identity mapping** | Foreign actor → identity URL and back; whether proxies are minted per actor (F.3) or everything rides one gateway identity |
+| **Object mapping** | Foreign object type → item, and where applicable → `_rel` type (§8), as a registered token or a namespaced URL |
+| **Source URI form** | What `external_url` carries, and whether it is dereferenceable |
+| **Audience test** | How the profile determines an object was published *publicly*. The safety-critical slot (F.2) |
+| **Durability test** | How the profile determines an object is durable enough to ingest (F.2) |
+| **Update and delete mapping** | Foreign edit → `_version` bump; foreign delete → tombstone (§7.3). The gateway owns its item ids, so both are ordinary |
+| **What does not map** | Foreign objects with no item representation — `Follow`, `Accept`, `Block`, lexicon records, room state. These are the bridge's internal state and MUST NOT be invented into `_rel` types |
+| **Failure semantics** | What happens when the foreign object disappears, when a delete arrives for something never ingested, and when the foreign side is unreachable |
+
+The last two slots exist because they are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
 
 ## Appendix G: Conventions — Follows and Pins (OPTIONAL)
 
@@ -971,3 +1074,4 @@ Pins are also the answer to a question §14.2 raises and does not settle: equivo
 - **Key delegation (extension, sketched; `open-feed-delegation.md`, planned — not yet drafted)** — the highest-value trust upgrade available. A delegation is a statement signed by a root identity key — `{delegate: {JWK}, kid, exp, scope}` — published in the identity document; a hub or extra device holds only the *delegated* key while the root stays client-side or offline. Content signs with the delegate key; verifiers resolve the `kid` to the delegation entry in the pinned identity document and confirm it unexpired and unrevoked. Revoking a delegate is an ordinary chain version — the pinned chain is exactly the authoritative revocation substrate whose absence killed Nostr's NIP-26. This one statement type answers both multi-device *and* hub custody (moving hub deployments from the key-custodian tier to the serving-path tier of §14.2) without adding a second signing construction.
 - **External time anchoring** — a true transparency log / witness network beyond the family-scale `pins` convention; deferred.
 - **Bridge profiles** — normative gateway specs for Webmention / ActivityPub / atproto (Appendix F), starting with the Webmention gateway.
+- **Author-side dual signing (parked)** — a publisher's own client emitting both an Open Feed `_sig` and a foreign-format signature (e.g. FEP-8b32) over the same Ed25519 key, so bridged content need not be `_unverified`. It is the only known route to verified cross-protocol authorship, and the two signing inputs are structurally unconfusable (Appendix F.3). It is also a second signing construction in all but name, which §6.1 forbids in the core and in extensions. Parked deliberately: it is not blocking anything, and taking it up means deciding whether "no second construction" is a rule about *this protocol's* artifacts or about everything an Open Feed publisher signs.

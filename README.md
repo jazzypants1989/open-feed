@@ -94,12 +94,12 @@ Client-side keys move you from the first tier toward the third. They're supporte
 
 ### What's Out of Scope
 
-- End-to-end encrypted content. (Restricted-visibility feeds are an **extension** — see below — but that's audience control, not confidentiality.)
+- Confidentiality. Privacy in the core is a publication decision — publish or deliver (§11). Encrypted content is an **optional extension**, and its guarantee is bounded by the recipient's key custody; there is no restricted-visibility feed mechanism, and the extension that once provided one was deleted rather than slimmed (Appendix E).
 - Global-scale firehoses / aggregators. Open Feed scales *across* identities (each is self-contained and independently verifiable), not to millions of items per identity; the manifest is a deliberate family-scale boundary.
 - Content moderation policy (left to hub operators).
 - Storage formats and sync protocols (files on disk are fine).
 - Specific authentication methods (how you log in to your own hub is your business).
-- Protocol bridges (ActivityPub, atproto, Webmention) — feasible as gateways, but out of the core (Appendix F).
+- Protocol bridges (ActivityPub, atproto, Webmention, Nostr) — feasible as gateways, but out of the core (Appendix F). Note that the *cheapest* interop needs no bridge at all: see below.
 
 ---
 
@@ -440,6 +440,8 @@ GET /~mom/replies?item=urn:uuid:550e8400-e29b-41d4-a716-446655440000
 
 Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries (§12).
 
+The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see §11.1.1.
+
 ---
 
 ## Signature Verification
@@ -515,6 +517,8 @@ There is no third cell — *published but not public* does not exist. An earlier
 
 What's genuinely incompatible is narrower than "privacy": a completeness proof is a public artifact, so content whose **existence** must be private can't have one. Content whose **bytes** are opaque still can — which is why encryption and the manifest compose fine.
 
+Because "delivered" is a choice the author makes and *other people* enforce, the spec makes it a MUST: **publication is the author's decision, and only the author's** (§11.1.1). A receiver holds a delivered item as a custodian, not an author, and must never put it in a feed, a manifest, the replies endpoint, or a bridge. This binds the bytes, not the information — nothing stops someone describing in their own post what you told them privately.
+
 **Encrypted content** ([`open-feed-encrypted-content.md`](open-feed-encrypted-content.md), optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
 
 One rule predicts the rest: **any audience larger than one needs a membership document.** A DM needs no roster. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not.
@@ -579,6 +583,14 @@ JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify 
 
 Open Feed is **signed** like Nostr and atproto, but **human-URL-identified** like IndieWeb and ActivityPub. Its distinguishing feature is the manifest: a content-completeness proof that Nostr lacks and that atproto gets (differently) from its signed repo.
 
+### What already interoperates, today, with nothing new
+
+Before any of the comparisons below, the boring answer: **your feed is a JSON Feed 1.1 document.** Every JSON Feed reader already works — it just ignores `_sig` and gets no authenticity guarantee (Level 0, §13). Publish an Atom or RSS mirror and the entire feed-reader installed base works too. Add h-card/h-entry markup to your identity page and IndieWeb tooling can read you.
+
+Those last two matter more than they look, because **existing bridges already eat them.** A site serving a discoverable Atom feed plus an h-card can be bridged into the fediverse by a third-party service like [Bridgy Fed](https://fed.brid.gy/) — no gateway to run, no bridge spec to implement, nothing in this repository required. It even represents you as `@yourdomain.com`, domain-bound, which is what your Open Feed identity URL already is, so there's no mapping to invent.
+
+The trade is the honest one: content reaching another network this way arrives **unsigned and with no completeness proof** — it's a copy (§7.5). But that's the same trade a purpose-built gateway makes, at none of the cost. Exhaust this before building a bridge (Appendix F.1).
+
 ### vs ActivityPub
 
 ActivityPub is comprehensive but complex: JSON-LD, HTTP Signatures, and a large vocabulary. Open Feed uses `_`-prefixed fields instead of JSON-LD, JWS instead of HTTP Signatures, and a feed + manifest instead of an outbox.
@@ -589,7 +601,7 @@ ActivityPub is comprehensive but complex: JSON-LD, HTTP Signatures, and a large 
 - **It requires remote `@context` resolution** — an SSRF, availability, and mutability surface Open Feed simply doesn't have.
 - **In practice nobody uses the graph** — most AP implementations treat JSON-LD as JSON with a magic `@context`. Open Feed makes that de facto practice normative.
 
-**Bridge:** feasible only as a stateful gateway (the brid.gy model — see below), never a transparent adapter. The one convergence seam is **FEP-8b32** (`eddsa-jcs-2022` = Ed25519 over RFC 8785 — the *same* primitive Open Feed signs with), where a near-transparent object-level bridge becomes conceivable.
+**Bridge:** feasible only as a stateful gateway (the brid.gy model — see below), never a transparent adapter. **FEP-8b32 is not the convergence seam it looks like:** its `eddsa-jcs-2022` shares Open Feed's curve (Ed25519) and canonicalization (RFC 8785), but signs different bytes — a 64-byte pair of hashes, where Open Feed signs the JWS signing input directly. No signature crosses in either direction. What *can* be shared is the key itself (Appendix F).
 
 ### vs AT Protocol (Bluesky)
 
@@ -605,7 +617,7 @@ Nostr and Open Feed are both plain-JSON and Ed25519-signed, and both let you sel
 
 ### vs IndieWeb / Webmention
 
-IndieWeb shares Open Feed's "your identity is a URL you own" philosophy and its build-on-the-open-web ethos. Webmention (which earlier drafts had in the core) is now an optional **bridge gateway** (Appendix F): outbound rides on published h-entry HTML, inbound synthesizes `_unverified` items from microformats. What Open Feed adds over vanilla IndieWeb is cryptographic authorship and the completeness proof — Webmention has no signatures.
+IndieWeb shares Open Feed's "your identity is a URL you own" philosophy and its build-on-the-open-web ethos. Webmention (which earlier drafts had in the core) is now an optional **bridge gateway** (Appendix F): outbound rides on published h-entry HTML, inbound synthesizes `_unverified` items from microformats. What Open Feed adds over vanilla IndieWeb is cryptographic authorship and the completeness proof — Webmention has no signatures. Everything ingested from IndieWeb is `_unverified`, without exception; that isn't a slight on Webmention, it's that nobody but you can hold your Open Feed key.
 
 ### vs RSS/Atom
 
@@ -667,7 +679,7 @@ A: Consolidated. Your feed is your outbox. Keys, profile, and endpoints all live
 
 ## Contributing
 
-This is a draft specification (v0.2.0). Feedback welcome.
+This is an unreleased draft specification (v0.1.0) with no implementations yet. Feedback welcome.
 
 - **Issues:** technical problems, ambiguities, missing features.
 - **Proposals:** new relation types, extension fields, gateway/bridge specs.

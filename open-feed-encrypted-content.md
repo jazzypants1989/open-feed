@@ -1,6 +1,6 @@
 # Open Feed — Encrypted Content (Extension)
 
-**Extension version 0.1.0 — Draft.** Targets the Open Feed core specification **v0.2.0** (`open-feed-spec.md`). This is an OPTIONAL extension; it is not part of the core and MUST NOT be required for core conformance. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive. RFC 2119 keywords (MUST, SHOULD, MAY, …) apply.
+**Extension version 0.1.0 — Draft. Unreleased, and never independently reviewed.** Targets the Open Feed core specification **v0.1.0** (`open-feed-spec.md`). This is an OPTIONAL extension; it is not part of the core and MUST NOT be required for core conformance. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive. RFC 2119 keywords (MUST, SHOULD, MAY, …) apply.
 
 ## Abstract
 
@@ -142,6 +142,8 @@ Encryption does nothing about §2's cleartext metadata, and on a published feed 
 - **Posts** intended for an audience are **published, encrypted** — they keep the manifest's completeness proof, the export bundle (core §15), migration, and durability. The cost is that *this identity posted at this time* is public.
 - **Interactions** on that content are **delivered, not published** (core §11.1) — POSTed to the audience's inboxes with no `_feed_url`, so `_rel` and its `to` targets never land in a world-readable file. The cost is that replies have no completeness proof and that someone joining later cannot reconstruct old threads.
 
+**This half of the design is enforced at the recipient, not at the author**, and implementers MUST understand that before relying on it. Delivering an interaction keeps it off the public web only for as long as every recipient declines to republish it. Core §11.1.1 makes that a MUST and core §12 applies it to the replies endpoint — the surface most likely to undo it, since a hub that projects its inbox publicly would republish exactly the reply graph this section exists to hide. An audience member whose client ignores §11.1.1 defeats this for everyone in the audience, silently, and no other participant can detect it.
+
 This is a genuine trade, not a free win, and which side of it a deployment wants depends on whether a reader graph or a durable thread record matters more. State the choice to users; do not make it silently.
 
 ## 8. Security considerations
@@ -154,6 +156,7 @@ This is a genuine trade, not a free win, and which side of it a deployment wants
 6. **Recipient-count DoS.** A reader trial-decrypts every slot, so an item with a very large recipient count is a cheap denial of service against anyone who opens it. Clients MUST cap the recipient slots they will attempt (RECOMMENDED: 256) and treat an item exceeding it as unreadable rather than grinding.
 7. **Tombstones.** Core §7.3's allowlist already removes `_enc` from a tombstone, since only the listed fields survive. This is why that rule is an allowlist: a denylist naming today's content fields would have left ciphertext in place and deleted nothing.
 8. **Do not encrypt to yourself and call it private.** An item wrapped only to its author is still published metadata (§2) and is still on someone's host. If content must not exist publicly, do not publish it (core §11.1).
+9. **Bridges amplify the §2 metadata leak, and are forbidden from doing so.** §2's leak is bounded by the surface the author chose — their feed URL and whoever fetches it. A gateway relaying an encrypted item to a foreign network moves that leak to a different audience with different reach, which is why core Appendix F.2 forbids a gateway from emitting content it cannot read **in any form, including a placeholder**: not the ciphertext, not an "encrypted post" stub, not a bare timestamped entry. Implementers reach for the stub because a silent gap looks like a bug; here the gap is the correct behavior.
 
 ## 9. Conformance
 

@@ -8,9 +8,9 @@ Open Feed Protocol is a minimal specification for decentralized publishing and i
 
 | File                  | Purpose                                                |
 | --------------------- | ------------------------------------------------------ |
-| `open-feed-spec.md`   | Normative specification (source of truth), **v0.2.0**  |
-| `open-feed-encrypted-content.md` | OPTIONAL extension (v0.1.0): encrypted items (JWE in `_enc`), carrier binding, enc-key lifecycle, blobs, circle rosters |
-| `open-feed-conventions.md` | OPTIONAL extension (v0.2.0): `follows` + `pins` documents (Appendix C vectors). Self-commitments **removed** |
+| `open-feed-spec.md`   | Normative specification (source of truth), **v0.1.0**  |
+| `open-feed-encrypted-content.md` | OPTIONAL extension (v0.1.0): encrypted items (JWE in `_enc`), carrier binding, enc-key lifecycle, blobs, circle rosters. **Never independently reviewed** |
+| `open-feed-conventions.md` | OPTIONAL extension (v0.1.0): `follows` + `pins` documents (Appendix C vectors) |
 | `README.md`           | Human-friendly docs, examples, comparisons, FAQ        |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub built on the protocol |
 | `CLAUDE.md`           | This file - context for AI agents                      |
@@ -20,13 +20,20 @@ Open Feed Protocol is a minimal specification for decentralized publishing and i
 
 ## Current Status
 
-**Version 0.2.0 — Draft.** v0.1.0 was the first public, self-contained spec. v0.2.0 resolves a
-nine-pass simplification debate (`PROPOSALS*.md`, plus a blind adversarial review of pass 9) and is
-the version where the protocol stopped pretending to offer privacy it could not deliver.
+**Version 0.1.0 — Draft. Unreleased: nothing here has had a reader outside this repo, and nothing
+implements it.** The number is a placeholder for a first release, not a running edit counter.
+
+**Do not bump the version for ordinary normative changes.** Earlier sessions bumped it per editing
+pass, which produced a "0.2.0" that claimed on its own first line to be "the second public draft"
+of a document nobody had read. Record changes in spec Appendix E and in this file; move the number
+only at a release someone outside this repository can depend on.
 
 Pre-1.0: breaking changes ARE allowed to fix correctness/security defects. After 1.0: additive only.
 
-### What changed in 0.2.0, and why
+### The privacy-and-exit pass — what it settled, and why
+
+(Named rather than numbered; it is the body of work on branch `v0.2.0-privacy-and-exit`, which
+predates the renumbering above.)
 
 Two facts drove it. **(1) The threat model:** the operator of a family hub may be a loved one who
 is an abuser — an adversary who controls the serving path, the inbox, and (by default) the keys. No
@@ -49,6 +56,61 @@ case for a URL-native protocol, and it makes cross-hub `family` visibility a lau
 | `crv`/`use` constraints scoped to **signing** keys (resolves a self-contradiction; lets extensions define key types) | spec §4.1 |
 | New **encrypted-content extension** | `open-feed-encrypted-content.md` |
 
+### Since that pass: the receiver-side republication fix (§11.1.1)
+
+A defect found while orienting, not part of the pass above. Extension §7 routes group interactions
+down the **delivered** path so the reply graph never lands in a world-readable file — but core §12
+defines a world-readable projection of the inbox and did not say what it may contain. A hub
+implementing both (the replies endpoint is a Level 3 SHOULD) would publish exactly the graph the
+extension was built to hide.
+
+Fixed by one rule, stated once and applied at three sites: **publication is the author's decision,
+and only the author's.** An item with no `_feed_url` was delivered, not published; a receiver holds
+it as a *custodian, not an author* (§15's own words, never applied here before) and MUST NOT place
+it in any publicly-readable artifact.
+
+| Where | What |
+|---|---|
+| spec **§11.1.1** (new) | The rule, plus the honest limit: it binds the *bytes*, not the information (§6.6's by-value/by-reference line) |
+| spec §12 | Replies endpoint: items with no `_feed_url` MUST NOT be returned. One field lookup; no manifest fetch (§10.3 forbids requiring one) |
+| spec §7.5 | Gateways MUST NOT emit delivered-only items outbound — the egress half of a bridge |
+| spec §14.14 (new) | Security consideration; §14.15 is the renumbered identity-portability item |
+
+### Since that pass: interoperability (Appendix F rewritten)
+
+Three factual errors and one structural one were found and fixed. **Net effect: no new fields, and
+one branch of a MUST deleted.** Interop got *smaller*, not bigger.
+
+| Was | Now |
+|---|---|
+| "FEP-8b32 = the same primitive Open Feed uses; a near-transparent object-level bridge becomes conceivable" (in 3 files) | **False, corrected.** Same curve and canonicalization, but `eddsa-jcs-2022` signs `SHA256(proofConfig) ‖ SHA256(doc)` while Open Feed signs the JWS signing input directly. No signature crosses. Only the *key* is shareable (F.4) |
+| §7.5: bridged content is `_unverified` **or** authored by a disclosed gateway identity | **The OR is deleted.** Everything ingested is `_unverified`, without exception — nothing crossing a protocol boundary is natively authentic |
+| Appendix F option (3) proxied foreign actors, colliding with §13's Level 3 exit MUSTs | **Resolved by the OR deletion.** A proxy never claims to *be* the actor, so §13 doesn't reach it (F.3), at the price of three disclosure MUSTs |
+| Three trust "lanes" (ingest / attest / proxy) | **One construction.** Ingest and attest were always identical; proxy differs only in whose identity URL signs |
+| No rule for encrypted or delivered content crossing a bridge | **F.2, symmetric in both directions** |
+
+**The organizing rule, which replaced the list:** *a gateway may not change the terms under which
+content was published* — not the **audience** (never widen), not the **durability** (never make
+permanent what was ephemeral), not the **verification status** (never present an assertion as a
+signature). Those three questions are the test for any future protocol.
+
+Two things worth not re-deriving:
+
+- **Inbound is publication, not observation.** An ingested item lands in the gateway's manifested,
+  permanently-retained, CORS-`*` feed. So ingesting one followers-only Mastodon post is a
+  permanent world-readable committed disclosure. F.2's inbound half is newer and sharper than its
+  outbound half; earlier drafts had only the outbound half.
+- **Proxy identities are the attribution mechanism, not a UX nicety.** With `authors[0]` = the
+  gateway (forced by §6.6), an ingested item has nowhere to name the foreign author. A per-actor
+  proxy identity carries `name`/`bio`/`avatar` in its own identity document — structural
+  attribution, zero new fields. It is also the only representation for actors whose identifiers
+  cannot be URLs (Nostr `npub`, a phone number).
+
+**Appendix F.1 is the part to act on first.** The cheapest interop is not a bridge: a JSON Feed is
+already a JSON Feed, and an Atom mirror + h-card is enough for Bridgy Fed to bridge a site into the
+fediverse with nothing in this repo implemented. Its bridged handle is `@yourdomain.com` — already
+the identity URL, so no mapping exists to design.
+
 ### Decisions taken — do not relitigate without new information
 
 - **Exit, not confidentiality, is the answer for the hostile-custodian case.** Encryption is offered
@@ -58,6 +120,7 @@ case for a URL-native protocol, and it makes cross-hub `family` visibility a lau
 - **Audience is hidden** (encrypted roster, untagged JWE recipients). The owner was explicitly
   worried about publishing association graphs.
 - **Family interactions are delivered, not published**, so `_rel` never lands in a public file.
+  This only holds because §11.1.1 forbids receivers from republishing them; the two are one design.
 - **Cleartext delivered-private is audience-of-one (DMs) only.**
 - **`prev_url` was rejected** in favour of the history index: signed bytes are immutable, so
   `prev_url` would retroactively break the walk for anyone whose pin predates a rehost.
@@ -72,8 +135,14 @@ case for a URL-native protocol, and it makes cross-hub `family` visibility a lau
 - **`follows`+`pins` merge rejected** — conflates two disclosure decisions and prices
   anti-equivocation in social-graph disclosure.
 - **Replies endpoint keeps its own URL**, reframed as a *view over the inbox*.
+- **Bridged content is always `_unverified`** — no exception, no second form. The deleted OR was
+  what generated the three-lane structure and the §13 exit collision; both vanished with it.
+- **Author-side dual signing is parked, not rejected** (Appendix H) — the only route to verified
+  cross-protocol authorship, and the two signing inputs are structurally unconfusable. Taking it up
+  means deciding whether "one signing construction" governs *this protocol's artifacts* or
+  *everything an Open Feed publisher signs*. Not blocking anything.
 
-## The v0.2.0 Object Model (read this before editing anything)
+## The Object Model (read this before editing anything)
 
 ```
 {identity_url}/               ← identity URL (optional human page; nothing reads it)
@@ -110,14 +179,18 @@ Use this as explanation, not as a rule that licenses deletions.
   a second signing construction; the pinned chain is the revocation substrate NIP-26 lacked
 - External time anchoring (transparency log / witness network) beyond the family-scale `pins`
   convention
-- Normative bridge profiles (Webmention / ActivityPub / atproto), starting with Webmention
+- Normative bridge profiles (Webmention / ActivityPub / atproto / Nostr) — the framework and the
+  template exist (Appendix F.2, F.5), so a profile is now a filled-in table, not a fresh trust
+  argument. **Do F.1 first**: the Atom-mirror route reaches the fediverse via existing bridges with
+  nothing implemented, and may make the Webmention profile optional rather than the starting point
+- Author-side dual signing (Appendix H) — parked, see "Decisions taken"
 - **Split custody** (hub holds the signing key, client holds only the enc key) is an attractive
   product pattern and is *not* claimed in the spec, because its guarantee holds only when the client
   is not distributed by the custodian — which the reference product does not currently satisfy
 
 ## Key Design Decisions (intentional, not oversights)
 
-- **Identity = HTTPS URL** — not DIDs, not handles. URLs are universal and owned. WebFinger gives optional `@user@domain` discovery (Appendix B). Trade-off: weaker account portability than atproto's DID indirection (§14.14) — partly offset in v0.2.0 by making exit a first-class feature (§15).
+- **Identity = HTTPS URL** — not DIDs, not handles. URLs are universal and owned. WebFinger gives optional `@user@domain` discovery (Appendix B). Trade-off: weaker account portability than atproto's DID indirection (§14.15) — partly offset by making exit a first-class feature (§15).
 - **One signed document per identity** — `openfeed.json`. No HTML parsing in the trust chain, no link-relation discovery, no cross-document key-ownership check (key ownership is structural).
 - **Keys = JWK inside the identity document** — Ed25519 `OKP` for signing. `kid` in JWS headers = `{identity_url}#{kid}` (split at last `#`). The `crv`/`use` constraints bind **signing** keys only, which is what lets an extension define an encryption key type without a core change.
 - **Signatures = one construction** — detached JWS, RFC 7797 unencoded payload (`b64:false`, `crit:["b64"]`), Ed25519, over RFC 8785 canonical bytes. Signs header AND payload. Byte-exact (no verify-time normalization; producers emit NFC); duplicate JSON keys rejected (I-JSON). **This is now the only construction anywhere — core and extensions.** Encryption is not a second construction: it changes what the content *is*, not how it is signed.
@@ -145,13 +218,15 @@ Use this as explanation, not as a rule that licenses deletions.
 | JSON Feed             | 1.1      | Feed format                      |
 | WebSub                | W3C Rec  | Optional real-time (via JSON Feed `hubs`) |
 
-Out of the core: Webmention (now a bridge only), OAuth/IndieAuth, standalone JWKS document, profile-HTML link discovery, and **Authorized Fetch — removed entirely in v0.2.0, not merely moved** (see spec Appendix E).
+Out of the core: Webmention (now a bridge only), OAuth/IndieAuth, standalone JWKS document, profile-HTML link discovery, and **Authorized Fetch — removed entirely in the privacy-and-exit pass, not merely moved** (see spec Appendix E).
 
 ## When Editing the Spec
 
 1. **Use RFC 2119 keywords** — MUST, MUST NOT, SHOULD, SHOULD NOT, MAY.
 2. **Backwards compatibility** — pre-1.0, breaking changes allowed to fix security/correctness defects; call them out in the status note. Post-1.0 additive only.
-3. **Update the version number** on any normative change.
+3. **Record the change; do not bump the version.** Add normative changes to spec Appendix E and to
+   the status section of this file. The version number marks a release someone outside this
+   repository can depend on — there has not been one, so it does not move. See "Current Status."
 4. **Keep it minimal** — if it can live in README or an extension doc, it should. Guard the single-signing-construction and single-object-model invariants.
 5. **Verify examples and test vectors** — `node tmp/regen.js` regenerates and self-verifies core Appendix D (item, both manifests, both identity-doc versions, history index) and conventions Appendix C (pins, follows), **and** reads both published docs to confirm every vector string appears verbatim. It exits non-zero on failure, so a vector that drifts out of sync fails the run instead of sitting stale. Run it after any change touching canonicalization, signing, document shape, or the vectors.
 6. **Timestamp consistency** — key/chain fields use Unix seconds (JOSE); content fields use ISO 8601 (JSON Feed).
@@ -167,7 +242,7 @@ Out of the core: Webmention (now a bridge only), OAuth/IndieAuth, standalone JWK
 - **Field extensions**: prefix with `_` (e.g., `_content_warning`, `_emoji`, `_sha256`). Preserve unknown `_` fields when re-serializing (signatures depend on it).
 - **Relation types (`_rel[].type`)**: a registered token (`reply`/`root`/`like`/`repost`/`quote`/`mention`) OR an absolute URL for custom relations (collision-free namespacing). Relation *types* are values, not field names.
 
-## Key Sections Reference (spec v0.2.0)
+## Key Sections Reference
 
 | Topic | Spec Section |
 |-------|--------------|
@@ -193,11 +268,15 @@ Out of the core: Webmention (now a bridge only), OAuth/IndieAuth, standalone JWK
 | Manifest chain mechanics / history / checkpoint | 9.1–9.3 |
 | Inbox | 10 |
 | Privacy (publish/deliver, audience-of-one) | 11 |
-| Replies endpoint | 12 |
+| **Publication is the author's decision** (receivers may not republish delivered items) | 11.1.1 |
+| Replies endpoint (published replies only) | 12 |
 | Conformance (L0–L3) | 13 |
 | Security considerations | 14 |
 | Test vectors | Appendix D |
 | Design history (what changed) | Appendix E |
-| Gateways / bridges | Appendix F |
+| Interop without a bridge (JSON Feed / Atom / h-card → existing bridges) | Appendix F.1 |
+| The gateway rule (audience / durability / verification, both directions) | Appendix F.2 |
+| Proxy identities (foreign-author attribution) | Appendix F.3 |
+| Bridge profile template | Appendix F.5 |
 | Export and exit | 15 |
 | Follows & pins conventions | Appendix G (pointer) → `open-feed-conventions.md` |
