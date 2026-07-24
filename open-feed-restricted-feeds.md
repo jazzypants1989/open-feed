@@ -42,6 +42,8 @@ A feed (and its manifest, §7) MAY be restricted. A restricted resource:
 - MUST set `Cache-Control: private, no-store` on any restricted `2xx` response, and MUST NOT be placed behind a shared/CDN cache (§2).
 - MUST NOT be served with `Access-Control-Allow-Origin: *`. Cross-origin browser access to a restricted feed, if supported, requires an origin-scoped CORS policy and `Access-Control-Allow-Credentials`-style handling that is deployment-specific and out of scope here. (The core's blanket `*` rule, core §3.3, applies only to public documents.)
 
+  **Consequence for browser readers.** The core sells a zero-proxy browser reader (core §3.3, §14.3): because every public document carries `Access-Control-Allow-Origin: *`, browser JavaScript on *any* origin can read it. A restricted feed deliberately drops that. Two browser-only CORS mechanics bite: the `Authorization: OpenFeed-Sig` request header is non-safelisted, so the browser fires a preflight the host must answer with `Access-Control-Allow-Headers`/`-Methods` and an origin-specific `Access-Control-Allow-Origin`; and because `*` is forbidden (and disallowed with credentials by the Fetch standard), the host must echo a *specific* allowlisted reader-app origin to let the script read the body. Absent that per-origin policy, a **browser** reader of a restricted feed is effectively **same-origin only** (or must route through a server-side reader that holds its key). **Server-to-server readers are unaffected** — CORS is enforced by browsers alone. Restriction therefore trades away the core's zero-proxy browser-reader property for cross-origin readers.
+
 A restricted feed is otherwise an ordinary JSON Feed (core §7.1) and its items are ordinary signed items (core §7.2). Restriction is a property of *serving*, not of the item bytes: the same signed item could in principle appear in a public feed too, subject to the canonical/copy rule (core §7.5).
 
 ## 4. The Fetch Assertion
@@ -131,6 +133,7 @@ A grant is an ordinary Open Feed signed document — the **core detached-JWS con
   "url": "https://test.example/",
   "grant": "https://reader.example/",
   "feed": "https://test.example/family/feed.json",
+  "manifest": "https://test.example/family/manifest.json",
   "iat": 1739577600,
   "exp": 1742169600,
   "_sig": "..."
@@ -141,10 +144,11 @@ A grant is an ordinary Open Feed signed document — the **core detached-JWS con
 |-------|----------|-------------|
 | `url` | MUST | The **grantor** — the identity that owns the restricted feed. Author binding (core §6.6): the `_sig` `kid`'s identity MUST equal this. |
 | `grant` | MUST | The authorized **reader** identity URL, normalized (core §3.1). |
-| `feed` | MUST | The restricted resource this grant authorizes. Resource-normalized (§4.3). A grant naming a feed also authorizes that feed's manifest (§7) at the sibling `manifest` URL the identity document lists; to authorize an unrelated resource, issue a separate grant. |
+| `feed` | MUST | The restricted feed this grant authorizes. Resource-normalized (§4.3). To authorize an unrelated feed, issue a separate grant. |
+| `manifest` | MUST | The restricted feed's **gated manifest** (§7), resource-normalized (§4.3). A grant authorizes both `feed` and `manifest`. Naming it **explicitly** (rather than deriving it from the identity document) is required because an **existence-private** feed (§9) is omitted from the identity document entirely, leaving no public `feed`→`manifest` association for the reader to follow or the host to check; it is stated on every grant so the rule is uniform and mode-independent. The grantor asserts this manifest belongs to `feed`; the host confirms it against its own feed-ownership routing at step 5. |
 | `iat`, `exp` | MUST | Validity window (Unix seconds). A host MUST reject a grant outside `iat ≤ now < exp` (≤ 60 s skew each side). Grants SHOULD be short-lived (days, not years) so revocation is prompt (§6.2.2). |
 | `_sig` | MUST | Detached JWS by a key valid in the grantor's identity chain (core §6). |
-| `scope` | MAY | Reserved for future narrowing (e.g. read-only vs. specific item ranges). Absent = fetch authorization for `feed`. Hosts MUST ignore unrecognized `scope` values conservatively (treat as no broader than the default). |
+| `scope` | MAY | Reserved for future **narrowing** (e.g. read-only vs. specific item ranges). Absent = full fetch authorization for `feed`. A host that does not recognize a *present* `scope` value MUST **reject the grant (fail closed)**, not ignore it. Because `scope` only ever narrows, ignoring an unrecognized value would serve the whole feed to a reader the grantor meant to restrict — over-authorization. Fail-closed keeps future narrowing scopes safe to deploy: an old host either enforces the stated scope or refuses the grant, never silently widens it. |
 
 Unknown `_`-prefixed fields MUST be preserved when re-serializing (signatures depend on it, core §7.2).
 
@@ -159,21 +163,41 @@ OpenFeed-Grant: <base64url(canonical grant JSON, including _sig)>
 
 1. Base64url-decode `OpenFeed-Grant`; reject duplicate JSON keys (I-JSON).
 2. Confirm `grant` equals the authenticated `iss` (both normalized). A grant is useless without a matching assertion: it is **bound to the reader's identity**, so a leaked or copied grant cannot be used by anyone who does not also control `iss`'s key.
-3. Confirm `feed` resource-normalizes (§4.3) to the requested resource (or its authorized manifest).
+3. Confirm the requested resource resource-normalizes (§4.3) to the grant's `feed` **or** its `manifest`.
 4. Confirm `now` is within `[iat, exp)` (± 60 s skew).
-5. Verify the grant's `_sig` per core §6.5: the `kid`'s identity MUST equal `url`, `url` MUST be the identity that lists this restricted feed (i.e. the feed owner), and the signing key MUST be valid in that identity's pinned chain at the grant's `iat`.
+5. Verify the grant's `_sig` per core §6.5: the `kid`'s identity MUST equal `url`; `url` MUST be the identity the host recognizes as the **owner of `feed`/`manifest`** — established via the public identity document (existence-public: `url` lists this feed and manifest) or via the host's own private feed-ownership routing (existence-private, §9, where the feed is absent from all public documents); and the signing key MUST be valid in that identity's pinned chain at the grant's `iat`. A host MUST also confirm that `manifest` is in fact the manifest it serves for `feed` (per that same routing), so a grantor cannot bind an unrelated manifest.
+6. If the owner publishes a grant-revocation list (§6.2.2), confirm the presented grant — identified by `(grant, feed, iat)` — does not appear on it.
 
-If all pass, `iss` is authorized. The host stores no per-reader state; it MAY cache a verified grant until its `exp` to skip re-verification.
+If all pass, `iss` is authorized. The host holds no per-reader **authorization** state (it still maintains the replay cache of §5.1 and, like any consumer, pins the identities and revocation list it fetches); it MAY cache a verified grant until its `exp` to skip re-verification.
 
 #### 6.2.1. Grant Delivery Doubles as Discovery
 
-The core (core §11) already anticipates delivering a restricted feed's URL to authorized readers as a signed inbox item when the URL itself is sensitive (§9). The grant *is* that delivery: it names `feed`, is signed by the owner, and is delivered to the reader's inbox (core §10) as an item whose `_rel` references the reader (so it passes the inbox relevance check, core §10.2 — e.g. a `mention` of the reader, or a custom relation type). One signed object accomplishes both **discovery** (the reader learns the URL) and **authorization** (the reader gains the capability). This follows the core's one-object-model principle (core §1).
+The core (core §11) already anticipates delivering a restricted feed's URL to authorized readers as a signed inbox item when the URL itself is sensitive (§9). Grant delivery reuses that path. A grant is **not itself a JSON Feed item** — it is a separate signed document (§6.2) with no `id`/`authors`/`_feed_url`/`content_text`, so posting it to the inbox bare would fail the required-field validation of core §10.2. Instead the owner delivers it **inside a carrier item**: an ordinary signed item (core §7.2) authored by the owner, carrying a `_rel` entry that references the reader (a `mention`, or a custom relation type) so it passes the inbox relevance check (core §10.2), with the grant's canonical bytes in a `_grant` field on that item (an extension field, preserved per core §7.2). The reader extracts `_grant`, verifies it per §6.2, and presents it on subsequent fetches. One inbox delivery thus accomplishes both **discovery** (the reader learns the feed URL from the grant's `feed`) and **authorization** (the reader gains the capability) — two signatures (the carrier item's and the grant's), one delivery, consistent with the core's one-object-model principle (core §1).
 
 #### 6.2.2. Revocation
 
-A grant is a **bearer-but-identity-bound** capability: to revoke a single reader, the owner **stops re-issuing** its grant, and it self-expires at `exp`. For a hub this is automatic — grants are re-minted and re-delivered on a schedule for readers still in the audience; dropping a reader means not renewing. This makes short `exp` the primary revocation control and is strictly stronger than a static bearer token, which cannot be revoked at all.
+A grant is a **bearer-but-identity-bound** capability: to revoke a single reader, the owner **stops re-issuing** its grant, and it self-expires at `exp`. For a hub this is automatic — grants are re-minted and re-delivered on a schedule for readers still in the audience; dropping a reader means not renewing. This makes short `exp` the **primary** revocation control and is strictly stronger than a static bearer token, which cannot be revoked at all. Prefer short `exp`; the list below is a fallback, not the mechanism.
 
-For revocation faster than `exp`, the owner MAY publish an optional **grant-revocation list** referenced from the identity document (`_grant_revocations`: an array of revoked grant identifiers — `(grant, feed, iat)` tuples uniquely name an issued grant). This list leaks only *former* members, never the full current audience, and a host MUST consult it at step 7 when present. Even so, prefer short `exp` — a revocation list is a fallback, not the mechanism.
+**Faster-than-`exp` revocation — the grant-revocation list (chained side-document).** For revocation sooner than a grant's `exp`, the owner MAY publish a **grant-revocation list**: a signed, **chained** document with the identical mechanics of the manifest (core §9) — its own monotonic `seq`, `prev` hash-linkage, retained `history`, and the pin-and-walk enforcement of core §9.1 — signed with the core detached-JWS construction (core §6, **no new construction**). It is referenced from the identity document by a **`grant_revocations` URL field** (a first-class extension endpoint, like `readers` in §6.3). Using a *URL reference* rather than an inline array is deliberate: **a revocation advances the revocation chain, not the identity chain**, so revoking a reader does not perturb the identity document, which must stay short and rarely-advanced (core §5, §3.2).
+
+```json
+{
+  "url": "https://test.example/",
+  "revocations": [
+    { "grant": "https://gran.example/~gran/", "feed": "https://test.example/family/feed.json", "iat": 1739577600 }
+  ],
+  "seq": 1,
+  "updated": 1739577600,
+  "_sig": "..."
+}
+```
+
+- `url` is the owner (author binding, core §6.6). `revocations` is an array of `(grant, feed, iat)` tuples; that triple uniquely names an issued grant (a re-issued grant with a fresh `iat` is a distinct entry). `seq`/`prev`/`history` follow core §9 (`prev` and `history` MUST be present once `seq > 1`).
+- The list leaks only **former** members, never the full current audience. This is the same disclosure class as a self-commitment (`open-feed-conventions.md` §5): it is available only to **existence-public** feeds and is **incompatible with existence-private** feeds (§9), whose only revocation control is short `exp` — the tradeoff triangle of conventions §5.3.
+- The **consumer** of this document is the enforcing **host**, not the reader: the host fetches it, pins it, walks `prev` to its pin (so a serving-path attacker cannot silently roll back a revocation, core §9.1), and rejects any presented grant whose `(grant, feed, iat)` appears in the current version (grant-verification step 6, §6.2).
+- Growth is naturally bounded: an entry need only be retained until the revoked grant's own `exp` has passed (after which the grant is dead regardless), so stale entries MAY be pruned and the chain checkpointed exactly as a manifest is (core §9.3).
+
+Vectors: R.4 (genesis) and R.4b (`seq: 2`, chained) in Appendix R.
 
 ### 6.3. Published Reader List (`readers`, simple fallback)
 
@@ -212,9 +236,9 @@ Capability URLs suit purely-static deployments (Level 2 hosting with no request-
 
 ## 7. The Gated Manifest
 
-A restricted feed carries its **own signed, chained manifest** with the identical mechanics of core §9 — `seq`, `prev`, `history`, `items`/`deleted`, checkpointing, and the pin-and-walk enforcement of core §9.1. The only difference is that the manifest, its history document, and the feed pages are all **gated**: fetched with a fetch assertion (§4) whose `htu` names the manifest (or history) URL, and authorized by the same mechanism as the feed (§6). A grant naming the feed also authorizes its manifest (§6.2).
+A restricted feed carries its **own signed, chained manifest** with the identical mechanics of core §9 — `seq`, `prev`, `history`, `items`/`deleted`, checkpointing, and the pin-and-walk enforcement of core §9.1. The only difference is that the manifest, its history document, and the feed pages are all **gated**: fetched with a fetch assertion (§4) whose `htu` names the manifest (or history) URL, and authorized by the same mechanism as the feed (§6). Every grant carries an explicit `manifest` field (§6.2) that both authorizes the manifest and, in existence-private mode, is **how the reader learns the manifest URL at all** — the public identity document does not list it.
 
-The manifest is listed for the restricted feed the same way any feed's manifest is (core §3.2 `feeds` entries), but because the entry's *existence* may itself be sensitive, an owner MAY omit the restricted feed from the public identity document entirely and deliver its location via grant/inbox (§6.2.1, §9).
+The manifest is listed for an **existence-public** restricted feed the same way any feed's manifest is (core §3.2 `feeds` entries). For an **existence-private** feed the owner omits it from the public identity document entirely; the reader then learns the feed URL and the manifest URL from the grant's `feed`/`manifest` fields (delivered via inbox/out-of-band, §6.2.1, §9), and the host resolves feed ownership from its own private routing rather than from a public `feeds` entry (§6.2 step 5).
 
 ## 8. Consumer Enforcement and Its Limits
 
@@ -232,7 +256,7 @@ For a **public** feed, two observers (or a `pins` aggregator, core Appendix G) c
 
 **By default a restricted feed loses this.** Authorized readers cannot publicly gossip their pins of a restricted manifest without leaking *that the content exists and what its shape is* — the very thing restriction protects. So a malicious host holding the owner's key **can** serve reader A a manifest at `seq: 10` with items `{X}` and reader B a *different* manifest at `seq: 10` with items `{Y}`, both internally consistent and correctly chained, and — absent the opt-in mechanism below — no public mechanism reveals the divergence. (The equivocation requires the owner's key: only genuinely-signed versions exist at one `seq`, so a host holding no key can do no worse than per-reader rollback, §8.1. The residual threat is the key-custodian tier, core §14.2.)
 
-This is **not** inherent and unfixable, as earlier drafts of this section claimed. It is inherent only to content whose *existence* stays entirely private. An owner who can disclose that the feed exists can restore full cross-reader equivocation detection via **self-commitments** (`open-feed-conventions.md` §5): the owner publicly and signed-ly pins the `(seq, hash)` of its own restricted manifest. A key-custodian host wanting A and B to see different `seq: 10` manifests must then publish two conflicting *public* commitments, which forks a world-readable, gossipable chain and is caught by the ordinary cross-observer compare rule (conventions §4.1). This reduces restricted-feed equivocation to public-feed equivocation. Its cost is disclosing the feed's existence and publish cadence (never its content), so it is available only in the existence-public mode (§9); an existence-private feed forgoes it — the tradeoff triangle of conventions §5.3.
+This is **not** inherent and unfixable, as earlier drafts of this section claimed. It is inherent only to content whose *existence* stays entirely private. An owner who can disclose that the feed exists can restore full cross-reader equivocation detection via **self-commitments** (`open-feed-conventions.md` §5): the owner publicly and signed-ly pins the `(seq, hash)` of its own restricted manifest. A key-custodian host wanting A and B to see different `seq: 10` manifests must then publish two conflicting *public* commitments, which forks a world-readable, gossipable chain and is caught by the ordinary cross-observer compare rule (conventions §4.1). This reduces restricted-feed equivocation to public-feed equivocation **for versions the owner actually commits to** — the residual is that a self-commitment, unlike a public manifest, is a *separate* act the owner can decline, so a host can equivocate at `seq: 10` and simply never commit `seq: 10`, claiming perpetual "commitment lag." The reader-side detection rule for that evasion lives in conventions §5.1. Its cost is disclosing the feed's existence and publish cadence (never its content), so it is available only in the existence-public mode (§9); an existence-private feed forgoes it — the tradeoff triangle of conventions §5.3.
 
 Mitigations:
 
@@ -245,7 +269,9 @@ Mitigations:
 The existence of a restricted feed is metadata; its contents are gated. An owner chooses how much of that metadata to expose:
 
 - **Existence public, contents gated.** List the restricted feed in the identity document (`feeds`, core §3.2). Anyone learns the feed exists and its URL; only authorized readers get `2xx`. Simplest; appropriate when the audience's *existence* is not secret.
-- **Existence private.** Omit the restricted feed from all public documents and deliver its URL only to authorized readers — as a capability grant (§6.2.1) or a signed inbox item (core §10). Use when even *"this identity has a family-only feed"* is sensitive. In this mode the host SHOULD return `404` (not `403`) to unauthorized or unauthenticated requests (§5), so probing cannot confirm the resource exists.
+- **Existence private.** Omit the restricted feed **and its manifest** from all public documents and deliver both URLs only to authorized readers — via the grant's `feed`/`manifest` fields (§6.2), carried in a capability-grant delivery (§6.2.1) or a signed inbox item (core §10). Use when even *"this identity has a family-only feed"* is sensitive. In this mode the host SHOULD return `404` (not `403`) to unauthorized or unauthenticated requests (§5), so probing cannot confirm the resource exists. Existence-private feeds forgo the two public transparency mechanisms — self-commitments (`open-feed-conventions.md` §5) and the grant-revocation list (§6.2.2) — because both would disclose the feed's existence; short-`exp` non-renewal is their only revocation control (§6.2.2), and their only cross-reader-equivocation defense is the out-of-band private compare of §8.2.
+
+  A `404` equalizes the response *status* but not its *timing*. An authenticated-but-unauthorized reader triggers the step-6 outbound identity-document fetch (§5) before the host reaches the authorization decision, whereas a genuinely-absent path is rejected by the local steps alone — so response latency can distinguish "exists but you're not authorized" from "does not exist." (An unauthenticated prober cannot exploit this: with no valid assertion it is rejected at steps 1–5, before any fetch.) A host that needs existence-privacy against *authenticated* probers SHOULD equalize timing — e.g. by deferring or dummy-running the outbound fetch, or by rate-limiting probes — since the constant-time / uniform-timing discipline of core §14.8 otherwise does not extend across the assertion-verification fetch.
 
 The identity document itself MUST NOT be served in audience-varying forms: two different views at one `seq` would be equivocation (core §5.3). Restriction gates *feeds*, never the identity document, which stays public and single-valued.
 
@@ -295,19 +321,19 @@ This assertion authorizes `GET` of any query-string variant of `https://test.exa
 
 ### R.2. Capability Grant (§6.2)
 
-Owner `https://test.example/` (key `test-key-1`) authorizes reader `https://reader.example/` to fetch the restricted feed. Full published canonical bytes (core detached-JWS construction — note the header segment is the core's `b64:false` header, *not* the R.1 JWT header):
+Owner `https://test.example/` (key `test-key-1`) authorizes reader `https://reader.example/` to fetch the restricted feed. The grant carries an explicit `manifest` (§6.2, F2). Full published canonical bytes (core detached-JWS construction — note the header segment is the core's `b64:false` header, *not* the R.1 JWT header):
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..CmsCc-x8eRDCLknnkqOl2IYQWlM189-jRx-4itUP1C6_xJM3SVRa33RVdveQGcfRNkiXEkkYhig3ALhEHukhDw","exp":1742169600,"feed":"https://test.example/family/feed.json","grant":"https://reader.example/","iat":1739577600,"url":"https://test.example/"}
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..BdXFw58GNmUCbRtW3SaOgXyDswqJ12CZOezPqePADmcd4Lt1GVCWWpOox-LMYdZkmwC6R4-NK_KeX05xyC96Aw","exp":1742169600,"feed":"https://test.example/family/feed.json","grant":"https://reader.example/","iat":1739577600,"manifest":"https://test.example/family/manifest.json","url":"https://test.example/"}
 ```
 
 As sent in the `OpenFeed-Grant` header, this is `base64url` of those exact bytes:
 
 ```
-eyJfc2lnIjoiZXlKaGJHY2lPaUpGWkVSVFFTSXNJbUkyTkNJNlptRnNjMlVzSW1OeWFYUWlPbHNpWWpZMElsMHNJbXRwWkNJNkltaDBkSEJ6T2k4dmRHVnpkQzVsZUdGdGNHeGxMeU4wWlhOMExXdGxlUzB4SW4wLi5DbXNDYy14OGVSRENMa25ua3FPbDJJWVFXbE0xODktalJ4LTRpdFVQMUM2X3hKTTNTVlJhMzNSVmR2ZVFHY2ZSTmtpWEVra1loaWczQUxoRUh1a2hEdyIsImV4cCI6MTc0MjE2OTYwMCwiZmVlZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2ZhbWlseS9mZWVkLmpzb24iLCJncmFudCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvIiwiaWF0IjoxNzM5NTc3NjAwLCJ1cmwiOiJodHRwczovL3Rlc3QuZXhhbXBsZS8ifQ
+eyJfc2lnIjoiZXlKaGJHY2lPaUpGWkVSVFFTSXNJbUkyTkNJNlptRnNjMlVzSW1OeWFYUWlPbHNpWWpZMElsMHNJbXRwWkNJNkltaDBkSEJ6T2k4dmRHVnpkQzVsZUdGdGNHeGxMeU4wWlhOMExXdGxlUzB4SW4wLi5CZFhGdzU4R05tVUNiUnRXM1NhT2dYeURzd3FKMTJDWk9lelBxZVBBRG1jZDRMdDFHVkNXV3BPb3gtTE1ZZFprbXdDNlI0LU5LX0tlWDA1eHlDOTZBdyIsImV4cCI6MTc0MjE2OTYwMCwiZmVlZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2ZhbWlseS9mZWVkLmpzb24iLCJncmFudCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvIiwiaWF0IjoxNzM5NTc3NjAwLCJtYW5pZmVzdCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlL2ZhbWlseS9tYW5pZmVzdC5qc29uIiwidXJsIjoiaHR0cHM6Ly90ZXN0LmV4YW1wbGUvIn0
 ```
 
-The reader presents R.1 (proving it controls `https://reader.example/`) and R.2 (proving the owner authorized that identity for this feed) together; `grant` in R.2 equals `iss` in R.1.
+The reader presents R.1 (proving it controls `https://reader.example/`) and R.2 (proving the owner authorized that identity for this feed and its manifest) together; `grant` in R.2 equals `iss` in R.1.
 
 ### R.3. Gated Restricted Manifest (§7)
 
@@ -317,4 +343,36 @@ The restricted feed's own §9 manifest (genesis, `seq: 1`), signed by the owner,
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..pEAPhltYP6dznUc_vsU5aNcrF1zc68jTXCh6DjsNT1GSjOp2kDAl6u4BsAvAj7gh3ztZ1isfk4RScD-Z4RiBCw","feed_url":"https://test.example/family/feed.json","items":{"urn:uuid:aabbccdd-eeff-0011-2233-445566778899":1},"seq":1,"updated":1739577600,"url":"https://test.example/"}
 ```
 
-**Validation recipe:** verify R.1 against `reader-key-1` and confirm `iss` = `kid` identity and `exp − iat ≤ 300`; verify R.2's `_sig` against `test-key-1` and confirm `grant` (R.2) = `iss` (R.1) and `url` (R.2) = the `kid` identity; verify R.3's `_sig` against `test-key-1` as listed in the owner's (pinned) identity document. `tmp/regen.js` performs all of these checks.
+Base64url SHA-256 of these bytes (this is `seq: 2`'s `prev`, and the value the owner commits to in conventions C.2 / C.2b): `q1mbSP0wZm9IEkQwh5Y98iR8e5tzxgiaJ7n1HOXXvuQ`
+
+### R.3b. Gated Restricted Manifest, `seq: 2` (chained)
+
+The restricted manifest advances exactly like a public one (core §9.1): a second restricted item is added and `prev` chains to R.3. Signed by the owner, `updated` = 1742169600:
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..lX4FTVpj1Zjs4NNM8kxi0IvXGdJ3egf1KRP883oSkojjFAVfPjOnh8OudLH9wQ9uy5LaTCfhM7JuAF6mLB28Dg","feed_url":"https://test.example/family/feed.json","history":"https://test.example/family/manifest-history.json","items":{"urn:uuid:aabbccdd-eeff-0011-2233-445566778899":1,"urn:uuid:bbccddee-ff00-1122-3344-556677889900":1},"prev":"q1mbSP0wZm9IEkQwh5Y98iR8e5tzxgiaJ7n1HOXXvuQ","seq":2,"updated":1742169600,"url":"https://test.example/"}
+```
+
+Its `prev` equals R.3's full-bytes hash (manifest chaining, core §9.1); the base64url SHA-256 of R.3b's own bytes is `lhbzlfkKcX0wgO1PSOLt8wIJUXHxshtd1RWoXi0iVsw`, the value committed at `seq: 2` of the conventions C.2b commitment log.
+
+### R.4. Grant-Revocation List (genesis, `seq: 1`) (§6.2.2)
+
+The owner's chained grant-revocation list (F3). Genesis revokes one reader's grant, identified by `(grant, feed, iat)`. Signed by the owner with the core detached-JWS construction (no new construction — same discipline as a manifest):
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..WIqEx-SkhaGSY04mU-te3R2-A8jLIXuV_w4aWWsussqUhtzaq1Ue1M5M_iGA0aKT3V71XxDPO8u_spSpWat9Cg","revocations":[{"feed":"https://test.example/family/feed.json","grant":"https://gran.example/~gran/","iat":1739577600}],"seq":1,"updated":1739577600,"url":"https://test.example/"}
+```
+
+Base64url SHA-256 of these bytes (this is `seq: 2`'s `prev`): `U62LvxMFkKTZ3COi38yjlEc7y58UP4UM8_vDJq0-jWY`
+
+### R.4b. Grant-Revocation List, `seq: 2` (chained)
+
+A second grant is revoked; `prev` chains to R.4 and `history` appears (core §9, present once `seq > 1`). A host that pinned `seq: 1` walks `prev` back to its pin, so a serving-path attacker cannot silently drop the `seq: 1` revocation to re-authorize a cut reader. Signed by the owner, `updated` = 1742169600:
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..PkV881Mou2FxPJ5UCrEiCqMSsYSHrE-7Rmy-uLP8qkY695VWeFb8gnNcJTiyrYGBsbz8FYD2tyTN4breO0dTDA","history":"https://test.example/family/grant-revocations-history.json","prev":"U62LvxMFkKTZ3COi38yjlEc7y58UP4UM8_vDJq0-jWY","revocations":[{"feed":"https://test.example/family/feed.json","grant":"https://gran.example/~gran/","iat":1739577600},{"feed":"https://test.example/family/feed.json","grant":"https://old-friend.example/","iat":1739577600}],"seq":2,"updated":1742169600,"url":"https://test.example/"}
+```
+
+Its `prev` equals R.4's full-bytes hash (revocation-list chaining, core §9.1).
+
+**Validation recipe:** verify R.1 against `reader-key-1` and confirm `iss` = `kid` identity and `exp − iat ≤ 300`; verify R.2's `_sig` against `test-key-1` and confirm `grant` (R.2) = `iss` (R.1), `url` (R.2) = the `kid` identity, and that R.2 carries an explicit `manifest`; verify R.3's and R.3b's `_sig` against `test-key-1` as listed in the owner's (pinned) identity document, and confirm R.3b's `prev` equals R.3's full-bytes hash (restricted-manifest chaining); verify R.4's and R.4b's `_sig` against `test-key-1` and confirm R.4b's `prev` equals R.4's full-bytes hash (revocation-list chaining). `tmp/regen.js` performs all of these checks.

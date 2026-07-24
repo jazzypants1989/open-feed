@@ -165,12 +165,17 @@ console.log();
 
 // ---- R.2 Capability grant (detached JWS — construction #1, reused unchanged) ----
 // Owner (https://test.example/, test-key-1) authorizes READER to fetch RFEED.
+// `manifest` names the restricted feed's manifest explicitly (MUST on every grant,
+// F2 fix): the reader learns the gated-manifest URL from the grant, and the host
+// authorizes it without depending on the public identity document — which an
+// existence-private feed (§9) omits.
 const grant = {
-  url: ID,          // grantor / author binding (§6.6): kid identity MUST equal this
-  grant: READER,    // the authorized reader identity
-  feed: RFEED,      // resource this grant covers
+  url: ID,             // grantor / author binding (§6.6): kid identity MUST equal this
+  grant: READER,       // the authorized reader identity
+  feed: RFEED,         // resource this grant covers
+  manifest: RMANIFEST, // the feed's gated manifest this grant also authorizes (F2)
   iat: 1739577600,
-  exp: 1742169600   // iat + 30 days
+  exp: 1742169600      // iat + 30 days
 };
 grant._sig = sign(grant, k1.priv, KID1);
 const grantBytes = canon(grant);
@@ -185,9 +190,67 @@ const rmanifest = {
   items:{'urn:uuid:aabbccdd-eeff-0011-2233-445566778899':1}
 };
 rmanifest._sig = sign(rmanifest, k1.priv, KID1);
+const rmanifestBytes1 = canon(rmanifest);
+const rmanifestHash1 = b64u(sha256(Buffer.from(rmanifestBytes1,'utf8')));
 console.log('== R.3 restricted manifest seq 1 (full published canonical bytes) ==');
-console.log(' ', canon(rmanifest));
+console.log(' ', rmanifestBytes1);
 console.log('  (fetched with an assertion whose htu =', RMANIFEST + ')');
+console.log();
+
+// ---- R.3b Gated restricted manifest seq 2 (chained) ----
+// Adds a second restricted item and chains to R.3 via prev — the restricted
+// feed's manifest advances exactly like a public one (core §9.1).
+const rmanifest2 = {
+  url: ID, feed_url: RFEED, seq:2,
+  prev: rmanifestHash1,
+  history:'https://test.example/family/manifest-history.json',
+  updated:1742169600,
+  items:{'urn:uuid:aabbccdd-eeff-0011-2233-445566778899':1,'urn:uuid:bbccddee-ff00-1122-3344-556677889900':1}
+};
+rmanifest2._sig = sign(rmanifest2, k1.priv, KID1);
+const rmanifestBytes2 = canon(rmanifest2);
+const rmanifestHash2 = b64u(sha256(Buffer.from(rmanifestBytes2,'utf8')));
+console.log('== R.3b restricted manifest seq 1 hash (= seq 2 prev) ==');
+console.log(' ', rmanifestHash1);
+console.log('== R.3b restricted manifest seq 2 (full published canonical bytes) ==');
+console.log(' ', rmanifestBytes2);
+console.log();
+
+// ---- R.4 / R.4b Grant-revocation list (chained side-document, F3) ----
+// Faster-than-`exp` revocation for existence-public restricted feeds. Same manifest
+// discipline (core §9): its own seq/prev/history, pinned and walked, signed by the
+// owner (construction #1 unchanged). Referenced from the identity document via a
+// `grant_revocations` URL field — so adding a revocation advances THIS chain, not the
+// identity chain (which stays short, core §5/§3.2). A revocation entry names
+// (grant, feed, iat), uniquely identifying an issued grant (§6.2.2); the host rejects
+// any presented grant matching an entry at verification step 7.
+const GRANT_REVS_HISTORY = 'https://test.example/family/grant-revocations-history.json';
+const grantRevs1 = {
+  url: ID,
+  revocations: [
+    { grant:'https://gran.example/~gran/', feed:RFEED, iat:1739577600 }
+  ],
+  seq:1, updated:1739577600
+};
+grantRevs1._sig = sign(grantRevs1, k1.priv, KID1);
+const grantRevs1Bytes = canon(grantRevs1);
+const grantRevs1Hash = b64u(sha256(Buffer.from(grantRevs1Bytes,'utf8')));
+const grantRevs2 = {
+  url: ID,
+  revocations: [
+    { grant:'https://gran.example/~gran/',   feed:RFEED, iat:1739577600 },
+    { grant:'https://old-friend.example/',   feed:RFEED, iat:1739577600 }
+  ],
+  seq:2, prev:grantRevs1Hash,
+  history:GRANT_REVS_HISTORY,
+  updated:1742169600
+};
+grantRevs2._sig = sign(grantRevs2, k1.priv, KID1);
+console.log('== R.4 grant-revocation list seq 1 (full published canonical bytes) ==');
+console.log(' ', grantRevs1Bytes);
+console.log('  seq 1 hash (= seq 2 prev):', grantRevs1Hash);
+console.log('== R.4b grant-revocation list seq 2 (full published canonical bytes) ==');
+console.log(' ', canon(grantRevs2));
 console.log();
 
 // ==== Conventions extension vectors (open-feed-conventions.md) ====
@@ -233,6 +296,38 @@ console.log('  R.3 restricted-manifest hash :', rmanifestHash);
 console.log(' ', canon(commit));
 console.log();
 
+// ---- C.2b Chained self-commitment LOG (§3.3, §5.2) ----
+// The RECOMMENDED shape for commitments: a walkable chain (core §9 mechanics) so a
+// host cannot serve a reader an older commitment set that omits a version. Genesis
+// (seq 1) commits R.3; seq 2 chains via prev and commits both R.3 and R.3b. A reader
+// pins this commitment chain and walks it exactly like a manifest (core §9.1).
+const commitLog1 = {
+  url: ID,
+  pins: [ { url: RMANIFEST, seq:1, hash:rmanifestHash1, observed:1739577600 } ],
+  seq:1, updated:1739577600
+};
+commitLog1._sig = sign(commitLog1, k1.priv, KID1);
+const commitLog1Bytes = canon(commitLog1);
+const commitLog1Hash = b64u(sha256(Buffer.from(commitLog1Bytes,'utf8')));
+const commitLog2 = {
+  url: ID,
+  pins: [
+    { url: RMANIFEST, seq:1, hash:rmanifestHash1, observed:1739577600 },
+    { url: RMANIFEST, seq:2, hash:rmanifestHash2, observed:1742169600 }
+  ],
+  seq:2, prev:commitLog1Hash,
+  history:'https://test.example/family/commitments-history.json',
+  updated:1742169600
+};
+commitLog2._sig = sign(commitLog2, k1.priv, KID1);
+console.log('== C.2b chained self-commitment log ==');
+console.log('  seq 1 (full published canonical bytes):');
+console.log('   ', commitLog1Bytes);
+console.log('  seq 1 hash (= seq 2 prev):', commitLog1Hash);
+console.log('  seq 2 (full published canonical bytes):');
+console.log('   ', canon(commitLog2));
+console.log();
+
 // ---- C.3 Follows document ----
 const follows = {
   url: READER,
@@ -263,8 +358,15 @@ console.log('  id seq2  :', verify(id2, KID1));
 console.log('  R.1 assertion :', verifyJWT(assertion, kReader.x), '(bound htu=RFEED, exp-iat<=300:', assertClaims.exp-assertClaims.iat<=300, ')');
 console.log('  R.2 grant     :', verify(grant, KID1), '(grantor url==kid identity:', grant.url===KID1.slice(0,KID1.lastIndexOf('#')), ')');
 console.log('  R.3 rmanifest :', verify(rmanifest, KID1));
+console.log('  R.3b rmanifest2:', verify(rmanifest2, KID1), '(prev chains seq1->seq2:', rmanifest2.prev===rmanifestHash1, ')');
+console.log('  R.4 grantRevs :', verify(grantRevs1, KID1));
+console.log('  R.4b grantRevs2:', verify(grantRevs2, KID1), '(prev chains seq1->seq2:', grantRevs2.prev===grantRevs1Hash, ')');
 console.log('  C.1 pins      :', verify(pins, READER_KID, kReader.x),
   '(pinned hashes match D.4/D.3:', pins.pins[0].hash===id1Hash && pins.pins[1].hash===manifestHash1, ')');
 console.log('  C.2 commit    :', verify(commit, KID1),
   '(reader-side check sha256(R.3)==commit hash:', commit.pins[0].hash===rmanifestHash, ')');
+console.log('  C.2b log seq1 :', verify(commitLog1, KID1));
+console.log('  C.2b log seq2 :', verify(commitLog2, KID1),
+  '(prev chains seq1->seq2:', commitLog2.prev===commitLog1Hash,
+  '; commits R.3b hash:', commitLog2.pins[1].hash===rmanifestHash2, ')');
 console.log('  C.3 follows   :', verify(follows, READER_KID, kReader.x));
