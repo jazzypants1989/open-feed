@@ -9,10 +9,11 @@ Open Feed Protocol is a minimal specification for decentralized publishing and i
 | File                  | Purpose                                                |
 | --------------------- | ------------------------------------------------------ |
 | `open-feed-spec.md`   | Normative specification (source of truth), **v0.1.0**  |
+| `open-feed-restricted-feeds.md` | OPTIONAL extension (v0.1.0): restricted (audience-controlled) feeds — fetch assertion + capability grants (Appendix R vectors) |
 | `README.md`           | Human-friendly docs, examples, comparisons, FAQ        |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub built on the protocol |
 | `CLAUDE.md`           | This file - context for AI agents                      |
-| `tmp/regen.cjs`       | Test-vector generator/validator (Appendix D)           |
+| `tmp/regen.js`       | Test-vector generator/validator (spec Appendix D + restricted-feeds Appendix R) |
 
 ## Current Status
 
@@ -81,7 +82,7 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 
 - `_rel` type registry governance pre-1.0
 - Key delegation extension (`open-feed-delegation.md`, planned) — multi-device + hub custody without a second signing construction; the pinned chain is the revocation substrate NIP-26 lacked
-- Restricted-feeds extension doc (`open-feed-restricted-feeds.md`, planned)
+- ~~Restricted-feeds extension doc~~ **DONE** — `open-feed-restricted-feeds.md` v0.1.0 (fetch assertion = the one sanctioned second construction; capability grants primary + reader-list/capability-URL fallbacks; gated §9 manifest; Appendix R vectors in `tmp/regen.js`)
 - External time anchoring (transparency log / witness network) beyond the family-scale `pins` convention
 - Signed export bundle format (identity history + feed + manifest + manifest history)
 - Normative bridge profiles (Webmention / ActivityPub / atproto), starting with Webmention
@@ -92,7 +93,7 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 2. **Backwards compatibility** — pre-1.0, breaking changes allowed to fix security/correctness defects; call them out in the status note. Post-1.0 additive only.
 3. **Update the version number** on any normative change.
 4. **Keep it minimal** — if it can live in README or an extension doc, it should. Guard the single-signing-construction and single-object-model invariants.
-5. **Verify examples and test vectors** — every `_sig`/hash in the spec must be reproducible. `tmp/regen.cjs` regenerates and self-verifies Appendix D (item, both manifests, both identity-doc versions). Run it after any change touching canonicalization, signing, or the vectors.
+5. **Verify examples and test vectors** — every `_sig`/hash in the spec must be reproducible. `tmp/regen.js` regenerates and self-verifies Appendix D (item, both manifests, both identity-doc versions). Run it after any change touching canonicalization, signing, or the vectors.
 6. **Timestamp consistency** — key/chain fields use Unix seconds (JOSE); content fields use ISO 8601 (JSON Feed).
 
 ## When Editing the README

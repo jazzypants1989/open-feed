@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+import crypto from 'node:crypto';
 
 // ---- RFC 8785-ish canonicalizer (sufficient for string/int-only docs; validated below) ----
 function canon(v){
@@ -127,6 +127,69 @@ console.log('== D.5 identity seq 2 (full published canonical bytes) ==');
 console.log(' ', canon(id2));
 console.log();
 
+// ==== Restricted-feeds extension vectors (open-feed-restricted-feeds.md) ====
+// Reader identity + key (distinct from the feed owner, https://test.example/).
+const kReader = keyFromLabel('reader-key-1');
+const READER = 'https://reader.example/';
+const READER_KID = READER + '#reader-key-1';
+const RFEED = 'https://test.example/family/feed.json';       // owner's restricted feed
+const RMANIFEST = 'https://test.example/family/manifest.json';
+
+// ---- Encoded-JWT helpers (construction #2 — the ONLY sanctioned second construction) ----
+// Standard JWS compact with ENCODED payload (RFC 7519), NOT the core's detached b64:false JWS.
+function signJWT(headerObj, claims, priv){
+  const h = b64u(Buffer.from(JSON.stringify(headerObj),'utf8'));
+  const p = b64u(Buffer.from(JSON.stringify(claims),'utf8'));
+  const sig = crypto.sign(null, Buffer.from(h+'.'+p,'ascii'), priv);
+  return h+'.'+p+'.'+b64u(sig);
+}
+function verifyJWT(jwt, xPub){
+  const [h,p,s] = jwt.split('.');
+  const pub = crypto.createPublicKey({key:{kty:'OKP',crv:'Ed25519',x:xPub}, format:'jwk'});
+  return crypto.verify(null, Buffer.from(h+'.'+p,'ascii'), pub, Buffer.from(s,'base64url'));
+}
+
+// ---- R.1 Fetch assertion (encoded EdDSA JWT, modeled on DPoP) ----
+const assertHeader = {alg:'EdDSA', typ:'openfeed-fetch+jwt', kid:READER_KID};
+const assertClaims = {
+  iss: READER, htm:'GET', htu: RFEED,
+  iat:1739577600, exp:1739577900, jti:'urn:uuid:6b3a...c0ffee'
+};
+const assertion = signJWT(assertHeader, assertClaims, kReader.priv);
+console.log('== R.1 fetch assertion (compact JWT) ==');
+console.log('  reader-key-1 x :', kReader.x);
+console.log('  header  :', JSON.stringify(assertHeader));
+console.log('  claims  :', JSON.stringify(assertClaims), '(exp-iat =', assertClaims.exp-assertClaims.iat, 's)');
+console.log('  Authorization: OpenFeed-Sig', assertion);
+console.log();
+
+// ---- R.2 Capability grant (detached JWS — construction #1, reused unchanged) ----
+// Owner (https://test.example/, test-key-1) authorizes READER to fetch RFEED.
+const grant = {
+  url: ID,          // grantor / author binding (§6.6): kid identity MUST equal this
+  grant: READER,    // the authorized reader identity
+  feed: RFEED,      // resource this grant covers
+  iat: 1739577600,
+  exp: 1742169600   // iat + 30 days
+};
+grant._sig = sign(grant, k1.priv, KID1);
+const grantBytes = canon(grant);
+console.log('== R.2 capability grant (full published canonical bytes) ==');
+console.log(' ', grantBytes);
+console.log('  OpenFeed-Grant:', b64u(Buffer.from(grantBytes,'utf8')));
+console.log();
+
+// ---- R.3 Gated restricted manifest (same §9 mechanics, own chain) ----
+const rmanifest = {
+  url: ID, feed_url: RFEED, seq:1, updated:1739577600,
+  items:{'urn:uuid:aabbccdd-eeff-0011-2233-445566778899':1}
+};
+rmanifest._sig = sign(rmanifest, k1.priv, KID1);
+console.log('== R.3 restricted manifest seq 1 (full published canonical bytes) ==');
+console.log(' ', canon(rmanifest));
+console.log('  (fetched with an assertion whose htu =', RMANIFEST + ')');
+console.log();
+
 // ---- self-verify everything ----
 function verify(obj, kid){
   const {_sig, _recovery_sig, ...rest} = obj;
@@ -144,3 +207,6 @@ console.log('  manifest :', verify(manifest, KID1));
 console.log('  manifest2:', verify(manifest2, KID1), '(prev chains seq1->seq2:', manifest2.prev===manifestHash1, ')');
 console.log('  id seq1  :', verify(id1, KID1));
 console.log('  id seq2  :', verify(id2, KID1));
+console.log('  R.1 assertion :', verifyJWT(assertion, kReader.x), '(bound htu=RFEED, exp-iat<=300:', assertClaims.exp-assertClaims.iat<=300, ')');
+console.log('  R.2 grant     :', verify(grant, KID1), '(grantor url==kid identity:', grant.url===KID1.slice(0,KID1.lastIndexOf('#')), ')');
+console.log('  R.3 rmanifest :', verify(rmanifest, KID1));
