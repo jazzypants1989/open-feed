@@ -131,8 +131,9 @@ Open Feed defines four conformance levels (§13):
 | `/{user}/openfeed.json`       | Signed identity document — profile, keys, endpoints, chain  |
 | `/{user}/feed.json`           | JSON Feed 1.1 with signed items                             |
 | `/{user}/manifest.json`       | Signed, chained commitment to the feed's contents           |
-| `/{user}/history.json`        | Identity-document version history (once `seq > 1`)          |
-| `/{user}/manifest-history.json` | Manifest version history (once its `seq > 1`)             |
+| `/{user}/history.json`        | Index of retained identity-document versions (once `seq > 1`) |
+| `/{user}/manifest-history.json` | Index of retained manifest versions (once its `seq > 1`)  |
+| `/{user}/export`              | Your complete signed archive, on demand (Level 3, §15)      |
 
 Every public document MUST be served with `Access-Control-Allow-Origin: *` so browser readers work without a proxy.
 
@@ -172,8 +173,9 @@ This single signed file replaces the old profile HTML, the JWKS document, and th
   "name": "Mom",
   "bio": "Grandmother, gardener, cat enthusiast.",
   "avatar": "https://pence.family/~mom/avatar.jpg",
-  "feed": "https://pence.family/~mom/feed.json",
-  "manifest": "https://pence.family/~mom/manifest.json",
+  "feeds": [
+    { "url": "https://pence.family/~mom/feed.json", "manifest": "https://pence.family/~mom/manifest.json", "rel": "primary" }
+  ],
   "inbox": "https://pence.family/~mom/inbox",
   "history": "https://pence.family/~mom/history.json",
   "seq": 7,
@@ -189,7 +191,8 @@ This single signed file replaces the old profile HTML, the JWKS document, and th
 
 Notes:
 
-- `keys` is a standard array of JWKs (RFC 7517). The `x` field is the base64url Ed25519 public key. `iat`/`revoked_at` are Unix seconds (JOSE convention); content timestamps use ISO 8601 (JSON Feed convention).
+- `feeds` is one array for every feed you publish — entries are `{url, manifest?, rel}`, and `rel: "primary"` names the authoritative one. `manifest` is optional: a feed without one has no completeness proof, which is a reasonable trade for an activity feed of likes and a bad one for anything you'd miss.
+- `keys` is a standard array of JWKs (RFC 7517). The `x` field is the base64url Ed25519 public key. `iat`/`revoked_at` are Unix seconds (JOSE convention); content timestamps use ISO 8601 (JSON Feed convention). The `crv`/`use` constraints apply to *signing* keys — extensions can add other key types to the same array, and core verifiers ignore them.
 - `seq`/`prev`/`updated`/`_sig` are the version-chain fields. `prev` is the base64url SHA-256 of the *full* previous version's bytes. Genesis (`seq: 1`) has no `prev` or `history`. See §5.
 - The identity doc commits to the manifest **by URL, not by hash** — so ordinary publishing advances the manifest chain and never re-signs the identity doc.
 - Unknown fields MUST be preserved when re-serializing. Extension fields use a `_` prefix.
@@ -501,9 +504,20 @@ Extension fields on any JSON object MUST be prefixed with `_`, and implementatio
 
 Interaction *types* are values, not field names, so they namespace cleanly by URL — e.g. `"type": "https://example.com/ns#bookmark"`. Receivers store unknown types and MAY hide them from display. This replaces the old `x-` interaction-type convention.
 
-### Restricted (private) feeds — optional extension
+### Privacy — publish or deliver
 
-Restricted-visibility feeds are an **optional extension**, specified in [`open-feed-restricted-feeds.md`](open-feed-restricted-feeds.md) and kept out of the core so the core has exactly one signing construction (§11). An unauthenticated GET returns `401 WWW-Authenticate: OpenFeed-Sig`; the reader retries with a short-lived, self-signed EdDSA fetch assertion (modeled on DPoP, RFC 9449) binding method + URL, using the same keys they already publish. Authorization is primarily by owner-issued, identity-bound **capability grants** (a core-construction signed document delivered via the inbox, so nothing about the audience is published); a published reader list and unguessable capability URLs are simpler fallbacks. The restricted feed carries its own signed, gated manifest. This is **audience control, not confidentiality** — the serving host can read it. Cross-reader equivocation is softer to detect than for public feeds, but an existence-public feed can restore it via **self-commitments** ([`open-feed-conventions.md`](open-feed-conventions.md) §5).
+The core has no privacy mechanism, and that is the design rather than a gap. Content reaches people two ways, and everything follows from which:
+
+- **Published** — in a feed, committed by a manifest. Gets the completeness proof, gossip, pinning, the export bundle, migration. Public.
+- **Delivered** — POSTed to an inbox, no `_feed_url`. Private from everyone but the two hosts. Works today, no mechanism needed.
+
+There is no third cell — *published but not public* does not exist. An earlier draft tried to build it (authenticated fetch, capability grants, a gated manifest) and every artifact it needed was a consequence of serving different bytes to different readers, which is exactly what breaks pinning. It's gone; spec Appendix E records why, and the test that shows it can come back as a pure extension if anyone ever wants it.
+
+What's genuinely incompatible is narrower than "privacy": a completeness proof is a public artifact, so content whose **existence** must be private can't have one. Content whose **bytes** are opaque still can — which is why encryption and the manifest compose fine.
+
+**Encrypted content** ([`open-feed-encrypted-content.md`](open-feed-encrypted-content.md), optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
+
+One rule predicts the rest: **any audience larger than one needs a membership document.** A DM needs no roster. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not.
 
 ### Follows and pins — conventions
 
@@ -511,11 +525,13 @@ Two optional documents referenced from the identity document, both *outside* the
 
 - **`follows`** — who you read (`{ "follows": [...], "updated": ... }`). Turns "which feeds does my hub poll?" into protocol. MAY be kept private/client-local.
 - **`pins`** — your **signed** `(url, seq, hash)` observations of others' chains (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). Publishing them gives a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography.
-- **Self-commitments** — a pins document an owner publishes about *its own* restricted manifest is a public commitment to its `(seq, hash)`. This is what restores cross-reader equivocation detection to restricted feeds (which otherwise can't be publicly gossiped), for owners willing to disclose the feed's existence and cadence but never its content.
+Pins also answer a question the trust model raises and doesn't settle: equivocation is *detectable*, but only if somebody compares. Your own record of what you published is a weak check — a host that knows which client is yours can serve that client the honest branch. Comparison by other people is the durable one.
+
+⚠️ Both documents publish your social graph. `pins` additionally publishes *when* you read. Keep them client-local if that matters; the enforcement value is entirely local either way.
 
 ### Media integrity and alt text
 
-Attachments use JSON Feed's `attachments`. The metadata is signed but the bytes aren't, so integrity-sensitive media SHOULD carry a `_sha256` content hash. Use the attachment's `title` for alt text.
+Attachments use JSON Feed's `attachments`. The metadata is signed but the bytes aren't, so every attachment **MUST** carry a `_sha256` content hash — without it the bytes sit outside the signature envelope entirely and whoever controls them (including the host) can swap the photo under a signed item undetected. Consumers treat a hash-less attachment as unverified content. Use the attachment's `title` for alt text.
 
 ### Real-time updates
 
@@ -621,15 +637,23 @@ A: Not directly. A stateful ActivityPub gateway could bridge them, but that's ou
 
 **Q: How do I handle private content?**
 
-A: Via the **restricted-feeds extension** ([`open-feed-restricted-feeds.md`](open-feed-restricted-feeds.md); summarized in spec §11), *not* the core. A reader proves who they are by signing the GET with a short-lived self-signed fetch assertion (using the keys they already publish); the host authorizes that identity via an owner-issued capability grant (which publishes nothing about the audience). It works across hubs with no shared passwords. Simpler options: a private server-side allowlist, a published reader list, or unguessable capability URLs. Note this is **audience control, not confidentiality** — the serving host can still read it; true privacy needs an encryption layer that's out of scope.
+A: Two answers, depending on who you're hiding it from. **From the public:** don't publish it — deliver it to the recipients' inboxes. No mechanism, works today. **From your host:** encrypt it ([`open-feed-encrypted-content.md`](open-feed-encrypted-content.md)) — the feed stays public and the host serves bytes it can't read. **From someone you already gave it to:** impossible, and no protocol claims otherwise.
+
+Note what stays visible on a published feed even when encrypted: who posted, when, how often, and who replied to whom. Encryption hides what you said, not that you said it.
 
 **Q: How do I send a private message?**
 
-A: Same mechanism — a restricted feed whose reader list is just you and the recipient, again via the restricted-feeds extension. It's a group chat with an audience of two. As above, the host can read it; this isn't end-to-end encryption.
+A: An ordinary signed item with no `_feed_url`, delivered to that person's inbox. An audience of one needs no roster, so this is the case that just works — threading, edits, and tombstones all behave normally. Encrypt it if your host shouldn't read it.
 
 **Q: What if my hub operator is malicious?**
 
-A: If they hold your keys they can impersonate you going forward (the email model) — but they *can't* silently rewrite your history against anyone who's pinned you. Use client-side keys if you don't want to trust your hub, or run your own.
+A: If they hold your keys they can impersonate you going forward (the email model) — but they *can't* silently rewrite your history against anyone who's pinned you.
+
+The harder version of this question is the one where your hub operator is a relative, sits inside the audience, and controls whether you can leave. The spec names that as its own adversary tier (§14.2) and is blunt that encryption doesn't save you from it: they supply the client, and by default they generated your keys. What the protocol gives you instead is **exit** — an identity you can take elsewhere (§3.4), a recovery key generated on your device that they never held (§4.5), and a complete signed copy of your own content on demand (§15). Those three only work together, and a hub that skips any of them has to say so.
+
+**Q: Isn't that a weak answer for a protocol with this much crypto in it?**
+
+A: It's the true one. Open Feed is a transparency protocol — permanent retained history, world-readable documents, a durable public deletion record. Those are the properties that make tampering detectable, and they're the same properties that make forgetting impossible. Adding a privacy mechanism that fails against the adversary people actually have would be worse than saying what it does.
 
 **Q: Can multiple people post to the same feed?**
 
@@ -643,7 +667,7 @@ A: Consolidated. Your feed is your outbox. Keys, profile, and endpoints all live
 
 ## Contributing
 
-This is a draft specification (v0.1.0). Feedback welcome.
+This is a draft specification (v0.2.0). Feedback welcome.
 
 - **Issues:** technical problems, ambiguities, missing features.
 - **Proposals:** new relation types, extension fields, gateway/bridge specs.

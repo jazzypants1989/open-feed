@@ -8,58 +8,126 @@ Open Feed Protocol is a minimal specification for decentralized publishing and i
 
 | File                  | Purpose                                                |
 | --------------------- | ------------------------------------------------------ |
-| `open-feed-spec.md`   | Normative specification (source of truth), **v0.1.0**  |
-| `open-feed-restricted-feeds.md` | OPTIONAL extension (v0.1.0): restricted (audience-controlled) feeds — fetch assertion + capability grants (Appendix R vectors) |
-| `open-feed-conventions.md` | OPTIONAL extension (v0.1.0): `follows` + `pins` documents; **self-commitments** (§5) restore cross-reader equivocation detection to restricted feeds (Appendix C vectors) |
+| `open-feed-spec.md`   | Normative specification (source of truth), **v0.2.0**  |
+| `open-feed-encrypted-content.md` | OPTIONAL extension (v0.1.0): encrypted items (JWE in `_enc`), carrier binding, enc-key lifecycle, blobs, circle rosters |
+| `open-feed-conventions.md` | OPTIONAL extension (v0.2.0): `follows` + `pins` documents (Appendix C vectors). Self-commitments **removed** |
 | `README.md`           | Human-friendly docs, examples, comparisons, FAQ        |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub built on the protocol |
 | `CLAUDE.md`           | This file - context for AI agents                      |
-| `tmp/regen.js`       | Test-vector generator/validator (spec Appendix D + restricted-feeds Appendix R + conventions Appendix C) |
+| `tmp/regen.js`       | Test-vector generator/validator (spec Appendix D + conventions Appendix C). Self-verifies signatures **and** cross-checks every vector string against the published docs |
+| `tmp/enc-prototype.js` | Encrypted-item probe; CLAIM 5 demonstrates the ciphertext-relay attack and its rejection |
+| `tmp/circles-prototype.js` | Roster spike — models rollback only, **not withholding**; see encrypted-content §6.2 |
 
 ## Current Status
 
-**Version 0.1.0 — Draft.**
-
-This is the first *public*, self-contained spec. It is a clean-slate design. Several prior internal drafts (never released; the last was numbered 0.5.1, preserved in git history) explored a much larger surface; v0.1.0 collapses it. The version was reset to 0.1.0 on purpose: the old numbers communicated with an audience that never existed, and this is the first version anyone could actually build against. Appendix E of the spec is the design-history / what-changed record.
+**Version 0.2.0 — Draft.** v0.1.0 was the first public, self-contained spec. v0.2.0 resolves a
+nine-pass simplification debate (`PROPOSALS*.md`, plus a blind adversarial review of pass 9) and is
+the version where the protocol stopped pretending to offer privacy it could not deliver.
 
 Pre-1.0: breaking changes ARE allowed to fix correctness/security defects. After 1.0: additive only.
 
-## The v0.1.0 Object Model (read this before editing anything)
+### What changed in 0.2.0, and why
 
-The whole protocol is **a few conventional documents at fixed paths, plus one endpoint:**
+Two facts drove it. **(1) The threat model:** the operator of a family hub may be a loved one who
+is an abuser — an adversary who controls the serving path, the inbox, and (by default) the keys. No
+confidentiality mechanism defeats them; what the protocol can give them is **exit**, which it did
+not previously have. **(2) The missing persona, finally named:** two self-hosting family members.
+Nine passes asked for a host-trusted cross-hub audience and concluded none existed; it is the modal
+case for a URL-native protocol, and it makes cross-hub `family` visibility a launch requirement.
+
+| Change | Where |
+|---|---|
+| **Restricted-feeds extension deleted entirely** (not slimmed) — it tried to occupy a cell that doesn't exist, *published but not public* | file removed; §11 replaced; Appendix E records the reasoning + the re-addability test |
+| **Conventions §5 self-commitments deleted** — existed only to patch a hole restricted feeds opened | `open-feed-conventions.md` |
+| **§11 is now Privacy**: the publish/deliver 2×2, the existence-privacy trade, the audience-of-one rule | spec §11 |
+| **New §15 Export and Exit** + fourth adversary tier (hostile custodian who is also the counterparty) | spec §15, §14.2 |
+| **Recovery keys MUST be generated on the member's device**, never transmitted to the host | spec §4.5, L3 conformance |
+| `feed` + `manifest` + `feeds` → **one `feeds` array** `{url, manifest?, rel}`; `manifest` OPTIONAL (feed-level, not per-item) | spec §3.2.1 |
+| `history` → an **index** `[{seq, hash, url}]`; prior versions served individually | spec §5.4, §9.2 |
+| Attachment `_sha256` SHOULD → **MUST** | spec §7.4 |
+| Tombstones defined by **allowlist** of retained fields | spec §7.3 |
+| `crv`/`use` constraints scoped to **signing** keys (resolves a self-contradiction; lets extensions define key types) | spec §4.1 |
+| New **encrypted-content extension** | `open-feed-encrypted-content.md` |
+
+### Decisions taken — do not relitigate without new information
+
+- **Exit, not confidentiality, is the answer for the hostile-custodian case.** Encryption is offered
+  and honestly bounded; it is never marketed as protection from your own host.
+- **Cross-hub `family` = published + encrypted.** The feed is a public, manifested, CORS-`*` file of
+  ciphertext. Keeps the completeness proof, export, migration, single-valuedness.
+- **Audience is hidden** (encrypted roster, untagged JWE recipients). The owner was explicitly
+  worried about publishing association graphs.
+- **Family interactions are delivered, not published**, so `_rel` never lands in a public file.
+- **Cleartext delivered-private is audience-of-one (DMs) only.**
+- **`prev_url` was rejected** in favour of the history index: signed bytes are immutable, so
+  `prev_url` would retroactively break the walk for anyone whose pin predates a rehost.
+- **Pass 9's "transparency/confidentiality theorem" is false** and was not adopted — its own 2×2
+  contains the counterexample (published+encrypted has both). The corrected statement is over
+  *existence*-privacy.
+- **"Binding symmetry" was rejected**; the real defect next door (`_sha256` as SHOULD) was fixed.
+- **Self-monitoring (proposed §5.6) was rejected** as a security rule: evadable by targeted
+  equivocation, undefined baseline under split custody, and its stated response is a recovery key
+  the adversary generated. The diagnosis survives as a producer MUST to record published
+  `(seq, hash)` (§5.2) plus a pointer to third-party pins.
+- **`follows`+`pins` merge rejected** — conflates two disclosure decisions and prices
+  anti-equivocation in social-graph disclosure.
+- **Replies endpoint keeps its own URL**, reframed as a *view over the inbox*.
+
+## The v0.2.0 Object Model (read this before editing anything)
 
 ```
 {identity_url}/               ← identity URL (optional human page; nothing reads it)
-{identity_url}/openfeed.json  ← IDENTITY DOCUMENT: signed; profile + keys + endpoints + version chain
+{identity_url}/openfeed.json  ← IDENTITY DOCUMENT: signed; profile + keys + feeds[] + version chain
 {identity_url}/feed.json      ← JSON Feed 1.1, signed items
 {identity_url}/manifest.json  ← signed, CHAINED commitment to the feed's contents
 {identity_url}/inbox          ← POST signed items here (Level 3 only)
-{identity_url}/history.json          ← identity-document version history
-{identity_url}/manifest-history.json ← manifest version history
+{identity_url}/history.json          ← INDEX of retained identity-document versions
+{identity_url}/manifest-history.json ← INDEX of retained manifest versions
 ```
 
-Four core pieces to keep straight:
+1. **Identity document (§3.2)** — signed, chained. Keys inside (`keys`); every feed in one `feeds`
+   array (§3.2.1) with `{url, manifest?, rel}`.
+2. **Items (§7)** — signed JSON Feed items: single-entry `authors`, `_feed_url`, `_version`, `_sig`.
+3. **Interactions ARE items (§8)** — a `_rel` array; threading via `root`.
+4. **Manifest (§9)** — separately-signed, chained commitment to feed contents.
 
-1. **Identity document (`openfeed.json`, spec §3.2)** — replaces the old profile-HTML + separate-JWKS + profile-metadata triad. Keys live *inside* it (`keys` array). Endpoints (`feed`, `manifest`, `inbox`, `replies`, `history`) are fields. It is signed and **chained** (`seq`/`prev`/`updated`/`_sig`); the chain versions *identity state* (keys, profile, endpoints, migration) and advances rarely.
-2. **Items (spec §7)** — every content object is a signed JSON Feed item: single-entry `authors` (author binding, §6.6), `_feed_url` (canonical/copy rule, §7.5), `_version`, `_sig`.
-3. **Interactions ARE items (spec §8)** — no separate interaction object. An interaction is an item carrying a `_rel` array: `[{ "type": "reply"|"root"|"like"|"repost"|"quote"|"mention"|"<absolute-url>", "to": "{feed_url}#{item_id}" }]`. Threading uses a `root` entry (not `_in_reply_to`). Reactions = `like` + `_emoji`. Content-less relations (like/repost) SHOULD go in a separate **activity feed** (listed in `feeds`).
-4. **Manifest (`manifest.json`, spec §9)** — separately-signed, **chained** (`seq`/`prev`/`history`/`items` map id→version/`deleted` map/optional checkpoint). Commits feed contents so a host can't silently drop/reorder/rollback. Pinned (TOFU) by the SAME discipline as the identity chain. Publishing advances the manifest chain, not the identity chain.
+**Two chains, one pin-and-walk discipline (§5, §9.1).** Pin `(seq, hash)` on first observation; walk
+`prev` to the pin on every later fetch; any divergence is an attack.
 
-**Two chains, one pin-and-walk discipline (spec §5, §9.1):** pin `(seq, hash)` on first observation; walk `prev` to the pin on every later fetch; treat any divergence (seq decrease, prev mismatch, same-seq-different-hash) as an attack. Both chains retain and serve full history, which is what makes host equivocation — of keys *or content* — cross-consumer detectable (the certificate-transparency bargain, §14.2).
+**One principle explains the document set:** a container self-verifies iff its entries are
+chain-linked. A chain (identity doc, manifest) needs no companion. A feed does not self-verify —
+items are independent leaves — so it needs a companion chain, and that companion *is* the manifest.
+Use this as explanation, not as a rule that licenses deletions.
+
+## Open Questions (deferred, not forgotten)
+
+- **Circle rosters are not ready to ship** (encrypted-content §6.2). Before offering them, a second
+  prototype must model **withholding** (not just rollback — `tmp/circles-prototype.js` covers only
+  rollback), identity-document-published enc keys, carrier binding on roster-wrapped replies, and
+  the N identity-doc fetches a single reply implies.
+- `_rel` type registry governance pre-1.0
+- Key delegation extension (`open-feed-delegation.md`, planned) — multi-device + hub custody without
+  a second signing construction; the pinned chain is the revocation substrate NIP-26 lacked
+- External time anchoring (transparency log / witness network) beyond the family-scale `pins`
+  convention
+- Normative bridge profiles (Webmention / ActivityPub / atproto), starting with Webmention
+- **Split custody** (hub holds the signing key, client holds only the enc key) is an attractive
+  product pattern and is *not* claimed in the spec, because its guarantee holds only when the client
+  is not distributed by the custodian — which the reference product does not currently satisfy
 
 ## Key Design Decisions (intentional, not oversights)
 
-- **Identity = HTTPS URL** — not DIDs, not handles. URLs are universal and owned. WebFinger gives optional `@user@domain` discovery (Appendix B). Trade-off: weaker account portability than atproto's DID indirection (§14.14) — the deliberate price of URL-native simplicity.
-- **One signed document per identity** — `openfeed.json`. No HTML parsing in the trust chain, no link-relation discovery, no cross-document key-ownership check (key ownership is structural: the `kid`'s identity either lists the key or it doesn't).
-- **Keys = JWK inside the identity document** — Ed25519 `OKP`. `kid` in JWS headers = `{identity_url}#{kid}` (split at last `#`).
-- **Signatures = one construction** — detached JWS, RFC 7797 unencoded payload (`b64:false`, `crit:["b64"]`), Ed25519, over RFC 8785 canonical bytes. Signs header AND payload (never payload-only). Byte-exact (no verify-time Unicode normalization; producers emit NFC); duplicate JSON keys rejected (I-JSON, RFC 7493). This is the ONLY signing construction in the core — the restricted-feed token (encoded JWT) is deliberately an extension so the core stays single-construction.
-- **One object model** — like/reply/repost/quote/mention are all items with `_rel`. One schema, one update mechanism (versioning), one delete mechanism (tombstones `_deleted:true`), one verifier.
-- **The feed is the source of truth; the inbox is a push cache** — inbox delivery makes things fast, polling the signed feed makes them complete. Nothing exists only in transit. No separate outbox (your feed is your outbox).
-- **Canonical vs copy (`_feed_url`, §7.5)** — an item is canonical only in the feed its signed `_feed_url` names; the same signed bytes elsewhere are a verifiable *copy* with no liveness/manifest authority. Manifest proves presence; `_feed_url` proves exclusivity.
-- **Migration = recovery** (§3.4) — one operation (`predecessor`/`successor` links + recovery-key `_recovery_sig`), differing only in which key attests. No separate attestation/claim documents.
-- **Honest trust model** (§14.2) — three adversary tiers: key custodian (impersonation unpreventable, but past-rewriting surfaces as detectable forks), serving-path compromise (chains give full integrity), dumb-host/external-signer (full integrity by construction). Client-side keys / the sketched delegation extension move a user toward the stronger tiers.
-- **Delivery is inbox-only in the core** — Webmention is NOT in the core; it returns only as an optional bridge/gateway (Appendix F), ingesting `_unverified` copies.
-- **Restricted feeds (Authorized Fetch) are an OPTIONAL extension** (§11; separate doc planned), audience-control not confidentiality.
+- **Identity = HTTPS URL** — not DIDs, not handles. URLs are universal and owned. WebFinger gives optional `@user@domain` discovery (Appendix B). Trade-off: weaker account portability than atproto's DID indirection (§14.14) — partly offset in v0.2.0 by making exit a first-class feature (§15).
+- **One signed document per identity** — `openfeed.json`. No HTML parsing in the trust chain, no link-relation discovery, no cross-document key-ownership check (key ownership is structural).
+- **Keys = JWK inside the identity document** — Ed25519 `OKP` for signing. `kid` in JWS headers = `{identity_url}#{kid}` (split at last `#`). The `crv`/`use` constraints bind **signing** keys only, which is what lets an extension define an encryption key type without a core change.
+- **Signatures = one construction** — detached JWS, RFC 7797 unencoded payload (`b64:false`, `crit:["b64"]`), Ed25519, over RFC 8785 canonical bytes. Signs header AND payload. Byte-exact (no verify-time normalization; producers emit NFC); duplicate JSON keys rejected (I-JSON). **This is now the only construction anywhere — core and extensions.** Encryption is not a second construction: it changes what the content *is*, not how it is signed.
+- **One object model** — like/reply/repost/quote/mention are all items with `_rel`. One schema, one update mechanism (versioning), one delete mechanism (tombstones), one verifier.
+- **The feed is the source of truth; the inbox is a push cache.** Nothing exists only in transit — with one stated exception, delivered-private content (§11.1), which is why that is scoped to audience-of-one.
+- **Canonical vs copy (`_feed_url`, §7.5)** — an item is canonical only in the feed its signed `_feed_url` names. Manifest proves presence; `_feed_url` proves exclusivity. Neither covers content carried *by reference* — hence `_sha256` MUST (§7.4).
+- **Migration = recovery** (§3.4) — one operation, differing only in which key attests. Path 3 (recovery co-signature) is the exit path and works without the old host's cooperation.
+- **Honest trust model** (§14.2) — four adversary tiers. The fourth (hostile custodian who is also the counterparty) is not on the technical gradient and is answered by exit, not by cryptography.
+- **No privacy mechanism in the core** (§11) — privacy is a publication decision (publish vs deliver), and audience control at one host is host authorization, i.e. software. Confidentiality is an OPTIONAL extension whose guarantee is bounded by recipient key custody.
+- **Exit is a first-class feature** (§15, §4.5, §3.4) — the three parts (device-generated recovery key, uncooperative migration, export bundle) only work together, and Level 3 hosts MUST provide all three.
 
 ## Standards Adopted
 
@@ -68,28 +136,16 @@ Four core pieces to keep straight:
 | JWK                   | RFC 7517 | Public keys (inside identity doc) |
 | JWS                   | RFC 7515 | Signature format                 |
 | JWS Unencoded Payload | RFC 7797 | Detached `b64:false` signing     |
-| JWT                   | RFC 7519 | (Extension) restricted-feed fetch assertions |
 | JSON Canonicalization | RFC 8785 | Pre-signing serialization        |
 | I-JSON                | RFC 7493 | Duplicate-key rejection          |
-| DPoP (modeled on)     | RFC 9449 | (Extension) fetch-assertion shape |
+| JWE                   | RFC 7516 | (Extension) encrypted item content (`_enc`) |
+| X25519 / OKP          | RFC 8037 | (Extension) encryption keys, ECDH-ES |
 | Ed25519 (EdDSA)       | RFC 8032 | Signature algorithm; test vectors |
 | WebFinger             | RFC 7033 | Optional `@user@domain` discovery |
 | JSON Feed             | 1.1      | Feed format                      |
 | WebSub                | W3C Rec  | Optional real-time (via JSON Feed `hubs`) |
 
-Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAuth, standalone JWKS document, profile-HTML link discovery, Authorized Fetch (now an extension).
-
-## Open Questions (deferred, not forgotten)
-
-- `_rel` type registry governance pre-1.0
-- Key delegation extension (`open-feed-delegation.md`, planned) — multi-device + hub custody without a second signing construction; the pinned chain is the revocation substrate NIP-26 lacked. **Constraint from the conventions review (C-1):** a hub-held delegate signing a self-commitment (conventions §5) gives **no** cross-reader equivocation guarantee (the host controls manifest *and* commitment), so the delegation `scope` design must either forbid that or state it loudly — F3 and delegation-location share a shape; keep the answers consistent
-- ~~Restricted-feeds extension doc~~ **DONE** — `open-feed-restricted-feeds.md` v0.1.0 (fetch assertion = the one sanctioned second construction; capability grants primary + reader-list/capability-URL fallbacks; gated §9 manifest; Appendix R vectors in `tmp/regen.js`)
-- ~~`follows` + `pins` conventions doc~~ **DONE** — `open-feed-conventions.md` v0.1.0 (URL-keyed signed pins; §4.1 compare rule; **self-commitments** §5 close the restricted-feeds §8.2 cross-reader-equivocation gap for existence-public feeds — the missed connection between pins and §8.2; Appendix C vectors reuse D.4/D.3/R.3 hashes). Core Appendix G shrunk to a pointer; restricted-feeds §2/§8.2 now reference it.
-- ~~F2/F3 patch to restricted-feeds~~ **DONE (this session; unreviewed)** — F2: every grant now carries an explicit **`manifest` field** (restricted-feeds §6.2), fixing the existence-private grant→manifest authorization/discovery gap (also removes the imprecise "sibling manifest URL" derivation in existence-public mode); host step 5 resolves feed ownership via public identity doc *or* private routing. F3: `_grant_revocations` inline array replaced by a **chained `grant_revocations` side-document** (restricted-feeds §6.2.2, manifest §9 discipline, pinned+walked by the enforcing host) referenced by URL from the identity doc — so a revocation advances the *revocation* chain, not the identity chain; public-only, so incompatible with existence-private (folds into conventions §5.3 triangle). New vectors R.4/R.4b; R.2 regenerated with `manifest`. All self-verify. **Not independently reviewed — re-derive freely.** Deferred within this patch: `scope` still reserved (not defined); CORS/browser-reader (R-7) still documented-as-limitation only.
-- ~~Skeptical review pass of both extensions~~ **DONE (last session; fixes unreviewed)** — landed 9 fixes + 2 new vectors (R.3b chained gated manifest, C.2b chained commitment log). Security fixes: `scope` fails closed (R-6); grant delivered inside a carrier item, not as the item itself (R-9); "delegated signing" no longer claimed to move the key off a hub (C-1); commitment-withholding evasion named + reader rule (C-5). Plus clarifications C-2/R-10/C-4/R-7. See `HANDOFF.md` "What the last session did" for the full table. F2/F3 deferred to their own patch (above).
-- External time anchoring (transparency log / witness network) beyond the family-scale `pins` convention — partially served by conventions §4.3 (informal timestamping); a true witness network remains deferred
-- Signed export bundle format (identity history + feed + manifest + manifest history)
-- Normative bridge profiles (Webmention / ActivityPub / atproto), starting with Webmention
+Out of the core: Webmention (now a bridge only), OAuth/IndieAuth, standalone JWKS document, profile-HTML link discovery, and **Authorized Fetch — removed entirely in v0.2.0, not merely moved** (see spec Appendix E).
 
 ## When Editing the Spec
 
@@ -97,7 +153,7 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 2. **Backwards compatibility** — pre-1.0, breaking changes allowed to fix security/correctness defects; call them out in the status note. Post-1.0 additive only.
 3. **Update the version number** on any normative change.
 4. **Keep it minimal** — if it can live in README or an extension doc, it should. Guard the single-signing-construction and single-object-model invariants.
-5. **Verify examples and test vectors** — every `_sig`/hash in the spec must be reproducible. `tmp/regen.js` regenerates and self-verifies core Appendix D (item, both manifests, both identity-doc versions), restricted-feeds Appendix R (R.1 assertion, R.2 grant with `manifest`, R.3/R.3b chained gated manifest, R.4/R.4b chained grant-revocation list), and conventions Appendix C (C.1 pins, C.2 self-commitment, C.2b chained commitment log, C.3 follows). Run it after any change touching canonicalization, signing, or the vectors. **Note:** `regen.js` self-verifies signatures/hashes but does *not* actually read the docs — the "cross-checks embedded strings" claim here is aspirational; matching regen output to the doc-embedded vectors is currently a manual step (a real improvement would add a `readFileSync`+`includes` pass).
+5. **Verify examples and test vectors** — `node tmp/regen.js` regenerates and self-verifies core Appendix D (item, both manifests, both identity-doc versions, history index) and conventions Appendix C (pins, follows), **and** reads both published docs to confirm every vector string appears verbatim. It exits non-zero on failure, so a vector that drifts out of sync fails the run instead of sitting stale. Run it after any change touching canonicalization, signing, document shape, or the vectors.
 6. **Timestamp consistency** — key/chain fields use Unix seconds (JOSE); content fields use ISO 8601 (JSON Feed).
 
 ## When Editing the README
@@ -111,12 +167,13 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 - **Field extensions**: prefix with `_` (e.g., `_content_warning`, `_emoji`, `_sha256`). Preserve unknown `_` fields when re-serializing (signatures depend on it).
 - **Relation types (`_rel[].type`)**: a registered token (`reply`/`root`/`like`/`repost`/`quote`/`mention`) OR an absolute URL for custom relations (collision-free namespacing). Relation *types* are values, not field names.
 
-## Key Sections Reference (spec v0.1.0)
+## Key Sections Reference (spec v0.2.0)
 
 | Topic | Spec Section |
 |-------|--------------|
 | Identity URL normalization | 3.1 |
 | Identity document | 3.2 |
+| Feed entries (`feeds[]`) | 3.2.1 |
 | Fetching / redirects | 3.3 |
 | Migration & recovery (one op) | 3.4 |
 | Keys / key identifiers | 4.1–4.2 |
@@ -135,11 +192,12 @@ Out of the core (vs prior drafts): Webmention (now a bridge only), OAuth/IndieAu
 | The manifest (chained) | 9 |
 | Manifest chain mechanics / history / checkpoint | 9.1–9.3 |
 | Inbox | 10 |
-| Restricted feeds (extension) | 11 |
+| Privacy (publish/deliver, audience-of-one) | 11 |
 | Replies endpoint | 12 |
 | Conformance (L0–L3) | 13 |
 | Security considerations | 14 |
 | Test vectors | Appendix D |
 | Design history (what changed) | Appendix E |
 | Gateways / bridges | Appendix F |
-| Follows & pins conventions | Appendix G (pointer) → `open-feed-conventions.md`; self-commitments = §5 |
+| Export and exit | 15 |
+| Follows & pins conventions | Appendix G (pointer) → `open-feed-conventions.md` |

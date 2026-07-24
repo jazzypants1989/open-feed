@@ -1,0 +1,260 @@
+// enc-prototype.js — Option E feasibility probe (NOT a committed vector yet)
+//
+// Goal: prove an "encrypted item" is just an ordinary Open Feed signed item whose
+// content is a JWE envelope, and that it flows through the EXISTING construction
+// unchanged:
+//   (1) signs with construction #1 (same sign() as items/manifests/identity docs)
+//   (2) verifies with the same verifier (the signer never sees plaintext)
+//   (3) is committed by an ordinary manifest (host serves ciphertext it can't read)
+//   (4) decrypts for each intended recipient — and ONLY them (untagged recipients)
+//
+// Crypto: JWE JSON Serialization, alg=ECDH-ES+A256KW, enc=A256GCM, X25519 (RFC 8037).
+// All randomness (CEK, IV, ephemeral keys) is derived deterministically from labels so
+// the probe is reproducible; a real deployment uses a CSPRNG for each.
+
+import crypto from 'node:crypto';
+
+// ---- shared helpers, identical to tmp/regen.js ----
+function canon(v){
+  if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k)+':'+canon(v[k])).join(',') + '}';
+  return JSON.stringify(v);
+}
+const b64u = b => Buffer.from(b).toString('base64url');
+const sha256 = b => crypto.createHash('sha256').update(b).digest();
+
+// Ed25519 signing key from label (as in regen.js)
+function edKeyFromLabel(label){
+  const seed = crypto.createHash('sha256').update('open-feed-v0.6 '+label).digest();
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'), seed]);
+  const priv = crypto.createPrivateKey({key:pkcs8, format:'der', type:'pkcs8'});
+  const spki = crypto.createPublicKey(priv).export({format:'der', type:'spki'});
+  return {priv, x:b64u(spki.subarray(spki.length-32))};
+}
+
+// X25519 enc keypair from label (RFC 8037). OID 1.3.101.110 -> ...2b656e...
+function xKeyFromLabel(label){
+  const seed = crypto.createHash('sha256').update('open-feed-enc '+label).digest();
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b656e04220420','hex'), seed]);
+  const priv = crypto.createPrivateKey({key:pkcs8, format:'der', type:'pkcs8'});
+  const pub  = crypto.createPublicKey(priv);
+  const spki = pub.export({format:'der', type:'spki'});
+  return {priv, pub, x:b64u(spki.subarray(spki.length-32))};
+}
+function xPubFromJwkX(xB64u){
+  const spki = Buffer.concat([Buffer.from('302a300506032b656e032100','hex'), Buffer.from(xB64u,'base64url')]);
+  return crypto.createPublicKey({key:spki, format:'der', type:'spki'});
+}
+
+// ---- construction #1 sign/verify, identical to regen.js ----
+function header(kid){ return {alg:'EdDSA', b64:false, crit:['b64'], kid}; }
+function sign(obj, priv, kid){
+  const {_sig, _recovery_sig, ...rest} = obj;
+  const payload = Buffer.from(canon(rest),'utf8');
+  const hb = b64u(Buffer.from(JSON.stringify(header(kid)),'utf8'));
+  const input = Buffer.concat([Buffer.from(hb+'.','ascii'), payload]);
+  return hb + '..' + b64u(crypto.sign(null, input, priv));
+}
+function verify(obj, xPub){
+  const {_sig} = obj; const {_sig:_a, _recovery_sig:_b, ...rest} = obj;
+  const [hb,,sb] = _sig.split('.');
+  const payload = Buffer.from(canon(rest),'utf8');
+  const input = Buffer.concat([Buffer.from(hb+'.','ascii'), payload]);
+  const pub = crypto.createPublicKey({key:{kty:'OKP',crv:'Ed25519',x:xPub}, format:'jwk'});
+  return crypto.verify(null, input, pub, Buffer.from(sb,'base64url'));
+}
+
+// ---- JOSE ECDH-ES helpers ----
+const be32 = n => { const b = Buffer.alloc(4); b.writeUInt32BE(n>>>0); return b; };
+function concatKDF(Z, keydatalenBits, algId){
+  const lp = buf => Buffer.concat([be32(buf.length), buf]);
+  const otherInfo = Buffer.concat([
+    lp(Buffer.from(algId,'ascii')),  // AlgorithmID = the wrap alg for ECDH-ES+A256KW
+    lp(Buffer.alloc(0)),             // PartyUInfo (apu) — empty
+    lp(Buffer.alloc(0)),             // PartyVInfo (apv) — empty
+    be32(keydatalenBits),            // SuppPubInfo = keydatalen
+  ]);
+  return sha256(Buffer.concat([be32(1), Z, otherInfo])).subarray(0, keydatalenBits/8);
+}
+const WRAP_IV = Buffer.from('A6A6A6A6A6A6A6A6','hex');
+function aesWrap(kek, cek){
+  const c = crypto.createCipheriv('id-aes256-wrap', kek, WRAP_IV);
+  return Buffer.concat([c.update(cek), c.final()]);
+}
+function aesUnwrap(kek, wrapped){
+  const d = crypto.createDecipheriv('id-aes256-wrap', kek, WRAP_IV);
+  return Buffer.concat([d.update(wrapped), d.final()]);
+}
+
+// ---- encrypt: produce a JWE JSON Serialization to N X25519 recipients ----
+function encryptJWE(plaintext, recipientsXpub, {cek, iv, ephFor}){
+  const prot = { enc:'A256GCM' };
+  const protB64 = b64u(Buffer.from(JSON.stringify(prot),'utf8'));
+  const aad = Buffer.from(protB64,'ascii');
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', cek, iv, {authTagLength:16});
+  cipher.setAAD(aad);
+  const ct = Buffer.concat([cipher.update(Buffer.from(plaintext,'utf8')), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  const recipients = recipientsXpub.map((rx, i) => {
+    const eph = ephFor(i);                                  // ephemeral X25519 (fresh per recipient)
+    const Z = crypto.diffieHellman({privateKey: eph.priv, publicKey: xPubFromJwkX(rx)});
+    const kek = concatKDF(Z, 256, 'A256KW');
+    const encrypted_key = aesWrap(kek, cek);
+    return {
+      // NOTE: no "kid" — untagged recipients hide audience membership; reader trial-decrypts.
+      header: { alg:'ECDH-ES+A256KW', epk:{ kty:'OKP', crv:'X25519', x: eph.x } },
+      encrypted_key: b64u(encrypted_key),
+    };
+  });
+
+  return { protected: protB64, recipients, iv: b64u(iv), ciphertext: b64u(ct), tag: b64u(tag) };
+}
+
+// ---- decrypt: a reader tries every recipient slot with their own X25519 private key ----
+function decryptJWE(jwe, myXpriv){
+  const aad = Buffer.from(jwe.protected,'ascii');
+  for (const r of jwe.recipients){
+    try {
+      const Z = crypto.diffieHellman({privateKey: myXpriv, publicKey: xPubFromJwkX(r.header.epk.x)});
+      const kek = concatKDF(Z, 256, 'A256KW');
+      const cek = aesUnwrap(kek, Buffer.from(r.encrypted_key,'base64url')); // throws on wrong recipient
+      const dec = crypto.createDecipheriv('aes-256-gcm', cek, Buffer.from(jwe.iv,'base64url'), {authTagLength:16});
+      dec.setAAD(aad);
+      dec.setAuthTag(Buffer.from(jwe.tag,'base64url'));
+      return Buffer.concat([dec.update(Buffer.from(jwe.ciphertext,'base64url')), dec.final()]).toString('utf8');
+    } catch { /* not my slot — try next */ }
+  }
+  return null; // not in the audience
+}
+
+// =====================================================================
+// Scenario: Mom writes a family-only journal entry for Dad and Kid.
+// =====================================================================
+const author  = edKeyFromLabel('test-key-1');       // Mom's signing key (same as regen.js test-key-1)
+const KID = 'https://test.example/#test-key-1';
+
+const dadEnc  = xKeyFromLabel('dad');               // recipients' published X25519 enc keys
+const kidEnc  = xKeyFromLabel('kid');
+const strangerEnc = xKeyFromLabel('stranger');      // NOT in the audience
+
+// deterministic "randomness" for a reproducible probe (real: crypto.randomBytes)
+const cek = sha256(Buffer.from('probe-cek')).subarray(0,32);
+const iv  = sha256(Buffer.from('probe-iv')).subarray(0,12);
+const ephFor = i => xKeyFromLabel('eph-'+i);
+
+// CARRIER BINDING (the fix for the ciphertext-relay defect found in review):
+// the sealed plaintext names the item it belongs to. Without this, the envelope is
+// context-free — anyone can lift `_enc` out of Mom's item, drop it into their own
+// freshly-signed item, and have an audience member render Mom's private words
+// attributed to the attacker. Note the attacker need not be able to READ it.
+const ITEM_ID = 'urn:uuid:aaaaaaaa-7dec-11d0-a765-00a0c91e6bf6';
+const plaintext = JSON.stringify({
+  id: ITEM_ID,
+  authors: [{ url: 'https://test.example/' }],
+  _feed_url: 'https://test.example/feed.json',
+  content_text: 'Kid took her first steps today 🥹',
+  mood: 'overjoyed',
+});
+
+// A decrypting client MUST check the sealed binding fields against the outer item and
+// reject on any mismatch. This lives at the decrypting client, not the core verifier.
+function openBound(item, myXpriv){
+  const pt = decryptJWE(item._enc, myXpriv);
+  if (pt === null) return null;                      // not in the audience
+  const inner = JSON.parse(pt);
+  const outerAuthor = item.authors && item.authors[0] && item.authors[0].url;
+  const innerAuthor = inner.authors && inner.authors[0] && inner.authors[0].url;
+  if (inner.id !== item.id || innerAuthor !== outerAuthor || inner._feed_url !== item._feed_url){
+    return { rejected: 'carrier-binding mismatch' };  // relayed ciphertext
+  }
+  return inner;
+}
+
+const jwe = encryptJWE(plaintext, [dadEnc.x, kidEnc.x], {cek, iv, ephFor});
+
+// The encrypted ITEM: an ordinary signed item. content_text:"" keeps it JSON-Feed-valid.
+const item = {
+  _feed_url: 'https://test.example/feed.json',
+  _version: 1,
+  authors: [{ url: 'https://test.example/' }],
+  content_text: '',
+  date_published: '2025-01-15T12:00:00Z',
+  id: ITEM_ID,
+  _enc: jwe,
+};
+item._sig = sign(item, author.priv, KID);
+
+// ---- CLAIM 1 & 2: signs and verifies with the UNCHANGED construction ----
+const sigOk = verify(item, author.x);
+
+// ---- CLAIM 3: an ordinary manifest commits the ciphertext (host reads nothing) ----
+const manifest = {
+  url: 'https://test.example/',
+  feed_url: 'https://test.example/feed.json',
+  seq: 1,
+  updated: 1739577600,
+  items: { [item.id]: item._version },
+};
+manifest._sig = sign(manifest, author.priv, KID);
+const manOk = verify(manifest, author.x) && manifest.items[item.id] === item._version;
+
+// ---- CLAIM 4: recipients decrypt; stranger does not ----
+const dadReads     = openBound(item, dadEnc.priv);
+const kidReads     = openBound(item, kidEnc.priv);
+const strangerReads= openBound(item, strangerEnc.priv);
+
+// ---- CLAIM 5: ciphertext relay is REJECTED ----
+// Eve cannot read the entry. She does not need to: she copies the opaque `_enc` blob
+// verbatim into her own item, with a fresh id and her own authorship, and signs it
+// with her own key. Every core check passes — signature valid, author binding valid,
+// _feed_url consistent, fresh id so §7.5 exclusivity is not triggered, and an ordinary
+// manifest will commit it. Only the carrier binding inside the envelope stops it.
+const eve = edKeyFromLabel('eve');
+const EVE_KID = 'https://eve.example/#eve-key-1';
+const relayed = {
+  _feed_url: 'https://eve.example/feed.json',
+  _version: 1,
+  authors: [{ url: 'https://eve.example/' }],
+  content_text: '',
+  date_published: '2025-01-16T09:00:00Z',
+  id: 'urn:uuid:eeeeeeee-7dec-11d0-a765-00a0c91e6bf6',
+  _rel: [{ type: 'reply', to: 'https://gran.example/~gran/feed.json#urn:uuid:1234' }],
+  _enc: item._enc,                     // Mom's sealed bytes, verbatim
+};
+relayed._sig = sign(relayed, eve.priv, EVE_KID);
+const relaySigValid = verify(relayed, eve.x);        // the forgery is a VALID signed item
+const relayOpened   = openBound(relayed, dadEnc.priv);
+const relayRejected = relayOpened && relayOpened.rejected === 'carrier-binding mismatch';
+
+// ---- what does a passive host / non-recipient learn from the item bytes? ----
+const hostVisible = Object.keys(item).filter(k => k !== '_enc' && k !== '_sig');
+
+console.log('=== Option E prototype — encrypted item ===\n');
+console.log('recipients (published X25519 x):');
+console.log('  dad     :', dadEnc.x);
+console.log('  kid     :', kidEnc.x);
+console.log('item.id   :', item.id);
+console.log('item bytes:', Buffer.byteLength(canon(item)), 'bytes  (JWE recipients:', item._enc.recipients.length + ')');
+console.log();
+console.log('CLAIM 1 — signs with construction #1 (Ed25519 detached JWS) :', item._sig.slice(0,24)+'…');
+console.log('CLAIM 2 — verifies with the UNCHANGED verifier             :', sigOk ? 'PASS' : 'FAIL');
+console.log('CLAIM 3 — ordinary manifest commits the ciphertext         :', manOk ? 'PASS' : 'FAIL');
+console.log('CLAIM 4 — intended recipients decrypt:');
+console.log('           dad     :', dadReads && !dadReads.rejected ? 'PASS ('+dadReads.mood+')' : 'FAIL');
+console.log('           kid     :', kidReads && !kidReads.rejected ? 'PASS' : 'FAIL');
+console.log('           stranger:', strangerReads === null ? 'PASS (locked out)' : 'FAIL (LEAK!)');
+console.log('           round-trip plaintext intact:', JSON.stringify(dadReads) === plaintext ? 'PASS' : 'FAIL');
+console.log('CLAIM 5 — ciphertext RELAY is rejected by carrier binding:');
+console.log('           Eve\'s relayed item is a validly signed item :', relaySigValid ? 'yes (as expected)' : 'no');
+console.log('           audience member rejects it on decrypt       :', relayRejected ? 'PASS' : 'FAIL (MISATTRIBUTION!)');
+console.log();
+console.log('What the serving host / a non-recipient sees in cleartext (metadata leak surface):');
+console.log('  ', hostVisible.join(', '));
+console.log('  → content is opaque; id/date/_feed_url/author remain public. (untagged recipients: audience hidden)');
+
+const allPass = sigOk && manOk && JSON.stringify(dadReads)===plaintext && kidReads && !kidReads.rejected
+  && strangerReads===null && relaySigValid && relayRejected;
+console.log('\n=== '+(allPass ? 'ALL CLAIMS PASS' : 'FAILURE')+' ===');
+process.exit(allPass ? 0 : 1);
