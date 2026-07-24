@@ -33,7 +33,7 @@ and the manifest proves the feed you got is complete and current.
 **What makes it different:**
 
 - No blockchain, no tokens, no complex infrastructure.
-- Built on four standards and nothing else: HTTPS, JSON Feed 1.1, JOSE (JWK/JWS/JWT), and JSON canonicalization (RFC 8785).
+- Built on four standards and nothing else: HTTPS, JSON Feed 1.1, JOSE (JWK/JWS), and JSON canonicalization (RFC 8785).
 - One signed object model, one signature construction, one verifier.
 - The manifest proves **presence**: your host can't make a post disappear without leaving a signed, attributable trace. This is the thing Nostr relays can't do.
 - Small enough to implement in a weekend. Publishing works on free static hosting (Netlify, GitHub Pages, Cloudflare).
@@ -70,11 +70,13 @@ Open Feed pins two things on first contact (trust-on-first-use) and re-checks th
 
 A consumer that has seen you even once will detect a rollback (un-revoking a stolen key, resurrecting a deleted post) or equivocation (showing different people different histories), because both are hash-linked and both are pinned. This is the certificate-transparency bargain: transparency rather than perfect integrity, but transparency with teeth.
 
+Two things make that real rather than nearly real, and both are requirements rather than good intentions. The manifest commits to each item's **exact bytes**, not just its version number — otherwise a hub holding your key could tell two family members different things under one `(id, version)` and produce identical manifests. And **somebody has to compare**: a pin nobody ever checks against a second observation is evidence collected and thrown away, so applying the compare rule is a Level 1 MUST (§5.3.1), and the optional `pins` convention is how a family supplies each other with observations to compare.
+
 ### Trust Model
 
 **Be clear about this:** if your hub holds your signing key (the simple default), the admin can sign content as you. That is the same trust model as email — you trust your provider not to read your mail even though they could. For family hubs, this is fine.
 
-But the trust model is a **gradient, not a binary** (§14.2):
+But the trust model is a **gradient, not a binary** (§13.2):
 
 - **Key custodian** (hub holds your key): forward impersonation is unpreventable — but even here the hub *cannot silently rewrite the past* against anyone who has pinned you. Deletions must appear as signed tombstones; per-reader rewriting surfaces as a detectable fork.
 - **Serving-path compromise** (CDN / static bucket / web tier hacked, but the signing key is elsewhere): the most common real-world attack. The attacker can't sign, so the chains and manifest give **full integrity** — no undetectable omission, rollback, or injection.
@@ -114,7 +116,7 @@ Client-side keys move you from the first tier toward the third. They're supporte
 
 ### For Hub Operators
 
-Open Feed defines four conformance levels (§13):
+Open Feed defines four conformance levels (§12):
 
 | Level | Name | Description |
 | ----- | ---- | ----------- |
@@ -131,9 +133,9 @@ Open Feed defines four conformance levels (§13):
 | `/{user}/openfeed.json`       | Signed identity document — profile, keys, endpoints, chain  |
 | `/{user}/feed.json`           | JSON Feed 1.1 with signed items                             |
 | `/{user}/manifest.json`       | Signed, chained commitment to the feed's contents           |
-| `/{user}/history.json`        | Index of retained identity-document versions (once `seq > 1`) |
-| `/{user}/manifest-history.json` | Index of retained manifest versions (once its `seq > 1`)  |
-| `/{user}/export`              | Your complete signed archive, on demand (Level 3, §15)      |
+| `/{user}/openfeed/{seq}.json` | Retained prior identity-document versions (once `seq > 1`, §5.4) |
+| `/{user}/manifest/{seq}.json` | Retained prior manifest versions (once its `seq > 1`)  |
+| `/{user}/export`              | Your complete signed archive, on demand (Level 3, §14)      |
 
 Every public document MUST be served with `Access-Control-Allow-Origin: *` so browser readers work without a proxy.
 
@@ -142,7 +144,7 @@ Every public document MUST be served with `Access-Control-Allow-Origin: *` so br
 | Path              | Purpose                                        |
 | ----------------- | ---------------------------------------------- |
 | `/{user}/inbox`   | POST endpoint for receiving signed items (§10) |
-| `/{user}/replies` | Optional thread discovery (§12)                |
+| `/{user}/replies` | Optional thread discovery (conventions extension §6) |
 
 The old `outbox` is gone — your feed *is* your outbox. Webmention and OAuth endpoints are no longer part of the core.
 
@@ -177,7 +179,6 @@ This single signed file replaces the old profile HTML, the JWKS document, and th
     { "url": "https://pence.family/~mom/feed.json", "manifest": "https://pence.family/~mom/manifest.json", "rel": "primary" }
   ],
   "inbox": "https://pence.family/~mom/inbox",
-  "history": "https://pence.family/~mom/history.json",
   "seq": 7,
   "prev": "aNy3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
   "updated": 1739577600,
@@ -191,9 +192,9 @@ This single signed file replaces the old profile HTML, the JWKS document, and th
 
 Notes:
 
-- `feeds` is one array for every feed you publish — entries are `{url, manifest?, rel}`, and `rel: "primary"` names the authoritative one. `manifest` is optional: a feed without one has no completeness proof, which is a reasonable trade for an activity feed of likes and a bad one for anything you'd miss.
+- `feeds` is one array for every feed you publish — entries are `{url, manifest, rel}`, and `rel: "primary"` names the authoritative one. Every listed feed is manifested; there is no unproven feed. A high-volume activity feed of likes doesn't pay for that per reaction, because a manifest may advance on a schedule rather than per publication (§9.2).
 - `keys` is a standard array of JWKs (RFC 7517). The `x` field is the base64url Ed25519 public key. `iat`/`revoked_at` are Unix seconds (JOSE convention); content timestamps use ISO 8601 (JSON Feed convention). The `crv`/`use` constraints apply to *signing* keys — extensions can add other key types to the same array, and core verifiers ignore them.
-- `seq`/`prev`/`updated`/`_sig` are the version-chain fields. `prev` is the base64url SHA-256 of the *full* previous version's bytes. Genesis (`seq: 1`) has no `prev` or `history`. See §5.
+- `seq`/`prev`/`updated`/`_sig` are the version-chain fields. `prev` is the base64url SHA-256 of the *full* previous version's bytes. Genesis (`seq: 1`) has no `prev`. Prior versions are retained at a **derived URL** — strip `.json`, append `/{seq}.json`, so version 6 of this document is at `https://pence.family/~mom/openfeed/6.json`. There is no history-index document to maintain. See §5.4.
 - The identity doc commits to the manifest **by URL, not by hash** — so ordinary publishing advances the manifest chain and never re-signs the identity doc.
 - Unknown fields MUST be preserved when re-serializing. Extension fields use a `_` prefix.
 
@@ -246,18 +247,17 @@ The manifest is the headline feature. It's a separately-signed, chained document
   "feed_url": "https://pence.family/~mom/feed.json",
   "seq": 412,
   "prev": "Jq3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
-  "history": "https://pence.family/~mom/manifest-history.json",
   "updated": 1739577600,
   "items": {
-    "urn:uuid:550e8400-e29b-41d4-a716-446655440000": 3,
-    "urn:uuid:661f9511-f3ac-52e5-b827-557766551111": 1
+    "urn:uuid:550e8400-e29b-41d4-a716-446655440000": [3, "czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"],
+    "urn:uuid:661f9511-f3ac-52e5-b827-557766551111": [1, "vdS1bhnFd5XsIugXNLR0k-7UHDxRJi7DO6XRWF5l_gU"]
   },
-  "deleted": { "urn:uuid:99aa2222-...": 4 },
+  "deleted": { "urn:uuid:99aa2222-...": [4, "8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI"] },
   "_sig": "..."
 }
 ```
 
-- `items` maps each live item id to its current `_version`; `deleted` records tombstoned id's. The per-item content doesn't need a hash here — each item is already signed, and the `_version` pins the exact signed revision.
+- `items` maps each live item id to `[version, hash]` — the item's current `_version`, and the SHA-256 of its exact published bytes. `deleted` records tombstoned id's the same way. The hash is what makes the guarantee hold against a hub that holds your key: with a version-only manifest, a key-holding host could sign one `(id, version)` as two different things for two readers and produce identical manifests, so the equivocation would be undetectable in principle. It costs about 48 bytes per item (§9).
 - A consumer pins the manifest at its `(seq, hash)` and walks `prev` back to that pin on every later fetch — the *same* pin-and-walk discipline as the identity chain (§9.1).
 - Invariants (§9.4): an id, once in `items`, must appear in every later manifest (in `items` or `deleted`) until folded into an optional checkpoint. Content can't silently vanish; removal requires a signed tombstone.
 - Checkpointing (§9.3) bounds growth for anyone who needs it; a family-scale identity may never bother.
@@ -438,9 +438,9 @@ An identity MAY expose a `replies` endpoint in its identity document. The respon
 GET /~mom/replies?item=urn:uuid:550e8400-e29b-41d4-a716-446655440000
 ```
 
-Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries (§12).
+Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries. It lives in the [conventions extension](open-feed-conventions.md) (§6), not the core: everything it returns is obtainable by polling the participants' feeds, so it buys discovery, never trust.
 
-The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see §11.1.1.
+The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see spec §11.1.1 and conventions §6.2. That rule travelled with the endpoint when it moved out of the core, because an implementer who wants thread discovery will build *something*, and it is better that the thing they build comes with the guard attached.
 
 ---
 
@@ -498,7 +498,7 @@ Extension fields on any JSON object MUST be prefixed with `_`, and implementatio
 | `_deleted`         | Tombstone marker (§7.3)                              |
 | `_rel`             | Relation array — makes an item an interaction (§8)   |
 | `_emoji`           | Emoji reaction, on a `like` relation entry           |
-| `_sha256`          | SHA-256 hash of an attachment's bytes (base64)       |
+| `_sha256`          | SHA-256 hash of an attachment's bytes (base64url)    |
 | `_unverified`      | Marks bridged/observed content not natively signed (§7.5) |
 | `_recovery_sig`    | Recovery co-signature on a chain version (§5.5)      |
 
@@ -563,7 +563,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify 
 
 ### Hub Trust
 
-**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§14.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier; the sketched key-delegation extension (Appendix H) would let a hub hold only a revocable delegated key while your root key stays offline.
+**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier; the sketched key-delegation extension (Appendix H) would let a hub hold only a revocable delegated key while your root key stays offline.
 
 ### Legal and Deletion
 
@@ -585,7 +585,7 @@ Open Feed is **signed** like Nostr and atproto, but **human-URL-identified** lik
 
 ### What already interoperates, today, with nothing new
 
-Before any of the comparisons below, the boring answer: **your feed is a JSON Feed 1.1 document.** Every JSON Feed reader already works — it just ignores `_sig` and gets no authenticity guarantee (Level 0, §13). Publish an Atom or RSS mirror and the entire feed-reader installed base works too. Add h-card/h-entry markup to your identity page and IndieWeb tooling can read you.
+Before any of the comparisons below, the boring answer: **your feed is a JSON Feed 1.1 document.** Every JSON Feed reader already works — it just ignores `_sig` and gets no authenticity guarantee (Level 0, §12). Publish an Atom or RSS mirror and the entire feed-reader installed base works too. Add h-card/h-entry markup to your identity page and IndieWeb tooling can read you.
 
 Those last two matter more than they look, because **existing bridges already eat them.** A site serving a discoverable Atom feed plus an h-card can be bridged into the fediverse by a third-party service like [Bridgy Fed](https://fed.brid.gy/) — no gateway to run, no bridge spec to implement, nothing in this repository required. It even represents you as `@yourdomain.com`, domain-bound, which is what your Open Feed identity URL already is, so there's no mapping to invent.
 
@@ -661,7 +661,7 @@ A: An ordinary signed item with no `_feed_url`, delivered to that person's inbox
 
 A: If they hold your keys they can impersonate you going forward (the email model) — but they *can't* silently rewrite your history against anyone who's pinned you.
 
-The harder version of this question is the one where your hub operator is a relative, sits inside the audience, and controls whether you can leave. The spec names that as its own adversary tier (§14.2) and is blunt that encryption doesn't save you from it: they supply the client, and by default they generated your keys. What the protocol gives you instead is **exit** — an identity you can take elsewhere (§3.4), a recovery key generated on your device that they never held (§4.5), and a complete signed copy of your own content on demand (§15). Those three only work together, and a hub that skips any of them has to say so.
+The harder version of this question is the one where your hub operator is a relative, sits inside the audience, and controls whether you can leave. The spec names that as its own adversary tier (§13.2) and is blunt that encryption doesn't save you from it: they supply the client, and by default they generated your keys. What the protocol gives you instead is **exit** — an identity you can take elsewhere (§3.4), a recovery key generated on your device that they never held (§4.5), and a complete signed copy of your own content on demand (§14). Those three only work together, and a hub that skips any of them has to say so.
 
 **Q: Isn't that a weak answer for a protocol with this much crypto in it?**
 

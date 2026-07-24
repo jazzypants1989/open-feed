@@ -4,14 +4,14 @@
 
 It is a clean-slate design and does not depend on any earlier document. Several prior internal drafts explored a much larger surface; a nine-pass simplification debate collapsed it, and a subsequent **privacy-and-exit pass** set the shape below. Appendix E records what was removed and why. Pre-1.0, breaking changes are permitted to fix correctness or security defects; after 1.0, changes are additive.
 
-**What the privacy-and-exit pass settled** — recorded because the reasoning is load-bearing, not because anyone needs to migrate:
+**Shape worth knowing before reading** — each of these replaced something larger, and Appendix E records what:
 
-- There is **no restricted-feeds mechanism**, and an extension that provided one was removed rather than slimmed. Confidentiality is an optional encrypted-content extension (§11.3); audience control at a single host is host authorization, i.e. software. Appendix E records the reasoning and the test that shows the removal is a real layering.
-- Every feed an identity publishes lives in **one `feeds` array** of `{url, manifest?, rel}` entries (§3.2.1), with `manifest` OPTIONAL — not in separate `feed` / `manifest` fields.
-- `history` is an **index** of `(seq, hash, url)` rather than a container of full prior versions (§5.4); prior versions are served individually.
-- Attachment `_sha256` is a **MUST** (§7.4).
-- Tombstones are defined by an **allowlist** of retained fields (§7.3).
-- **§15 Export and Exit** exists, answering the fourth adversary tier in §14.2.
+- There is **no restricted-feeds mechanism**. Confidentiality is an optional encrypted-content extension (§11.3); audience control at a single host is host authorization, i.e. software.
+- Every feed an identity publishes lives in **one `feeds` array** of `{url, manifest, rel}` entries (§3.2.1), and every listed feed is manifested.
+- A manifest commits each item as **`[version, hash]`** (§9) — the version names the revision, the hash binds its exact published bytes.
+- Prior versions of a chained document live at a **derived URL** (§5.4). There is no history-index document.
+- Attachment `_sha256` is a **MUST** (§7.4), and tombstones are defined by an **allowlist** of retained fields (§7.3).
+- **§14 Export and Exit** answers the fourth adversary tier in §13.2, and the compare rule (§5.3) is what makes the rest of the transparency story real.
 
 ## Abstract
 
@@ -27,11 +27,11 @@ https://pence.family/~mom/manifest.json  ← signed, chained commitment to the f
 https://pence.family/~mom/inbox          ← POST signed items here (Level 3 only)
 ```
 
-plus, for each chain, the retained prior versions and a small **history index** naming them, referenced from the document it versions.
+plus, for each chain, its retained prior versions — served at URLs derived from the document they version (§5.4), with no index document to maintain.
 
-Built on four standards and nothing else: **HTTPS**, **JSON Feed 1.1**, **JOSE** (JWK/JWS/JWT, RFC 7515/7517/7519/7797), and **JSON canonicalization** (RFC 8785 + I-JSON RFC 7493).
+Built on four standards and nothing else: **HTTPS**, **JSON Feed 1.1**, **JOSE** (JWK/JWS, RFC 7515/7517/7797), and **JSON canonicalization** (RFC 8785 + I-JSON RFC 7493).
 
-Open Feed is a **transparency** protocol: it makes publication tamper-evident, and it is deliberately not private (§1, principle 7). What it offers anyone who needs to leave the host serving them is a portable identity, a recovery key that host never held, and a complete signed copy of their own content (§3.4, §4.5, §15).
+Open Feed is a **transparency** protocol: it makes publication tamper-evident, and it is deliberately not private (§1, principle 7). What it offers anyone who needs to leave the host serving them is a portable identity, a recovery key that host never held, and a complete signed copy of their own content (§3.4, §4.5, §14).
 
 ## 1. Design Principles
 
@@ -40,8 +40,8 @@ Open Feed is a **transparency** protocol: it makes publication tamper-evident, a
 3. **The feed is the source of truth; the inbox is a push cache.** Delivery makes things fast; polling the signed feed makes them complete. Nothing exists only in transit.
 4. **Convention over configuration.** Fixed paths (`openfeed.json`, `manifest.json`). One relation array. Prefix rules for extension fields; a small registered vocabulary (plus namespaced URLs) for relation *types*.
 5. **Byte-exact signing, one construction.** Documents are signed as published bytes (RFC 8785) with a single detached-JWS construction (§6). No verify-time normalization, no remote contexts, no second signing scheme anywhere — not in the core and not in any extension. Encryption (§11.3) is not a second construction: it changes what the content *is*, not how it is signed.
-6. **Honest trust model.** Hubs that hold keys can impersonate their users, like email providers can. This is documented, not hidden. Client-side keys are supported for those who want them; the two chains defend against a *host* that turns malicious, which is a distinct threat from a *key custodian* (§14.2).
-7. **Transparency, not privacy — and an exit instead.** Open Feed makes publication **tamper-evident**. It does not make it private, and several of its core mechanisms are deliberately hostile to privacy: history is retained permanently and served (§5.4, §9.2), every public document carries `Access-Control-Allow-Origin: *` (§3.3), deletions leave a durable public record (§9), documents are single-valued by design, and deletion itself is best-effort (§7.3). These are the properties that make equivocation detectable; they are the same properties that make forgetting impossible. Content confidentiality is an OPTIONAL extension (§11) and is only ever as strong as the recipient's key custody. What the core does offer anyone who needs to get away from their host is **exit** — a portable identity (§3.4), a recovery key the host never held (§4.5), and a complete signed copy of your own content (§15). If you are choosing this protocol because you need something kept secret, read §14.2 first.
+6. **Honest trust model.** Hubs that hold keys can impersonate their users, like email providers can. This is documented, not hidden. Client-side keys are supported for those who want them; the two chains defend against a *host* that turns malicious, which is a distinct threat from a *key custodian* (§13.2).
+7. **Transparency, not privacy — and an exit instead.** Open Feed makes publication **tamper-evident**. It does not make it private, and several of its core mechanisms are deliberately hostile to privacy: history is retained permanently and served (§5.4), every public document carries `Access-Control-Allow-Origin: *` (§3.3), deletions leave a durable public record (§9), documents are single-valued by design, and deletion itself is best-effort (§7.3). These are the properties that make equivocation detectable; they are the same properties that make forgetting impossible. Content confidentiality is an OPTIONAL extension (§11) and is only ever as strong as the recipient's key custody. What the core does offer anyone who needs to get away from their host is **exit** — a portable identity (§3.4), a recovery key the host never held (§4.5), and a complete signed copy of your own content (§14). If you are choosing this protocol because you need something kept secret, read §13.2 first.
 
 ## 2. Terminology
 
@@ -102,10 +102,9 @@ It is a signed JSON document:
   "avatar": "https://pence.family/~mom/avatar.jpg",
   "feeds": [
     { "url": "https://pence.family/~mom/feed.json", "manifest": "https://pence.family/~mom/manifest.json", "rel": "primary" },
-    { "url": "https://pence.family/~mom/activity.json", "rel": "activity" }
+    { "url": "https://pence.family/~mom/activity.json", "manifest": "https://pence.family/~mom/activity-manifest.json", "rel": "activity" }
   ],
   "inbox": "https://pence.family/~mom/inbox",
-  "history": "https://pence.family/~mom/history.json",
   "seq": 7,
   "prev": "aNy3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
   "updated": 1739577600,
@@ -127,10 +126,9 @@ Fields:
 | `updated` | MUST | Publication time of this version (Unix seconds). |
 | `_sig` | MUST | Detached JWS over the document (§6). |
 | `prev` | MUST if `seq > 1` | Base64url SHA-256 of the full canonical bytes of the previous version, including its `_sig` and `_recovery_sig` if present. |
-| `history` | MUST if `seq > 1` | URL of the version history **index** (§5.4). |
 | `feeds` | SHOULD (MUST for Level 2) | Array of feed entries (§3.2.1). Every feed this identity publishes, primary and additional, in one place. |
 | `inbox` | MAY (MUST for Level 3) | Inbox endpoint URL. |
-| `replies` | MAY | Replies-endpoint URL (§12). |
+| `replies` | MAY | Replies-endpoint URL. Defined by the conventions extension (Appendix G), not by this specification. |
 | `follows`, `pins` | MAY | URLs of the follow list / observed-pins document (Appendix G). Outside the trust core. |
 | `name`, `bio`, `avatar`, `content_warning` | MAY | Profile metadata. `content_warning`, if present, marks all content from this identity as sensitive. |
 | `successor`, `predecessor` | MAY | Migration links (§3.4). |
@@ -144,16 +142,17 @@ Each entry in `feeds` is an object:
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `url` | MUST | The feed's URL (JSON Feed 1.1, §7.1). |
-| `manifest` | SHOULD | URL of that feed's own signed manifest (§9). OPTIONAL — see below. |
+| `url` | MUST | The feed's URL (JSON Feed 1.1, §7.1). MUST end in `.json` (§5.4 derives version URLs from it). |
+| `manifest` | MUST | URL of that feed's own signed manifest (§9). MUST end in `.json`. |
 | `rel` | SHOULD | What this feed is, from the token vocabulary (§2.1): `primary`, `activity`, or a namespaced absolute URL. Default `primary`. |
 
 Rules:
 
 - **Exactly one entry SHOULD carry `rel: "primary"`**, and that entry is the identity's authoritative feed — the one a consumer reads when it wants "this identity's content." Array order is display preference only and carries no authority.
 - **Each feed has its own manifest.** Manifests are keyed by `feed_url` (§9); one manifest never commits two feeds.
-- **`manifest` is OPTIONAL, and omitting it is a real trade.** A feed with no manifest has **no completeness proof**: a host can drop items from it undetectably, and §9.4's invariants do not apply to it. This is intended for feeds carrying only content-less relation items (§8) — an activity feed of likes and reposts, where the anti-omission proof is not worth a second chain advancing on every reaction. It is a property of the **feed**, not of individual items: a manifested feed commits *everything* in it, so §9.4 invariant 3 stays a bright line rather than a per-item judgment. A publisher who wants the proof for their reactions simply publishes the activity feed with a manifest.
-- **A manifest-less feed carries no liveness authority, ever.** §7.5 tells consumers to consult the manifest at an item's `_feed_url` to learn whether it is live or deleted; where there is no manifest there is nothing to consult. Consumers MUST NOT cache an item from a manifest-less feed as live, and MUST treat retraction as conveyable only by inbox tombstone (§8.2). A consumer that never saw the retraction cannot learn of it — state this to users rather than papering over it.
+- **Every listed feed is manifested.** There is no unproven feed: a consumer that finds a feed in `feeds` knows a completeness proof exists for it, unconditionally, and §9.4's invariants apply everywhere. This costs a chain advance per publication, which §9.2 bounds by *time* rather than by activity — a high-volume activity feed of likes advances its manifest on a schedule, not once per reaction.
+
+An earlier draft made `manifest` optional so that an activity feed of likes need not advance a second chain per reaction. That bought a small saving and cost three consumer rules, a per-feed conditional in every verifier, and a footgun: real content published to an unmanifested feed silently has no proof. Scheduled advancement (§9.2) solves the same problem without any of that.
 
 Note that the identity document commits to each manifest by **URL**, not by hash. Content freshness is proven by the manifest's own signature and chain (§9), so ordinary publishing does **not** re-sign or re-version the identity document. The identity chain versions identity state, which changes rarely (5–20 versions over a lifetime); the manifest chain versions content, which changes often. Two chains, one pinning discipline.
 
@@ -166,13 +165,13 @@ When fetching an identity document:
 - Follow at most 5 redirects
 - MUST NOT follow a redirect to a different origin
 - The response MUST parse as JSON; reject `text/html` or any non-JSON Content-Type; accept `application/json`
-- The response MUST carry `Access-Control-Allow-Origin: *` (§13); this applies to every publicly-readable document, so browser Level-1 readers work without a proxy
+- The response MUST carry `Access-Control-Allow-Origin: *` (§12); this applies to every publicly-readable document, so browser Level-1 readers work without a proxy
 
 A cross-origin redirect is never identity equivalence. Migration is expressed in-band (§3.4), not with redirects. Same-origin redirects (trailing slash, path moves) are followed normally.
 
 ### 3.4. Migration and Recovery
 
-Migration and recovery are one operation — *this identity continues over there* — differing only in **which key attests**. There are three occasions for it, not two: you move hosts by choice, you lose your domain, or **you leave a host that will not cooperate** (§15). The third is the one the mechanism has to be judged against, because it is the only one where the other party is adversarial.
+Migration and recovery are one operation — *this identity continues over there* — differing only in **which key attests**. There are three occasions for it, not two: you move hosts by choice, you lose your domain, or **you leave a host that will not cooperate** (§14). The third is the one the mechanism has to be judged against, because it is the only one where the other party is adversarial.
 
 To move from `https://old.example/~alice/` to `https://alice.new/`:
 
@@ -182,6 +181,13 @@ To move from `https://old.example/~alice/` to `https://alice.new/`:
 
 Migration makes the new feed canonical for *new* content, but previously-published items carry the old feed's URL in their signed `_feed_url`, so at the new home they would be mere copies (§7.5). The migration procedure therefore ends with **bulk re-signing**: republish the back catalog at the new feed — same `id`s, bumped `_version`, `date_modified` set to the re-signing time, `_feed_url` naming the new feed — and commit it all in the new feed's manifest. A verified migration is the sole exception to the id/feed binding rule (§7.5): the binding follows the identity to its successor feed. Consumers that verified the migration treat the re-signed versions as superseding the predecessor's.
 
+**Relation targets follow the migration too.** A `_rel` entry's `to` names its target as `{feed_url}#{item_id}` (§8), and those references live in *other people's* signed items, which nobody can re-sign. Every reply ever received therefore points at the predecessor's feed URL and would dangle at the new home. Two rules close this, and both are consequences of the migration already being verified:
+
+- A consumer that has verified a migration MUST treat `{predecessor_feed}#{id}` and `{successor_feed}#{id}` as **the same target**, transitively across a chain of verified migrations. Threads survive a move without anyone re-signing anything.
+- A Level 3 host MUST accept inbox relevance (§10.2) against its owner's **predecessor** feed URLs as well as its current ones. Otherwise the first consequence of exercising §14's exit is that replies to everything you ever published start bouncing as `not_relevant`.
+
+Implementation note: record the predecessor's feed URLs **at migration time**. In the uncooperative case the old identity document may be unreachable afterwards, which is the reason you migrated, so they cannot be re-derived later.
+
 A consumer that has **not** verified the migration will see the same `id` presented as canonical at two feeds — the old one (lower `_version`, old `_feed_url`) and the new one (higher `_version`, new `_feed_url`). It MUST treat the higher-`_version` copy as *unverified pending migration verification*, not as an equivocation to reject, and reconcile once the `successor`/`predecessor` pair (or the recovery co-signature) verifies against a pin. This is the one situation where the same `id` legitimately carries two live `_feed_url` values, and it resolves the moment migration is confirmed.
 
 A `successor` claim without a matching `predecessor` (or vice versa), and unaccompanied by a valid recovery co-signature, MUST NOT be treated as migration. Consumers without a prior pin of the old identity can only treat a recovery-based migration as unverified (out-of-band confirmation recommended); Appendix G's `pins` convention is how a family propagates such a claim through its social graph. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself.
@@ -190,7 +196,7 @@ There is no separate "recovery claim" or "recovery attestation" document: the ch
 
 **Uncooperative departure.** Path 2 requires the old side to publish a `successor`, so it is unavailable against a host that declines — and a host that holds your signing key can equally publish a `successor` you did not ask for. Path 3 is therefore the exit path, and it works against an uncooperative host **without that host's participation**, on one condition: the recovery key must be one the host cannot produce (§4.5). Where that condition holds, a departing user re-establishes their identity elsewhere, co-signs with the recovery key committed in a pinned ancestor, and every consumer holding a prior pin follows them. Where it does not hold, there is no exit — the operator can sign a competing branch with equal standing, and §5.5 fork resolution cannot separate them.
 
-Departure does not retract what was published. Items already served from the old feed remain signed and verifiable there, and the old host may keep serving them; the successor feed's re-signed catalog (above) is what consumers who verified the migration treat as current. Taking a *copy* of your content with you is the export bundle's job, not migration's (§15).
+Departure does not retract what was published. Items already served from the old feed remain signed and verifiable there, and the old host may keep serving them; the successor feed's re-signed catalog (above) is what consumers who verified the migration treat as current. Taking a *copy* of your content with you is the export bundle's job, not migration's (§14).
 
 ## 4. Keys
 
@@ -241,7 +247,7 @@ Rotated-out keys SHOULD remain listed for at least 30 days (verification of old 
 ### 4.4. Revocation
 
 - Signatures on content whose effective signing time (§6.5) is after `revoked_at` MUST be rejected; before, they remain valid.
-- Because content timestamps are self-reported, a key thief can backdate. For inbox-delivered items, receivers SHOULD apply the revocation check against **receipt time**, which the sender cannot backdate. Revocation limits damage from honest rotation far more than it stops an active thief (§14.10).
+- Because content timestamps are self-reported, a key thief can backdate. For inbox-delivered items, receivers SHOULD apply the revocation check against **receipt time**, which the sender cannot backdate. Revocation limits damage from honest rotation far more than it stops an active thief (§13.10).
 - The pull path has a receipt-time analog. Consumers SHOULD record the wall-clock time each item id was **first observed** in a signed manifest (one timestamp alongside the manifest pin, §9) and apply the revocation check against that first-observed time. A thief can backdate an item's `date_published`, but cannot backdate when a consumer's polling loop first saw a manifest commit to it — a "years-old" item first entering the manifest after `revoked_at` is rejected. (Consumers with no observation history for an identity fall back to the self-reported check; first contact is TOFU here as everywhere, §5.3.)
 
 ### 4.5. Recovery Keys
@@ -261,9 +267,18 @@ Where both sides do advance with contradictory claims, that is a fork, and §5.5
 
 **Generation and possession.** Where the recovery key is stored is not the whole rule; **who generates it and who has ever held it** is the rule that matters. A recovery key generated by the host and handed to the user is not a check on the host — the host retains the ability to produce it, and every guarantee below collapses.
 
-Therefore: a Level 3 implementation hosting identities on behalf of others MUST provision each hosted identity with a recovery key **generated on the member's own device and never transmitted to the host**. The host receives the public JWK to commit in the chain and nothing else. Where a deployment's onboarding cannot meet this (a purely server-side signup, say), it MUST disclose to the user that the operator can reproduce their recovery key, because that user has no exit (§15).
+Therefore: a Level 3 implementation hosting identities on behalf of others MUST provision each hosted identity with a recovery key **generated on the member's own device and never transmitted to the host**. The host receives the public JWK to commit in the chain and nothing else. Where a deployment's onboarding cannot meet this (a purely server-side signup, say), it MUST disclose to the user that the operator can reproduce their recovery key, because that user has no exit (§14).
 
-This one requirement is what turns recovery from a *domain-loss* feature into an *exit* mechanism (§3.4, §15). It is the difference between "your host went away" and "your host will not let you leave."
+This one requirement is what turns recovery from a *domain-loss* feature into an *exit* mechanism (§3.4, §14). It is the difference between "your host went away" and "your host will not let you leave."
+
+**Generation is not enough on its own: the commitment has to be checkable.** A host that publishes the identity document also chooses what it says, and first contact is TOFU (§5.3). A host can therefore serve the *member's* client a genesis document carrying the member's real recovery key, and serve *everyone else* a genesis document carrying a recovery key the host holds. Nothing in the member's own view is wrong, so §5.2's self-record does not catch it; at exit, the member's co-signature fails against every consumer's pin while the host produces a competing branch that §5.5 resolution *prefers*. Device generation is defeated without ever being violated.
+
+The defence is comparison, and it is cheap because it only has to happen once:
+
+- A Level 3 implementation hosting identities on behalf of others MUST present the member, at onboarding, with the `(seq, hash)` of their **genesis** identity document and a fingerprint of their **recovery key**, in a form suitable for reading aloud or comparing out-of-band.
+- A consumer MUST apply the compare rule (§5.3) to any second observation of a chain version it has already pinned, including one obtained from a peer. One relative comparing one hash defeats the attack.
+
+Publishing pins (Appendix G) makes this mechanical, and remains OPTIONAL — it discloses a reading graph, which this requirement does not.
 
 ## 5. The Version Chain
 
@@ -275,15 +290,17 @@ The chain versions **identity state** — keys, profile, endpoints, migration li
 
 `seq`, `prev`, `updated`, `_sig` (and optionally `_recovery_sig`), as defined in §3.2. `prev` hashes the *full published canonical bytes* of the predecessor — including its signature fields — so byte-preserving storage of old versions is the simplest correct implementation.
 
+There is **one hashing rule in this protocol**, used everywhere a document names another document's bytes: *base64url SHA-256 of the full published canonical bytes, signature fields included.* It is the same value in `prev` (§5.1, §9), in a manifest's item commitments (§9), in `checkpoint_hash` (§9.3), and in a pin (§5.3, Appendix G).
+
 ### 5.2. Producing a Version
 
 1. Start from the current version; apply changes (keys, profile, endpoints, migration links)
 2. `seq` += 1; `prev` = hash of the previous version; set `updated`
 3. Sign with a **continuity key**: a key that was valid (non-revoked, non-recovery) in the *previous* version
-4. Publish the previous version at its own URL and append its `(seq, hash, url)` entry to the history index (§5.4)
+4. Retain the previous version, served byte-identically at its derived URL (§5.4)
 5. **Record the `(seq, hash)` of the version just produced**, and make that record available to the identity's owner
 
-Step 5 exists because §14.2's transparency claim assumes an auditor it never names. Equivocation is *detectable* only by someone who compares — and the party with the strongest interest in comparing is the identity itself, which cannot compare without a record of what it actually published. Where the signing key is held by a host on the user's behalf, this record is the user's only means of noticing a version they did not ask for. It is not sufficient on its own: a host that knows which client belongs to the owner can serve that client the honest branch. The durable check remains cross-observer comparison by *other people* (§5.3, and the `pins` convention, Appendix G).
+Step 5 exists because §13.2's transparency claim assumes an auditor it never names. Equivocation is *detectable* only by someone who compares — and the party with the strongest interest in comparing is the identity itself, which cannot compare without a record of what it actually published. Where the signing key is held by a host on the user's behalf, this record is the user's only means of noticing a version they did not ask for. It is not sufficient on its own: a host that knows which client belongs to the owner can serve that client the honest branch. The durable check remains cross-observer comparison by *other people* (§5.3, and the `pins` convention, Appendix G).
 
 The continuity key is often revoked *in the very version it signs* — that is normal rotation. Validity is judged against the previous version's state. The continuity key MUST remain listed in the version it signs (else the version cannot be verified from its own bytes); it MAY be dropped in later versions. Genesis (`seq: 1`) has no predecessor and is signed by a non-revoked key it contains.
 
@@ -292,40 +309,56 @@ The continuity key is often revoked *in the very version it signs* — that is n
 A consumer that has verified an identity document at `(seq: N, hash: H)` MUST store that pin. On any later fetch:
 
 1. Verify the new document's `_sig`; the signing key named by its `kid` MUST be listed in the document itself
-2. Walk `prev` links back to `(N, H)`, fetching the intermediate versions from the URLs given in the `history` index (§5.4) — these MAY be fetched in parallel, since the index names them all at once. At each hop, verify that version's `_sig`, confirm its bytes hash to the value its successor's `prev` names, and confirm its signing key was valid in *its* predecessor — hash linkage alone is not sufficient, since a fabricated intermediate could introduce an attacker's key
-3. Reject if `seq` decreased, if any `prev` mismatches, or if two documents claim the same `seq` with different hashes (equivocation)
+2. Walk `prev` links back to `(N, H)`, fetching the intermediate versions from their derived URLs (§5.4) — these MAY be fetched in parallel, since the consumer knows both endpoints of the range and the URLs are computable. At each hop, verify that version's `_sig`, confirm its bytes hash to the value its successor's `prev` names, and confirm its signing key was valid in *its* predecessor — hash linkage alone is not sufficient, since a fabricated intermediate could introduce an attacker's key
+3. Reject if `seq` decreased, if any `prev` mismatches, or if the compare rule below fails
 
 The consumer separately pins the **manifest** at its own `(seq, hash)` and walks it by the identical procedure (§9.1). The identity chain and the manifest chain are two applications of one mechanism: pin on first observation, walk `prev` to the pin on every later fetch, treat any divergence as an attack.
 
-First contact is TOFU: accept and pin. Tampering is detectable from the second observation onward, or immediately for any two consumers comparing pins out-of-band. A consumer that cannot connect its pin to the current document (missing history) MUST treat the chain as unverifiable rather than silently re-pin.
+#### 5.3.1. The compare rule
 
-### 5.4. History
+> Given any two observations of the same chained document URL at the same `seq` with **different** hashes, the publisher has **equivocated**. A consumer MUST treat this as an attack on that chain: it MUST NOT silently prefer either version, and MUST surface it.
 
-Producers MUST retain all prior versions of a chained document, serve each at its own URL, and serve an **index** of them at the `history` URL:
+This holds whatever the second observation's provenance — the consumer's own store, a cached response, a second device, or a signed pin published by a peer (Appendix G). It is stated here, in the core, because it is the rule the whole transparency claim rests on (§13.2): the chains make equivocation *detectable*, and detection is exactly this comparison. A verifier that pins but never compares has built the evidence and thrown it away.
 
-```json
-{
-  "url": "https://pence.family/~mom/openfeed.json",
-  "versions": [
-    { "seq": 1, "hash": "f7lGHylIOM-swVa0Fg8DlFCJ5k-fPCgucLPmXhGQ9ns", "url": "https://pence.family/~mom/openfeed/1.json" },
-    { "seq": 2, "hash": "aNy3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0", "url": "https://pence.family/~mom/openfeed/2.json" }
-  ]
-}
-```
+Two consequences worth naming:
 
-The index is an ordinary unsigned JSON document — it needs no signature, because every entry it points at is signed and every `hash` is checked against the chain the consumer is already walking. A lying index cannot forge a version; it can only fail to lead somewhere useful, which the walk detects.
+- **Comparison by other people is the durable form.** A publisher's own record of what it published (§5.2, step 5) is a weak check, because a host that knows which client belongs to the owner can serve that client the honest branch. It cannot know which of *many* readers will compare.
+- **A legitimate fork trips this rule, correctly.** After key theft both branches carry valid continuity signatures at the same `seq` (§5.5). The compare rule reports *that* a fork exists; §5.5 is how a consumer then picks the honest branch. Run §5.5 resolution before treating a divergence as unresolved compromise.
+
+Publishing pins is OPTIONAL and discloses a reading graph (Appendix G); applying the compare rule to observations you already hold is neither optional nor disclosing.
+
+First contact is TOFU: accept and pin. Tampering is detectable from the second observation onward, or immediately for any two consumers comparing. A consumer that cannot connect its pin to the current document (missing retained versions) MUST treat the chain as unverifiable rather than silently re-pin.
+
+### 5.4. Retained Versions
+
+Producers MUST retain every prior version of a chained document and serve it at a **derived URL**:
+
+> Take the document's own URL, strip the trailing `.json`, and append `/{seq}.json`.
+
+| Chained document | Version 3 is served at |
+|---|---|
+| `https://pence.family/~mom/openfeed.json` | `https://pence.family/~mom/openfeed/3.json` |
+| `https://pence.family/~mom/manifest.json` | `https://pence.family/~mom/manifest/3.json` |
+| `https://pence.family/~mom/activity-manifest.json` | `https://pence.family/~mom/activity-manifest/3.json` |
 
 Rules:
 
-- `versions` MUST be in ascending `seq` order, MUST cover every retained version, and each `hash` MUST be the base64url SHA-256 of that version's **full published canonical bytes** — the same value its successor carries in `prev`.
-- Each `url` MUST be **same-origin** with the document the index versions. A consumer walking a chain follows these URLs, so they are an outbound-fetch vector and get the §3.3 / §14.5 discipline.
-- Prior versions MUST be served **byte-identically** to how they were published. Storing them as static files at their own URLs is the natural implementation and is why this shape was chosen.
+- Every chained document's URL MUST end in `.json`, so the derivation is total. The identity document already satisfies this by its fixed path (§3.2); a `feeds` entry's `manifest` URL is constrained to match (§3.2.1).
+- Prior versions MUST be served **byte-identically** to how they were published. Static files at those paths are the natural implementation.
+- The derived path is reserved: a publisher MUST NOT serve unrelated content beneath it.
+- Derived URLs are same-origin by construction, which is what the §3.3 / §13.5 fetch discipline wants. There is nothing to validate.
 
-**Why an index and not a container.** Earlier drafts served the full text of every prior version in one document. Two problems: a manifest version embeds its whole `items` map (§9), so a manifest history is O(versions × items) and the producer rewrites the entire document on every publish; and a consumer one version behind had to fetch the identity's entire history to obtain it. An index is O(versions) small, append-only to write, and lets a consumer fetch exactly the versions it lacks — in parallel, since one fetch reveals every URL.
+**Why a convention and not an index document.** Earlier drafts named prior versions in a `history` index — an unsigned document listing `(seq, hash, url)` per version, referenced by a `history` field. Every property it had turns out to be reproducible or worthless:
 
-**Why an index and not a `prev_url` inside each version.** Putting the retrieval URL in the signed bytes would remove the index entirely, and it was rejected: signed bytes are immutable, so a publisher who ever moves hosts would retroactively and unfixably break the walk for every consumer whose pin predates the move. `history` is a field of the *current* document, so rehosting updates it and everyone's walk keeps working. It also keeps checkpoint retrieval (§9.3) possible and preserves atomic third-party auditing — an auditor fetches one index to learn a chain's whole shape.
+- Its hashes carried **no authority**. The document itself said so: a lying index cannot forge a version, because every version is signed and every hash is re-checked against the chain being walked. A consumer that fetches versions and hashes them itself is exactly as safe.
+- Its parallel-fetch advantage is preserved. A consumer knows its pin's `seq` and the current `seq`, so it knows the whole range and can compute every URL at once — without the extra round trip the index itself cost.
+- Distinguishing "pruned" (§9.3) from "missing" looked like a real loss and is not: the publisher controls the index too, so it can misreport either way. Both cases end at *unverifiable*, which is the safe outcome regardless.
 
-Consumers SHOULD cap the versions walked per update (RECOMMENDED: 1000) and the total history bytes fetched (§14.4).
+So the index cost two document types, two schemas, a field on both chained documents, a same-origin rule, and a round trip, in exchange for nothing that survives inspection. Deleting it removes all of that.
+
+**Why not a `prev_url` inside each version.** Because signed bytes are immutable: a publisher who ever moves hosts would retroactively and unfixably break the walk for every consumer whose pin predates the move. A derived URL has the same rehosting-safety as the deleted `history` field, and for the same reason — it is computed from where the document is being served *now*, not from anything signed in the past.
+
+Consumers SHOULD cap the versions walked per update (RECOMMENDED: 1000) and the total history bytes fetched (§13.4).
 
 ### 5.5. Fork Resolution
 
@@ -445,7 +478,7 @@ Consumers seeing a valid tombstone SHOULD drop cached content and retain the tom
 
 Attachments use JSON Feed's `attachments`: the metadata is inside the signed bytes, the referenced bytes are not. Each attachment entry MUST carry `_sha256`, the base64url SHA-256 of the referenced bytes, and consumers MUST treat an attachment lacking one as unverified content (§10.5) — never as part of the signed record.
 
-This is a MUST rather than a SHOULD because of what §14.2 claims. Against a serving-path compromise the chain and manifest are said to give **full integrity**; that holds only for bytes the signature covers. An attachment referenced without a hash sits outside the envelope entirely, so whoever controls those bytes — including the host — can swap the photo under a signed item and nothing detects it. For a media-first deployment that is the largest integrity gap available, and one required field closes it.
+This is a MUST rather than a SHOULD because of what §13.2 claims. Against a serving-path compromise the chain and manifest are said to give **full integrity**; that holds only for bytes the signature covers. An attachment referenced without a hash sits outside the envelope entirely, so whoever controls those bytes — including the host — can swap the photo under a signed item and nothing detects it. For a media-first deployment that is the largest integrity gap available, and one required field closes it.
 
 Pagination uses JSON Feed's `next_url`; feeds SHOULD carry at least the 50 most recent items.
 
@@ -456,7 +489,7 @@ An item is **canonical** only in the feed its signed `_feed_url` names. The same
 Rules:
 
 - A consumer MUST verify an item's `_feed_url` matches the feed URL it was fetched from (after normalization) before treating it as canonical. A mismatch marks the item a copy — display it (e.g. "via …"), attribute it to its signer, but do not grant it liveness or manifest standing.
-- To determine whether a copied item is currently live or deleted, consult the manifest at its `_feed_url` (§9). The canonical manifest is authoritative; a copy cannot override a tombstone recorded there.
+- To determine whether a copied item is currently live or deleted, consult the manifest at its `_feed_url` (§9). The canonical manifest is authoritative; a copy cannot override a tombstone recorded there. Because that manifest commits each item's exact bytes, the same lookup also tells a consumer whether the copy it holds is the revision the author committed or a stale one the author has since superseded.
 - An `id` is permanently bound to a single `_feed_url`. The same `id` MUST NOT be signed with two different `_feed_url` values: the bytes would differ while `(author, id, _version)` claims to name one exact revision (§7.3), and inbox dedup (§10.3) would silently drop one variant. Cross-posting the same content to another feed (one's own feed *and* a family board, say) uses a **new item** with a fresh `id` carrying a `repost` or `quote` relation to the original. (A verified migration is the sole exception: §3.4's bulk re-signing moves the binding to the successor feed.)
 
 Together with the manifest this closes both omission and injection: the manifest proves **presence** (a host can't drop your content), and `_feed_url` proves **exclusivity** (a host can't inject or resurrect your content by copying it into its own feed). It also gives availability for free — a follower may serve its cached copy of your feed when your host is down, and it still verifies.
@@ -465,9 +498,9 @@ Together with the manifest this closes both omission and injection: the manifest
 
 - It MUST carry `_unverified: true`. There is **no exception and no second form.** Nothing that crosses a protocol boundary is natively authentic, precisely because no bridge holds a foreign author's key; a gateway presenting ingested content any other way is making a claim it cannot support. §10.5 governs how such content is displayed.
 - Its `authors` entry names the **signer** — the gateway, or a proxy identity the gateway operates — per §6.6, never the foreign author, who signed nothing here. Naming the foreign author is what proxy identities are for (Appendix F.3).
-- It SHOULD carry `external_url` naming the foreign original. On an `_unverified` item this MAY be a non-HTTP URI (`nostr:note1…`, `at://did:plc:…`), since not every protocol identifies objects with URLs. Consumers MUST NOT dereference it; §14.5's fetch discipline governs anything they do dereference.
+- It SHOULD carry `external_url` naming the foreign original. On an `_unverified` item this MAY be a non-HTTP URI (`nostr:note1…`, `at://did:plc:…`), since not every protocol identifies objects with URLs. Consumers MUST NOT dereference it; §13.5's fetch discipline governs anything they do dereference.
 
-This is the same honest-hub-trust model (§14.2) extended across a protocol boundary.
+This is the same honest-hub-trust model (§13.2) extended across a protocol boundary.
 
 Ingest is only half of a bridge, and a gateway publishes other people's content in **both** directions. Appendix F.2 states the rule that governs it — *a gateway may not change the terms under which content was published* — of which §11.1.1 is the case the core enforces directly: a delivered-only item, one with no `_feed_url`, MUST NOT be emitted to a foreign network.
 
@@ -513,7 +546,7 @@ Interaction items live in their author's feed like any other item (SHOULD — th
 
 A `reply` entry's `to` points at the **parent** — a post, or another reply item (in the parent author's feed). When the parent is not itself the thread root, the item SHOULD also carry a `root` entry pointing at the thread root. Without it, deep replies never reach the conversation's host: inbox relevance (§10.2) is judged per `_rel` entry, so a reply-to-a-reply references only the parent's author, and the root author's inbox would reject it as `not_relevant` — the person hosting the thread would be the one who can't see it. Because the relevance check is type-agnostic, `root` entries are honored even by receivers that predate the type. Senders SHOULD deliver a nested reply to both the parent author's and the root author's inboxes.
 
-Threads are trees built by walking parents; clients display flat or nested and SHOULD cap walk depth (loops are possible in malicious data; treat re-visited references as leaves). The replies endpoint (§12) accelerates discovery.
+Threads are trees built by walking parents; clients display flat or nested and SHOULD cap walk depth (loops are possible in malicious data; treat re-visited references as leaves). Polling the participants' feeds is what makes a thread complete — the optional replies endpoint (Appendix G) only accelerates discovering replies from identities you do not already follow.
 
 ### 8.2. Updating and Deleting Interactions
 
@@ -529,10 +562,12 @@ The manifest commits an identity to a feed's contents. Each feed an identity pub
   "feed_url": "https://pence.family/~mom/feed.json",
   "seq": 412,
   "prev": "Jq3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
-  "history": "https://pence.family/~mom/manifest-history.json",
   "updated": 1739577600,
-  "items": { "urn:uuid:550e8400-...": 3, "urn:uuid:661f9511-...": 1 },
-  "deleted": { "urn:uuid:99aa2222-...": 4 },
+  "items": {
+    "urn:uuid:550e8400-...": [3, "czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"],
+    "urn:uuid:661f9511-...": [1, "vdS1bhnFd5XsIugXNLR0k-7UHDxRJi7DO6XRWF5l_gU"]
+  },
+  "deleted": { "urn:uuid:99aa2222-...": [4, "8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI"] },
   "_sig": "..."
 }
 ```
@@ -543,47 +578,62 @@ Fields:
 - `feed_url`: the feed this manifest commits to
 - `seq`: monotonic version counter, starts at 1, strictly increasing; a consumer rejects any manifest whose `seq` is below its pin (rollback)
 - `prev`: **MUST if `seq > 1`.** Base64url SHA-256 of the full published canonical bytes (including `_sig`) of the immediately preceding manifest version. Genesis (`seq: 1`) omits it.
-- `history`: **MUST if `seq > 1`.** URL of the manifest history **index** (§9.2), from which a consumer learns the URL and hash of every retained prior version and so can walk `prev` back to its pin.
 - `updated`: publication time (Unix seconds); the effective signing time for the revocation/`iat` check (§6.5)
-- `items`: map of live item `id` → current `_version`
-- `deleted`: map of tombstoned `id` → tombstone `_version`. Omit when empty. Entries persist (a few dozen bytes each) until folded into a checkpoint (§9.3), so deletion history is verifiable
+- `items`: map of live item `id` → **`[version, hash]`**, where `version` is the item's current `_version` and `hash` is the one hashing rule (§5.1) applied to that item's full published canonical bytes, `_sig` included
+- `deleted`: map of tombstoned `id` → `[version, hash]` of its tombstone. Omit when empty. Entries persist until folded into a checkpoint (§9.3), so deletion history is verifiable
 - `checkpoint_seq`, `checkpoint_hash`: OPTIONAL. Names a retained earlier manifest version, bounding growth (§9.3)
 - `_sig`: detached JWS (§6) by a chain-valid key
 
-Item *content* integrity needs no hash here: each item carries its own signature, and the `_version` in the manifest binds to the exact signed revision — a host cannot present a version the author never signed. The manifest adds what per-item signatures cannot: **presence, freshness, and — via the chain — tamper-evidence against a host that equivocates on what was published.**
+**Why the manifest commits to bytes and not only to a version.** Each item already carries its own signature, so a *serving-path* attacker who cannot sign is fully contained by `_version` alone. A **key custodian** is not (§13.2, first tier): holding the signing key, it can sign item `X` version 1 as one thing for you and as another for your sister, and with a version-only manifest both readers see byte-identical manifests, agreeing pins, and no fork. The equivocation would be undetectable in principle — not merely unnoticed.
+
+The hash closes that, and it does so by bringing content under the mechanism that already exists rather than adding a new one: two readers comparing pins (§5.3.1) now diverge at the same `seq`, exactly as they would for a rewritten key. It costs about 48 bytes per item.
+
+So the manifest supplies what per-item signatures cannot: **presence, freshness, exact content, and — via the chain — tamper-evidence against a host that equivocates on any of them.**
 
 ### 9.1. Chain Mechanics
 
 Producing and verifying a manifest version follow §5.2 and §5.3 exactly, with the manifest standing in for the identity document:
 
-**Producing:** from the current version, apply content changes; `seq += 1`; `prev` = hash of the previous manifest; set `updated`; sign with a key valid in the identity chain; append the previous version to the manifest history (§9.2).
+**Producing:** from the current version, apply content changes; `seq += 1`; `prev` = hash of the previous manifest; set `updated`; sign with a key valid in the identity chain; retain the previous version at its derived URL (§5.4).
 
 **Consumer enforcement (pinning):** a consumer that verified a manifest at `(seq: N, hash: H)` MUST store that pin. On any later fetch:
 
 1. Verify `_sig` per §6.5, with the `kid` identity equal to `url` and the key found in that identity's pinned document
-2. Walk `prev` links back to `(N, H)`, fetching intermediates from the `history` index (§5.4, §9.2). Reject if `seq` decreased, any `prev` mismatches, or two manifests claim the same `seq` with different hashes (equivocation)
+2. Walk `prev` links back to `(N, H)`, fetching intermediates from their derived URLs (§5.4). Reject if `seq` decreased, any `prev` mismatches, or the compare rule (§5.3.1) fails
 3. Enforce the invariants (§9.4)
 4. Update the pin
 
-Because prior manifest versions are retained and individually addressable (§9.2), a manifest fork is detectable across consumers exactly as an identity-document fork is (§5.3): two observers — or a `pins` aggregator (Appendix G) — reconstruct the manifest at a shared `seq` and compare hashes; divergence surfaces as same-`seq`/different-hash. This is the property the host-trust analysis (§14.2) relies on: a signer that equivocates on *what content exists* is as catchable as one that equivocates on *what keys exist*.
+Because prior manifest versions are retained and individually addressable (§5.4), a manifest fork is detectable across consumers exactly as an identity-document fork is (§5.3): two observers — or a `pins` aggregator (Appendix G) — reconstruct the manifest at a shared `seq` and compare hashes; divergence surfaces as same-`seq`/different-hash. This is the property the host-trust analysis (§13.2) relies on, and because the manifest commits to item *bytes* (§9), it covers equivocation over *what was said* as well as over *what exists*.
 
 First contact is TOFU (§5.3): accept and pin.
 
-### 9.2. Manifest History
+### 9.2. Cadence and Retention
 
-Producers MUST retain prior manifest versions, serve each at its own URL, and serve an **index** of them at the `history` URL, in the shape of §5.4 — same rules, same same-origin guard, same byte-identical retention.
+Prior manifest versions are retained and served at their derived URLs exactly as identity-document versions are (§5.4): same rule, same byte-identical requirement, nothing manifest-specific.
 
-Unlike the identity chain, the manifest advances on every publication, so this is the long chain. It is also the case the index shape was designed for: a manifest version carries its full `items` map, so a container of manifest versions grows as O(versions × items) and is rewritten on every post, while an index entry is three small fields. §9.3 bounds it further.
+What *is* manifest-specific is volume. This is the long chain, and every version carries its whole `items` map, so retained manifest history grows as **O(versions × items)**. A family publishing three items a day for ten years reaches roughly 11,000 versions over 11,000 items — on the order of gigabytes of retained history, before anyone has posted a photo. Two mechanisms bound it, and a publisher of any volume SHOULD use both:
+
+- **Advance on a cadence, not per publication.** A manifest MAY commit a batch: publish items as they are written, and advance the chain on a schedule (hourly, daily). Version count then tracks *time* rather than *activity*, so 100 likes a day and 1 post a day cost the same chain. This needs no new mechanism — §9.4 invariant 3 already defines the resulting state, where an item newer than the manifest is **manifest lag** and is treated as unverified-pending rather than as a violation.
+
+  The cost is exactly that window: freshly published content has no completeness proof until the next advance, and a consumer cannot yet confirm it is committed. Publishers SHOULD state their cadence to their users, and SHOULD advance immediately for a **tombstone** — a deletion the author wants honored should not wait on a timer.
+- **Checkpoint** (§9.3), which lets versions before the checkpoint be pruned entirely.
+
+A publisher that advances per publication and never checkpoints is conformant and will be fine at family scale for years. It is simply the configuration that grows without bound, so it should be a choice rather than an accident.
 
 ### 9.3. Checkpointing (OPTIONAL)
 
-Left unbounded, `items` grows with the catalog and `deleted` grows forever, against the §14.4 caps. A manifest MAY declare a **checkpoint** to bound both:
+Left unbounded, `items` grows with the catalog and `deleted` grows forever, against the §13.4 caps. A manifest MAY declare a **checkpoint** to bound both:
 
-- `checkpoint_seq` + `checkpoint_hash` name an earlier manifest version that MUST remain retrievable — that is, it MUST still appear in the `history` index (§9.2) with a working `url`, even when versions around it have been pruned.
-- A manifest that declares a checkpoint MUST still carry its full **live** set in `items` (so the current manifest remains self-sufficient for what is live), but MAY **omit `deleted` entries whose tombstone was committed at or before the checkpoint.** Their permanence is preserved by the retained checkpoint: a consumer that does not find an id in the current manifest and needs its disposition consults the checkpoint (located via the `history` index, fetched directly, and hash-verified against `checkpoint_hash`).
-- Manifest versions *before* a checkpoint MAY be pruned: their documents MAY return `404` and their index entries MAY be dropped. The checkpoint version itself MUST NOT be pruned. A consumer whose pin predates a pruned checkpoint MUST treat the chain as unverifiable (§5.3) rather than silently re-pin.
+- `checkpoint_seq` + `checkpoint_hash` name an earlier manifest version that MUST remain retrievable at its derived URL (§5.4), even when versions around it have been pruned.
+- A manifest that declares a checkpoint MUST still carry its full **live** set in `items` (so the current manifest remains self-sufficient for what is live), but MAY **omit `deleted` entries whose tombstone was committed at or before the checkpoint.** Their permanence is preserved by the retained checkpoint: a consumer that does not find an id in the current manifest and needs its disposition fetches the checkpoint directly at its derived URL and hash-verifies it against `checkpoint_hash`.
+- Manifest versions *before* a checkpoint MAY be pruned: their documents MAY return `404`. The checkpoint version itself MUST NOT be pruned.
 
-Checkpointing trades a little walk complexity for a bounded live manifest. It is OPTIONAL; a family-scale identity may never need it.
+**The cost of pruning falls on lapsed readers, and it is real.** A consumer whose pin predates a pruned checkpoint cannot walk back to it, and MUST treat the chain as unverifiable (§5.3) rather than silently re-pin. Someone who follows a family member, stops reading for a year, and returns finds their pin stranded — not because anyone attacked them, but because the publisher pruned. Two ways to soften it, neither of them free:
+
+- Prune conservatively. A retention floor stated to your readers ("versions are kept for two years") turns an unpredictable cliff into a policy.
+- A peer's signed pin (Appendix G) at an intermediate `seq` gives a stranded consumer a version it *can* reach, at the cost of trusting that peer's observation as a starting point rather than deriving it. This is corroboration, not proof (§5.3.1).
+
+Checkpointing trades that cliff for a bounded chain. It is OPTIONAL; a family-scale identity may never need it, and one that advances its manifest on a daily cadence (§9.2) may not need it for decades.
 
 ### 9.4. Invariants
 
@@ -591,9 +641,10 @@ Violations MUST be treated like chain equivocation:
 
 1. An `id`, once present in `items`, MUST appear in every later manifest — in `items` (same or higher version) or in `deleted` — until folded into a checkpoint (§9.3). Content cannot silently vanish; removal requires a signed tombstone.
 2. `seq` and per-item versions never decrease.
-3. A served feed MUST NOT contain an item version lower than the manifest's, and MUST NOT contain live items absent from the manifest — **except** transiently newer content (an item newer than the manifest is *manifest lag*, e.g. mid-publish caching; consumers treat its presence as unverified rather than as a violation, and expect the next manifest version to commit it). Because the manifest is cheap to re-sign, publishers SHOULD advance it together with the feed, keeping this window small.
+3. A served feed MUST NOT contain an item version lower than the manifest's, and MUST NOT contain live items absent from the manifest — **except** transiently newer content (an item newer than the manifest is *manifest lag*, whether from mid-publish caching or from a scheduled cadence, §9.2; consumers treat its presence as unverified-pending rather than as a violation, and expect the next manifest version to commit it).
+4. An item whose `id` and `_version` match a manifest entry MUST hash to that entry's committed value (§5.1's hashing rule over its full published bytes). A mismatch is a violation, not lag: the manifest names an exact revision and the feed is serving a different one.
 
-Consumers verify incrementally: any item read from the feed is checked against its manifest entry (one map lookup). Detecting omission of an item you have never seen requires comparing manifests across pins, which the chain (§9.1) makes sound.
+Consumers verify incrementally: any item read from the feed is checked against its manifest entry — one map lookup, then one hash. Detecting omission of an item you have never seen requires comparing manifests across pins, which the chain (§9.1) makes sound.
 
 ### 9.5. Manifest Verification (summary)
 
@@ -615,11 +666,11 @@ Reading one's own inbox (authenticated GET) is implementation-specific and out o
 
 ### 10.2. Verification
 
-Cheap local checks run **before** any outbound fetch (the sender is unauthenticated until step 7; see §14.9):
+Cheap local checks run **before** any outbound fetch (the sender is unauthenticated until step 7; see §13.9):
 
 1. Enforce body-size limits; parse JSON; reject duplicate keys (I-JSON)
 2. Validate required item fields (§7.2)
-3. **Relevance**: some `_rel` entry's `to` MUST reference this inbox's owner — their identity URL, their feed URL (with or without fragment), or an item of theirs. This is one lookup over `_rel` and works even for relation *types* the receiver doesn't understand (so unknown-typed interactions genuinely about the owner are accepted, per §8). Reject otherwise (`not_relevant`). Exception: a tombstone whose `(author, id)` matches a stored item is always relevant. A bare feed-URL `mention` alone SHOULD NOT authorize unbounded volume — treat it as low-priority/moderated
+3. **Relevance**: some `_rel` entry's `to` MUST reference this inbox's owner — their identity URL, their feed URL (with or without fragment), or an item of theirs. This is one lookup over `_rel` and works even for relation *types* the receiver doesn't understand (so unknown-typed interactions genuinely about the owner are accepted, per §8). The owner's **predecessor** identity and feed URLs count as their own (§3.4): after a migration, replies to everything published before the move still name the old feed, and rejecting them would make exercising §14 look like being cut off. Reject otherwise (`not_relevant`). Exception: a tombstone whose `(author, id)` matches a stored item is always relevant. A bare feed-URL `mention` alone SHOULD NOT authorize unbounded volume — treat it as low-priority/moderated
 4. Timestamp bounds: effective signing time not more than 7 days past nor 24 hours future
 5. Dedup (§10.3) — reject without fetching if stale
 6. Rate-limit by source IP (always) and by author (once known)
@@ -674,13 +725,13 @@ A **fifth cell does not exist: published but not public.** Earlier drafts of thi
 
 What is genuinely incompatible is narrower than "privacy":
 
-> **A completeness proof is a public artifact.** Its power is that strangers can compare it (§9.1, §14.2). Content whose **existence** must be private therefore cannot have one. Content whose **bytes** are opaque still can — encryption and the manifest compose fine.
+> **A completeness proof is a public artifact.** Its power is that strangers can compare it (§9.1, §13.2). Content whose **existence** must be private therefore cannot have one. Content whose **bytes** are opaque still can — encryption and the manifest compose fine.
 
 #### 11.1.1. Publication is the author's decision, and only the author's
 
-An item with no `_feed_url` was **delivered, not published** (§8) — its author chose the right-hand column above. Whoever receives it holds someone else's signed bytes as a **custodian, not an author** (§15 uses the same words for the same reason). Therefore:
+An item with no `_feed_url` was **delivered, not published** (§8) — its author chose the right-hand column above. Whoever receives it holds someone else's signed bytes as a **custodian, not an author** (§14 uses the same words for the same reason). Therefore:
 
-> A receiver MUST NOT place a delivered-only item into any publicly-readable artifact: not a feed (§7.1), not a manifest (§9), not a replies-endpoint response (§12), and not a gateway emission to a foreign network (§7.5, Appendix F).
+> A receiver MUST NOT place a delivered-only item into any publicly-readable artifact: not a feed (§7.1), not a manifest (§9), not a replies-endpoint response (Appendix G), and not a gateway emission to a foreign network (§7.5, Appendix F).
 
 This is the **only** enforcement the delivered column has. Without it, choosing that column is not a privacy mechanism at all: any one recipient can undo it unilaterally, at no cost, and the author gets no signal that it happened. Note the asymmetry that makes this worth a MUST — the author's choice is visible in the signed bytes and is trivially checkable, while its violation is invisible to the person it harms.
 
@@ -698,11 +749,11 @@ A direct message needs no roster: there is exactly one counterparty, threading w
 
 Confidentiality is specified separately in [`open-feed-encrypted-content.md`](open-feed-encrypted-content.md). An encrypted item is an ordinary signed item whose content is an opaque payload; the core neither defines nor inspects it, and the single signing construction (§6.1) is untouched.
 
-Its guarantee, stated once and honestly: **encrypted content is exactly as private as the recipient's key custody.** A recipient whose host holds their decryption key has confidentiality against everyone except that host. Encryption is not a defence against your own host (§14.2, fourth tier).
+Its guarantee, stated once and honestly: **encrypted content is exactly as private as the recipient's key custody.** A recipient whose host holds their decryption key has confidentiality against everyone except that host. Encryption is not a defence against your own host (§13.2, fourth tier).
 
 ### 11.4. What is never hidden
 
-On a **published** feed, encrypted or not, these are cleartext by construction: `id`, `date_published`, `authors`, `_version`, `_feed_url`, and `_rel` with its `to` targets. That is who posts, when, how often, and who replies to whom — the interaction graph. Encryption hides what you said, not that you said it. Publication cadence and the deletion record are similarly permanent and public (§9, §14.8).
+On a **published** feed, encrypted or not, these are cleartext by construction: `id`, `date_published`, `authors`, `_version`, `_feed_url`, and `_rel` with its `to` targets. That is who posts, when, how often, and who replies to whom — the interaction graph. Encryption hides what you said, not that you said it. Publication cadence and the deletion record are similarly permanent and public (§9, §13.8).
 
 Where the interaction graph itself is sensitive, the answer is not a stronger cipher: it is to keep those items off the published axis entirely (§11.1, delivered column).
 
@@ -710,29 +761,7 @@ Where the interaction graph itself is sensitive, the answer is not a stronger ci
 
 Not offered. Serving a feed only to selected readers means serving audience-varying bytes, which forfeits single-valuedness and with it the whole pin-and-walk discipline (§5.3, §9.1) — that is the trade §11.1 describes, and it is why the extension that tried it is gone. A deployment that needs an unlisted feed can host one at an unguessable URL, but that is an operational choice with the properties of a bearer secret (it leaks through logs, referrers, and history sync), not a protocol mechanism, and this specification does not bless it as one.
 
-## 12. Replies Endpoint (OPTIONAL)
-
-The replies endpoint is **a read view over the inbox**, not a second store. Everything it returns was delivered by `POST {inbox}` (§10) and is held verbatim there; this endpoint is the public projection of that data, filtered to one target id. Implementers should build it as a query, not as a parallel collection to keep in sync.
-
-It keeps its own URL rather than being folded into `GET {inbox}` on purpose: §10.1 reserves authenticated GET on the inbox for the owner reading their own mail, and an inbox may hold delivered-private content (§11.1). One URL serving both an owner-scoped private view and an unauthenticated public projection is the shape most authorization bugs take. Two URLs, one store.
-
-That separation settles *who may query*. It does not settle *what may be returned*, and the second rule is the one that carries the weight:
-
-> **The projection is of published replies only.** An item with no `_feed_url` MUST NOT appear in a replies-endpoint response, whatever its `_rel` targets. Its author delivered it rather than publishing it (§11.1.1), and this endpoint MUST NOT overrule that.
-
-The check is a single field lookup inside the signed bytes — the author's own statement that the item is published — so it costs nothing and needs no manifest fetch (§10.3 forbids requiring one). An author who later promotes a delivered item to published, by bumping `_version` and adding `_feed_url`, makes it eligible from that revision onward; a receiver serves whichever revision it actually holds.
-
-An implementation that skips this check converts every delivered-private interaction it receives into a public one, silently and by default. The encrypted-content extension routes group interactions down the delivered path precisely to keep a reply graph off the public web (`open-feed-encrypted-content.md` §7); that design depends entirely on this rule holding here.
-
-An identity MAY expose thread discovery via a `replies` field in its identity document. The response is a **JSON Feed** (§7.1) whose `items` are the reply items reproduced **byte-verbatim** as received, with the queried id echoed in a feed-level `_replies_to`:
-
-```
-GET {replies}?item={percent-encoded-item-id}
-```
-
-Optional params: `since` (ISO 8601), `limit` (default 50); pagination via the feed's own `next_url`. Because the response is a JSON Feed, consumers reuse the feed parser and the verbatim rule (fields never added, dropped, or reordered; absent fields stay absent, never `null`) is the same rule that already governs feeds. Consumers re-verify each reply's signature and build the tree from `_rel` `reply` entries (`root` entries, §8.1, index deep replies to their thread). The endpoint MAY be moderated or filtered; consumers handle gaps gracefully.
-
-## 13. Conformance
+## 12. Conformance
 
 ### Level 0 — Consume (non-verifying)
 
@@ -740,14 +769,18 @@ A plain feed reader that fetches the JSON Feed and ignores `_sig` is a valid con
 
 ### Level 1 — Read
 
-MUST: fetch and parse identity documents, feeds, and manifests; verify signatures (§6); enforce revocation; handle unknown fields and relation types gracefully.
-SHOULD: pin and enforce both chains — the identity document and the manifest (§5.3, §9.1); check items against manifests; enforce the canonical/copy rule (§7.5); honor content warnings; follow pagination; cache identity documents (≤1 h).
+MUST: fetch and parse identity documents, feeds, and manifests; verify signatures (§6); enforce revocation; **pin and enforce both chains** — the identity document and the manifest (§5.3, §9.1) — and apply the compare rule (§5.3.1); check items against their manifest entries, hash included (§9.4); handle unknown fields and relation types gracefully.
+SHOULD: enforce the canonical/copy rule (§7.5); honor content warnings; follow pagination; cache identity documents (≤1 h).
+
+Pinning is a MUST because it is what the guarantees in §13.2 are made of. A verifier that checks signatures but keeps no pin re-establishes trust on first use at every fetch, and a host holding the signing key can hand it any history it likes, forever, without ever forking anything. Signature verification without pinning is the weaker half of the mechanism, not the essential one.
+
+The one exception is honest and narrow: **a consumer with no persistent storage cannot pin.** Such a consumer is still useful — a one-shot command-line verifier, a stateless function — and it remains conformant to everything else in this level, but it MUST NOT be presented as providing the §13.2 guarantees, and SHOULD tell its users so.
 
 No infrastructure required.
 
 ### Level 2 — Publish
 
-Level 1, plus MUST: serve an identity document (signed, chained, with history once `seq > 1`); serve at least one feed, listed in `feeds` (§3.2.1), of signed items; serve a signed, chained manifest for every feed entry that names one (with manifest history once its `seq > 1`); produce valid signatures and canonical JSON; generate unique ids; serve every public document with `Access-Control-Allow-Origin: *`.
+Level 1, plus MUST: serve an identity document (signed, chained, retaining prior versions at their derived URLs once `seq > 1`, §5.4); serve at least one feed, listed in `feeds` (§3.2.1), of signed items; serve a signed, chained manifest for **every** feed entry, with its own retained prior versions; produce valid signatures and canonical JSON; generate unique ids; serve every public document with `Access-Control-Allow-Origin: *`.
 
 Fully static-hostable: every Level 2 artifact is a file; signing happens at build time. (Sending interactions requires Level 2 — you need published keys for anyone to verify you.)
 
@@ -755,30 +788,40 @@ Fully static-hostable: every Level 2 artifact is a file; signing happens at buil
 
 Level 2, plus MUST: inbox endpoint with the §10 verification, dedup, CORS, and response codes.
 
-An implementation that hosts identities **on behalf of other people** additionally MUST: provision each hosted identity with a recovery key generated on the member's own device and never transmitted to the host (§4.5); record and expose to the owner the `(seq, hash)` of every chain version it produces for them (§5.2); and serve that owner a complete export bundle on demand (§15). These three are what make hosted identities portable rather than captive, and an implementation that skips any one of them MUST say so plainly to the people it hosts.
+An implementation that hosts identities **on behalf of other people** additionally MUST:
 
-SHOULD: replies endpoint; rotation UI for hosted users.
+1. Provision each hosted identity with a recovery key generated on the member's own device and never transmitted to the host (§4.5).
+2. Present the member, at onboarding, with their **genesis** `(seq, hash)` and their recovery key's fingerprint, in a form they can compare out-of-band (§4.5) — and record and expose the `(seq, hash)` of every later chain version it produces for them (§5.2).
+3. Serve that owner a complete export bundle on demand (§14).
+
+These four things — device generation, a checkable commitment, chain disclosure, and export — are what make hosted identities portable rather than captive, and an implementation that skips any one of them MUST say so plainly to the people it hosts. Requirement 2 is not paperwork: without it, requirement 1 can be satisfied to the letter and defeated in full by a host that equivocates on the genesis document (§4.5).
+
+SHOULD: rotation UI for hosted users; a replies endpoint (Appendix G) if thread discovery is wanted.
 
 | Feature | L0 | L1 | L2 | L3 |
 |---------|----|----|----|----|
 | Read feed (no verify) | ✓ | ✓ | ✓ | ✓ |
 | Verify signatures | | ✓ | ✓ | ✓ |
+| Pin both chains + compare rule | | ✓ | ✓ | ✓ |
 | Publish signed content | | | ✓ | ✓ |
 | Send interactions | | | ✓ | ✓ |
 | Static hosting sufficient | ✓ | ✓ | ✓ | |
 | Receive interactions | | | | ✓ |
-| Export bundle on demand (§15) | | | | ✓ (hosting others) |
+| Export bundle on demand (§14) | | | | ✓ (hosting others) |
 | Device-generated recovery keys (§4.5) | | | | ✓ (hosting others) |
+| Genesis commitment disclosed (§4.5) | | | | ✓ (hosting others) |
 
 ### Transient Failures
 
 If an identity-document or manifest fetch fails transiently, cache the failure and retry (1 h, 4 h, 24 h) before permanent rejection.
 
-## 14. Security Considerations
+## 13. Security Considerations
 
 1. **Signature limitations.** Signatures prove a key signed bytes — not when (timestamps are self-reported), not who a person is, not that content is true.
 2. **Hub trust vs host trust — a gradient, not a binary.** Three adversary tiers:
-   - **Key custodian** (hub holds the user's signing key): forward impersonation is unpreventable — the email trust model, stated plainly. But even a key custodian cannot *silently rewrite the past* against pinned consumers. Both chains are retained and served (§5.4, §9.2), so removals must surface as signed tombstones (attributable actions), and per-consumer rewriting — of keys *or of content* — surfaces as a fork: two observers reconstruct the document at a shared `seq` and find different hashes (equivocation, detectable via pins, Appendix G). Transparency rather than integrity — but transparency with teeth, the certificate-transparency bargain. Content equivocation is exactly as detectable as key equivocation *because* the manifest is chained, not merely cumulative.
+   - **Key custodian** (hub holds the user's signing key): forward impersonation is unpreventable — the email trust model, stated plainly. But even a key custodian cannot *silently rewrite the past* against pinned consumers. Both chains are retained and served (§5.4), so removals must surface as signed tombstones (attributable actions), and per-consumer rewriting — of keys, of *which* items exist, or of *what those items say* — surfaces as a fork: two observers reconstruct the document at a shared `seq` and find different hashes. Transparency rather than integrity — but transparency with teeth, the certificate-transparency bargain.
+
+     Two conditions make that claim true rather than nearly true, and both are requirements elsewhere in this document. The manifest commits each item's **exact bytes** (§9), without which a custodian could serve two readers different text under one `(id, version)` and produce identical manifests. And somebody has to **compare** (§5.3.1) — a pin nobody checks against a second observation is evidence collected and discarded. Appendix G makes comparison mechanical; §12 makes the rule itself mandatory at Level 1.
    - **Serving-path compromise** (CDN, static bucket, web tier — anything outside the signing boundary): the most common real-world compromise. The attacker cannot sign, so chain and manifest give hub users **full integrity**: no undetectable omission, rollback, or injection. Hubs SHOULD keep signing behind a narrower boundary than serving.
    - **Dumb host, external signer** (build-time signing on static hosting; client-side keys): full integrity against the host by construction.
 
@@ -790,22 +833,22 @@ If an identity-document or manifest fetch fails transiently, cache the failure a
 
      Against this adversary the protocol's integrity machinery is beside the point: it defends what you published from being *altered*, not from being *read by the person hosting it*. Confidentiality does not rescue it either. Encryption (the OPTIONAL extension, §11) is only as strong as the recipient's key custody, and this operator supplies the client, generates the keys at onboarding unless §4.5 is followed, and can add a key of their own to the identity document — a change the chain records perfectly and nobody is necessarily reading.
 
-     What the protocol can offer this user is **exit**: an identity they can take elsewhere (§3.4), a recovery key the operator never held (§4.5), and a complete signed copy of their own content (§15). Those three are the parts of this specification built for them, and they are only real if all three hold at once. Implementations SHOULD NOT market audience control, restricted visibility, or encryption to this user as protection from their own host.
+     What the protocol can offer this user is **exit**: an identity they can take elsewhere (§3.4), a recovery key the operator never held (§4.5), and a complete signed copy of their own content (§14). Those three are the parts of this specification built for them, and they are only real if all three hold at once. Implementations SHOULD NOT market audience control, restricted visibility, or encryption to this user as protection from their own host.
 3. **TLS and CORS.** Everything HTTPS; validate certificates. Every publicly-readable document is served with `Access-Control-Allow-Origin: *` so browser Level-1 readers need no proxy.
-4. **Resource limits and scale.** Suggested caps: identity document 100 KB / 100 keys; manifest 1 MB (~10–15k live items — a deliberate family-scale ceiling; use checkpointing, §9.3, to keep the live manifest bounded and offload deletion history); feed page 10 MB / 1000 items; inbox body 100 KB; chain versions walked per update 1000; **total history bytes fetched per update 10 MB** (§5.4, §9.2); concurrent fetches per origin 10. Open Feed scales **across identities** — each is self-contained and independently verifiable — not in items-per-identity; the manifest is that boundary by construction, and a global-scale aggregator (firehose) is explicitly out of scope.
+4. **Resource limits and scale.** Suggested caps: identity document 100 KB / 100 keys; manifest 1 MB (~10k live items at roughly 96 bytes per `[version, hash]` entry — a deliberate family-scale ceiling; use checkpointing, §9.3, to keep the live manifest bounded and offload deletion history); feed page 10 MB / 1000 items; inbox body 100 KB; chain versions walked per update 1000; **total history bytes fetched per update 10 MB** (§5.4); concurrent fetches per origin 10. Note that retained manifest history grows as O(versions × items) and is the largest storage obligation in the protocol; §9.2 is how a publisher bounds it. Open Feed scales **across identities** — each is self-contained and independently verifiable — not in items-per-identity; the manifest is that boundary by construction, and a global-scale aggregator (firehose) is explicitly out of scope.
 5. **SSRF.** For every outbound fetch: HTTPS only, ≤5 redirects, 10 s timeout, size limits, reject private/loopback/link-local addresses, dedicated restrictive HTTP client.
 6. **Signature stripping and by-reference reuse.** Never attribute unsigned content; display unverified content distinctly; never cache it as verified. Related: an item referencing media by URL is not evidence that its author produced those bytes (§6.6). Author binding covers content carried by value; it cannot cover content carried by reference, and `_sha256` proves only that the bytes are the ones the signer meant.
 7. **Replay/timing.** Constant-time comparisons; NTP; never trust self-reported time as sole ordering.
-8. **Enumeration and the public record of activity.** Rate-limit discovery endpoints; uniform timing for exists/doesn't-exist. Note what the design publishes permanently and by requirement: the `deleted` map (§9) makes "this identity deleted something at version N" a lasting public fact, and the retained manifest chain (§9.2) publishes posting cadence — when you write, how often, and when that changed. Do not describe this as acceptable "for family use": where the adversary is a family member (§14.2, fourth tier), it is precisely the leak that matters, and it survives encryption of the content.
+8. **Enumeration and the public record of activity.** Rate-limit discovery endpoints; uniform timing for exists/doesn't-exist. Note what the design publishes permanently and by requirement: the `deleted` map (§9) makes "this identity deleted something at version N" a lasting public fact, and the retained manifest chain (§9.2) publishes posting cadence — when you write, how often, and when that changed. Do not describe this as acceptable "for family use": where the adversary is a family member (§13.2, fourth tier), it is precisely the leak that matters, and it survives encryption of the content.
 9. **Inbox fetch amplification.** The `author` in a delivered item is attacker-controlled until verification succeeds. Rate-limit by source IP before fetching; run all local checks first; fetch only the fixed-path identity document of the claimed author (never an arbitrary URL from the `kid` — the path convention makes this structural); negatively cache failures. Collapsing discovery to one document also halves the amplification factor by construction.
 10. **Rollback vs self-reported time.** The chains detect identity-document and content rollback — both relative to a consumer's pin. Neither detects item *backdating* (self-reported timestamps); receipt time is the trustworthy lower bound for inbox items, and manifest first-observation time (§4.4) is its pull-path analog, and the `pins` convention (Appendix G) is a family-scale external time anchor. A true transparency log / witness network remains future work.
 11. **Inbound and copied HTML.** §10.5. Escape or sanitize any content not authored by the local user, always.
 12. **Thread loops.** `_rel` `reply` graphs from malicious parties may contain cycles; cap walk depth.
 13. **Manifest lag vs violation.** Content *newer* than the manifest is lag (tolerate briefly); content *vanished* from the manifest without a tombstone, or a copied item contradicting the canonical manifest, is a violation (treat as equivocation).
-14. **Receiver-side republication.** The publish/deliver choice (§11.1) is the core's only privacy mechanism, and it is enforced entirely at parties other than the author. Any surface that projects received content publicly — the replies endpoint (§12), a bridge (§7.5), an aggregate feed — MUST filter out delivered-only items (§11.1.1). This is the failure mode most likely to be introduced by an implementer who is being *helpful*: republishing what arrived in the inbox looks like completeness and is a disclosure the author declined.
+14. **Receiver-side republication.** The publish/deliver choice (§11.1) is the core's only privacy mechanism, and it is enforced entirely at parties other than the author. Any surface that projects received content publicly — a replies endpoint (Appendix G), a bridge (§7.5), an aggregate feed — MUST filter out delivered-only items (§11.1.1). This is the failure mode most likely to be introduced by an implementer who is being *helpful*: republishing what arrived in the inbox looks like completeness and is a disclosure the author declined.
 15. **Identity portability.** Losing the domain without recovery keys orphans the identity — the email trade-off. Recovery keys + pins close the hijack gap for anyone who observed the identity before the hijack; first contact after a hijack is unprotectable **by design**. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity, and recovery keys + pins are the family-scale mitigation, not a fix. External anchors (transparency logs, witnesses) remain deferred.
 
-## 15. Export and Exit
+## 14. Export and Exit
 
 Everything in §3.4 moves an *identity*. This section moves the *content*, and the two together are what let someone leave a host that does not want them to.
 
@@ -827,7 +870,7 @@ An **export bundle** is a single JSON document containing a complete, independen
 Requirements:
 
 - Every document MUST appear **byte-verbatim as published** — the same canonical bytes that were signed (§6.3). A bundle whose contents have been re-serialized is worthless, because the hashes will not chain.
-- `identity.history` and `manifest_history` MUST be complete back to genesis, or back to a checkpoint (§9.3) that is itself included.
+- `identity.history` and `manifest_history` are arrays of the **retained prior versions themselves**, byte-verbatim — not the index document that §5.4 deleted. They MUST be complete back to genesis, or back to a checkpoint (§9.3) that is itself included.
 - `received` items MUST be included verbatim as received. They are other people's signed bytes; the exporter is a custodian, not an author.
 - `delivered` MUST include items that exist only in transit — those with no `_feed_url`, which appear in no feed and no manifest and are therefore in no other artifact.
 - `attachments` SHOULD inline the referenced bytes; where size makes that impractical, the bundle MUST at minimum retain each `url` and `_sha256` so the copy is checkable if the bytes are fetched separately. An export that omits the photos has not exported a family archive.
@@ -839,13 +882,13 @@ A consumer restores from a bundle by verifying it exactly as it would verify liv
 
 1. **Backup.** Your host loses a disk.
 2. **Migration.** §3.4 tells consumers your identity continues elsewhere; the bundle is what you carry there to re-sign into the new feed.
-3. **Exit.** You are leaving a host that is not on your side. This is the case that sets the requirements above — "on demand, without operator approval," "byte-verbatim," "includes received items," "includes the photos." An export mechanism that a hostile operator can withhold, degrade, or serve incomplete is not an exit; it is a courtesy. Together with a recovery key the operator never held (§4.5) and the migration path that needs no cooperation (§3.4), it is the whole of what this protocol offers the fourth-tier adversary case (§14.2) — and each of the three is load-bearing.
+3. **Exit.** You are leaving a host that is not on your side. This is the case that sets the requirements above — "on demand, without operator approval," "byte-verbatim," "includes received items," "includes the photos." An export mechanism that a hostile operator can withhold, degrade, or serve incomplete is not an exit; it is a courtesy. Together with a recovery key the operator never held (§4.5) and the migration path that needs no cooperation (§3.4), it is the whole of what this protocol offers the fourth-tier adversary case (§13.2) — and each of the three is load-bearing.
 
 ## Appendix A: Media Types
 
 | Document | Content-Type (serve) | Accept (consume) |
 |----------|---------------------|------------------|
-| Identity document, manifest, history indexes, retained prior versions, export bundle, inbox body | `application/json` | any JSON; reject non-JSON |
+| Identity document, manifest, retained prior versions, export bundle, inbox body | `application/json` | any JSON; reject non-JSON |
 | Feed | `application/feed+json` | that, or `application/json` |
 
 All served with `Access-Control-Allow-Origin: *`.
@@ -900,55 +943,67 @@ SHA-256 (hex): `7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168
 eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..MnPQcvR9PB4E_pJ1YZTggDoRwu0_uOcPegHfebTbKpdtzv8k4O8tbLtnk4VNDyjGa3mWLc15wtkMRK7nTVcoDQ
 ```
 
+**Full published bytes** — the item *with* its `_sig`, which is what the manifest commits to (§9):
+
+```
+{"_feed_url":"https://test.example/feed.json","_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..MnPQcvR9PB4E_pJ1YZTggDoRwu0_uOcPegHfebTbKpdtzv8k4O8tbLtnk4VNDyjGa3mWLc15wtkMRK7nTVcoDQ","_version":1,"authors":[{"url":"https://test.example/"}],"content_text":"Hello, wörld! 👋","date_published":"2025-01-15T12:00:00Z","id":"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"}
+```
+
+Base64url SHA-256 of those bytes — the item's manifest commitment: `czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8`
+
+Note the two hashes are of different things and both appear in the protocol: the *hex* hash above is over the canonical bytes **without** `_sig` (the signing payload, §6.3), while the manifest commits to the **full published bytes** including `_sig` (§5.1's single hashing rule).
+
+### D.2b. Signed Relation Item (a reply)
+
+An interaction is an ordinary item carrying `_rel` (§8). Full published canonical bytes, signed by `test-key-1`:
+
+```
+{"_feed_url":"https://test.example/feed.json","_rel":[{"to":"https://gran.example/~gran/feed.json#urn:uuid:00112233-4455-6677-8899-aabbccddeeff","type":"reply"}],"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..yz_Ih17djbgJCwlU0E5nkJZaVRIL0eiqU9wDV6z9KpbD8A_hR-E99qWvQPlnZFfs6XO5azgY5P0wfIhoyh7fBQ","_version":1,"authors":[{"url":"https://test.example/"}],"content_text":"Thanks, Gran!","date_published":"2025-02-15T09:00:00Z","id":"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8"}
+```
+
+Manifest commitment (base64url SHA-256 of those bytes): `vdS1bhnFd5XsIugXNLR0k-7UHDxRJi7DO6XRWF5l_gU`
+
 ### D.3. Manifest (genesis, `seq: 1`)
 
-Full published canonical bytes (signed by `test-key-1`, `updated` = 1736899200):
+Full published canonical bytes (signed by `test-key-1`, `updated` = 1736899200). Each `items` entry is `[version, hash]`, the hash being D.2's full-published-bytes commitment:
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..jeougogRyjJFslTe1xYIqGGJ7kbpccQN59PDKSN1Yd9ghO78rn97mIX0BwwhZGLMZaHw_Zkr9NhF2YlCHRMfAg","feed_url":"https://test.example/feed.json","items":{"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":1},"seq":1,"updated":1736899200,"url":"https://test.example/"}
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..n0gZ_Mgtf74bg1ehRaJ82un3FSkZI4SPw6-25A6WyOfjA5pfQP8XWidZ4EG8EBeTtqHQkIBZH46cbe5syZDaCQ","feed_url":"https://test.example/feed.json","items":{"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":[1,"czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"]},"seq":1,"updated":1736899200,"url":"https://test.example/"}
 ```
 
-Base64url SHA-256 of these canonical bytes (this is `seq: 2`'s `prev`): `GPbjqBsIVHRzgMlbfqXu5IU29SqEhMQnAlukdt8j7DY`
+Base64url SHA-256 of these canonical bytes (this is `seq: 2`'s `prev`): `8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI`
 
 ### D.3b. Manifest, `seq: 2` (chained)
 
-Adds a second item and chains to the genesis via `prev`. Signed by `test-key-1`, `updated` = 1739577600:
+Adds D.2b and chains to the genesis via `prev`. Signed by `test-key-1`, `updated` = 1739577600. Note there is no `history` field: the retained `seq: 1` version is served at the derived URL `https://test.example/manifest/1.json` (§5.4).
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..UQHPRbpNJhtsUEIkILVzAKyKEPgO5oJtHtkKQXC8X2NPet3YpjB-S8HtSuDoDx5zLLk6j7Ow9BD09CnpxOJ_Cg","feed_url":"https://test.example/feed.json","history":"https://test.example/manifest-history.json","items":{"urn:uuid:00112233-4455-6677-8899-aabbccddeeff":1,"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":1},"prev":"GPbjqBsIVHRzgMlbfqXu5IU29SqEhMQnAlukdt8j7DY","seq":2,"updated":1739577600,"url":"https://test.example/"}
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..bAwxoHhZ0S2Rs7gP02G4lsa8FnVi0b1l6smpnquUtZxLxUrUQaCvUV1xFoFzorYS6c0rt_FragFikpo1PVmZDw","feed_url":"https://test.example/feed.json","items":{"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8":[1,"vdS1bhnFd5XsIugXNLR0k-7UHDxRJi7DO6XRWF5l_gU"],"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":[1,"czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"]},"prev":"8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI","seq":2,"updated":1739577600,"url":"https://test.example/"}
 ```
 
-Its `prev` equals the D.3 genesis hash, demonstrating manifest chaining (§9.1).
+Its `prev` equals the D.3 genesis hash, demonstrating manifest chaining (§9.1), and each `items` entry names the exact bytes of D.2 and D.2b respectively.
 
 ### D.4. Identity Document, `seq: 1` (genesis)
 
-Full published canonical bytes (this exact string is what `seq: 2`'s `prev` hashes). Note the shape: one `feeds` array (§3.2.1) rather than separate `feed` + `manifest` fields, and `history` naming a version **index** (§5.4):
+Full published canonical bytes (this exact string is what `seq: 2`'s `prev` hashes). Note the shape: one `feeds` array (§3.2.1), and **no `history` field** — retained versions live at derived URLs (§5.4):
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..WUNXi_EE0O0rqiZfcyBfjwFObOBD17zMuhj_bqjLOribrahSZky5voMzVTW1LEJ2tAL5KMyWiBEuF4oSxI_yDQ","feeds":[{"manifest":"https://test.example/manifest.json","rel":"primary","url":"https://test.example/feed.json"}],"history":"https://test.example/history.json","inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"name":"Test Identity","seq":1,"updated":1736899200,"url":"https://test.example/"}
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..HpP48LHgQHTPCflFzuTlhluQfv1bvDlgE_Ggn3uUpMU2DBF7FUvk-Qi66-5mmH6dEg7KlPZr1-kEaYY2CvFcDA","feeds":[{"manifest":"https://test.example/manifest.json","rel":"primary","url":"https://test.example/feed.json"}],"inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"name":"Test Identity","seq":1,"updated":1736899200,"url":"https://test.example/"}
 ```
 
-Hash (base64url SHA-256, = `seq: 2`'s `prev`): `mUGmYabnGfAOkFR756jemnhXO1pqQf663KxMP41m44Y`
+Hash (base64url SHA-256, = `seq: 2`'s `prev`): `vvjaE1GRk0wxvVU37Ik8h6uVzFLoAZ_-TInTrQB4zho`
+
+Once `seq: 2` exists, this version is served byte-identically at `https://test.example/openfeed/1.json` — derived from `https://test.example/openfeed.json` by §5.4, with no index document naming it.
 
 ### D.5. Identity Document, `seq: 2` (rotation)
 
 Adds `test-key-2`, revokes `test-key-1`. Signed by `test-key-1` — the continuity key, valid in `seq: 1`, revoked by the very version it signs, and still listed in it (§5.2):
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..s9EtuunyYLna5IjMkSvu9rk9RDm2jxKKv-QRb-c69NkK8GhPRBZbI71K-3dUrY5UNFJrAnjX3jQLB4va9E_mAQ","feeds":[{"manifest":"https://test.example/manifest.json","rel":"primary","url":"https://test.example/feed.json"}],"history":"https://test.example/history.json","inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","revoked_at":1739577600,"x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1739577600,"kid":"test-key-2","kty":"OKP","x":"KOvPWZT35Xzwcsw6vfQzO3idc8oa67BdHZ0oXpriOQA"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"name":"Test Identity","prev":"mUGmYabnGfAOkFR756jemnhXO1pqQf663KxMP41m44Y","seq":2,"updated":1739577600,"url":"https://test.example/"}
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..qpsmemLozSvp8vaFVkCHmJM_iWJWc5YGfcKAqyGTsBxt2hPrUGNMiC-7-b7NSHWyLtSzs2Sd8mlcy_1RnAg0DA","feeds":[{"manifest":"https://test.example/manifest.json","rel":"primary","url":"https://test.example/feed.json"}],"inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","revoked_at":1739577600,"x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1739577600,"kid":"test-key-2","kty":"OKP","x":"KOvPWZT35Xzwcsw6vfQzO3idc8oa67BdHZ0oXpriOQA"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"name":"Test Identity","prev":"vvjaE1GRk0wxvVU37Ik8h6uVzFLoAZ_-TInTrQB4zho","seq":2,"updated":1739577600,"url":"https://test.example/"}
 ```
 
-### D.6. Identity History Index (`seq: 1` retained)
-
-The `history` document (§5.4) is an **index**, not a container of full versions: `(seq, hash, url)` per retained version, with each version served byte-identically at its own URL. It is unsigned — every version it names carries its own signature, and every `hash` is checked against the chain the consumer is already walking, so a lying index can misdirect but cannot forge.
-
-```
-{"url":"https://test.example/openfeed.json","versions":[{"hash":"mUGmYabnGfAOkFR756jemnhXO1pqQf663KxMP41m44Y","seq":1,"url":"https://test.example/openfeed/1.json"}]}
-```
-
-Its single entry's `hash` equals D.4's full-bytes hash, which is also D.5's `prev` — the value a consumer walking from `seq: 2` back to a `seq: 1` pin compares against.
-
-**Validation recipe:** verify all five `_sig` values (D.2 item, D.3/D.3b manifests, D.4/D.5 identity documents) against `test-key-1`; recompute D.3's full-bytes hash and confirm it equals D.3b's `prev` (manifest chaining); recompute D.4's full-bytes hash and confirm it equals both D.5's `prev` and D.6's index entry (identity chaining, and the index agreeing with the chain); verify the manifests' `_sig` against `test-key-1` as listed in the (pinned) identity document; confirm the item in D.2 matches the manifest entry `(id, 1)`.
+**Validation recipe:** verify all six `_sig` values (D.2 item, D.2b relation item, D.3/D.3b manifests, D.4/D.5 identity documents) against `test-key-1`; recompute D.3's full-bytes hash and confirm it equals D.3b's `prev` (manifest chaining); recompute D.4's full-bytes hash and confirm it equals D.5's `prev` (identity chaining); recompute the full-published-bytes hashes of D.2 and D.2b and confirm each equals the `hash` half of its `items` entry in D.3b (content commitment, §9); verify the manifests' `_sig` against `test-key-1` as listed in the (pinned) identity document.
 
 `tmp/regen.js` performs all of these checks **and** verifies that every vector string above appears verbatim in this document — so a vector that drifts out of sync with the generator fails the run rather than sitting stale.
 
@@ -971,9 +1026,22 @@ This specification is a clean-slate synthesis. Several prior internal drafts (ne
 | Authorized Fetch (`401` challenge, fetch assertions, capability grants, gated manifest, reader lists) | **Removed entirely** (privacy-and-exit pass) | It tried to occupy a cell that does not exist: *published but not public* (§11.1). Every artifact it needed — the second signing construction, the CORS carve-out, timing equalization, a documented cross-reader equivocation hole, and the self-commitment mechanism invented to patch that hole — was a consequence of serving audience-varying bytes. Confidentiality moved to encrypted content (§11.3); audience control at a single host is host authorization, i.e. software, not protocol. **It can return as a pure extension with zero core changes** — a `401` is host behavior, an assertion is extension-local, a reader list is an extension field — which is the test that the removal is a real layering and not a deletion of capability |
 | Self-commitments (conventions §5) | **Removed** (privacy-and-exit pass) | Existed solely to patch the above. The insight is worth keeping even though the mechanism is gone: *a public commitment to the hash of a private artifact restores cross-observer equivocation detection over it, for versions the owner actually commits to.* It is the reason §11.1's trade is stated over **existence**-privacy rather than confidentiality |
 | Deriving an X25519 encryption key from the Ed25519 signing key | **Considered and rejected** | Tempting (one keypair, no new key type, no lifecycle, no discovery — `age` does exactly this for `ssh-ed25519`), and wrong here for three reasons that do not depend on each other. **(1) Lifecycle divergence:** a rotated-out signing key MAY be dropped after 30 days (§4.3), while an encryption key must be retained for as long as any ciphertext wrapped to it matters — derivation makes signing-key rotation silently destroy readability, or freezes signing keys forever. **(2) Merged blast radius:** one compromise would cost both future impersonation and all past confidentiality. **(3) Cross-primitive hygiene:** exposing a signing oracle and a Diffie-Hellman oracle on one keypair is a security-proof burden a small specification should not take on. Recorded here so the question is not re-opened annually |
-| Replies-endpoint envelope | **Simplified** | Returns a JSON Feed (§12) |
 | Bespoke relation fields (`_reply_to`, …) | **Unified** | `_rel` array with registered-token-or-URL types (§8) |
 | OAuth/IndieAuth, `pubkey`/link-relation registry, Content-Type strictness, timestamp duality | **Removed / reduced** | Out of scope, gone, one rule, JOSE-boundary only |
+
+### E.1. The simplification pass
+
+A later pass removed two document types and one endpoint from the core, and paid for it with one field widening. Net: **the core defines four document types instead of six, and one fewer endpoint**, while the guarantee it claims against a key-holding host became true rather than nearly true.
+
+| Prior construct | Fate | Reasoning |
+|---|---|---|
+| **History index documents** (`history` field → an unsigned `(seq, hash, url)` index, one per chain) | **Removed** | Prior versions now live at a **derived URL** (§5.4): strip `.json`, append `/{seq}.json`. The index's hashes carried no authority by its own admission, its parallel-fetch benefit is reproduced by computing the URL range, and its ability to distinguish "pruned" from "missing" was illusory because the publisher controlled the index too. It cost two document types, two schemas, a field on both chained documents, a same-origin rule, and a round trip, for nothing that survived inspection |
+| **Manifest-optional feeds** (`manifest` SHOULD; a feed could have no completeness proof) | **Removed** | Every listed feed is manifested (§3.2.1). The optionality existed so a high-volume activity feed need not advance a chain per reaction; §9.2's scheduled advancement solves that by bounding version count with *time* instead, and deletes three consumer rules, a per-feed conditional in every verifier, and the footgun of real content silently published without a proof |
+| **Replies endpoint** (core §12) | **Moved to the conventions extension** (Appendix G) | It is thread *discovery*, not trust: it returns nothing a consumer cannot obtain by polling the participants' feeds, and its only unique reach is replies from identities you do not follow. It was also the core's largest privacy footgun, so it travels with §11.1.1's rule attached rather than being deleted and reinvented unguarded |
+| **Manifest committing `id → version`** | **Widened to `id → [version, hash]`** | A version-only manifest is fully sufficient against a serving-path attacker and *undetectably insufficient* against a key custodian, who can sign one `(id, version)` as two different things for two readers and produce byte-identical manifests. §13.2 claimed the chains catch content rewriting; with a version-only manifest that claim was false for the modal deployment. ~48 bytes per item makes it true, using the comparison mechanism that already existed rather than a new one |
+| **Pinning as a Level 1 SHOULD**, and the compare rule living only in an optional extension | **Both promoted** | Pinning is a MUST with an explicit stateless-verifier carve-out, and the compare rule is core (§5.3.1). The transparency claim was resting on a mechanism the conformance levels did not require and an extension nobody had to implement |
+| **Relation targets across a migration** | **Fixed** | `_rel` `to` names `{feed_url}#{id}` inside *other people's* signed items, which nobody can re-sign, so every inbound reply dangled after a move and the new host bounced them as `not_relevant`. §3.4 makes predecessor and successor targets equivalent once a migration verifies; §10.2 accepts predecessor URLs. Exit had a hole exactly where exit is used |
+| **Device-generated recovery keys, unverified** | **Given a checkable commitment** | §4.5's generation rule can be honored to the letter and defeated in full by a host that serves the member one genesis document and everyone else another — the member's own view is correct, so §5.2's self-record sees nothing. Level 3 now requires disclosing the genesis `(seq, hash)` and recovery-key fingerprint for out-of-band comparison |
 
 What deliberately survived unchanged: byte-exact RFC 8785 + I-JSON, RFC 7797 header-covering signatures, author binding, effective signing time, tombstones, conformance levels, the static-hosting story, and the honest hub-trust model.
 
@@ -985,7 +1053,7 @@ Open Feed reaches other systems two ways, and the cheap one is not a bridge.
 
 Most of what Open Feed interoperates with, it interoperates with **today, with nothing new built and no gateway operated**, because its wire formats are other people's wire formats:
 
-- **A feed is a JSON Feed 1.1 document.** Every JSON Feed reader already works, ignoring `_sig` and getting no authenticity guarantee — Level 0 (§13). This is not a fallback; it is the default relationship to the existing ecosystem.
+- **A feed is a JSON Feed 1.1 document.** Every JSON Feed reader already works, ignoring `_sig` and getting no authenticity guarantee — Level 0 (§12). This is not a fallback; it is the default relationship to the existing ecosystem.
 - **An Atom or RSS mirror** of the same items reaches the entire feed-reader installed base. It carries no signatures and is a copy in the sense of §7.5.
 - **h-entry / h-card markup** on the optional human-readable page at the identity URL (§3.1) makes the identity legible to IndieWeb tooling.
 
@@ -1006,13 +1074,13 @@ Those three questions are the test for any protocol, including one that does not
 **Outbound** (Open Feed → foreign network):
 
 - **Delivered-only items MUST NOT be emitted** *(audience)*. An item with no `_feed_url` was kept off the public web by its author (§11.1.1); emitting it is a publication decision the author declined to make.
-- **A gateway MUST NOT emit content it cannot read, including as a placeholder** *(audience)*. For an encrypted item (§11.3) the ciphertext, an "encrypted post" stub, and a bare timestamped entry are all forbidden. The reasoning matters, because the naive reading is that the metadata is public anyway: it is public **incidentally**, as the price of keeping the completeness proof (§11.4), not as a decision to announce. An author publishing opaque bytes at their own URL has accepted that whoever fetches that URL learns they posted. They have not asked a gateway to tell a foreign follower graph the same thing, and §14.8 is explicit that posting cadence is the leak that survives encryption and matters most against the fourth-tier adversary (§14.2). Skipping is always safe; announcing is not.
+- **A gateway MUST NOT emit content it cannot read, including as a placeholder** *(audience)*. For an encrypted item (§11.3) the ciphertext, an "encrypted post" stub, and a bare timestamped entry are all forbidden. The reasoning matters, because the naive reading is that the metadata is public anyway: it is public **incidentally**, as the price of keeping the completeness proof (§11.4), not as a decision to announce. An author publishing opaque bytes at their own URL has accepted that whoever fetches that URL learns they posted. They have not asked a gateway to tell a foreign follower graph the same thing, and §13.8 is explicit that posting cadence is the leak that survives encryption and matters most against the fourth-tier adversary (§13.2). Skipping is always safe; announcing is not.
 - **A gateway MUST NOT claim a completeness guarantee for bridged content** *(verification)*. No target protocol has an analog of the manifest (§9), so the proof does not survive the crossing.
 
 **Inbound** (foreign network → Open Feed). This is the half implementations are likeliest to get wrong, because ingest feels like observation. It is publication: an ingested item lands in the gateway's own feed, is committed by the gateway's manifest, is retained permanently (§5.4, §9.2), and is served with `Access-Control-Allow-Origin: *`.
 
 - **Ingest only what the source published publicly** *(audience)*. ActivityPub content not addressed to `Public` — followers-only, or a direct message — MUST NOT be ingested, and the same holds for any protocol's restricted or end-to-end-encrypted content. One followers-only post ingested into a manifested feed is a permanent, world-readable, cryptographically-committed disclosure its author never authorized.
-- **Do not durabilize the ephemeral** *(durability)*. Content the source protocol expires, or allows to be genuinely withdrawn, MUST NOT be ingested: §9's retention rules turn removal into a permanent public record rather than a deletion (§14.8). A protocol whose deletions are real is not compatible with a protocol whose deletions are tombstones.
+- **Do not durabilize the ephemeral** *(durability)*. Content the source protocol expires, or allows to be genuinely withdrawn, MUST NOT be ingested: §9's retention rules turn removal into a permanent public record rather than a deletion (§13.8). A protocol whose deletions are real is not compatible with a protocol whose deletions are tombstones.
 - **Everything ingested is `_unverified`** *(verification)*. §7.5, without exception.
 
 ### F.3. Proxy identities
@@ -1021,12 +1089,12 @@ A gateway signs what it ingests, so §6.6 places the gateway in the `authors` en
 
 It is also the only representation available for actors whose native identifiers cannot be URLs — a Nostr `npub`, a phone number, a handle on a closed network.
 
-A proxy identity is **not** a hosted identity in §13's sense, and that distinction is what keeps §15 coherent: its principal never asked for it, holds no keys, and has a real home elsewhere. Because everything a proxy publishes is `_unverified` (§7.5), it never claims to *be* that person — it claims to mirror them, which is a claim the gateway can support. §13's device-generated recovery key, `(seq, hash)` disclosure, and export bundle therefore do not apply: there is no captive user, because there is no user.
+A proxy identity is **not** a hosted identity in §12's sense, and that distinction is what keeps §14 coherent: its principal never asked for it, holds no keys, and has a real home elsewhere. Because everything a proxy publishes is `_unverified` (§7.5), it never claims to *be* that person — it claims to mirror them, which is a claim the gateway can support. §12's device-generated recovery key, `(seq, hash)` disclosure, and export bundle therefore do not apply: there is no captive user, because there is no user.
 
 The price of that carve-out is honesty about what a proxy is. A gateway minting proxy identities MUST:
 
 - **Disclose** in each proxy's identity document that it is a gateway-operated mirror, who operates it, and where the actor's real home is.
-- **Never claim exit** (§15) for a proxy identity.
+- **Never claim exit** (§14) for a proxy identity.
 - **Withdraw the proxy on the foreign actor's request.** This stands where exit stands for a real hosted identity, and it is weaker; say so rather than dressing it up.
 
 A gateway unwilling to meet these should not mint proxies. Ingesting everything under the gateway's own single identity is always available, and costs only per-actor attribution.
@@ -1059,19 +1127,20 @@ Because F.2's rule is protocol-independent, a profile for a specific protocol is
 
 The last two slots exist because they are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
 
-## Appendix G: Conventions — Follows and Pins (OPTIONAL)
+## Appendix G: Conventions — Follows, Pins, and Thread Discovery (OPTIONAL)
 
-Two optional documents, both **outside the trust core** (nothing needs to verify them to verify content), referenced from the identity document (`follows` / `pins`, §3.2). Specified in full in [`open-feed-conventions.md`](open-feed-conventions.md).
+Three optional facilities, all **outside the trust core** (nothing needs to verify them to verify content), referenced from the identity document (`follows` / `pins` / `replies`, §3.2). Specified in full in [`open-feed-conventions.md`](open-feed-conventions.md).
 
 - **`follows`** — who you read. Turns "which feeds does my hub poll?" from configuration into protocol (the core operation of the pull-canonical model). MAY be kept private (client-local).
-- **`pins`** — signed `(url, seq, hash)` observations of others' identity documents or manifests. Publishing them gives a family, with no new cryptography, four properties at once: **anti-equivocation** (peers cross-check each other's view of a chain, turning §5.3's / §9.1's out-of-band comparison into published data), **recovery propagation** (a recovery-based successor, §3.4, gossips through the social graph), **informal timestamping** (a pin observed at wall-clock T witnesses that `(seq, hash)` existed by T, §14.10), and **first-contact web-of-trust** (consistent pins from already-trusted identities soften TOFU). This is the family-scale substitute for a transparency log, a DID directory, and a timestamp authority.
+- **`pins`** — signed `(url, seq, hash)` observations of others' identity documents or manifests. Publishing them gives a family, with no new cryptography, four properties at once: **anti-equivocation** (peers cross-check each other's view of a chain, turning §5.3.1's compare rule into published data), **recovery propagation** (a recovery-based successor, §3.4, gossips through the social graph), **informal timestamping** (a pin observed at wall-clock T witnesses that `(seq, hash)` existed by T, §13.10), and **first-contact corroboration** (consistent pins from already-trusted identities soften TOFU, and are the practical defence against a host equivocating on a genesis document, §4.5). This is the family-scale substitute for a transparency log, a DID directory, and a timestamp authority.
+- **`replies`** — an optional read view over the inbox, filtered to one target id, returning a JSON Feed of published reply items. Thread *discovery* only: everything it returns is obtainable by polling the participants' feeds, and its unique reach is replies from identities a consumer does not follow. It carries §11.1.1's rule with it — **delivered-only items MUST NOT appear in it** — because it is the surface most likely to undo the publish/deliver choice by accident.
 
-Pins are also the answer to a question §14.2 raises and does not settle: equivocation is *detectable*, but only if somebody compares. A producer's own record of what it published (§5.2) is a weak check — a host that knows which client is yours can serve that client the honest branch. Comparison by other people is the durable one, and `pins` is what makes it mechanical.
+The compare rule itself is **not** here: it is core (§5.3.1), and Level 1 requires it. What this extension adds is the *supply* of second observations — publishing pins so that peers have something to compare against. Applying the rule to observations you already hold costs nothing and discloses nothing; publishing pins discloses whom you read and when, which is why it stays opt-in.
 
 ## Appendix H: Open Questions
 
 - **`_rel` type registry governance** — how the registered core token set (vs namespaced URLs) is maintained pre-1.0.
-- **Key delegation (extension, sketched; `open-feed-delegation.md`, planned — not yet drafted)** — the highest-value trust upgrade available. A delegation is a statement signed by a root identity key — `{delegate: {JWK}, kid, exp, scope}` — published in the identity document; a hub or extra device holds only the *delegated* key while the root stays client-side or offline. Content signs with the delegate key; verifiers resolve the `kid` to the delegation entry in the pinned identity document and confirm it unexpired and unrevoked. Revoking a delegate is an ordinary chain version — the pinned chain is exactly the authoritative revocation substrate whose absence killed Nostr's NIP-26. This one statement type answers both multi-device *and* hub custody (moving hub deployments from the key-custodian tier to the serving-path tier of §14.2) without adding a second signing construction.
+- **Key delegation (extension, sketched; `open-feed-delegation.md`, planned — not yet drafted)** — the highest-value trust upgrade available. A delegation is a statement signed by a root identity key — `{delegate: {JWK}, kid, exp, scope}` — published in the identity document; a hub or extra device holds only the *delegated* key while the root stays client-side or offline. Content signs with the delegate key; verifiers resolve the `kid` to the delegation entry in the pinned identity document and confirm it unexpired and unrevoked. Revoking a delegate is an ordinary chain version — the pinned chain is exactly the authoritative revocation substrate whose absence killed Nostr's NIP-26. This one statement type answers both multi-device *and* hub custody (moving hub deployments from the key-custodian tier to the serving-path tier of §13.2) without adding a second signing construction.
 - **External time anchoring** — a true transparency log / witness network beyond the family-scale `pins` convention; deferred.
 - **Bridge profiles** — normative gateway specs for Webmention / ActivityPub / atproto (Appendix F), starting with the Webmention gateway.
 - **Author-side dual signing (parked)** — a publisher's own client emitting both an Open Feed `_sig` and a foreign-format signature (e.g. FEP-8b32) over the same Ed25519 key, so bridged content need not be `_unverified`. It is the only known route to verified cross-protocol authorship, and the two signing inputs are structurally unconfusable (Appendix F.3). It is also a second signing construction in all but name, which §6.1 forbids in the core and in extensions. Parked deliberately: it is not blocking anything, and taking it up means deciding whether "no second construction" is a rule about *this protocol's* artifacts or about everything an Open Feed publisher signs.

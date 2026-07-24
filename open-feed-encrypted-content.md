@@ -16,7 +16,7 @@ Encryption protects a plaintext from every party except (a) its author, who need
 
 Two consequences, both of which implementations MUST convey to users rather than bury:
 
-- **This is not a defence against your own host.** See core §14.2's fourth adversary tier. Do not market it as one.
+- **This is not a defence against your own host.** See core §13.2's fourth adversary tier. Do not market it as one.
 - **Its value tracks how many recipients hold their own keys.** That is a product and UX variable, not a protocol one. Two families whose members each hold their own keys get a strong guarantee from the same bytes that give two fully-hosted families almost none.
 
 The honest place this *does* earn its keep: content published to a world-readable feed that only a named audience should read, and content crossing hosts that are not all trusted equally. A family archive on a public CDN is opaque to the CDN, to crawlers, to archivers, and to every host except those holding an audience member's key.
@@ -25,7 +25,7 @@ The honest place this *does* earn its keep: content published to a world-readabl
 
 On a **published** feed (core §11.1), these stay cleartext by construction and are not a defect to be fixed later:
 
-`id`, `date_published`, `date_modified`, `authors`, `_version`, `_feed_url`, and `_rel` with its `to` targets — plus the manifest's record of publication cadence and deletions (core §9, §14.8).
+`id`, `date_published`, `date_modified`, `authors`, `_version`, `_feed_url`, and `_rel` with its `to` targets — plus the manifest's record of publication cadence and deletions (core §9, §13.8).
 
 That is *who posts, when, how often, and who replies to whom*: the interaction graph. Encryption hides what you said, not that you said it. Where the graph itself is sensitive, §7 describes the only real answer, which is not cryptographic.
 
@@ -104,14 +104,13 @@ A **roster** is a chained, signed, encrypted document listing an audience's memb
   "circle": "https://pence.family/~mom/circles/family",
   "seq": 3,
   "prev": "…",
-  "history": "https://pence.family/~mom/circles/family-history.json",
   "updated": 1739577600,
   "_enc": { "…": "JWE wrapping the member list to each member's published enc key" },
   "_sig": "…" }
 ```
 
 - The sealed member list is an array of `{ "identity": "<identity URL>" }` entries. It MUST NOT carry members' encryption keys as authoritative values: a sender MUST resolve each member's key from that member's own identity document (§3).
-- The roster is pinned and walked exactly as a manifest is (core §9.1), so **rollback is detected** — a host cannot re-admit a removed member by serving a stale version.
+- The roster is pinned and walked exactly as a manifest is (core §9.1), so **rollback is detected** — a host cannot re-admit a removed member by serving a stale version. As a chained document it inherits core §5.4: its URL MUST end in `.json`, and its retained prior versions are served at the derived `{url minus .json}/{seq}.json`. There is no history index and no `history` field.
 - Members added at version N cannot read content wrapped before N; members removed at version N keep whatever they already fetched. There is no retroactive revocation, and there cannot be.
 
 ### 6.1. Roster freshness — and its limit
@@ -139,17 +138,17 @@ Ship §4 (broadcast to a known audience) and audience-of-one messages first. Tho
 
 Encryption does nothing about §2's cleartext metadata, and on a published feed the reply graph is the loudest part of it. The structural answer:
 
-- **Posts** intended for an audience are **published, encrypted** — they keep the manifest's completeness proof, the export bundle (core §15), migration, and durability. The cost is that *this identity posted at this time* is public.
+- **Posts** intended for an audience are **published, encrypted** — they keep the manifest's completeness proof, the export bundle (core §14), migration, and durability. The cost is that *this identity posted at this time* is public.
 - **Interactions** on that content are **delivered, not published** (core §11.1) — POSTed to the audience's inboxes with no `_feed_url`, so `_rel` and its `to` targets never land in a world-readable file. The cost is that replies have no completeness proof and that someone joining later cannot reconstruct old threads.
 
-**This half of the design is enforced at the recipient, not at the author**, and implementers MUST understand that before relying on it. Delivering an interaction keeps it off the public web only for as long as every recipient declines to republish it. Core §11.1.1 makes that a MUST and core §12 applies it to the replies endpoint — the surface most likely to undo it, since a hub that projects its inbox publicly would republish exactly the reply graph this section exists to hide. An audience member whose client ignores §11.1.1 defeats this for everyone in the audience, silently, and no other participant can detect it.
+**This half of the design is enforced at the recipient, not at the author**, and implementers MUST understand that before relying on it. Delivering an interaction keeps it off the public web only for as long as every recipient declines to republish it. Core §11.1.1 makes that a MUST, and the conventions extension applies it to the replies endpoint (`open-feed-conventions.md` §6.2) — the surface most likely to undo it, since a hub that projects its inbox publicly would republish exactly the reply graph this section exists to hide. An audience member whose client ignores §11.1.1 defeats this for everyone in the audience, silently, and no other participant can detect it.
 
 This is a genuine trade, not a free win, and which side of it a deployment wants depends on whether a reader graph or a durable thread record matters more. State the choice to users; do not make it silently.
 
 ## 8. Security considerations
 
 1. **The wrap-list is unverifiable.** Whether an author wrapped to the right people is not checkable by anyone — not by observers, not by other audience members. With untagged recipients only the slot *count* is visible. Nobody can detect a wrap to a stale or substituted key, and nobody can detect an extra recipient beyond a count mismatch. This is the first rule in Open Feed that is not checkable from bytes by a third party, and it is why "consent is membership in the wrap-list" is a weaker claim than it sounds: membership is not auditable, so it degrades to a claim about membership.
-2. **A reading key-custodian leaves no trace.** Every other adversary in core §14.2 surfaces: rewriting the past forks a chain, dropping content violates a manifest invariant. A host that simply *reads* what it holds the key for is invisible. Core §14.2's tier table should be read with that in mind.
+2. **A reading key-custodian leaves no trace.** Every other adversary in core §13.2 surfaces: rewriting the past forks a chain, dropping content violates a manifest invariant. A host that simply *reads* what it holds the key for is invisible. Core §13.2's tier table should be read with that in mind.
 3. **No forward secrecy.** Compromise of a long-term X25519 key decrypts every past ciphertext wrapped to it, including messages from a device recovered years later.
 4. **No retroactive revocation.** Once wrapped, content is readable by that key-holder forever. Unlike an authorization grant, there is nothing to revoke.
 5. **Key loss destroys content** (§3.1). The only such failure mode in the protocol.

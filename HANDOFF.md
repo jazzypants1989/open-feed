@@ -61,7 +61,7 @@ challenge with a real argument; flag an invariant-level change loudly and get ex
 **The privacy-and-exit pass.** Two facts drove it, and you should hold both. *The threat model:* the
 operator of a family hub may be a loved one who is an abuser — an adversary controlling the serving
 path, the inbox, and by default the keys. No confidentiality mechanism defeats them; what the
-protocol offers is **exit** (§4.5 device-generated recovery key, §3.4 uncooperative migration, §15
+protocol offers is **exit** (§4.5 device-generated recovery key, §3.4 uncooperative migration, §14
 export bundle — three Level 3 MUSTs that only work together). *The missing persona:* two
 self-hosting family members, the modal case for a URL-native protocol, which makes cross-hub
 `family` visibility a launch requirement answered by **published + encrypted**, not by an
@@ -80,11 +80,35 @@ deleted.** Details in `CLAUDE.md`; the parts that matter here:
 - **FEP-8b32 does not converge.** Earlier drafts claimed it did, in three files. Same curve and
   canonicalization, different signing input; no signature crosses in either direction.
 - **The OR in §7.5 is gone.** Everything ingested is `_unverified`, without exception. That single
-  deletion collapsed the three-lane trust structure and dissolved a conformance collision with §13.
+  deletion collapsed the three-lane trust structure and dissolved a conformance collision with §12.
 - **One organizing rule:** *a gateway may not change the terms under which content was published* —
   not the **audience**, not the **durability**, not the **verification status**. Symmetric in both
   directions. That is the test for any future protocol.
 - **Appendix F.1 is the actionable part.** The cheapest interop is not a bridge at all.
+
+**The simplification pass (most recent).** Triggered by a comparison against IndieWeb / ActivityPub /
+atproto / Nostr asking how much unique utility the core provides. Net: **four core document types
+instead of six, one fewer endpoint**, and the guarantee claimed against a key-holding host became
+true rather than nearly true. Spec Appendix E.1 has the full table; the parts that matter here:
+
+- **History-index documents are gone.** Prior versions live at a derived URL — strip `.json`, append
+  `/{seq}.json` (§5.4). The index's hashes carried no authority by its own admission.
+- **Every listed feed is manifested** (§3.2.1). Paid for by §9.2: a manifest MAY advance on a
+  *cadence* rather than per publication, so version count tracks time, not activity.
+- **The manifest commits `[version, hash]`**, not just a version. A version-only manifest is fully
+  sufficient against a serving-path attacker and *undetectably* insufficient against a key
+  custodian, who can sign one `(id, version)` as two different things for two readers and produce
+  byte-identical manifests. That was a false claim in §13.2, not a missing nicety.
+- **Pinning is a Level 1 MUST** (stateless-verifier carve-out stated), and the **compare rule is
+  core** (§5.3.1). It had been living in an optional extension while the whole transparency claim
+  rested on it.
+- **The replies endpoint moved to conventions §6**, carrying §11.1.1's guard with it.
+- **Exit had two holes, both closed.** `_rel` targets dangled across a migration (§3.4, §10.2), and
+  §4.5's device-generated recovery key could be honored to the letter and defeated in full by a host
+  that equivocates on the *genesis* document — the member's own view stays correct, so §5.2's
+  self-record sees nothing. Level 3 now MUST disclose the genesis `(seq, hash)` and recovery-key
+  fingerprint for out-of-band comparison. **Exit's root of trust is a TOFU event the adversary
+  mediates**; that is the thing to keep in view.
 
 ## 2. The open questions, in rough priority order
 
@@ -143,7 +167,7 @@ Three constraints that must survive into the draft:
 
 ### 2.4. Export bundle: specified, unbuilt, load-bearing
 
-§15 defines it and Level 3 MUSTs it. `DISTRIBUTION-MODEL.md` requires it at launch. Nobody has built
+§14 defines it and Level 3 MUSTs it. `DISTRIBUTION-MODEL.md` requires it at launch. Nobody has built
 one and no vector exercises it. Is the shape right, does "byte-verbatim as published" survive a real
 implementation, and what happens with a 10 GB family photo archive?
 
@@ -184,16 +208,19 @@ deliberately; not blocking anything.
 1. **One signing construction**, core and extensions: detached JWS, RFC 7797 unencoded payload,
    Ed25519, over RFC 8785 canonical bytes, signing header *and* payload. Encryption is not a second
    construction. (Author-side dual signing, in section 2.5 of this hand-off, is the live question at
-   this boundary.)
+   this boundary.) Likewise **one hashing rule**: base64url SHA-256 of a document's full published
+   canonical bytes, signature fields included — `prev`, manifest item commitments, `checkpoint_hash`,
+   and pins are all the same value (§5.1).
 2. **One object model** — every content object is a signed JSON Feed item; interactions are items
    with `_rel`.
 3. **Two chains, one pin-and-walk discipline** — identity and manifest, pinned on first observation,
-   walked to the pin thereafter.
+   walked to the pin thereafter, with **the compare rule (§5.3.1) applied to any second observation**.
+   Pinning without comparing is evidence collected and discarded, which is why both are core MUSTs.
 4. **Single-valued documents** — no artifact is ever served in audience-varying forms. This is what
    the deleted restricted-feeds extension violated.
 5. **The core has no privacy mechanism.** Privacy is a publication decision; confidentiality is an
    optional extension bounded by recipient key custody.
-6. **Exit is three parts that only work together** (§4.5, §3.4, §15).
+6. **Exit is three parts that only work together** (§4.5, §3.4, §14).
 7. **Publication is the author's decision, and only the author's** (§11.1.1). Receivers and gateways
    are custodians, not publishers.
 
@@ -203,11 +230,11 @@ deliberately; not blocking anything.
 |---|---|
 | `open-feed-spec.md` | Normative core, **v0.1.0, unreleased** |
 | `open-feed-encrypted-content.md` | OPTIONAL extension — **never independently reviewed** |
-| `open-feed-conventions.md` | OPTIONAL extension — follows + pins |
+| `open-feed-conventions.md` | OPTIONAL extension — follows + pins + the `replies` endpoint |
 | `README.md` | Human-facing docs, examples, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference product plan (family AI-journaling hub) |
 | `CLAUDE.md` | Agent context; carries the "decisions taken" list |
-| `tmp/regen.js` | Vector generator + validator + doc cross-check |
+| `tmp/regen.js` | Vector generator + validator + doc cross-check (also checks manifest↔item hash commitment) |
 | `tmp/enc-prototype.js` | Encrypted item; CLAIM 5 = relay attack and rejection |
 | `tmp/circles-prototype.js` | Roster spike — **rollback only, not withholding** |
 | `PROPOSALS*.md` | The nine-pass debate record |
