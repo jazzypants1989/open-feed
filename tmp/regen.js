@@ -219,6 +219,27 @@ console.log(' ', canon(follows));
 console.log();
 embed('D.7 follows bytes', canon(follows), 'spec');
 
+// ---- D.8 identity document with foreign accounts (Appendix B.2) ----
+// Standalone third identity so D.4/D.5's hashes (and everything chained to them) never move.
+// Exercises both entry forms: a bare string and an object with proof/handle.
+const kPosse = keyFromLabel('posse-key-1');
+const POSSE = 'https://posse.example/';
+const POSSE_KID = POSSE + '#posse-key-1';
+const id3 = {
+  accounts: [
+    'https://mastodon.social/@posse',
+    { handle:'posse.example', id:'did:plc:ewvi7nxzyoun6zhxrhs64oiz', proof:'atproto-handle' }
+  ],
+  keys:[ {crv:'Ed25519', iat:1739577600, kid:'posse-key-1', kty:'OKP', x:kPosse.x} ],
+  name:'POSSE Identity',
+  seq:1, updated:1739577600, url:POSSE
+};
+id3._sig = sign(id3, kPosse.priv, POSSE_KID);
+console.log('== D.8 identity with accounts (full published canonical bytes) ==');
+console.log(' ', canon(id3));
+console.log();
+embed('D.8 accounts identity bytes', canon(id3), 'spec');
+
 // ---- self-verify everything ----
 function verify(obj, kid, xPub){
   const {_sig, _recovery_sig, ...rest} = obj;
@@ -249,6 +270,10 @@ const checks = [
   ['D.6 pins',        verify(pins, READER_KID, kReader.x)
                         && pins.pins[0].hash===id1Hash && pins.pins[1].hash===manifestHash1],
   ['D.7 follows',     verify(follows, READER_KID, kReader.x)],
+  // accounts carries no authority: verification must succeed with the field treated as opaque,
+  // and both entry forms (string, object) must be present in the signed bytes.
+  ['D.8 accounts id', verify(id3, POSSE_KID, kPosse.x)
+                        && typeof id3.accounts[0]==='string' && typeof id3.accounts[1]==='object'],
 ];
 
 console.log('SELF-VERIFY:');

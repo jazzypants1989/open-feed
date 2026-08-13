@@ -464,13 +464,13 @@ For inbox-delivered items, apply the revocation check against **receipt time** (
 
 ## Migration and Recovery
 
-Migration and recovery are **one operation** — *this identity continues over there* — differing only in which key attests (§3.4). You establish the new identity with a `predecessor` link, and then either the old side publishes a matching `successor` (a cross-signature verifiable against its pinned chain), or, if the old domain is gone, the new document carries a `_recovery_sig` by a **recovery key** committed in a pinned ancestor. Either way the chained identity document *is* the attestation; there is no separate claim document, and a one-sided link with no recovery co-signature is not a migration.
+Migration and recovery are **one operation** — *this identity continues over there* — differing only in which key attests (§3.4). You establish the new identity with a `predecessor` link, and then either the old side publishes a matching `successor` (a cross-signature verifiable against its pinned chain), or, if the old domain is gone, the new document carries `_recovery_sig`, co-signatures by **recovery keys** committed in a pinned ancestor, meeting the `recovery_threshold` that ancestor set. Either way the chained identity document *is* the attestation; there is no separate claim document, and a one-sided link with no recovery co-signature is not a migration.
 
 Your back catalog comes with you **byte-verbatim** — you do not re-sign it. Previously-published items carry the old feed's URL in their signed `_feed_url`, and rewriting that would change the bytes of everything you ever published, invalidating every hash any consumer's manifest pin or any peer's published pin already holds. A wholesale rewrite of your own past is the exact pattern the compare rule exists to flag, and exit shouldn't require producing one. So the verified migration carries the binding instead: republish the same bytes at the new feed, commit them in the new manifest, and a consumer who has verified the migration treats an item whose `_feed_url` names a predecessor feed as canonical there (§3.4, §7.5). Because nothing is re-signed, "an id belongs to one feed forever" stays true and no longer needs a migration exception carved out of it — what moves is where the unaltered bytes are served.
 
 The same equivalence covers the other loose end: replies you already received point at the old feed URL inside *other people's* signed items, which nobody can re-sign, so consumers treat predecessor and successor targets as the same thing once the migration verifies (§3.4, §10.2). Without that, exercising your exit would make every inbound reply start bouncing.
 
-**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). The `pins` convention (§16) is how a family propagates and cross-checks a recovery claim.
+**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). Because one key in one place is one thing an adversary who shares your house can find, an identity can commit several and require two of them — `recovery_threshold`, with `_recovery_sig` carrying that many co-signatures (§4.5). It is not secret sharing and adds no new signature scheme: each holder has an ordinary key, and the threshold is read from the pinned ancestor that committed them, never from the document claiming recovery. The `pins` convention (§16) is how a family propagates and cross-checks a recovery claim.
 
 The part that turns this from a domain-loss feature into an **exit** is who generated the key. A recovery key the hub generated and handed you is no check on the hub, so a Level 3 host must generate it on your device and never receive it — and must show you your genesis `(seq, hash)` and the key's fingerprint at signup so you can compare them out of band with someone else. Otherwise the hub can honor the letter of the rule and serve everyone else a different genesis document.
 
@@ -497,7 +497,7 @@ Extension fields on any JSON object MUST be prefixed with `_`, and implementatio
 | `_emoji`           | Emoji reaction, on a `like` relation entry           |
 | `_sha256`          | SHA-256 hash of an attachment's bytes (base64url)    |
 | `_unverified`      | Marks bridged/observed content not natively signed (§7.5) |
-| `_recovery_sig`    | Recovery co-signature on a chain version (§5.5)      |
+| `_recovery_sig`    | Recovery co-signatures on a chain version (§5.5)     |
 
 ### Custom relation types
 
@@ -586,9 +586,23 @@ Before any of the comparisons below, the boring answer: **your feed is a JSON Fe
 
 Those last two matter more than they look, because **existing bridges already eat them.** A site serving a discoverable Atom feed plus an h-card can be bridged into the fediverse by a third-party service like [Bridgy Fed](https://fed.brid.gy/) — no gateway to run, no bridge spec to implement, nothing in this repository required. It even represents you as `@yourdomain.com`, domain-bound, which is what your Open Feed identity URL already is, so there's no mapping to invent.
 
-One more static file extends the same idea to everything that speaks DIDs. Your identity URL maps mechanically to a `did:web` identifier (`https://pence.family/~mom/` → `did:web:pence.family:~mom`, resolving to `did.json` alongside your identity document), and serving a DID document there that carries the same Ed25519 keys makes your key resolvable by atproto tooling, DIF tooling, and verifiable-credential verifiers (Appendix B). No signature crosses in either direction — Open Feed signs the JWS signing input directly, the DID ecosystem's Ed25519 suites sign other bytes — but the *key* does, which is the whole of what's shareable. Keep it in step with `keys`, or you're advertising a revoked key the identity chain already retired.
+One more static file gives machine legibility to DID ecosystems — with a scope worth stating precisely. Your identity URL maps mechanically to a `did:web` identifier, and serving a DID document carrying the same Ed25519 keys makes the key resolvable by DIF tooling and verifiable-credential verifiers (Appendix B.1). It does **not** reach atproto: atproto accepts hostname-level `did:web` only (`did:web:mom.pence.family` is valid; `did:web:pence.family:~mom` is not), and its signing curves are P-256 and K-256, so the Ed25519 key never crosses. No signature crosses in either direction regardless. The practical Bluesky seam is the **domain handle**: `mom.pence.family` as a Bluesky handle, bound by a DNS TXT record or a `/.well-known/atproto-did` file to an ordinary Bluesky-hosted account — no PDS, no DID document needed (Appendix B.1). Handles are domain-scoped with no path form, which is why the reference deployment issues identities at subdomains. And keep any DID document in step with `keys`, or you're advertising a revoked key the identity chain already retired.
 
 The trade is the honest one: content reaching another network this way arrives **unsigned and with no completeness proof** — it's a copy (§7.5). But that's the same trade a purpose-built gateway makes, at none of the cost. Exhaust this before building a bridge (above).
+
+### The POSSE route: your account, your tooling, no middleman
+
+There are two ways into networks like Mastodon and Bluesky, and they are rivals, not layers — pick one per network, or you get two presences with a split reply graph. The **zero-effort tier** is the Bridgy Fed route above: nothing to build, no silo account, a bridge operator in the middle. The **recommended tier**, for anyone willing to hold silo accounts, is **POSSE through a syndication gateway** (spec Appendix E): publish on your own site, then your own tooling — holding your own OAuth token — posts the copy to your own Mastodon or Bluesky account and conveys replies back to your inbox.
+
+The pitch, precisely: *the silo copy is admitted to be a copy (§7.5), and no intermediary is added beyond the silos POSSE already accepts.* Every POSSE setup in wide use today routes through a bridge operator; this one doesn't. The silos themselves are still trusted — for the copy's availability, for the account, and for the honesty of the notifications API your backfeed polls.
+
+What the protocol contributes, none of it requiring anything from Mastodon or Bluesky:
+
+- **A signed claim that the account is yours** — the `accounts` array in your identity document (spec Appendix B.2). Unlike an HTML `rel="me"`, it can't be varied per reader without forking your chain, and removing it is a dated, signed revocation every pinned reader observes. This is where Open Feed picks up what IndieWeb leaves on the table: IndieWeb's interop links are unsigned HTML assertions a host can vary per reader with no evidence and revise with no record. The honest cost — a permanent, irreversible disclosure of your cross-platform identity graph — is stated at the field, and for some people the deletable HTML link is genuinely the better tool.
+- **A safe channel for responses to return** — backfeed is *delivery, not ingest* (spec Appendix E): foreign replies arrive in your inbox as `_unverified` items, never enter any manifested feed, and may render on your entry page's own revocable HTML surface, which can honor a later foreign deletion the way a permanent signed artifact never could.
+- **A backlink discipline** — each syndicated copy links to the entry's permalink: the routing key for backfeed, and the item-level half of the foreign-attestation rule (spec Appendix B.2).
+
+For a static site with no inbox it's simpler still: your own client polls your own silo notifications and renders what it finds locally. No gateway identity, no delivery, no protocol machinery — the delivery rule exists for third-party gateways (a family hub bridging for its members), not for you.
 
 ### vs ActivityPub
 
@@ -606,7 +620,7 @@ ActivityPub is comprehensive but complex: JSON-LD, HTTP Signatures, and a large 
 
 atproto is technically decentralized but practically Bluesky-centric today, with DIDs, repos, lexicons, and significant infrastructure. Its signed repo gives it the same anti-omission guarantee Open Feed gets from the manifest, and its DID indirection buys real account portability across hosts.
 
-The portability gap is narrower than it looks, and worth stating precisely. `did:plc` is a chained log of key-rotation operations with recovery keys — structurally the same thing as Open Feed's identity chain (§5) plus recovery keys (§4.5). The difference isn't sophistication, it's *where the log lives*: Bluesky operates it at a neutral third party, so losing your domain doesn't orphan you. Open Feed keeps the log at your own URL and pays for that with the domain-loss risk, mitigated but not fixed by recovery keys and pins. `did:web`, the DID method that isn't centrally operated, is domain-bound exactly as an Open Feed identity URL is — which is why it's both the clean identity seam for a bridge and the cheap interop file described above. A full content bridge is still a heavy mirror PDS with no transparent path.
+The portability gap is narrower than it looks, and worth stating precisely. `did:plc` is a chained log of key-rotation operations with recovery keys — structurally the same thing as Open Feed's identity chain (§5) plus recovery keys (§4.5). The difference isn't sophistication, it's *where the log lives*: Bluesky operates it at a neutral third party, so losing your domain doesn't orphan you. Open Feed keeps the log at your own URL and pays for that with the domain-loss risk, mitigated but not fixed by recovery keys and pins. `did:web`, the DID method that isn't centrally operated, is domain-bound exactly as an Open Feed identity URL is — but it serves only the self-hosted-PDS minority, and only at hostname level; the identity seam for an ordinary Bluesky account is the **domain handle** (Appendix B.1). A full content bridge is still a heavy mirror PDS with no transparent path; the lightweight route is POSSE (below).
 
 ### vs Nostr
 
@@ -667,7 +681,7 @@ A: So your host can't lie about *what you published*. Without it, a host could q
 
 **Q: Is this compatible with Mastodon?**
 
-A: Not directly. A stateful ActivityPub gateway could bridge them, but that's out of the core (Appendix E). Bridges are trusted intermediaries, never transparent — no bridge can hold your Open Feed key.
+A: Not natively — but two routes work today, requiring nothing from Mastodon. Zero-effort: an Atom mirror plus h-card, bridged by Bridgy Fed as `@yourdomain.com`. Recommended: POSSE — your own Mastodon account, posted to by your own tooling, with replies delivered back to your inbox (the syndication gateway, Appendix E). Pick one per network; running both splits your reply graph. A full ActivityPub mirroring gateway remains possible and remains a trusted intermediary — no bridge can hold your Open Feed key.
 
 **Q: How do I handle private content?**
 
