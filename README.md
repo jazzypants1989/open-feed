@@ -232,7 +232,7 @@ Verifiers split at the **last** `#`: the left side is the identity URL (fetch `{
 
 Notes:
 
-- Each item carries its own single-entry `authors` array (the signer) and `_feed_url` **inside the signed bytes**. These cryptographically bind the post to its author and its feed. Feed-level `authors` are *not* signed and carry no authority — clients MUST attribute solely to the item's own `authors` entry (§6.6).
+- Each item carries its own single-entry `authors` array (the signer) and `_feed_url` **inside the signed bytes**. These cryptographically bind the post to its author and its feed. Feed-level `authors` are *not* signed and carry no authority — attribution comes solely from the item's own `authors` entry, and the *displayed* name from the author's pinned identity document, falling back to the item's own `name` where a client hasn't fetched that document (§6.6).
 - `_feed_url` drives the canonical/copy rule (§7.5): an item is *canonical* only in the feed its `_feed_url` names. The same signed bytes seen elsewhere (an aggregate feed, a cache, a bridge) are a verifiable *copy* but carry no liveness — to know whether a copy is still live, consult the manifest at its `_feed_url`.
 - The signature is a detached JWS with unencoded payload (RFC 7797): header carries `"alg":"EdDSA","b64":false,"crit":["b64"]` plus the `kid`, and the signature covers header **and** payload.
 
@@ -259,7 +259,7 @@ The manifest is the headline feature. It's a separately-signed, chained document
 - `items` maps each live item id to `[version, hash]` — the item's current `_version`, and the SHA-256 of its exact published bytes. `deleted` records tombstoned id's the same way. The hash is what makes the guarantee hold against a hub that holds your key: with a version-only manifest, a key-holding host could sign one `(id, version)` as two different things for two readers and produce identical manifests, so the equivocation would be undetectable in principle. It costs about 48 bytes per item (§9).
 - A consumer pins the manifest at its `(seq, hash)` and walks `prev` back to that pin on every later fetch — the *same* pin-and-walk discipline as the identity chain (§9.1).
 - Invariants (§9.3): an id, once in `items`, must appear in every later manifest (in `items` or `deleted`). Content can't silently vanish; removal requires a signed tombstone.
-- Checkpointing (§9.3) bounds growth for anyone who needs it; a family-scale identity may never bother.
+- Growth is bounded on two independent axes (§9.2): advance the manifest on a cadence rather than once per post, and rotate to a fresh feed when the live set gets large. Past roughly 100 KB of manifest, also emit skip links (§9.1.1) — without them a reader who stops checking for a few weeks can no longer reconnect their pin within the budget a verifier is allowed to spend.
 
 Together, the manifest and `_feed_url` close both gaps: the manifest proves **presence** (a host can't drop your content), and `_feed_url` proves **exclusivity** (a host can't inject or resurrect your content by copying it into its own feed). As a bonus, a follower can serve its cached copy of your feed when your host is down, and it still verifies.
 
@@ -469,6 +469,8 @@ The part that turns this from a domain-loss feature into an **exit** is who gene
 
 Rotation (§4.3): publish a new chain version adding the new key, start signing with it, optionally set `revoked_at` on the old key. Keep rotated-out keys listed ≥30 days so old content still verifies; a key MUST stay listed in any chain version it signed.
 
+Listing more than one *active* signing key is ordinary, and it is how you survive a lost device: any listed key can advance the chain, so you sign the next version from your other device and revoke the lost one there (§4.3). Nothing escalates to the recovery key, and you don't have to move.
+
 Compromise: rotate immediately, set `revoked_at` to the earliest suspected compromise time, and co-sign your next chain version with your recovery key (`_recovery_sig`, §5.5) so anyone who sees the thief's competing chain can tell which branch is really you. Because timestamps are self-reported, a thief can backdate forged content past a `revoked_at` — so revocation mainly limits damage from *honest* rotation, and receivers apply the revocation check against receipt/first-observed time, not the sender's claim (§4.4).
 
 ---
@@ -575,7 +577,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify 
 
 ### Hub Trust
 
-**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier; the sketched key-delegation extension (a planned delegation extension) would let a hub hold only a revocable delegated key while your root key stays offline.
+**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier, and delegated keys (§4.6) go further: the hub holds only a revocable delegated key that can sign content but can never advance your identity chain, while your root key stays on your own device. That is the custody architecture §12 recommends.
 
 ### Legal and Deletion
 
@@ -662,7 +664,7 @@ Nostr and Open Feed are both plain-JSON and Ed25519-signed, and both let you sel
 
 - **Identity.** Nostr identity is a raw `npub` public key; Open Feed identity is a human-readable URL you control, which also gives you rotation and recovery a bare keypair can't.
 - **Completeness.** A Nostr relay can silently withhold your notes and you can't prove it; Open Feed's signed, chained manifest makes omission and rollback detectable. This is the core distinction.
-- **Delegation.** Nostr's NIP-26 delegation foundered partly for lack of an authoritative revocation substrate; Open Feed's pinned chain *is* exactly that substrate (a planned delegation extension).
+- **Delegation.** Nostr's NIP-26 delegation foundered partly for lack of an authoritative revocation substrate; Open Feed's pinned chain *is* exactly that substrate, which is what makes §4.6's delegated keys safe here and NIP-26's unsafe there.
 
 The trade runs the other way too, and it's the sharpest thing Nostr has on us: **relay redundancy**. A Nostr note lives on many relays, so no single operator can withhold everything. An Open Feed identity is served from one origin, and the manifest makes withholding *detectable*, not *impossible* — different property, and the weaker one when your host simply goes dark. The copy rule (§7.5) means a follower's cached copy of your feed still verifies and can be served on your behalf, which is the ingredient for redundancy; what isn't specified is how anyone finds that mirror.
 

@@ -416,7 +416,7 @@ To comment on, like, or reply to another identity's item, a hub user's action pr
 2. Sign it with the hub's delegated key (spec §4.6; invisible to the user)
 3. Discover the recipient's inbox from their `openfeed.json` (`inbox` field)
 4. POST the signed item verbatim; retry with backoff on 5xx/timeout
-5. For relations meant to be seen (`reply`, `repost`, `quote`, `mention`), also publish the same item in the sender's own feed so it's discoverable by polling. Likes stop at the inbox — no `_feed_url`, no feed, no manifest (spec §8)
+5. Publish the same item in the sender's own feed **only where its target is public**. On a `public` entry, relations meant to be seen (`reply`, `repost`, `quote`, `mention`) are published normally, so polling discovers them. On `family` — that is, encrypted — content they are **delivered only**: `_rel[].to` stays cleartext even when the content does not (spec §11.4), so publishing a family reply writes the family's reply graph into a world-readable file. That is exactly what the delivered column exists to prevent (spec §15.4) and exactly what "Never republish what arrives here" above is protecting; publishing your own reply undoes it just as completely as republishing someone else's. Likes stop at the inbox in every case — no `_feed_url`, no feed, no manifest (spec §8)
 
 ### Reactions (inbox)
 
@@ -541,7 +541,7 @@ Day to day this is invisible: publishing an entry, batching a manifest, propagat
 
 What delegation does **not** buy, stated plainly so the UI never overstates it: a hub holding a delegated key can impersonate a member's *content* until the member revokes the delegation, and revocation is itself a root-signed chain version, so the member must still be able to reach their root key. And where this hub also ships the client (it does), every client-side guarantee is bounded by that client — the out-of-band genesis comparison at onboarding step 3b is the one check that survives it (spec §13.2, delegated-custodian tier).
 
-**Root-key loss** falls back to the recovery key: the member re-establishes at a new URL carrying `predecessor` with a recovery co-signature (spec §3.4, §4.5), which is the same path as domain loss and already on the Phase 1 list. Same-URL root replacement is deliberately not supported — a hub that could re-key a member's identity in place is the custodian this architecture exists to eliminate.
+**Root-key loss is better prevented than recovered.** A member MAY hold more than one active root `sig` key — phone and laptop — and any of them can advance the chain (spec §4.3), so a lost device is an ordinary rotation signed from the other one: no card to find, no relocation, nothing escalated. Offer the second key at onboarding, where the client is already generating keys and it costs one more step. Only where no second key exists does loss fall back to the recovery key: the member re-establishes at a new URL carrying `predecessor` with a recovery co-signature (spec §3.4, §4.5), which is the same path as domain loss and already on the Phase 1 list. Same-URL root replacement is deliberately not supported — a hub that could re-key a member's identity in place is the custodian this architecture exists to eliminate.
 
 **Where a deployment cannot meet this** — a purely server-side signup with no client capable of generating or holding keys — spec §12 requires it to *disclose* that the operator can rewrite the member's identity state, not merely impersonate their content. That is a materially different sentence from the email trust model, and it must be shown to the member, not buried.
 
@@ -626,6 +626,8 @@ Signing an item is not enough — a host could silently drop or roll back your c
 - `deleted`: map of tombstoned `id` → `[version, hash]` of its tombstone
 - `seq`/`prev`/`_sig`: the same pin-and-walk chain discipline as the identity document (spec §5), applied to content. Publishing advances the **manifest** chain; the identity chain stays short (it only versions keys/profile/endpoints). Prior versions are served at derived URLs (spec §5.4) — no history-index file to write
 - The identity document commits to the manifest by **URL**, not by hash, so ordinary publishing never re-signs `openfeed.json`.
+
+Emit `_skip` (spec §9.1.1) once a member's manifest passes ~100 KB. It reads like a tuning knob and is not: without it, a family member who stops reading for a few weeks cannot reconnect their pin inside spec §13.4's fetch budget, and a conforming verifier must then treat the chain as unverifiable (spec §5.3). The hub would be stranding its own readers by omission. Emit the current version at its derived URL too (`manifest/{seq}.json` written *before* `manifest.json`, spec §5.4), so a reader whose tip disagrees with its pin has a retained copy to settle it against.
 
 Consumers pin the manifest at its `(seq, hash)` on first observation and walk `prev` to the pin on every later fetch (spec §9.1). Together with `_feed_url` (spec §7.5), the manifest closes both omission (a host can't drop your content) and injection (a host can't resurrect or inject content by copying it into its own feed).
 
@@ -985,7 +987,7 @@ Start with in-app notifications. Add email/push later.
 
 A member must be able to leave without the operator's cooperation. This is a requirement, not a feature, and it is three things that only work together (spec §14):
 
-1. **Export.** `GET /api/export` returns the member's signed export bundle (spec §14): identity document and every retained prior version, feeds, manifests and their prior versions, delivered and received items, and attachment bytes — all **byte-verbatim as published**, so the hashes still chain. Available on demand, without admin approval, not rate-limited into uselessness.
+1. **Export.** `GET /api/export` returns the member's signed export bundle (spec §14): identity document and every retained prior version, feeds, manifests and their prior versions, delivered and received items, and attachment bytes — all **byte-verbatim as published**, so the hashes still chain. Available on demand, without admin approval, not rate-limited into uselessness. A decade of photographs will not fit in one streamable JSON document, so serve it as spec §14's archive container — `openfeed-export.json` plus the attachment bytes as files named by their `_sha256` — rather than degrading to a list of URLs pointing back at the hub the member is leaving.
 
    **It MUST also carry the unpublished half** — every `private` and `unlisted` entry, every draft, and the member's AI conversations — in spec §14's `unpublished` slot. This is the part most likely to be skipped and the part that matters most here: the published feed is, by construction, the content the member already gave away. A journaling app whose export returns the public journal and withholds the private one has built a backup, not an exit. Sign private entries at rest with the ordinary construction and no `_feed_url` (spec §6) so they land in the bundle export-native rather than as a loose dump.
 2. **Re-establish elsewhere.** The member stands up a new identity at a URL they control, carrying `predecessor`, and co-signs it with the recovery key from onboarding step 3a — which this hub never held and therefore cannot forge a competing branch with.
@@ -1048,7 +1050,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 ### Phase 4: Polish
 
 - [ ] Reactions polish (emoji via `_emoji` on `like` entries; activity feed only if reposts are published)
-- [ ] Key rotation + revocation via identity-chain versions (spec §4.3, §4.4, §5.2); recovery-key generation confirmed at onboarding (spec §4.5); migration/recovery flow (spec §3.4)
+- [ ] Key rotation + revocation UI via identity-chain versions (spec §4.3, §4.4, §5.2), including revoking the hub's delegation from the member's own device; migration/recovery flow (spec §3.4). Recovery-key generation is deliberately **not** listed here — it ships in Phase 1 with the other custody obligations, and a line item this far down the page is precisely how it gets deferred
 - [ ] Notifications (in-app)
 - [ ] Photo uploads with thumbnails (+ `_sha256` attachment integrity, spec §7.4)
 - [ ] Profile customization (advances the identity chain)
@@ -1290,6 +1292,7 @@ This is a cache, not source of truth. Re-fetch from their feed if stale — but 
 | Feed page | 10 MB / 1000 items |
 | Inbox body | 100 KB |
 | Chain versions walked per update | 1000 |
+| Total history bytes fetched per chain update | Greater of 10 MB and 20× the current version's size, counted decoded (spec §13.4). This is the cap that actually binds a returning reader — see the skip-link note under "The manifest" |
 | Concurrent fetches per origin | 10 |
 | Entry content | 50 KB |
 | Photo upload | 10 MB |
