@@ -3,7 +3,7 @@
 // There is no second construction anywhere in this protocol, including its optional layers.
 
 import crypto from 'node:crypto';
-import { canonicalBytes } from './canonical.js';
+import { canonicalBytes, canonicalize, parseIJSON } from './canonical.js';
 
 export class VerifyError extends Error {
   constructor(message) {
@@ -58,6 +58,9 @@ export function buildHeader(kid) {
 }
 
 function enforceHeader(header) {
+  if (!header || typeof header !== 'object' || Array.isArray(header)) {
+    throw new VerifyError('signature header is not a JSON object');
+  }
   if (header.alg !== 'EdDSA') throw new VerifyError(`unrecognized alg: ${header.alg}`);
   if (header.b64 !== false) throw new VerifyError('b64 must be false');
   if (!Array.isArray(header.crit) || header.crit.length !== 1 || header.crit[0] !== 'b64') {
@@ -78,9 +81,14 @@ export function parseDetachedSig(sig) {
   const [headerB64, , signatureB64] = parts;
   let header;
   try {
-    header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
+    // The strict parser, not `JSON.parse`. The protected header is signed bytes like any other
+    // document, so §6.3's duplicate-member rule governs it: `{"kid":"A","kid":"B"}` resolves
+    // last-wins under `JSON.parse`, first-wins under some parsers, and rejected under this one.
+    // Two verifiers disagreeing about which key a signature names is the whole of signature
+    // confusion, and the header is the one place in this codebase the strict parser was skipped.
+    header = parseIJSON(Buffer.from(headerB64, 'base64url').toString('utf8'));
   } catch {
-    throw new VerifyError('signature header is not valid JSON');
+    throw new VerifyError('signature header is not valid I-JSON');
   }
   return { headerB64, header: enforceHeader(header), signature: Buffer.from(signatureB64, 'base64url') };
 }

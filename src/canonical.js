@@ -66,6 +66,12 @@ export function canonicalize(value, path = '') {
     // string comparison in Array.prototype.sort already does.
     const keys = Object.keys(value).sort();
     const parts = keys.map((k) => {
+      // The producer half of the parser's rejection below. A document can acquire an own
+      // `__proto__` member without going through this parser — `JSON.parse` creates one — and
+      // serializing it would emit bytes this implementation cannot read back, while any copy
+      // loop that rebuilds the object with `out[k] = v` would silently drop it. Refusing in
+      // both directions keeps one answer instead of two that disagree.
+      if (k === '__proto__') throw new CanonicalError(`reserved member name "__proto__"${where}`);
       const v = value[k];
       if (v === undefined) throw new CanonicalError(`undefined value at key ${JSON.stringify(k)}${where}`);
       return serializeString(k, where) + ':' + canonicalize(v, path ? `${path}.${k}` : k);
@@ -79,6 +85,37 @@ export function canonicalize(value, path = '') {
 /** Canonical bytes, the form everything in this protocol is signed and hashed over. */
 export function canonicalBytes(value) {
   return Buffer.from(canonicalize(value), 'utf8');
+}
+
+/**
+ * A chained document MUST arrive as its own canonicalization (§6.3).
+ *
+ * §5.1 says every hash in this protocol is over "full published canonical bytes", and §5.4
+ * requires retained versions served byte-identically — but a consumer that re-canonicalizes
+ * whatever it parsed never checks either. That leniency is not neutral: it is the difference
+ * between a pin committing *the bytes this consumer was served* and a pin committing a
+ * normalization of them, and every parser divergence between two implementations lives in the
+ * gap. One byte compare closes it, and it costs a comparison a consumer has already paid for.
+ *
+ * Items are the deliberate exception, and cannot be otherwise: an item is a member of an array
+ * inside a feed document and has no byte range of its own, so its "published bytes" are
+ * necessarily this function's *output* rather than something to compare against. That is why
+ * parser equivalence is load-bearing rather than a tidiness argument (§6.3).
+ */
+export function assertCanonicalBytes(doc, bytes, where = 'document') {
+  const expected = canonicalBytes(doc);
+  const served = Buffer.from(bytes);
+  if (!served.equals(expected)) {
+    let at = 0;
+    while (at < served.length && at < expected.length && served[at] === expected[at]) at++;
+    throw new CanonicalError(
+      `${where} is not served as canonical JSON (§6.3): ${served.length} bytes served, ` +
+        `${expected.length} canonical, first difference at byte ${at} ` +
+        `(${JSON.stringify(served.subarray(at, at + 24).toString('utf8'))} vs ` +
+        `${JSON.stringify(expected.subarray(at, at + 24).toString('utf8'))})`,
+    );
+  }
+  return expected;
 }
 
 // ---- I-JSON parsing (RFC 7493) ----
@@ -135,6 +172,18 @@ class Parser {
       const key = this.parseString();
       // The rule this whole parser exists for (spec §6.3, RFC 7493).
       if (seen.has(key)) throw this.error(`duplicate member name ${JSON.stringify(key)}`);
+      // §6.3's second rejection, and it is a security rule rather than a taste one. In
+      // JavaScript `out[key] = v` for the member name `__proto__` invokes the prototype setter
+      // instead of creating a member: the value vanishes from `Object.keys` and therefore from
+      // `canonicalize`, while every property read downstream still sees it. Append
+      // `"__proto__":{"_deleted":true}` to somebody else's signed item and the signature, the
+      // manifest hash, and the pin all still check out while the item reads as tombstoned.
+      // `JSON.parse` disagrees — it defines an own property — so the same source text
+      // canonicalizes two ways in two conforming verifiers, which is exactly the signature
+      // confusion I-JSON strictness exists to close, arriving through a member name RFC 7493
+      // says nothing about. Rejecting is the fail-closed answer and needs no care anywhere
+      // else: a name with no legitimate use here cannot be mishandled if it never parses.
+      if (key === '__proto__') throw this.error('reserved member name "__proto__"');
       seen.add(key);
       this.skipWs();
       this.expect(':');

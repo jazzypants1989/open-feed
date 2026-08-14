@@ -38,6 +38,7 @@ import {
   LAG_CEILING_SECONDS,
 } from './manifest.js';
 import { verifyDocument, normalizeIdentityUrl, VerifyError } from './jws.js';
+import { MigrationStore, CompetingMigrations } from './migration.js';
 
 export class ReaderError extends Error {
   constructor(message, { url, code = 'unreadable' } = {}) {
@@ -127,6 +128,7 @@ export function createReader({
   fetcher = createFetcher(),
   pins = new PinStore(),
   observations = new ObservationStore(),
+  migrations = new MigrationStore({ now: () => now() }),
   now = () => Math.floor(Date.now() / 1000),
   lagCeiling = LAG_CEILING_SECONDS,
   useSkipLinks = true,
@@ -179,6 +181,19 @@ export function createReader({
    * impeaches a chain's future, not the bytes already checked against it.
    */
   async function walkAndPin({ url, tip, kind, policy, bytes, validate }) {
+    // §3.4: a verified migration **retires** the predecessor's chains. The pin is kept as
+    // history — it is what a peer's older pin is checked against (§5.3.1, §16.1) and what a
+    // recovery co-signature resolves in (§4.5) — but it stops advancing, and publication state
+    // stops being read out of it. Nothing else implies this: §5.3.1 is keyed on a document URL,
+    // so the departed-from host continuing to advance its chain is not equivocation, and a
+    // consumer that kept walking would inherit whatever that host says next — including
+    // tombstones over a back catalog it no longer owns.
+    if (migrations.retiredChainUrls().has(url)) {
+      throw new ReaderError(
+        `${url} belongs to an identity that has migrated; its chain is retired and no longer advances (§3.4)`,
+        { url, code: 'retired' },
+      );
+    }
     if (pins.isFrozen(url)) {
       throw new EquivocationError(`${url} is frozen by an unresolved divergence; a human must re-pin (§5.3.1)`, {
         url, seq: pins.frozen.get(url).seq, held: pins.frozen.get(url).held, seen: pins.frozen.get(url).seen,
@@ -211,7 +226,7 @@ export function createReader({
    * fetching only the claimed author's conventional document, never an arbitrary URL out of a
    * `kid`, and the path convention makes that structural rather than a check anyone can forget.
    */
-  async function readIdentity(rawIdentity) {
+  async function readIdentity(rawIdentity, { verifyMigration = true } = {}) {
     const identity = normalizeIdentityUrl(rawIdentity);
     const url = identityDocumentUrl(identity);
     const fetched = await laddered(url, () =>
@@ -223,6 +238,10 @@ export function createReader({
       policy: identityChainPolicy,
       bytes: fetched.bytes.length,
     });
+    // Recorded only after the walk: the chains this identity owns and the version itself are
+    // what §7.5's exception and §4.5's co-signature resolve against later, so an unverified
+    // document has no business in that record.
+    migrations.noteIdentity(fetched.doc);
     return {
       identity,
       url,
@@ -231,7 +250,91 @@ export function createReader({
       pin: pins.pin(url),
       tofu: walk.tofu,
       hops: walk.hops,
+      migration: verifyMigration ? await reconcileMigration(identity, fetched.doc) : null,
     };
+  }
+
+  /**
+   * §3.4, from whichever end the consumer arrived at.
+   *
+   * A consumer meets a migration two ways and both must work, because the second is the one an
+   * uncooperative departure produces. Reading the **successor** first, it finds `predecessor`
+   * and has to reach backwards for the chain the co-signature resolves in — which it can only
+   * do from a record it kept before the move. Reading the **predecessor** first, it finds
+   * `successor` and follows forward, which needs a fetch it can make.
+   *
+   * Neither direction is attempted without something already trusted at the far end: a
+   * successor's claim is checked against the predecessor version this consumer verified, never
+   * against a fresh fetch of a document the claim itself points at.
+   */
+  async function reconcileMigration(identity, document) {
+    try {
+      if (typeof document.predecessor === 'string') {
+        const predecessor = normalizeIdentityUrl(document.predecessor);
+        // Only for a predecessor this consumer already tracks. A `predecessor` field is an
+        // unverified claim by a document that may belong to anyone, so dereferencing an unknown
+        // one would make every identity read a fetch-amplification oracle — the same rule §16.1
+        // states for pins, for the same reason. A stranger's claim about a stranger is simply
+        // not checkable, and §3.4 already says such a consumer sees only an unverified claim.
+        if (!migrations.pinnedAncestorFor(predecessor)) {
+          return {
+            direction: 'from-successor',
+            predecessor,
+            verified: false,
+            via: null,
+            reason: 'no verified version of the predecessor chain to resolve the recovery key against (§4.5)',
+          };
+        }
+        // The cooperative path needs the predecessor's *current* version — the `successor` link
+        // was published after this consumer last read it, so the retained copy cannot carry it.
+        // The recovery path needs the retained one, because in the domain-loss case there is
+        // nothing left at the other end to fetch. So: try forward, fall back to what is held.
+        let predecessorDocument = migrations.pinnedAncestorFor(predecessor);
+        if (!migrations.isRetired(predecessor)) {
+          try {
+            predecessorDocument = (await readIdentity(predecessor, { verifyMigration: false })).document;
+          } catch {
+            // Unreachable, or its chain no longer connects. Says nothing about the claim —
+            // §4.5 is explicit that a host declining to participate is not grounds for
+            // rejection — so the recovery path takes over with the version already verified.
+          }
+        }
+        const verdict = migrations.record({
+          predecessorDocument,
+          successorDocument: document,
+          // §4.5's "not a free choice": the most recent version of the predecessor chain this
+          // consumer has *verified*, which the refetch above may just have advanced.
+          pinnedAncestor: migrations.pinnedAncestorFor(predecessor),
+        });
+        return { direction: 'from-successor', predecessor, ...verdict };
+      }
+      if (typeof document.successor === 'string') {
+        const successor = normalizeIdentityUrl(document.successor);
+        // Reading forward costs one fetch, and it is a fetch of a fixed-path document at a URL
+        // named inside signed bytes this consumer just verified (§13.9). `verifyMigration:
+        // false` stops the pair from chasing each other back and forth.
+        const onward = await readIdentity(successor, { verifyMigration: false });
+        const verdict = migrations.record({
+          predecessorDocument: document,
+          successorDocument: onward.document,
+          pinnedAncestor: migrations.pinnedAncestorFor(identity),
+        });
+        return { direction: 'from-predecessor', successor, ...verdict };
+      }
+    } catch (e) {
+      if (e instanceof CompetingMigrations) {
+        // §3.4: unresolvable, and a consumer MUST NOT follow either without out-of-band
+        // confirmation. Surfaced, never guessed at — the same shape as §5.5's unresolvable fork.
+        return { direction: 'contested', verified: false, via: null, reason: e.message, claims: e.claims };
+      }
+      if (e instanceof ReaderError || e instanceof FetchError) {
+        // The successor is unreachable. That says nothing about the claim, so it stays
+        // unverified rather than becoming a finding against either party.
+        return { direction: 'from-predecessor', verified: false, via: null, reason: e.message };
+      }
+      throw e;
+    }
+    return null;
   }
 
   /**
@@ -287,47 +390,74 @@ export function createReader({
    * consumer that threw one away would be discarding the ingredient that lets a follower serve
    * a cached feed when its origin is down.
    */
-  async function readFeed(feedUrl, { identityDocument, resolveIdentity, firstSeenHere = new Set() }) {
+  async function readFeed(feedUrl, { identityDocument, resolveIdentity, firstSeenHere = new Set(), owner }) {
     const fetched = await laddered(feedUrl, () => fetcher.fetchDocument(feedUrl, { kind: 'feed' }));
     const feed = fetched.doc;
     if (!Array.isArray(feed?.items)) {
       throw new ReaderError(`${feedUrl} is not a JSON Feed: no items array`, { url: feedUrl, code: 'not_a_feed' });
     }
     const canonicalUrl = normalizeUrlForCompare(feedUrl);
+    // §7.5's exception: "One mismatch is not a copy." Where an item's signed `_feed_url` names
+    // a feed of a **predecessor** identity of the one owning this feed, and the consumer has
+    // verified that migration, the item is canonical here — §3.4 requires a migrated back
+    // catalog to be republished byte-verbatim, so those items keep the old URL forever and
+    // nothing can re-sign them. Without this the reference verifier reads an entire migrated
+    // back catalog as copies, excludes it from the manifest reconciliation, and then reports
+    // every item of it as **withheld**: an accusation of hiding, aimed at the one act the
+    // protocol exists to make possible.
+    const inherited = new Set(
+      [...migrations.predecessorFeedUrls(owner ?? identityDocument.url)]
+        .map((u) => { try { return normalizeUrlForCompare(u); } catch { return null; } })
+        .filter(Boolean),
+    );
 
     const canonical = [];
     const copies = [];
     const rejected = [];
 
     for (const item of feed.items) {
-      const owner = String(item?.authors?.[0]?.url ?? '');
+      const author = String(item?.authors?.[0]?.url ?? '');
       let authorDocument = identityDocument;
-      if (owner && normalizeIdentityUrl(owner) !== normalizeIdentityUrl(identityDocument.url)) {
-        // A multi-author feed (§7.1): every item names its own single author, so the key is
-        // resolved in *that* identity's document, not the feed owner's. Without a resolver the
-        // item is unverifiable rather than invalid — nothing about it is known to be wrong.
-        if (!resolveIdentity) {
-          rejected.push({ item, reason: `authored by ${owner}, whose identity document was not resolved` });
+      if (author && normalizeIdentityUrl(author) !== normalizeIdentityUrl(identityDocument.url)) {
+        // A migrated back catalog is signed by the **predecessor** identity — §3.4 forbids
+        // re-signing it, so `authors[0].url` names the identity that has since moved, and §6.6
+        // resolves the key there. The consumer holds that document from before the move, which
+        // is the only place it can come from once the old domain is gone.
+        const retained = migrations.pinnedAncestorFor(author);
+        if (retained && migrations.equivalent(author, owner ?? identityDocument.url)) {
+          authorDocument = retained;
+        } else if (!resolveIdentity) {
+          // A multi-author feed (§7.1): every item names its own single author, so the key is
+          // resolved in *that* identity's document, not the feed owner's. Without a resolver
+          // the item is unverifiable rather than invalid — nothing about it is known to be wrong.
+          rejected.push({ item, reason: `authored by ${author}, whose identity document was not resolved` });
           continue;
-        }
-        try {
-          authorDocument = (await resolveIdentity(owner)).document;
-        } catch (e) {
-          rejected.push({ item, reason: `could not resolve ${owner}: ${e.message}` });
-          continue;
+        } else {
+          try {
+            authorDocument = (await resolveIdentity(author)).document;
+          } catch (e) {
+            rejected.push({ item, reason: `could not resolve ${author}: ${e.message}` });
+            continue;
+          }
         }
       }
 
-      const isCanonical = typeof item?._feed_url === 'string'
-        && normalizeUrlForCompare(item._feed_url) === canonicalUrl;
+      let declared = null;
+      if (typeof item?._feed_url === 'string') {
+        try { declared = normalizeUrlForCompare(item._feed_url); } catch { declared = null; }
+      }
+      // Three outcomes, not two. `own` is the ordinary test; `predecessor` is §7.5's exception
+      // and is canonical but scoped differently below; `null` is a copy.
+      const via = declared === canonicalUrl ? 'own' : (declared && inherited.has(declared) ? 'predecessor' : null);
 
       // §4.4: check revocation against first-observation time, under two scoping rules that
       // are the whole value of the record. Only items canonical by the **ordinary** `_feed_url`
       // test — one canonical here by §7.5's predecessor exception arrived byte-verbatim from a
-      // migration, so its signing necessarily predates that event. And only ids this consumer
-      // observed on an *earlier* pass: an id first recorded moments ago in this same read is a
-      // consumer with no history, which §4.4 sends back to the self-reported check.
-      const observed = isCanonical && !firstSeenHere.has(item?.id)
+      // migration, so its signing necessarily predates that event and the self-reported check
+      // governs. And only ids this consumer observed on an *earlier* pass: an id first recorded
+      // moments ago in this same read is a consumer with no history, which §4.4 sends back to
+      // the self-reported check.
+      const observed = via === 'own' && !firstSeenHere.has(item?.id)
         ? observations.firstObserved(authorDocument.url, item?.id)
         : null;
 
@@ -337,7 +467,7 @@ export function createReader({
           kind: 'item',
           ...(observed !== null ? { signedAt: observed } : {}),
         });
-        (isCanonical ? canonical : copies).push({ item, info, revocationCheckedAt: observed ?? info.signedAt });
+        (via ? canonical : copies).push({ item, info, via, revocationCheckedAt: observed ?? info.signedAt });
       } catch (e) {
         if (!(e instanceof VerifyError)) throw e;
         rejected.push({ item, reason: e.message });
@@ -354,8 +484,35 @@ export function createReader({
    * manifest's signing key is resolved in it; manifest before items, because the manifest is
    * what an item is judged against and what supplies §4.4's first-observation time.
    */
-  async function read(rawIdentity, { rel = 'primary' } = {}) {
+  async function read(rawIdentity, { rel = 'primary', followMigrations = true, followed = [] } = {}) {
+    // §3.4: "Consumers follow `successor`." Asked *before* the read, because a retired chain is
+    // one this consumer has already stopped advancing — walking it to discover what it already
+    // knows would be reading publication state out of the very chain the rule retires, and the
+    // walk would refuse anyway. Asked of the store rather than of a verdict, because arriving
+    // at the *successor* verifies a migration too and its verdict names a successor — itself.
+    const known = migrations.resolve(rawIdentity);
+    if (followMigrations && known !== normalizeIdentityUrl(rawIdentity)) {
+      if (followed.length >= 8) {
+        throw new ReaderError(`${rawIdentity} migrates through more than 8 hops`, {
+          url: rawIdentity, code: 'migration_loop',
+        });
+      }
+      return read(known, { rel, followMigrations, followed: [...followed, normalizeIdentityUrl(rawIdentity)] });
+    }
+
     const identity = await readIdentity(rawIdentity);
+
+    // The same question again, because *this* read may be what discovered the move: an identity
+    // whose document carries `successor` and whose predecessor half now verifies.
+    const continues = migrations.resolve(identity.identity);
+    if (followMigrations && continues !== identity.identity) {
+      if (followed.length >= 8) {
+        throw new ReaderError(`${identity.identity} migrates through more than 8 hops`, {
+          url: identity.url, code: 'migration_loop',
+        });
+      }
+      return read(continues, { rel, followMigrations, followed: [...followed, identity.identity] });
+    }
     const entries = Array.isArray(identity.document.feeds) ? identity.document.feeds : [];
     const entry = entries.find((f) => (f?.rel ?? 'primary') === rel) ?? entries[0] ?? null;
     if (!entry) {
@@ -371,6 +528,13 @@ export function createReader({
     const feed = await readFeed(entry.url, {
       identityDocument: identity.document,
       firstSeenHere: manifest.firstSeenHere,
+      owner: identity.identity,
+      // §7.1: a feed MAY carry items from multiple authors — a family board — since every item
+      // is independently signed and attributed by its own single-entry `authors`. Without a
+      // resolver every such item is unverifiable, which reads as a defect in an ordinary
+      // arrangement the specification explicitly permits. One fetch per distinct author,
+      // memoized for the read, of that author's own fixed-path document (§13.9).
+      resolveIdentity: memoizeByAuthor((author) => readIdentity(author, { verifyMigration: false })),
     });
 
     // The feed is read to the end or it is not read at all, as far as §9.3's withholding
@@ -402,12 +566,39 @@ export function createReader({
         ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
         ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
         ...(identity.cors ? [] : [{ kind: 'conformance', message: `${identity.url} is served without Access-Control-Allow-Origin: * (§3.3)` }]),
+        // A migration claim that did not verify is a finding rather than a failure: §3.4 says a
+        // consumer with no prior pin of the old identity can only treat one as unverified, and
+        // a contested pair is unresolvable by design. Either way the reader says so instead of
+        // picking.
+        ...(identity.migration && !identity.migration.verified
+          ? [{ kind: 'migration', message: `unverified migration claim: ${identity.migration.reason}` }]
+          : []),
       ],
+      migration: identity.migration,
+      // The identities walked through to get here, oldest first. Empty for the ordinary read;
+      // a caller that asked for one URL and got another's content is entitled to know.
+      followed,
       tofu: identity.tofu || manifest.tofu,
     };
   }
 
-  return { readIdentity, readManifest, readFeed, read, pins, observations, fetcher };
+  return { readIdentity, readManifest, readFeed, read, pins, observations, migrations, fetcher };
+}
+
+/**
+ * One resolution per distinct author per read, failures included.
+ *
+ * A feed's item list is attacker-influenced wherever the feed is somebody else's — a board any
+ * family member may post to, a bridge — so an author name repeated across a thousand items must
+ * cost one fetch, not a thousand. Negative results are memoized for the same reason: a feed
+ * naming an unreachable author repeatedly is the cheap version of the same attack.
+ */
+function memoizeByAuthor(resolve) {
+  const held = new Map();
+  return (author) => {
+    if (!held.has(author)) held.set(author, resolve(author));
+    return held.get(author);
+  };
 }
 
 /**

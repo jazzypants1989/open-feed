@@ -74,6 +74,34 @@ test('malformed JSON is rejected', () => {
   assert.throws(() => parseIJSON('{"a":}'), /invalid value/);
 });
 
+test('a __proto__ member is rejected, in both directions', () => {
+  // The attack this closes, spelled out because it is not obvious from the rule. In
+  // JavaScript `out["__proto__"] = v` invokes the prototype setter rather than creating a
+  // member, so a naive strict parser drops the member from `Object.keys` — and therefore from
+  // canonicalization, the signature payload, and the manifest hash — while every property read
+  // downstream still sees the value. An attacker appends fields to somebody else's *already
+  // signed* item and every check still passes.
+  const injected = '{"id":"x","__proto__":{"_deleted":true,"content_text":"HACKED"}}';
+  const naive = {};
+  for (const [k, v] of Object.entries(JSON.parse(injected))) naive[k] = v;
+  assert.deepEqual(Object.keys(naive), ['id'], 'a copy loop drops the member');
+  assert.equal(naive._deleted, true, 'while every property read still sees it');
+
+  // Rejecting means it never parses, so nothing downstream has to be careful.
+  assert.throws(() => parseIJSON(injected), /reserved member name/);
+  assert.throws(() => parseIJSON('{"a":{"__proto__":1}}'), /reserved member name/);
+
+  // And the producer half: `JSON.parse` *does* create an own member, so a document can carry
+  // one without passing through this parser. Serializing it would emit bytes this parser
+  // cannot read back, so canonicalization refuses too — one answer rather than two.
+  assert.throws(() => canonicalize(JSON.parse('{"__proto__":1}')), /reserved member name/);
+  assert.throws(() => canonicalize({ a: JSON.parse('{"__proto__":1}') }), /reserved member name/);
+
+  // An ordinary object literal is untouched: `{__proto__: x}` sets a prototype and creates no
+  // member, so there is nothing to reject and nothing to serialize.
+  assert.equal(canonicalize({ __proto__: { evil: 1 }, a: 2 }), '{"a":2}');
+});
+
 test('lone surrogates are rejected', () => {
   assert.throws(() => parseIJSON('{"a":"\\ud800"}'), /surrogate/);
   assert.throws(() => canonicalize({ a: '\ud800' }), /surrogate/);
@@ -147,6 +175,24 @@ test('header deviations are rejected', () => {
   assert.throws(() => verifyDocument(rewrite({ b64: true }), { identityDocument: identity }), throwsVerify(/b64 must be false/));
   assert.throws(() => verifyDocument(rewrite({ crit: [] }), { identityDocument: identity }), throwsVerify(/unsupported crit/));
   assert.throws(() => verifyDocument(rewrite({ crit: ['b64', 'x'] }), { identityDocument: identity }), throwsVerify(/unsupported crit/));
+});
+
+test('the protected header is held to I-JSON too', () => {
+  // The header is signed bytes like any other document, so §6.3 governs it. A duplicate `kid`
+  // resolves last-wins under `JSON.parse`, first-wins under some parsers, and rejected here —
+  // two verifiers disagreeing about which key a signature names is the whole of signature
+  // confusion, and the header was the one place the strict parser was skipped.
+  const item = signedItem();
+  const [, , s] = item._sig.split('.');
+  const raw = (text) => ({ ...item, _sig: `${Buffer.from(text, 'utf8').toString('base64url')}..${s}` });
+
+  const dup = `{"alg":"EdDSA","b64":false,"crit":["b64"],"kid":"${ID}#other","kid":"${KID}"}`;
+  assert.equal(JSON.parse(dup).kid, KID, 'JSON.parse would have taken the last one');
+  assert.throws(() => verifyDocument(raw(dup), { identityDocument: identity }), throwsVerify(/not valid I-JSON/));
+
+  assert.throws(() => verifyDocument(raw('null'), { identityDocument: identity }), throwsVerify(/not a JSON object/));
+  assert.throws(() => verifyDocument(raw('["EdDSA"]'), { identityDocument: identity }), throwsVerify(/not a JSON object/));
+  assert.throws(() => verifyDocument(raw('{"alg":'), { identityDocument: identity }), throwsVerify(/not valid I-JSON/));
 });
 
 test('a rewritten header does not verify even when well-formed', () => {

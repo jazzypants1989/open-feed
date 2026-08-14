@@ -416,3 +416,47 @@ test('an identity listing no feeds is unreadable rather than empty', async (t) =
   assert.equal(identity.pin.seq, 1);
   assert.equal(derivedVersionUrl(identity.url, 1), `${site.url}openfeed/1.json`);
 });
+
+// ---- §6.3 over the wire: a chained document arrives as its own canonicalization ----
+
+test('a chained document served non-canonically is refused', async (t) => {
+  // §5.1 hashes "full published canonical bytes" and §5.4 requires retained versions served
+  // byte-identically, but a consumer that re-canonicalizes whatever it parsed checks neither:
+  // its pin then commits a *normalization* of what it was served rather than the bytes, and
+  // every parser divergence between two implementations lives in that gap. One byte compare
+  // closes it, and it is the check that would have caught a `__proto__` injection from the
+  // outside even if the parser had let one through.
+  const site = await newSite(t);
+  site.serve(familyPublisher(site.url, makeSigner()));
+  const me = consumer(t);
+
+  // Byte-identical content, keys out of RFC 8785 order. The signature still verifies — the
+  // verifier canonicalizes before checking — so nothing but this rule rejects it.
+  const canonical = site.files.get('manifest.json').toString('utf8');
+  const doc = JSON.parse(canonical);
+  const reordered = JSON.stringify(
+    Object.fromEntries(Object.keys(doc).reverse().map((k) => [k, doc[k]])),
+  );
+  assert.notEqual(reordered, canonical);
+  site.replaceRaw('manifest.json', reordered);
+
+  await assert.rejects(
+    () => reader(me).read(site.url),
+    (e) => /not served as canonical JSON/.test(e.message),
+  );
+
+  // Whitespace alone is enough; it changes no value and no signature.
+  site.replaceRaw('manifest.json', canonical + '\n');
+  await assert.rejects(
+    () => reader(consumer(t)).read(site.url),
+    (e) => /not served as canonical JSON/.test(e.message),
+  );
+
+  // A feed is neither chained nor signed — its items are, and an item has no byte range of its
+  // own inside the array that carries it — so the rule binds the two chained kinds and stops.
+  site.replaceRaw('manifest.json', canonical);
+  const feed = site.files.get('feed.json').toString('utf8');
+  site.replaceRaw('feed.json', feed + '\n');
+  const result = await reader(consumer(t)).read(site.url);
+  assert.equal(result.items.live.length, 6, 'the feed is read normally');
+});

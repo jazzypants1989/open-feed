@@ -12,7 +12,7 @@ import https from 'node:https';
 import crypto from 'node:crypto';
 
 import { selfSignedCertificate } from './tls.js';
-import { createFetcher, NegativeCache, PinStore, isPublicOrLoopbackAddress } from '../../src/index.js';
+import { canonicalBytes, createFetcher, NegativeCache, PinStore, isPublicOrLoopbackAddress } from '../../src/index.js';
 
 export const DAY = 86400;
 export const T0 = 1736899200;
@@ -74,8 +74,17 @@ export async function newSite(t) {
       for (const [path, bytes] of publisher.files()) files.set(path, bytes);
       return publisher;
     },
-    /** Overwrite one served path. How rollback and equivocation are staged. */
-    replace: (path, doc) => files.set(path, Buffer.from(JSON.stringify(doc))),
+    /**
+     * Overwrite one served path with a document. How rollback and equivocation are staged.
+     *
+     * Canonical bytes, not `JSON.stringify`: §6.3 is what a conformant producer emits and what
+     * a consumer now insists on for a chained document, so a helper that serialized by
+     * insertion order would stage every attack behind a conformance failure and prove nothing
+     * about the attack. Staging *non*-canonical bytes is a different test — `replaceRaw`.
+     */
+    replace: (path, doc) => files.set(path, canonicalBytes(doc)),
+    /** Overwrite one served path with exact bytes, conformant or not. */
+    replaceRaw: (path, bytes) => files.set(path, Buffer.from(bytes)),
     remove: (path) => files.delete(path),
     /** Make the next `times` requests for `path` fail with `status`. */
     failNext: (path, { times = 1, status = 503 } = {}) => failures.set(path, { status, times }),

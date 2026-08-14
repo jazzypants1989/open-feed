@@ -2,7 +2,7 @@
 // and RFC 8785 / I-JSON are implemented here because the strictness the spec requires
 // (duplicate member rejection, §6.3) is not something a stock JSON parser provides.
 
-export { canonicalize, canonicalBytes, parseIJSON, CanonicalError, JsonError } from './canonical.js';
+export { canonicalize, canonicalBytes, assertCanonicalBytes, parseIJSON, CanonicalError, JsonError } from './canonical.js';
 export { sha256, b64u, documentHash, timingSafeEqualString } from './hash.js';
 export {
   normalizeIdentityUrl,
@@ -74,5 +74,11 @@ export {
   ITEM_STATES,
   LAG_CEILING_SECONDS,
 } from './manifest.js';
+export {
+  MigrationStore,
+  verifyMigration,
+  MigrationError,
+  CompetingMigrations,
+} from './migration.js';
 export { Publisher, PublishError } from './publish.js';
 export { createReader, ObservationStore, normalizeUrlForCompare, ReaderError } from './reader.js';

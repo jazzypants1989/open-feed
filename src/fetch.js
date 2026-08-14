@@ -22,7 +22,7 @@ import http from 'node:http';
 import dns from 'node:dns';
 import net from 'node:net';
 import { isPublicAddress } from './addresses.js';
-import { parseIJSON } from './canonical.js';
+import { parseIJSON, assertCanonicalBytes } from './canonical.js';
 import { normalizeIdentityUrl } from './jws.js';
 
 export class FetchError extends Error {
@@ -356,6 +356,12 @@ export function createFetcher({
     sameOriginRedirectsOnly = false,
     budget = null,
     cache = negativeCache,
+    // Chained documents are hashed by `prev`, by every pin, and by every skip anchor, all over
+    // "full published canonical bytes" (§5.1). A consumer that re-canonicalizes whatever it
+    // parsed pins a normalization instead of what it was served, and §5.4's byte-identical
+    // retention goes unchecked. A feed is neither chained nor signed — its items are — so the
+    // rule binds the two chained kinds and nothing else.
+    requireCanonical = kind === 'identity' || kind === 'manifest',
   } = {}) {
     const accept = kind === 'feed' ? 'application/feed+json, application/json' : 'application/json';
     const startUrl = assertUrlAllowed(rawUrl);
@@ -427,6 +433,14 @@ export function createFetcher({
           throw new FetchError(`${parsed.href} is not I-JSON: ${e.message}`, {
             code: 'bad_json', url: parsed.href,
           });
+        }
+
+        if (requireCanonical) {
+          try {
+            assertCanonicalBytes(doc, body, parsed.href);
+          } catch (e) {
+            throw new FetchError(e.message, { code: 'not_canonical', url: parsed.href });
+          }
         }
 
         cache?.recordSuccess(startUrl.href);
