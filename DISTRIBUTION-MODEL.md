@@ -1283,7 +1283,7 @@ Keep it simple for a family app, but honest about the trust model (spec §13).
 
 ### Trust model (be honest)
 
-The hub holds users' signing keys, so it *can* impersonate them forward — the email trust model, stated plainly (spec §13.2). What it **cannot** do is silently rewrite the past against a consumer who has pinned: both chains (identity and manifest) are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins. Offering client-side keys (or, later, the delegation extension, CLAUDE.md open questions) moves a user off the key-custodian tier.
+The hub holds users' signing keys, so it *can* impersonate them forward — the email trust model, stated plainly (spec §13.2). What it **cannot** do is silently rewrite the past against a consumer who has pinned: both chains (identity and manifest) are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins. Offering client-side keys (or, later, the delegation extension — HANDOFF.md, pending decision) moves a user off the key-custodian tier.
 
 **The case this hub has to take seriously**, because it is the one the protocol names as its own fourth adversary tier (spec §13.2): the operator of a family hub is a family member, and family members are sometimes the danger. That adversary reads everything the hub can read, sees the metadata no mechanism hides, is not deterred by transparency because they are entitled to look, and can decline to let someone leave. Nothing in the integrity machinery helps, and neither does encryption if the operator supplies the client and generated the keys.
 
@@ -1374,7 +1374,7 @@ Hub content is signed on write (spec §6, §6.6):
 3. Advance and re-sign the **manifest** on every publish/edit/delete (spec §9)
 4. Keys live in `openfeed.json`; `kid` = `{identity_url}#{kid}` (no separate JWKS)
 5. Sign once on write and cache the signature (don't re-sign on read)
-6. Key custody: hub-managed is the default (invisible, hub can impersonate — documented, spec §13.2); offer client-side keys for members who want them, and watch for the delegation extension (CLAUDE.md open questions) that moves hub custody down a trust tier without a second signing construction
+6. Key custody: hub-managed is the default (invisible, hub can impersonate — documented, spec §13.2); offer client-side keys for members who want them, and watch for the delegation extension (HANDOFF.md, pending decision) that moves hub custody down a trust tier without a second signing construction
 
 ### If You Need Real-Time Updates
 
@@ -1396,7 +1396,7 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 
 ### Nostr / atproto
 
-- **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — relevant if you explore the delegation extension (CLAUDE.md open questions). Also the simplest syndication target: publishing to relays needs no OAuth, no domain verification, no PDS, and a Nostr event can carry an `r` tag pointing at the entry permalink
+- **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — relevant if you explore the delegation extension (HANDOFF.md, pending decision). Also the simplest syndication target: publishing to relays needs no OAuth, no domain verification, no PDS, and a Nostr event can carry an `r` tag pointing at the entry permalink
 - **atproto**: a full content bridge is the heaviest option (mirror PDS: DID + DAG-CBOR + MST). The practical identity seam is the **domain handle** — `mom.pence.family` resolves to the member's DID via DNS TXT or `/.well-known/atproto-did`, working with an ordinary bsky.social-hosted account (spec Appendix B.1). `did:web` is atproto-valid only at hostname level (another reason for subdomain identities), and atproto signing keys are P-256/K-256 — the Ed25519 key never crosses
 
 ### Known Libraries

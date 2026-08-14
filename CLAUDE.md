@@ -56,9 +56,10 @@ correctness or security defects; post-1.0, additive only.
 ## Editing the spec
 
 1. **RFC 2119 keywords** — MUST, MUST NOT, SHOULD, SHOULD NOT, MAY.
-2. **Guard the invariants.** One signing construction (detached JWS, RFC 7797 `b64:false`, Ed25519,
-   over RFC 8785 bytes) everywhere including the optional layers; one object model (every
-   interaction is an item with `_rel`); one document. If it can live in README, it should.
+2. **Guard the simplicity.** The spec's value is how little of it there is: one way of doing each
+   thing, stated once, whatever the current shape of those things happens to be. Resist a second
+   construction, a second model, or a second document growing up beside the first. If it can live
+   in README, it should.
 3. **Keep the rule, cut the archaeology.** Justification sitting next to a MUST is load-bearing —
    it is what stops the next implementer weakening it, so it stays. A paragraph about what an
    earlier draft got wrong does not.
@@ -67,6 +68,12 @@ correctness or security defects; post-1.0, additive only.
    appears verbatim in the spec. Exits non-zero on drift.
 5. **Timestamps** — key/chain fields in Unix seconds (JOSE); content fields in ISO 8601 (JSON Feed).
 6. **No changelog appendix, no version bump.** Record the change in the commit.
+7. **There is no line budget. Do not reintroduce one.** It was retired deliberately: a line count
+   measures the wrong thing, and chasing it pushes toward exactly the two edits this file forbids —
+   splitting the document up, and cutting the justification that sits next to a MUST. The real
+   target is **the shortest spec that still covers its bases**, and the lever that actually moves
+   it is design, not compression. Removing an equivocation between two sections is worth more than
+   removing fifty lines.
 
 ## Editing the README
 
@@ -79,50 +86,3 @@ RFC 2119 keywords, and keep examples consistent with the spec's object model.
   re-serialization — signatures depend on it.
 - **Relation types** (`_rel[].type`): a registered token (`reply`/`root`/`like`/`repost`/`quote`/
   `mention`) or an absolute URL for custom relations. These are values, not field names.
-
-## Open questions (deferred, not forgotten)
-
-- **Group audiences / membership documents** — cut from the spec, not solved. §11.2 states the
-  boundary: broadcast to an author-held list works today; group *replies* need a published
-  membership document, and anything defining one must answer staleness **and withholding**, use
-  identity-document-published encryption keys, exercise §15.2.1 carrier binding on wrapped
-  replies, and measure the identity-doc fetches one reply implies.
-- **Threshold (k-of-n) recovery** — cut to single-key; re-decide **before 1.0, not after**.
-  Re-adding it later fails **open**: an old verifier ignores the unknown `recovery_threshold`
-  field and accepts one co-signature against a threshold of two, handing a key thief the choice
-  of verifier — the same fail-open shape as the delegation `use` argument below.
-- **`_syndication` shape** — pending a call on `tmp/syndication-prototype.js`. Leading candidate: a
-  §16-mold document, probably unchained (the `follows` precedent). Field and receipt shapes are
-  measured and disfavored.
-- **`_rel` type registry governance** — decide jointly with Appendix B.2's `proof` tokens; both are
-  §2.1 vocabularies and deserve one answer.
-- **Key delegation** — the highest-value trust upgrade available, and the *shape* is settled even
-  though the text is undrafted. The member holds a root key the hub never sees; the hub holds a key
-  that may sign items and manifests but not identity-chain versions; revocation is an ordinary
-  chain version, so the pinned chain is exactly the revocation substrate whose absence limited
-  Nostr's NIP-26. **Mark the delegated key with `use: "delegated"`, not with an extension field.**
-  §4.1 already requires implementations to ignore keys with an unrecognized `use`, so a verifier
-  predating the token cannot find the key and treats the hub's content as unverifiable — it fails
-  **closed**. An extension field on an ordinary `sig` key fails **open**: §3.2 says to ignore
-  unknown fields, so an old verifier sees a full-authority key and accepts it signing a chain
-  version, which hands the attacker the choice of which verifier to be judged by. Enforcement is
-  one clause beside the recovery-key exclusion in `assertContinuityKey`. The cost is a flag day for
-  readers, which is free while nothing implements this and rises monotonically after.
-- **Normative bridge profiles** — framework in Appendix E, template in README. Start with the
-  syndication class, not Webmention.
-- **Author-side dual signing** — parked. The only route to verified cross-protocol authorship. Taking
-  it up means deciding whether "one signing construction" governs this protocol's artifacts or
-  everything a publisher signs.
-- **External time anchoring** (transparency log / witness network) beyond §16.1's family-scale
-  item-carried pins. A published pins *document* (aggregator-readable) would be purely additive
-  if that scale ever arrives.
-- **Split custody** (hub holds the signing key, client holds only the encryption key) is deliberately
-  *not* claimed in the spec: the guarantee holds only when the client is not distributed by the
-  custodian, which the reference product does not satisfy.
-- **There is no line budget. Do not reintroduce one.** It was retired deliberately: a line count
-  measures the wrong thing, and chasing it pushes toward exactly the two edits this file forbids —
-  splitting the document up, and cutting the justification that sits next to a MUST. The real
-  target is **the shortest spec that still covers its bases**, and the lever that actually moves it
-  is deleting whole mechanisms that the guarantee survives without, which is a design decision
-  informed by the prototypes rather than a compression pass. Removing an equivocation between two
-  sections is worth more than removing fifty lines.

@@ -64,7 +64,54 @@ Appendix E bridges, the export bundle (§14).
 5. `test/e2e.test.js` — currently the only place the layers are composed the way a real
    consumer composes them.
 
-## 4. Questions only the owner can answer
+## 4. Answer everything, now
+
+These questions were carried in `CLAUDE.md` as "deferred, not forgotten." The owner's
+instruction is that they stop being carried: **the next pass resolves every one of them, one way
+or another.** Each gets a decision — designed into the spec, drafted, rejected, or declared
+permanently out of scope — with the reasoning in the commit, and none of them survives as an
+open question afterwards. A frame-level proposal (§1) may well answer several at once; that is
+one of its virtues. The notes attached below are the state of prior thinking, offered as input —
+a decision that overturns them is as welcome as one that ratifies them.
+
+- **Group audiences / membership documents** — cut from the spec, not solved. §11.2 states the
+  boundary: broadcast to an author-held list works today; group *replies* need a published
+  membership document, and anything defining one must answer staleness **and withholding**, use
+  identity-document-published encryption keys, exercise §15.2.1 carrier binding on wrapped
+  replies, and measure the identity-doc fetches one reply implies.
+- **Threshold (k-of-n) recovery** — cut to single-key. Re-adding it after anything implements
+  the spec fails **open**: an old verifier ignores the unknown `recovery_threshold` field and
+  accepts one co-signature against a threshold of two, handing a key thief the choice of
+  verifier — the same fail-open shape as the delegation `use` argument below.
+- **`_syndication` shape** — `tmp/syndication-prototype.js` measured the candidates. Leading
+  candidate: a §16-mold document, probably unchained (the `follows` precedent). Field and
+  receipt shapes are measured and disfavored.
+- **`_rel` type registry governance** — decide jointly with Appendix B.2's `proof` tokens; both
+  are §2.1 vocabularies and deserve one answer.
+- **Key delegation** — the highest-value trust upgrade available; the *shape* was settled even
+  though the text is undrafted. The member holds a root key the hub never sees; the hub holds a
+  key that may sign items and manifests but not identity-chain versions; revocation is an
+  ordinary chain version, so the pinned chain is exactly the revocation substrate whose absence
+  limited Nostr's NIP-26. Mark the delegated key with `use: "delegated"`, not an extension
+  field: §4.1 already requires implementations to ignore keys with an unrecognized `use`, so an
+  old verifier cannot find the key and fails **closed**, where an extension field on an
+  ordinary `sig` key fails **open**. Enforcement is one clause beside the recovery-key
+  exclusion in `assertContinuityKey`. The flag-day cost is zero while nothing implements this
+  and rises monotonically after.
+- **Normative bridge profiles** — framework in Appendix E, template in README. Prior thinking:
+  start with the syndication class, not Webmention.
+- **Author-side dual signing** — the only route to verified cross-protocol authorship. Taking
+  it up means deciding whether "one construction" governs this protocol's artifacts or
+  everything a publisher signs.
+- **External time anchoring** (transparency log / witness network) beyond §16.1's family-scale
+  item-carried pins. A published pins *document* (aggregator-readable) would be purely additive
+  if that scale ever arrives.
+- **Split custody** (hub holds the signing key, client holds only the encryption key) —
+  deliberately *not* claimed in the spec: the guarantee holds only when the client is not
+  distributed by the custodian, which the reference product does not satisfy. Decide whether
+  that stays a silence or becomes a stated non-claim.
+
+And the ones only the owner can answer — put them to the owner rather than deciding around them:
 
 1. Client-held encryption keys vs. server-side AI — `DISTRIBUTION-MODEL.md` says not to ship
    the pair undecided.
@@ -84,7 +131,7 @@ if a redesign would obsolete an item, that is a point in the redesign's favor, n
   see `git log`). Unexercised sites: §10.2/§10.3's read-before-verify boundary, and
   `assertRelocationCarriesForward` / `resolveFork`, pure functions whose preconditions no
   caller enforces yet.
-- **Delegation** (`use: "delegated"`) — design argument recorded in `CLAUDE.md`, text undrafted.
+- **Delegation** (`use: "delegated"`) — decided in §4, drafted here if adopted.
 - **`src/consumer.js`** — the composition layer, reporting per-check results; the CLI is a
   formatter over it. Where the verified-input wrappers above belong.
 - **The exit walkthrough as an executable adversarial scenario** — the protocol's central claim
