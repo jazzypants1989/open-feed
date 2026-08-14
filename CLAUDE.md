@@ -28,8 +28,8 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 | `README.md` | Human-facing docs: examples, protocol comparisons, interop routes, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub |
 | `src/` | **Reference implementation**, zero dependencies: Level 1 verifier and Level 2 publisher. `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction; `chain.js` is §5.3's walk for both chained documents; `manifest.js` is §9.3; `publish.js` emits every artifact as bytes. **`fetch.js` is the only module that opens a socket — keep it that way.** Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
-| `test/` | `npm test`. `appendix-d.test.js` extracts vectors from the spec document itself and resolves keys structurally (§4.2); `negative.test.js` is the must-fail corpus Appendix D has none of; `e2e.test.js` runs the publisher against the verifier over a real TLS socket, with `helpers/tls.js` hand-encoding the certificate because §3.1 makes HTTPS part of the identity |
-| `tmp/regen.js` | Regenerates and validates Appendix D test vectors |
+| `test/` | `npm test`. `vectors.test.js` extracts vectors from the spec document itself and resolves keys structurally (§4.2); `negative.test.js` is the must-fail corpus Appendix B has none of; `e2e.test.js` runs the publisher against the verifier over a real TLS socket, with `helpers/tls.js` hand-encoding the certificate because §3.1 makes HTTPS part of the identity |
+| `tmp/regen.js` | Regenerates and validates Appendix B test vectors |
 | `tmp/enc-prototype.js` | Encrypted items; demonstrates the ciphertext-relay attack and §15.2.1's rejection of it |
 | `tmp/syndication-prototype.js` | Compares `_syndication` shapes (field / document / receipt) on routing, retraction, retained history |
 | `tmp/skiplinks-prototype.js` | Manifest skip links on a 365-version chain; forged-anchor attack |

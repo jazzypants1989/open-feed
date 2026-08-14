@@ -1,4 +1,4 @@
-// Negative cases. Appendix D is entirely positive — nine signatures that verify, two
+// Negative cases. Appendix B is entirely positive — nine signatures that verify, two
 // chains that link — so nothing in the published spec distinguishes a real verifier from
 // one that returns true. These are the cases that MUST fail.
 

@@ -32,7 +32,7 @@ Earlier drafts of this doc took spec-divergent shortcuts to save effort. Followi
 |------------------|--------------------|-----|
 | No signatures on hub content | **Sign all feed items** (spec §6, §7.2) | Signing on write is cheap (sign once, cache). It makes hub content portable and verifiable off-hub, and is required for a conforming feed. Hub-managed keys keep it invisible to users (spec §13.2). |
 | Separate JWKS + profile-HTML discovery | **One signed identity document** at `{identity}openfeed.json` (spec §3.2) | Keys, profile, and endpoints live in one signed, chained JSON file at a fixed path. No HTML parsing, no `<link rel="jwks">`, no cross-document key-ownership check — key ownership is structural (spec §4.2). |
-| Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix E) that ingests lower-trust `_unverified` copies. |
+| Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix C) that ingests lower-trust `_unverified` copies. |
 | Standalone interaction objects (`type`/`target`/`target_item`) | **Interactions are items with a `_rel` array** (spec §8) | A comment = an item with `_rel:[{type:"reply", to:"{feed_url}#{item_id}"}]`; a reaction = an item with `_rel:[{type:"like",...}]` and `_emoji`. One schema, one verifier; publishing and delivering are the same bytes. |
 | Flat comments only | **Nested threading** via `_rel` `reply` + `root` entries (spec §8.1) | Store the parent reference; render flat *or* nested. Deep replies carry a `root` entry so the thread host's inbox accepts them. |
 | No feed-integrity commitment | **Publish + advance a signed, chained manifest** (spec §9) | The manifest proves *presence* (a host can't drop your content) and, via its chain, tamper-evidence against rollback/equivocation. `_feed_url` proves *exclusivity* (spec §7.5). |
@@ -47,7 +47,7 @@ Earlier drafts of this doc took spec-divergent shortcuts to save effort. Followi
 - [RFC 8785](https://tools.ietf.org/html/rfc8785) - JSON Canonicalization Scheme (for signing)
 - [I-JSON (RFC 7493)](https://www.rfc-editor.org/rfc/rfc7493) - Duplicate-key rejection
 - [Ed25519 (RFC 8032)](https://www.rfc-editor.org/rfc/rfc8032) - Signature algorithm
-- [Webmention](https://www.w3.org/TR/webmention/) + [Microformats2](https://microformats.org/wiki/microformats2) - Optional IndieWeb bridge only (spec Appendix E)
+- [Webmention](https://www.w3.org/TR/webmention/) + [Microformats2](https://microformats.org/wiki/microformats2) - Optional IndieWeb bridge only (spec Appendix C)
 
 ### Deployment Models
 
@@ -105,7 +105,7 @@ Their identity URL is `https://mom.pence.family/`, and their machine-readable id
 
 **Decision: subdomains, not subpaths.** Hub members get identities at `https://{user}.pence.family/`, not `https://pence.family/~{user}/`. This is a Phase 1 decision because identity URLs are permanent — every signed item's `_feed_url` names the feed forever (spec §7.5), so switching later means exercising migration (spec §3.4) for every member. Three reasons, only one of which is Bluesky:
 
-1. **Cross-protocol identity binding is domain-scoped** (spec Appendix B.1). A Bluesky handle (`mom.pence.family`) binds via `_atproto` DNS TXT or `/.well-known/atproto-did`, and neither has a path form; a subpath identity has no Bluesky handle, permanently. Hostname-level `did:web` (the only kind atproto accepts) has the same shape.
+1. **Cross-protocol identity binding is domain-scoped** (README, "Aliases": WebFinger and did:web are README conventions). A Bluesky handle (`mom.pence.family`) binds via `_atproto` DNS TXT or `/.well-known/atproto-did`, and neither has a path form; a subpath identity has no Bluesky handle, permanently. Hostname-level `did:web` (the only kind atproto accepts) has the same shape.
 2. **Origin isolation.** Subpath members share one browser origin, so one member's compromised or malicious HTML page can reach another member's same-origin state (inbox auth cookies, storage), and spec §3.3's same-origin fetch rules bind at origin granularity. Subdomains give each member their own origin. For a hub whose threat model includes its own members, this stands on its own even if Bluesky support is never built.
 3. **Mastodon is indifferent** — `rel="me"` verifies against any URL — so the choice costs nothing on that side.
 
@@ -324,7 +324,7 @@ Keep it simple:
 
 When family members self-host, they can't use `POST /api/comments`. The **sole core path** is the Open Feed **inbox** (spec §10): the self-hoster signs a feed item carrying a `_rel` `reply` entry and POSTs it, verbatim, to `mom.pence.family/inbox`; the hub runs the §10.2 verification (author binding, signature, revocation, dedup) and stores it as a verified comment.
 
-Webmention is **not** part of the core. It is available only as an optional IndieWeb **bridge** (spec Appendix E), producing lower-trust `_unverified` content — see "Optional Webmention Bridge" below.
+Webmention is **not** part of the core. It is available only as an optional IndieWeb **bridge** (spec Appendix C), producing lower-trust `_unverified` content — see "Optional Webmention Bridge" below.
 
 ### How It Works (Inbox)
 
@@ -400,7 +400,7 @@ Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliver
 
 This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (spec §15.4). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
 
-The one scoped exception is gateway backfeed, and the bytes distinguish it: a delivered item carrying `_unverified: true` **and** an `external_url` came from an enrolled gateway conveying a *publicly-published* foreign reply, and MAY render on the entry's unsigned HTML page (never in any signed artifact) — see "POSSE and the syndication gateway" and spec Appendix E. A native family item carries neither marker, and the gate above applies to it absolutely.
+The one scoped exception is gateway backfeed, and the bytes distinguish it: a delivered item carrying `_unverified: true` **and** an `external_url` came from an enrolled gateway conveying a *publicly-published* foreign reply, and MAY render on the entry's unsigned HTML page (never in any signed artifact) — see "POSSE and the syndication gateway" and spec Appendix C. A native family item carries neither marker, and the gate above applies to it absolutely.
 
 ### Threading (nested replies)
 
@@ -446,7 +446,7 @@ When a family member self-hosts, their journal entries should appear in the fami
 - Poll frequency: every 15-30 minutes
 
 **Option B: WebSub (real-time)**
-- External member's feed advertises a WebSub hub (JSON Feed `hubs`, spec Appendix C)
+- External member's feed advertises a WebSub hub (JSON Feed `hubs`; a README convention — nothing Open-Feed-specific)
 - Hub subscribes; gets notified immediately when they publish
 - MUST still verify item signatures — the WebSub hub is untrusted infrastructure
 
@@ -469,7 +469,7 @@ interface ExternalMember {
 
 ### Optional Webmention Bridge
 
-Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix E). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
+Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix C). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
 
 If you implement the bridge:
 
@@ -1030,10 +1030,10 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 ### Phase 5: Distribution (Optional)
 
 - [ ] Email digests for family
-- [ ] WebSub for real-time feed updates (spec Appendix C)
-- [ ] **Syndication gateway** (spec Appendix E, syndication class): outbound POSSE to members' own Mastodon/Bluesky accounts + inbound backfeed by inbox delivery — see "POSSE and the syndication gateway" below
-- [ ] `accounts` in members' identity documents (spec Appendix B.2), with the HTML `rel="me"` links **generated from** the array at build time so one signed source feeds both surfaces
-- [ ] Optional Webmention bridge (spec Appendix E) — `_unverified` ingest only, mirroring class
+- [ ] WebSub for real-time feed updates (JSON Feed `hubs`; README convention)
+- [ ] **Syndication gateway** (spec Appendix C, syndication class): outbound POSSE to members' own Mastodon/Bluesky accounts + inbound backfeed by inbox delivery — see "POSSE and the syndication gateway" below
+- [ ] `_accounts` in members' identity documents (README convention; spec §13.16 carries its warnings), with the HTML `rel="me"` links **generated from** the array at build time so one signed source feeds both surfaces
+- [ ] Optional Webmention bridge (spec Appendix C) — `_unverified` ingest only, mirroring class
 
 **Test**: Can Grandma get a daily email with the family's posts? Can Mom's post appear on her own Mastodon account with replies flowing back under her entry page?
 
@@ -1041,26 +1041,26 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 ## Future: Broader Federation
 
-Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_unverified`, without exception** (spec §7.5, Appendix E).
+Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_unverified`, without exception** (spec §7.5, Appendix C).
 
 **Two rival routes to the fediverse — pick one per network, per member.** The **zero-effort tier** is Bridgy Fed: the Atom mirror plus an h-card is enough for a third-party service to bridge a member into the fediverse with no gateway to operate, as `@mom.pence.family` — the identity URL itself. Nothing to build; weaker reach; the bridge operator sits in the middle. The **recommended tier** is the syndication gateway below: a real account (`@mom@mastodon.social`) the member holds, posted to by their own tooling. A member running *both* on one network has two presences with a split reply graph and followers who don't know which to follow — so the app should treat this as one choice per network, not a stack.
 
 ### POSSE and the syndication gateway
 
-The **syndication class** of gateway (spec Appendix E) is the POSSE path: publish on the member's Open Feed identity, syndicate to the member's own Mastodon/Bluesky accounts, deliver responses back. The pitch is precise: *the silo copy is admitted to be a copy, the original comes with a receipt, and no intermediary is added beyond the silos POSSE already accepts* — which no bridge-based POSSE setup can say. The silos themselves are still trusted: for the copy's availability, the account, and the honesty of the notifications API the backfeed polls.
+The **syndication class** of gateway (spec Appendix C) is the POSSE path: publish on the member's Open Feed identity, syndicate to the member's own Mastodon/Bluesky accounts, deliver responses back. The pitch is precise: *the silo copy is admitted to be a copy, the original comes with a receipt, and no intermediary is added beyond the silos POSSE already accepts* — which no bridge-based POSSE setup can say. The silos themselves are still trusted: for the copy's availability, the account, and the honesty of the notifications API the backfeed polls.
 
-For hub members the gateway is naturally a hub-operated service; for self-hosters it is a client-side tool. Either way it is real work, not a checkbox: OAuth token management per member per platform, platform-specific reply polling (Bluesky replies are all public and can also be watched via the firehose, which is heavier infrastructure than polling Mastodon's REST API), mapping foreign replies home via the backlink each syndicated copy carries to the entry permalink, and tombstone propagation. Concretely, per spec Appendix E's backfeed rule:
+For hub members the gateway is naturally a hub-operated service; for self-hosters it is a client-side tool. Either way it is real work, not a checkbox: OAuth token management per member per platform, platform-specific reply polling (Bluesky replies are all public and can also be watched via the firehose, which is heavier infrastructure than polling Mastodon's REST API), mapping foreign replies home via the backlink each syndicated copy carries to the entry permalink, and tombstone propagation. Concretely, per spec Appendix C's backfeed rule:
 
 - **Delivery, never publication.** Foreign replies are POSTed to the member's inbox as `_unverified` items with no `_feed_url`, signed by the gateway (or a proxy identity, which is also the per-foreign-author rate-limit granularity). They never enter any feed, manifest, or public query surface.
 - **Enrollment.** A member enrolls the gateway explicitly (a field in the hub's family config, or accepted-gateway URLs alongside the member's identity); unenrolled gateways' `_unverified` deliveries are rejected or held for moderation. Gateway deliveries get their own, lower quota class.
 - **Timestamps and restarts.** `date_published` on a delivered item is the gateway's signing time (or the inbox's 7-day bound rejects backfill); the foreign creation time rides in an extension key on the `_rel` entry. The gateway persists its foreign-object → `(author, id)` mapping so a restart cannot orphan later tombstones.
 - **Deletion is best-effort.** A foreign delete observed by the gateway becomes a delivered tombstone; one it never observes leaves the copy in the member's inbox and export bundle. The enrollment flow states this.
 
-**What renders under a post.** Beneath an entry page, the app shows three bands with distinct provenance: verified family replies (signed, published or delivered by known family); `_unverified` backfeed from enrolled gateways, rendered on the **entry's HTML page only** — the unsigned, revocable surface spec Appendix E and §11.1.1 permit, which honors a later foreign deletion — clearly marked as from Mastodon/Bluesky and never entering any signed artifact; and delivered-private family content, which renders **only** in the authenticated family view, never on the public page. These three MUST NOT share a "verified" badge (spec Appendix B.2).
+**What renders under a post.** Beneath an entry page, the app shows three bands with distinct provenance: verified family replies (signed, published or delivered by known family); `_unverified` backfeed from enrolled gateways, rendered on the **entry's HTML page only** — the unsigned, revocable surface spec Appendix C and §11.1.1 permit, which honors a later foreign deletion — clearly marked as from Mastodon/Bluesky and never entering any signed artifact; and delivered-private family content, which renders **only** in the authenticated family view, never on the public page. These three MUST NOT share a "verified" badge (spec Appendix B.2).
 
 ### ActivityPub (Mastodon/Fediverse) — mirroring class
 
-The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (spec Appendix E.4).
+The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (spec Appendix C.4).
 
 Two things this bridge MUST NOT do, both of which a naive implementation does by default (spec §11.1.1, F.2): emit an item with no `_feed_url` (delivered, not published — the family comment threads), and emit anything derived from an encrypted item, **including a placeholder**. Encrypted posts are skipped entirely, not announced as "encrypted post."
 
@@ -1380,13 +1380,13 @@ Hub content is signed on write (spec §6, §6.6):
 
 Current design uses polling for external feeds. For real-time:
 
-1. **WebSub** (spec Appendix C) - external member advertises a WebSub hub in their JSON Feed `hubs`; your hub subscribes and gets a POST when they publish. **Still verify item signatures** — the WebSub hub is untrusted
+1. **WebSub** (JSON Feed `hubs`; README convention) - external member advertises a WebSub hub in their JSON Feed `hubs`; your hub subscribes and gets a POST when they publish. **Still verify item signatures** — the WebSub hub is untrusted
 2. **Server-Sent Events** - for real-time updates to your own connected clients
 3. **WebSocket** - bidirectional (overkill for journaling)
 
 ### If You Need ActivityPub Compatibility
 
-Treat it as a **gateway** (spec Appendix E), not a transparent adapter:
+Treat it as a **gateway** (spec Appendix C), not a transparent adapter:
 1. A stateful actor proxy per user, polling the feed and fanning out `Create`/`Like`/`Announce`
 2. HTTP Signatures (different from JWS — Mastodon's requirement)
 3. Mirror inbound AP replies into the Open Feed inbox as `_unverified` items
@@ -1397,7 +1397,7 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 ### Nostr / atproto
 
 - **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — relevant if you explore the delegation extension (HANDOFF.md, pending decision). Also the simplest syndication target: publishing to relays needs no OAuth, no domain verification, no PDS, and a Nostr event can carry an `r` tag pointing at the entry permalink
-- **atproto**: a full content bridge is the heaviest option (mirror PDS: DID + DAG-CBOR + MST). The practical identity seam is the **domain handle** — `mom.pence.family` resolves to the member's DID via DNS TXT or `/.well-known/atproto-did`, working with an ordinary bsky.social-hosted account (spec Appendix B.1). `did:web` is atproto-valid only at hostname level (another reason for subdomain identities), and atproto signing keys are P-256/K-256 — the Ed25519 key never crosses
+- **atproto**: a full content bridge is the heaviest option (mirror PDS: DID + DAG-CBOR + MST). The practical identity seam is the **domain handle** — `mom.pence.family` resolves to the member's DID via DNS TXT or `/.well-known/atproto-did`, working with an ordinary bsky.social-hosted account (README, "Aliases": WebFinger and did:web are README conventions). `did:web` is atproto-valid only at hostname level (another reason for subdomain identities), and atproto signing keys are P-256/K-256 — the Ed25519 key never crosses
 
 ### Known Libraries
 
@@ -1423,7 +1423,7 @@ If you need to add custom fields to JSON objects:
 
 ### Optional Bridge Reference — Microformat Classes
 
-These belong **only** to the optional Webmention/IndieWeb bridge (spec Appendix E), not the core. For h-entry parsing/generation:
+These belong **only** to the optional Webmention/IndieWeb bridge (spec Appendix C), not the core. For h-entry parsing/generation:
 
 | Class | Purpose |
 |-------|---------|

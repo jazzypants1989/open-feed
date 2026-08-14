@@ -1,8 +1,8 @@
-// Regenerates Appendix D and checks the published spec against it.
+// Regenerates Appendix B and checks the published spec against it.
 //
 // Canonicalization, hashing, signing, and verification all come from `src/`. There is no
 // second implementation here: a private canonicalizer in this file would drift from the
-// one verifiers use, and the external anchor below (D.2's known SHA-256, computed outside
+// one verifiers use, and the external anchor below (B.2's known SHA-256, computed outside
 // any code in this repo) is what actually guards the canonicalizer against itself.
 //
 // Verification goes through `verifyDocument` against each author's CURRENT identity
@@ -60,40 +60,40 @@ const itemHashHex = sha256(canonicalBytes(item)).toString('hex');
 console.log('CANONICALIZER CHECK (must equal 7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168):');
 console.log('  item sha256 =', itemHashHex, itemHashHex==='7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168' ? 'OK' : 'MISMATCH');
 console.log();
-embed('D.2 item canonical bytes', itemCanon, 'spec');
-embed('D.2 item sha256 (hex)', itemHashHex, 'spec');
+embed('B.2 item canonical bytes', itemCanon, 'spec');
+embed('B.2 item sha256 (hex)', itemHashHex, 'spec');
 
 const headerB64 = b64u(Buffer.from(JSON.stringify(buildHeader(KID1)),'utf8'));
 
-console.log('== D.1 keys (x, base64url) ==');
+console.log('== B.1 keys (x, base64url) ==');
 console.log('  test-key-1 :', k1.x);
 console.log('  recovery-1 :', kR.x);
 console.log('  test-key-2 :', k2.x);
 console.log('  header b64 :', headerB64);
 console.log();
-embed('D.1 test-key-1 x', k1.x, 'spec');
-embed('D.1 recovery-1 x', kR.x, 'spec');
-embed('D.1 test-key-2 x', k2.x, 'spec');
-embed('D.1 header b64', headerB64, 'spec');
+embed('B.1 test-key-1 x', k1.x, 'spec');
+embed('B.1 recovery-1 x', kR.x, 'spec');
+embed('B.1 test-key-2 x', k2.x, 'spec');
+embed('B.1 header b64', headerB64, 'spec');
 
-// ---- D.2 item ----
+// ---- B.2 item ----
 item._sig = sign(item, k1.priv, KID1);
 const itemFullBytes = canonicalize(item);
 const itemFullHash = documentHash(item);   // what the manifest commits to (spec §9)
-console.log('== D.2 item _sig ==');
+console.log('== B.2 item _sig ==');
 console.log(' ', item._sig);
-console.log('== D.2 item full published bytes hash (manifest commitment) ==');
+console.log('== B.2 item full published bytes hash (manifest commitment) ==');
 console.log(' ', itemFullHash);
 console.log();
-embed('D.2 item _sig', item._sig, 'spec');
-embed('D.2 item full bytes', itemFullBytes, 'spec');
-embed('D.2 item full hash', itemFullHash, 'spec');
+embed('B.2 item _sig', item._sig, 'spec');
+embed('B.2 item full bytes', itemFullBytes, 'spec');
+embed('B.2 item full hash', itemFullHash, 'spec');
 
-// ---- D.2b relation item (a reply) ----
+// ---- B.2b relation item (a reply) ----
 // Exercises the _rel array (§8), and gives the seq:2 manifest a real second item to
 // commit to rather than a phantom id.
 //
-// date_published sits BEFORE test-key-1's revocation at 1739577600 (D.5). It has to:
+// date_published sits BEFORE test-key-1's revocation at 1739577600 (B.5). It has to:
 // §6.5 step 5 resolves a kid against the current identity document, so a reply signed by
 // test-key-1 after that instant is one a conforming verifier must reject (§4.4).
 const item2 = {
@@ -107,14 +107,14 @@ const item2 = {
 item2._sig = sign(item2, k1.priv, KID1);
 const item2FullBytes = canonicalize(item2);
 const item2FullHash = documentHash(item2);
-console.log('== D.2b relation item (full published canonical bytes) ==');
+console.log('== B.2b relation item (full published canonical bytes) ==');
 console.log(' ', item2FullBytes);
 console.log('  hash:', item2FullHash);
 console.log();
-embed('D.2b item full bytes', item2FullBytes, 'spec');
-embed('D.2b item full hash', item2FullHash, 'spec');
+embed('B.2b item full bytes', item2FullBytes, 'spec');
+embed('B.2b item full hash', item2FullHash, 'spec');
 
-// ---- D.3 manifest (genesis) ----
+// ---- B.3 manifest (genesis) ----
 // items maps id -> [version, hash]: the version names the revision, the hash binds its
 // exact bytes, so content equivocation forks the manifest chain (spec §9, §14.2).
 const manifest = {
@@ -124,13 +124,13 @@ const manifest = {
 manifest._sig = sign(manifest, k1.priv, KID1);
 const manifestBytes1 = canonicalize(manifest);
 const manifestHash1 = documentHash(manifest);
-console.log('== D.3 manifest (full published canonical bytes) ==');
+console.log('== B.3 manifest (full published canonical bytes) ==');
 console.log(' ', manifestBytes1);
 console.log();
-embed('D.3 manifest bytes', manifestBytes1, 'spec');
-embed('D.3 manifest hash', manifestHash1, 'spec');
+embed('B.3 manifest bytes', manifestBytes1, 'spec');
+embed('B.3 manifest hash', manifestHash1, 'spec');
 
-// ---- D.3b manifest seq 2 (chained) ----
+// ---- B.3b manifest seq 2 (chained) ----
 // No `history` field: prior versions live at a derived URL (spec §5.4), so there is no
 // index document to name.
 const manifest2 = {
@@ -143,14 +143,14 @@ const manifest2 = {
   }
 };
 manifest2._sig = sign(manifest2, k1.priv, KID1);
-console.log('== D.3b manifest seq 1 hash (= seq 2 prev) ==');
+console.log('== B.3b manifest seq 1 hash (= seq 2 prev) ==');
 console.log(' ', manifestHash1);
-console.log('== D.3b manifest seq 2 (full published canonical bytes) ==');
+console.log('== B.3b manifest seq 2 (full published canonical bytes) ==');
 console.log(' ', canonicalize(manifest2));
 console.log();
-embed('D.3b manifest seq2 bytes', canonicalize(manifest2), 'spec');
+embed('B.3b manifest seq2 bytes', canonicalize(manifest2), 'spec');
 
-// ---- D.4 identity seq 1 ----
+// ---- B.4 identity seq 1 ----
 // One `feeds` array (spec §3.2.1), each entry {url, manifest, rel}. No `history` field.
 const FEEDS = [{url:'https://test.example/feed.json', manifest:'https://test.example/manifest.json', rel:'primary'}];
 const id1 = {
@@ -166,14 +166,14 @@ const id1 = {
 id1._sig = sign(id1, k1.priv, KID1);
 const id1Bytes = canonicalize(id1);
 const id1Hash = documentHash(id1);
-console.log('== D.4 identity seq 1 (full published canonical bytes) ==');
+console.log('== B.4 identity seq 1 (full published canonical bytes) ==');
 console.log(' ', id1Bytes);
 console.log('  hash (= seq 2 prev):', id1Hash);
 console.log();
-embed('D.4 identity seq1 bytes', id1Bytes, 'spec');
-embed('D.4 identity seq1 hash', id1Hash, 'spec');
+embed('B.4 identity seq1 bytes', id1Bytes, 'spec');
+embed('B.4 identity seq1 hash', id1Hash, 'spec');
 
-// ---- D.5 identity seq 2 (rotation) ----
+// ---- B.5 identity seq 2 (rotation) ----
 const id2 = {
   feeds: FEEDS,
   inbox:'https://test.example/inbox',
@@ -187,19 +187,19 @@ const id2 = {
 };
 id2._sig = sign(id2, k1.priv, KID1);
 const id2Bytes = canonicalize(id2);
-console.log('== D.5 identity seq 2 (full published canonical bytes) ==');
+console.log('== B.5 identity seq 2 (full published canonical bytes) ==');
 console.log(' ', id2Bytes);
 console.log('  retained seq 1 is served at: https://test.example/openfeed/1.json  (§5.4)');
 console.log();
-embed('D.5 identity seq2 bytes', id2Bytes, 'spec');
+embed('B.5 identity seq2 bytes', id2Bytes, 'spec');
 
-// ==== Conventions vectors (spec Appendix D.6-D.8) ====
+// ==== Conventions vectors (spec Appendix B.6-B.8) ====
 const kReader = keyFromLabel('reader-key-1');
 const READER = 'https://reader.example/';
 const READER_KID = READER + '#reader-key-1';
 
-// ---- D.6 reader identity document ----
-// Published so D.7 and D.8 are verifiable from the spec alone: without a document listing
+// ---- B.6 reader identity document ----
+// Published so B.7 and B.8 are verifiable from the spec alone: without a document listing
 // reader-key-1, their signatures name a key no third party can resolve (§4.2).
 // A Level 1 consumer, so no `feeds` and no `inbox` — the follows document is all it
 // publishes, referenced the way §3.2 says to.
@@ -210,14 +210,14 @@ const idReader = {
   seq:1, updated:1739577600, url:READER
 };
 idReader._sig = sign(idReader, kReader.priv, READER_KID);
-console.log('== D.6 reader identity document (full published canonical bytes) ==');
+console.log('== B.6 reader identity document (full published canonical bytes) ==');
 console.log(' ', canonicalize(idReader));
 console.log();
-embed('D.6 reader identity bytes', canonicalize(idReader), 'spec');
+embed('B.6 reader identity bytes', canonicalize(idReader), 'spec');
 
-// ---- D.7 item carrying pins (§16.1) ----
-// A delivered-only reply (no _feed_url) from the reader to the owner of D.2's item, carrying
-// pins of the recipient's identity document (D.4) and manifest (D.3). Recipient-scoped, so it
+// ---- B.7 item carrying pins (§16.1) ----
+// A delivered-only reply (no _feed_url) from the reader to the owner of B.2's item, carrying
+// pins of the recipient's identity document (B.4) and manifest (B.3). Recipient-scoped, so it
 // is valid on either axis of §16.1's publication rule.
 const pinItem = {
   _pins: [
@@ -232,31 +232,33 @@ const pinItem = {
   id: 'urn:uuid:7c9e6679-7425-40de-944b-e07fc1f90ae7'
 };
 pinItem._sig = sign(pinItem, kReader.priv, READER_KID);
-console.log('== D.7 item carrying pins (full published canonical bytes) ==');
+console.log('== B.7 item carrying pins (full published canonical bytes) ==');
 console.log(' ', canonicalize(pinItem));
 console.log();
-embed('D.7 item-carried pins bytes', canonicalize(pinItem), 'spec');
+embed('B.7 item-carried pins bytes', canonicalize(pinItem), 'spec');
 
-// ---- D.8 follows document ----
+// ---- B.8 follows document ----
 const follows = {
   url: READER,
   follows: [ ID, 'https://gran.example/~gran/' ],
   updated: 1739577600
 };
 follows._sig = sign(follows, kReader.priv, READER_KID);
-console.log('== D.8 follows document (full published canonical bytes) ==');
+console.log('== B.8 follows document (full published canonical bytes) ==');
 console.log(' ', canonicalize(follows));
 console.log();
-embed('D.8 follows bytes', canonicalize(follows), 'spec');
+embed('B.8 follows bytes', canonicalize(follows), 'spec');
 
-// ---- D.9 identity document with foreign accounts (Appendix B.2) ----
-// Standalone third identity so D.4/D.5's hashes (and everything chained to them) never move.
-// Exercises both entry forms: a bare string and an object with proof/handle.
+// ---- B.9 identity document with extension fields (§3.2) ----
+// Standalone third identity so B.4/B.5's hashes (and everything chained to them) never move.
+// `_accounts` is a README convention the core does not define: the vector exercises the
+// normative rule that unknown `_` fields are preserved inside the signed bytes and ignored
+// by every core check, with both entry shapes (string and object) present.
 const kPosse = keyFromLabel('posse-key-1');
 const POSSE = 'https://posse.example/';
 const POSSE_KID = POSSE + '#posse-key-1';
 const id3 = {
-  accounts: [
+  _accounts: [
     'https://mastodon.social/@posse',
     { handle:'posse.example', id:'did:plc:ewvi7nxzyoun6zhxrhs64oiz', proof:'atproto-handle' }
   ],
@@ -265,16 +267,16 @@ const id3 = {
   seq:1, updated:1739577600, url:POSSE
 };
 id3._sig = sign(id3, kPosse.priv, POSSE_KID);
-console.log('== D.9 identity with accounts (full published canonical bytes) ==');
+console.log('== B.9 identity with extension fields (full published canonical bytes) ==');
 console.log(' ', canonicalize(id3));
 console.log();
-embed('D.9 accounts identity bytes', canonicalize(id3), 'spec');
+embed('B.9 extension identity bytes', canonicalize(id3), 'spec');
 
-// ---- D.10 delegated custody (§4.6) ----
+// ---- B.10 delegated custody (§4.6) ----
 // A fourth identity whose identity document is signed by the member's root key while its
 // item and manifest are signed by the hub's delegated key — the split §4.6 defines.
-// Standalone so nothing chained to D.4/D.5 moves. The rejection half (a delegated key
-// signing an identity-document version) lives in test/negative.test.js, since Appendix D
+// Standalone so nothing chained to B.4/B.5 moves. The rejection half (a delegated key
+// signing an identity-document version) lives in test/negative.test.js, since Appendix B
 // is positive-only.
 const kRoot = keyFromLabel('member-root-1');
 const kDel  = keyFromLabel('hub-key-1');
@@ -292,10 +294,10 @@ const idMember = {
   seq:1, updated:1736899200, url:MEMBER
 };
 idMember._sig = sign(idMember, kRoot.priv, MEMBER_ROOT_KID);
-console.log('== D.10 member identity document (full published canonical bytes) ==');
+console.log('== B.10 member identity document (full published canonical bytes) ==');
 console.log(' ', canonicalize(idMember));
 console.log();
-embed('D.10 member identity bytes', canonicalize(idMember), 'spec');
+embed('B.10 member identity bytes', canonicalize(idMember), 'spec');
 
 const DEL_ITEM_ID = 'urn:uuid:2f1e8c4a-9b3d-4e5f-8a71-6c2d9e0b4f13';
 const delItem = {
@@ -306,20 +308,20 @@ const delItem = {
   id: DEL_ITEM_ID
 };
 delItem._sig = sign(delItem, kDel.priv, MEMBER_DEL_KID);
-console.log('== D.10 delegated-signed item (full published canonical bytes) ==');
+console.log('== B.10 delegated-signed item (full published canonical bytes) ==');
 console.log(' ', canonicalize(delItem));
 console.log();
-embed('D.10 delegated item bytes', canonicalize(delItem), 'spec');
+embed('B.10 delegated item bytes', canonicalize(delItem), 'spec');
 
 const delManifest = {
   url: MEMBER, feed_url:'https://member.example/feed.json', seq:1, updated:1740045600,
   items:{ [DEL_ITEM_ID]:[1, documentHash(delItem)] }
 };
 delManifest._sig = sign(delManifest, kDel.priv, MEMBER_DEL_KID);
-console.log('== D.10 delegated-signed manifest (full published canonical bytes) ==');
+console.log('== B.10 delegated-signed manifest (full published canonical bytes) ==');
 console.log(' ', canonicalize(delManifest));
 console.log();
-embed('D.10 delegated manifest bytes', canonicalize(delManifest), 'spec');
+embed('B.10 delegated manifest bytes', canonicalize(delManifest), 'spec');
 
 // ---- self-verify everything, the way a verifier does ----
 // Each vector resolves its key out of its author's CURRENT identity document — the tip of
@@ -344,32 +346,32 @@ const ITEM_ID  = 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6';
 const ITEM2_ID = 'urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 
 const checks = [
-  ['D.2 item',        verifies(item)],
-  ['D.2b rel item',   verifies(item2)],
-  ['D.3 manifest',    verifies(manifest)],
+  ['B.2 item',        verifies(item)],
+  ['B.2b rel item',   verifies(item2)],
+  ['B.3 manifest',    verifies(manifest)],
   // the manifest entry must name the item's exact published bytes, not merely its version
-  ['D.3 item commit', manifest.items[ITEM_ID][0]===item._version
+  ['B.3 item commit', manifest.items[ITEM_ID][0]===item._version
                         && manifest.items[ITEM_ID][1]===documentHash(item)],
-  ['D.3b manifest2',  verifies(manifest2) && manifest2.prev===manifestHash1],
-  ['D.3b commits',    manifest2.items[ITEM_ID][1]===documentHash(item)
+  ['B.3b manifest2',  verifies(manifest2) && manifest2.prev===manifestHash1],
+  ['B.3b commits',    manifest2.items[ITEM_ID][1]===documentHash(item)
                         && manifest2.items[ITEM2_ID][1]===documentHash(item2)],
-  ['D.4 id seq1',     verifies(id1)],
-  ['D.5 id seq2',     verifies(id2) && id2.prev===id1Hash],
+  ['B.4 id seq1',     verifies(id1)],
+  ['B.5 id seq2',     verifies(id2) && id2.prev===id1Hash],
   ['no history field', !('history' in id1) && !('history' in id2) && !('history' in manifest2)],
-  ['D.6 reader id',   verifies(idReader)],
-  ['D.7 item pins',   verifies(pinItem)
+  ['B.6 reader id',   verifies(idReader)],
+  ['B.7 item pins',   verifies(pinItem)
                         && pinItem._pins[0].hash===id1Hash && pinItem._pins[1].hash===manifestHash1
                         && !('_feed_url' in pinItem)],
-  ['D.8 follows',     verifies(follows)],
-  // accounts carries no authority: verification must succeed with the field treated as opaque,
-  // and both entry forms (string, object) must be present in the signed bytes.
-  ['D.9 accounts id', verifies(id3)
-                        && typeof id3.accounts[0]==='string' && typeof id3.accounts[1]==='object'],
-  ['D.10 member id',  verifies(idMember)],
+  ['B.8 follows',     verifies(follows)],
+  // an unknown `_` field carries no authority: verification must succeed with it treated as
+  // opaque, and both entry forms (string, object) must be present in the signed bytes.
+  ['B.9 extension id', verifies(id3)
+                        && typeof id3._accounts[0]==='string' && typeof id3._accounts[1]==='object'],
+  ['B.10 member id',  verifies(idMember)],
   // the delegated key resolves for an item and a manifest — the half of §4.6 a positive
   // vector can show; the identity-document rejection is in test/negative.test.js
-  ['D.10 del item',   verifies(delItem)],
-  ['D.10 del manifest', verifies(delManifest)
+  ['B.10 del item',   verifies(delItem)],
+  ['B.10 del manifest', verifies(delManifest)
                         && delManifest.items[DEL_ITEM_ID][1]===documentHash(delItem)],
 ];
 

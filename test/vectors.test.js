@@ -1,4 +1,4 @@
-// Verifies Appendix D against the published spec document itself, rather than against a
+// Verifies Appendix B against the published spec document itself, rather than against a
 // fixture copy. Vectors are extracted from open-feed-spec.md, and signing keys are resolved
 // the way a real verifier resolves them — out of the identity document that lists them
 // (spec §4.2, structural key ownership) — so the test exercises the discovery path too.
@@ -60,14 +60,14 @@ for (const { doc } of identityDocs) {
   if (!held || doc.seq > held.seq) currentByUrl.set(url, doc);
 }
 
-test('the spec contains the signed vectors Appendix D claims', () => {
+test('the spec contains the signed vectors Appendix B claims', () => {
   assert.ok(signed.length >= 13, `expected at least 13 signed vectors, extracted ${signed.length}`);
   for (const url of ['https://test.example/', 'https://reader.example/', 'https://posse.example/', 'https://member.example/']) {
     assert.ok(currentByUrl.has(url), `no identity document for ${url}`);
   }
 });
 
-test('canonicalizer reproduces D.2 known SHA-256', () => {
+test('canonicalizer reproduces B.2 known SHA-256', () => {
   // The external anchor: a hash computed outside this implementation. Without it a
   // canonicalizer bug would be invisible, since the same code produces and checks.
   const item = {
@@ -103,7 +103,7 @@ test('every signed vector verifies against its author\'s current identity docume
 
 test('every vector was signed inside its key\'s validity window', () => {
   // Stated independently of verifyDocument, because this is the check that caught a real
-  // defect: a reply vector signed nine hours after D.5 revoked the key that signed it. A
+  // defect: a reply vector signed nine hours after B.5 revoked the key that signed it. A
   // sound Ed25519 signature is not enough — §4.4 bounds it at both ends.
   for (const { doc } of signed) {
     const identityDocument = currentByUrl.get(claimedAuthor(doc));
@@ -113,7 +113,7 @@ test('every vector was signed inside its key\'s validity window', () => {
     assert.ok(key.iat <= when, `${keyId} signed at ${when}, before its iat ${key.iat}`);
     if (typeof key.revoked_at === 'number') {
       // Equality is valid: §5.2's normal rotation revokes the continuity key in the very
-      // version that key signs, which is exactly what D.5 does.
+      // version that key signs, which is exactly what B.5 does.
       assert.ok(when <= key.revoked_at, `${keyId} signed at ${when}, after revoked_at ${key.revoked_at}`);
     }
   }
@@ -141,7 +141,7 @@ test('manifest entries commit the exact published bytes of their items', () => {
 });
 
 test('manifest chain links by prev', () => {
-  // Scoped to one feed: D.10 adds a second, independent genesis manifest, and chains are
+  // Scoped to one feed: B.10 adds a second, independent genesis manifest, and chains are
   // per-document-URL (§5.3.1), never global.
   const manifests = signed
     .filter((v) => v.doc.feed_url === 'https://test.example/feed.json')

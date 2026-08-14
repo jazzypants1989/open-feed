@@ -107,7 +107,6 @@ The identity document lives at the fixed path `{identity_url}openfeed.json` — 
 | `feeds` | SHOULD (MUST for Level 2) | Array of feed entries (§3.2.1). Every feed this identity publishes, in one place. |
 | `inbox` | MAY (MUST for Level 3) | Inbox endpoint URL. |
 | `follows` | MAY | URL of the OPTIONAL follows document (§16). Outside the trust core. |
-| `accounts` | MAY | Foreign accounts this identity claims to control (Appendix B.2). Carries no authority over content; a claim until the foreign side attests back; a **permanent disclosure** — read B.2's warning before using. |
 | `name`, `bio`, `avatar`, `content_warning` | MAY | Profile metadata. `content_warning`, if present, marks all content from this identity as sensitive. |
 | `successor`, `predecessor` | MAY | Migration links (§3.4). |
 | `_recovery_sig` | MAY | A recovery co-signature — a detached JWS by a recovery key (§4.5) — for recovery-based migration (§3.4) and fork resolution (§5.5). |
@@ -336,7 +335,7 @@ The effective-signing-time rule lets content be legitimately re-signed after rot
 
 ### 6.6. Author Binding
 
-Every signed document carries its author's identity URL **inside the signed bytes**, and the claimed author MUST equal the `kid`'s identity URL. This prevents republishing someone's signed **item** under a different name: the binding travels with the bytes. For **manifests** and **identity documents** the carrier is the `url` field. For **items** it is the item-level `authors` array, which MUST contain **exactly one entry** whose `url` is the signer's identity URL; feed-level `authors` are not covered by item signatures and MUST NOT be relied on, though a multi-author *feed* still works because every item names its own single author. Clients MUST attribute solely to this entry — its `url` is authoritative, and its `name` is displayable because it sits inside the signed bytes — and MUST NOT display a name drawn from anywhere else, feed-level `authors` included. Bridged content is not an exception: an ingested item is signed by its gateway, so the gateway — or a proxy identity it operates — *is* the author here, and the foreign author is named by that proxy's own identity document (§7.5, Appendix E).
+Every signed document carries its author's identity URL **inside the signed bytes**, and the claimed author MUST equal the `kid`'s identity URL. This prevents republishing someone's signed **item** under a different name: the binding travels with the bytes. For **manifests** and **identity documents** the carrier is the `url` field. For **items** it is the item-level `authors` array, which MUST contain **exactly one entry** whose `url` is the signer's identity URL; feed-level `authors` are not covered by item signatures and MUST NOT be relied on, though a multi-author *feed* still works because every item names its own single author. Clients MUST attribute solely to this entry — its `url` is authoritative, and its `name` is displayable because it sits inside the signed bytes — and MUST NOT display a name drawn from anywhere else, feed-level `authors` included. Bridged content is not an exception: an ingested item is signed by its gateway, so the gateway — or a proxy identity it operates — *is* the author here, and the foreign author is named by that proxy's own identity document (§7.5, Appendix C).
 
 Note the limit. It covers what the item carries **by value** — the bytes the signature is computed over. It does not and cannot cover what the item carries **by reference**: anyone may put someone else's attachment URL, or a copy of their text, into their own freshly-signed item. That is ordinary plagiarism, no protocol prevents it, and `_sha256` (§7.4) proves only that the referenced bytes are the ones the signer meant — not that the signer produced them. Items MUST also include `_feed_url`, the containing feed's URL, in the signed payload when served in a feed, which drives the canonical/copy rule (§7.5); inbox-only items omit it (§8).
 
@@ -391,7 +390,7 @@ An item is **canonical** only in the feed its signed `_feed_url` names. The same
 
 Together with the manifest this closes both omission and injection: the manifest proves **presence**, so a host cannot drop your content, and `_feed_url` proves **exclusivity**, so a host cannot inject or resurrect your content by copying it into its own feed. It also gives availability for free — a follower may serve its cached copy of your feed when your host is down, and it still verifies.
 
-**Bridged and unverified items.** Content conveyed from another protocol (Appendix E) cannot be a native signed item, because no one holds the foreign author's Open Feed key. It is therefore signed by the **gateway** that observed it, and it MUST carry `_unverified: true` — **no exception and no second form**, since nothing crossing a protocol boundary is natively authentic (§10.5 governs how it is displayed). The marker travels with the item wherever it goes: it applies equally to an item ingested into a gateway's feed and to one **delivered** to an inbox with no `_feed_url` at all (Appendix E's backfeed rule). Its `authors` entry names the **signer**, the gateway or a proxy identity the gateway operates, per §6.6 — never the foreign author, who signed nothing here. It SHOULD carry `external_url` naming the foreign original, which on an `_unverified` item MAY be a non-HTTP URI (`nostr:note1…`, `at://did:plc:…`) since not every protocol identifies objects with URLs; consumers MUST NOT dereference it, and §13.5's fetch discipline governs anything they do dereference. Ingest is only half of a bridge: Appendix E states the rule governing both directions, and §11.1.1 is the case the core enforces directly.
+**Bridged and unverified items.** Content conveyed from another protocol (Appendix C) cannot be a native signed item, because no one holds the foreign author's Open Feed key. It is therefore signed by the **gateway** that observed it, and it MUST carry `_unverified: true` — **no exception and no second form**, since nothing crossing a protocol boundary is natively authentic (§10.5 governs how it is displayed). The marker travels with the item wherever it goes: it applies equally to an item ingested into a gateway's feed and to one **delivered** to an inbox with no `_feed_url` at all (Appendix C's backfeed rule). Its `authors` entry names the **signer**, the gateway or a proxy identity the gateway operates, per §6.6 — never the foreign author, who signed nothing here. It SHOULD carry `external_url` naming the foreign original, which on an `_unverified` item MAY be a non-HTTP URI (`nostr:note1…`, `at://did:plc:…`) since not every protocol identifies objects with URLs; consumers MUST NOT dereference it, and §13.5's fetch discipline governs anything they do dereference. Ingest is only half of a bridge: Appendix C states the rule governing both directions, and §11.1.1 is the case the core enforces directly.
 
 ## 8. Interactions Are Items
 
@@ -584,9 +583,9 @@ A **fifth cell does not exist: published but not public.** Serving audience-vary
 
 An item with no `_feed_url` was **delivered, not published** (§8) — its author chose the right-hand column. Whoever receives it holds someone else's signed bytes as a **custodian, not an author** (§14 uses the same words for the same reason). Therefore:
 
-> A receiver MUST NOT place a delivered-only item into any publicly-readable artifact: not a feed (§7.1) — its own or an aggregate — not a manifest (§9), not the response of any query surface it invents (a thread-discovery endpoint, a search index, an aggregate view), and not a gateway emission to a foreign network (§7.5, Appendix E). The rule binds artifact *classes*, not a list of today's surfaces: a projection is bound the moment it exists, and the check is one field lookup inside the signed bytes, costing nothing (§10.3 forbids requiring more). Only the author can move an item across the line — bump `_version`, add `_feed_url`, re-sign (§7.5) — and from that revision onward it is ordinary published content; a receiver serves whichever revision it actually holds.
+> A receiver MUST NOT place a delivered-only item into any publicly-readable artifact: not a feed (§7.1) — its own or an aggregate — not a manifest (§9), not the response of any query surface it invents (a thread-discovery endpoint, a search index, an aggregate view), and not a gateway emission to a foreign network (§7.5, Appendix C). The rule binds artifact *classes*, not a list of today's surfaces: a projection is bound the moment it exists, and the check is one field lookup inside the signed bytes, costing nothing (§10.3 forbids requiring more). Only the author can move an item across the line — bump `_version`, add `_feed_url`, re-sign (§7.5) — and from that revision onward it is ordinary published content; a receiver serves whichever revision it actually holds.
 
-This is the **only** enforcement the delivered column has. Without it, choosing that column is not a privacy mechanism at all: any one recipient can undo it unilaterally, at no cost, and the author gets no signal that it happened. Note the asymmetry that makes this a MUST — the author's choice is visible in the signed bytes and trivially checkable, while its violation is invisible to the person it harms. The rule binds the **bytes**, not the information, the same by-value/by-reference limit as §6.6: nothing stops a recipient publishing their own signed item describing what you told them privately, which is ordinary indiscretion that no protocol prevents and this one does not pretend to. For a native delivered-only item the rule has no exceptions. The missing `_feed_url` is overloaded by exactly one other case, distinguishable from the bytes: a gateway-**delivered** foreign response (Appendix E's backfeed rule) carries `_unverified: true` and an `external_url`, which a native private item never does, and its underlying author *did* publish — publicly, on the foreign network. Appendix E scopes what a recipient may do there; nothing in it loosens this rule for anything else.
+This is the **only** enforcement the delivered column has. Without it, choosing that column is not a privacy mechanism at all: any one recipient can undo it unilaterally, at no cost, and the author gets no signal that it happened. Note the asymmetry that makes this a MUST — the author's choice is visible in the signed bytes and trivially checkable, while its violation is invisible to the person it harms. The rule binds the **bytes**, not the information, the same by-value/by-reference limit as §6.6: nothing stops a recipient publishing their own signed item describing what you told them privately, which is ordinary indiscretion that no protocol prevents and this one does not pretend to. For a native delivered-only item the rule has no exceptions. The missing `_feed_url` is overloaded by exactly one other case, distinguishable from the bytes: a gateway-**delivered** foreign response (Appendix C's backfeed rule) carries `_unverified: true` and an `external_url`, which a native private item never does, and its underlying author *did* publish — publicly, on the foreign network. Appendix C scopes what a recipient may do there; nothing in it loosens this rule for anything else.
 
 ### 11.2. Audience of one, audience of many
 
@@ -656,6 +655,7 @@ These make hosted identities portable rather than captive, and an implementation
 13. **Lag, withholding, violation.** Three distinct states, defined with their bounds in §9.3. Do not collapse them: the second and third are attacks and the first is not.
 14. **Receiver-side republication.** §11.1.1 is enforced entirely at parties other than the author, so every surface that projects received content publicly must apply it. It is the failure mode most likely to be introduced by an implementer being *helpful*: republishing what arrived in the inbox looks like completeness and is a disclosure the author declined.
 15. **Identity portability.** Losing the domain without recovery keys orphans the identity — the email trade-off. Recovery keys and pins close the hijack gap for anyone who observed the identity before the hijack; first contact after a hijack is unprotectable by design. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity, and recovery keys plus pins are the family-scale mitigation, not a fix.
+16. **Cross-platform account links in chained documents.** Publishing a claim to a foreign account (a fediverse handle, a Bluesky DID — README documents an `_accounts` convention) inside any chained document is a **permanent, irreversible disclosure** of a cross-platform identity link: removal withdraws the claim, never the disclosure, because every prior version stays served (§5.4). Identities for whom the operator or a family member is the adversary (the hostile-custodian tier above) SHOULD NOT publish such links — an unsigned HTML link is deletable and carries lower risk; signed buys tamper-evidence, unsigned buys erasure, and the choice must be stated, not made silently. And whatever the mechanism, a claim about a foreign account MUST be presented as a claim, never as established, until the foreign side's own attestation has been checked — account linkage MUST NOT share a "verified" label with authorship (§6.5), whose verifier and failure modes are different.
 
 ## 14. Export and Exit
 
@@ -755,7 +755,7 @@ Encryption does nothing about §11.4's cleartext metadata, and on a published fe
 6. **Recipient-count DoS.** A reader trial-decrypts every slot with every encryption key it holds, so the cost is slots × keys — and §15.1 makes a reader's key count grow monotonically and never shrink. Cap the **product**, not the slot count: clients MUST cap the trial decryptions they will attempt (RECOMMENDED: 1024) and treat an item exceeding it as unreadable rather than grinding. The expensive case is the common one, since a non-recipient — anyone at all, on a world-readable encrypted feed — pays the full product on every item and never exits early. Recipients SHOULD attempt keys newest-`iat` first.
 7. **Tombstones.** §7.3's allowlist already removes `_enc` from a tombstone, since only listed fields survive. This is why that rule is an allowlist: a denylist naming today's content fields would have left ciphertext in place and deleted nothing.
 8. **Do not encrypt to yourself and call it private.** An item wrapped only to its author is still published metadata (§11.4) and is still on someone's host. If content must not exist publicly, do not publish it.
-9. **Bridges amplify the metadata leak, and are forbidden from doing so.** The leak is bounded by the surface the author chose. A gateway relaying an encrypted item to a foreign network moves it to a different audience with different reach, which is why Appendix E forbids a gateway from emitting content it cannot read **in any form, including a placeholder**.
+9. **Bridges amplify the metadata leak, and are forbidden from doing so.** The leak is bounded by the surface the author chose. A gateway relaying an encrypted item to a foreign network moves it to a different audience with different reach, which is why Appendix C forbids a gateway from emitting content it cannot read **in any form, including a placeholder**.
 
 ### 15.6. Conformance
 
@@ -825,51 +825,11 @@ This section defines no new conformance level; it refines core Level 1+. A consu
 
 All served with `Access-Control-Allow-Origin: *`.
 
-## Appendix B: Identifier Aliases and Foreign Accounts (OPTIONAL)
+## Appendix B: Test Vectors
 
-### B.1. Aliases
+All vectors are computed and self-verifying, regenerated by `tmp/regen.js`, which validates the canonicalizer against B.2's known SHA-256, cryptographically self-verifies every `_sig`, confirms each manifest entry's hash equals its item's full published bytes, and checks that every vector string below appears verbatim in this document. Keys are **deterministic, testing-only** Ed25519 keys — not for any real identity.
 
-Two aliasing layers, both optional, both subject to the same rule: **an alias resolves to the identity URL and stops there.** Clients MUST then fetch the identity document as the authoritative source, and an alias document that disagrees with it is authoritative for nothing. **WebFinger** (RFC 7033) gives `@user@domain` identifiers: `GET /.well-known/webfinger?resource=acct:mom@pence.family` returns the identity URL in `aliases` / `rel="self"` links. Purely a human-friendly layer; nothing else depends on it.
-
-**`did:web`** gives machine legibility to ecosystems that resolve DIDs. An identity URL maps mechanically — `https://pence.family/~mom/` → `did:web:pence.family:~mom`, resolving to `https://pence.family/~mom/did.json`, same-origin and derivable — and a publisher MAY serve a DID document there carrying the same Ed25519 public keys as its `keys` array. Nothing in this protocol reads it, and **no signature crosses in either direction**: Open Feed signs the JWS signing input directly (§6.1), while the DID ecosystem's Ed25519 suites sign other bytes. What crosses is the *key*, and its reach is narrower than "everything that speaks DIDs": DIF and verifiable-credential tooling can resolve it, but **atproto can use neither the identifier nor the key** — atproto supports hostname-level `did:web` only, so the path-based mapping above is not a valid atproto DID, and its signing curves are P-256 and K-256, which Ed25519 is not. A domain-root identity (`https://mom.pence.family/` → `did:web:mom.pence.family`) *is* hostname-level and therefore a valid atproto DID; one `did.json` MAY then carry both the Ed25519 Open Feed key and a separate atproto `Multikey` verification method plus PDS service endpoint — one identifier, two protocols, two keys, still no signature crossing. A publisher serving a DID document MUST keep it consistent with `keys` — a stale DID document advertising a revoked key is a liability the identity chain would otherwise have retired (§4.4).
-
-**The domain handle, not `did:web`, is the practical Bluesky seam**, and it needs no DID document and no self-hosted PDS. Bluesky resolves a handle to a DID via a `_atproto.<handle>` DNS TXT record or a `/.well-known/atproto-did` file, and requires the DID document to link back to the handle before treating it as valid — a bidirectional check this appendix adopts as its own discipline in B.2. It works with an ordinary Bluesky-hosted `did:plc` account and zero infrastructure. Both mechanisms are **domain-scoped** — a handle has no path form — so **cross-protocol identity binding is a property of domain-root identities**: `https://pence.family/~mom/` cannot be bound to a Bluesky handle; `https://mom.pence.family/` can. Mastodon's `rel="me"` verification works against any URL, subpath included; the asymmetry is specifically Bluesky's.
-
-### B.2. Foreign accounts
-
-An **account** is not an alias. An alias is another name for *this same identity* and resolves to the identity URL. An account is a **separate principal on a foreign system** — its own keys, its own content, its own operator — that the same person claims to control. It resolves to nothing here, and one rule governs every claim about one:
-
-> **A claim about a foreign account is an assertion, not a proof, until the foreign side attests back.** A consumer MUST NOT treat an `accounts` entry as established without checking the foreign side's attestation by the recipe its `proof` token names, and MUST present an unattested entry as a claim.
-
-The identity document MAY carry an `accounts` array (§3.2). Entries are strings or objects carrying at least `id`, per the `follows` shape (§16.2); consumers MUST accept both forms and preserve unknown keys. `proof` names the foreign mechanism from the token vocabulary (§2.1): a registered token below, or an absolute URL whose definition carries its own recipe. No core verifier consults `accounts` — no signature, chain, or manifest check depends on it; it is presentation-layer by construction (§4.1's discipline: who checks it is the displaying consumer, and removing an entry is a signed, dated withdrawal of the claim).
-
-```json
-"accounts": [
-  { "id": "https://mastodon.social/@mom", "proof": "rel-me" },
-  { "id": "did:plc:abcd1234", "handle": "mom.pence.family", "proof": "atproto-handle" }
-]
-```
-
-**Recipes.** A consumer performs the check itself — a platform's own cached "verified" badge is evidence of a check at some past time, not of the link's presence now.
-
-- `rel-me`: the foreign profile lists a URL under the claimed identity, and that page carries an HTML `rel="me"` hyperlink back to the foreign profile. Both halves are publicly fetchable; check both. The HTML link must therefore **exist alongside** `accounts` — Mastodon's verifier reads HTML and will never read `openfeed.json` — so publishers SHOULD generate the HTML links *from* the `accounts` array, and for Open Feed consumers `accounts` is authoritative where the two disagree.
-- `atproto-handle`: the entry names the immutable DID. The identity's own half is domain-side — `_atproto` DNS TXT or `/.well-known/atproto-did` naming that DID — and the foreign half is the **DID document** naming the handle back (`alsoKnownAs`). Key the claim by DID; treat the handle as mutable routing, never as an identity change. A handle on a provider domain the identity does not control (`mom.bsky.social`) has no domain half and cannot be verified by this recipe; present such entries as unverified claims regardless of `proof`.
-
-**Freshness.** A consumer MUST check on first observation of an entry and MUST re-check when the entry changes (a chain advance). It SHOULD re-check periodically (RECOMMENDED: 7 days), SHOULD present an older result as "previously verified" with the age stated, and SHOULD treat a failing re-check as downgrade-to-claim rather than removal — a foreign outage is indistinguishable from a revocation. Account linkage MUST NOT share a "verified" label with authorship (§6.5): different verifiers, different failure modes.
-
-**Against whom it works.** Unlike an HTML link, an entry cannot be varied per reader without advancing the chain (§5.3.1), and removal is visible to every pinned consumer. That defends against **third parties** claiming your accounts. It does not defend against a **key custodian** planting accounts on you: a host holding the signing key can also serve the HTML page and register the foreign account, controlling both halves of the check. Detection there is what it is for every custodian attack — the chain records the addition (§5.2 step 5) and comparison surfaces it (§5.3.1).
-
-**Permanence warning.** An `accounts` entry is a **permanent, irreversible disclosure** of a cross-platform identity link: removal withdraws the claim, never the disclosure, because every prior version stays served (§5.4). For identities where the operator or a family member is the adversary (§13.2, the hostile-custodian tier), this field SHOULD NOT be used; an unsigned HTML link is deletable and carries lower risk. Signed buys tamper-evidence and a dated revocation record; unsigned buys deniability and erasure. State the choice; do not make it silently.
-
-## Appendix C: Real-Time Updates (OPTIONAL)
-
-JSON Feed 1.1 already defines a `hubs` field for WebSub. Feeds MAY advertise one; subscribers get pushes instead of polling and MUST still verify item signatures, since the WebSub hub is untrusted infrastructure. Nothing Open-Feed-specific is added. Real-time *inbox* notification to one's own clients (SSE, WebSocket) is implementation-specific.
-
-## Appendix D: Test Vectors
-
-All vectors are computed and self-verifying, regenerated by `tmp/regen.js`, which validates the canonicalizer against D.2's known SHA-256, cryptographically self-verifies every `_sig`, confirms each manifest entry's hash equals its item's full published bytes, and checks that every vector string below appears verbatim in this document. Keys are **deterministic, testing-only** Ed25519 keys — not for any real identity.
-
-### D.1. Keys
+### B.1. Keys
 
 Identity: `https://test.example/`. Public keys (`x`, base64url):
 
@@ -886,7 +846,7 @@ JWS header for every `_sig` below (signed by `test-key-1`), and its base64url en
 eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0
 ```
 
-### D.2. Signed Item
+### B.2. Signed Item
 
 Canonical bytes (no `_sig`; `ö` is NFC U+00F6, wave is U+1F44B), then the resulting `_sig`:
 
@@ -907,7 +867,7 @@ Base64url SHA-256 of those bytes — the item's manifest commitment: `czai6zQ_04
 
 The two hashes are of different things and both appear in the protocol: the *hex* hash is over the canonical bytes **without** `_sig` (the signing payload, §6.3), while the manifest commits to the **full published bytes** including `_sig` (§5.1).
 
-### D.2b. Signed Relation Item (a reply)
+### B.2b. Signed Relation Item (a reply)
 
 An interaction is an ordinary item carrying `_rel` (§8). Full published canonical bytes, signed by `test-key-1`:
 
@@ -917,11 +877,11 @@ An interaction is an ordinary item carrying `_rel` (§8). Full published canonic
 
 Manifest commitment (base64url SHA-256 of those bytes): `qWyq-M1dzN2Nf4zUcF08mVzLhpCw_ykJSTeoT8-xTio`
 
-`date_published` sits before `test-key-1`'s revocation in D.5. It has to: §6.5 step 5 resolves a `kid` against the **current** identity document, so an item signed by that key after `revoked_at` is one a conforming verifier must reject (§4.4) no matter how sound its signature is.
+`date_published` sits before `test-key-1`'s revocation in B.5. It has to: §6.5 step 5 resolves a `kid` against the **current** identity document, so an item signed by that key after `revoked_at` is one a conforming verifier must reject (§4.4) no matter how sound its signature is.
 
-### D.3. Manifest (genesis, `seq: 1`)
+### B.3. Manifest (genesis, `seq: 1`)
 
-Full published canonical bytes (signed by `test-key-1`, `updated` = 1736899200). Each `items` entry is `[version, hash]`, the hash being D.2's full-published-bytes commitment:
+Full published canonical bytes (signed by `test-key-1`, `updated` = 1736899200). Each `items` entry is `[version, hash]`, the hash being B.2's full-published-bytes commitment:
 
 ```
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..n0gZ_Mgtf74bg1ehRaJ82un3FSkZI4SPw6-25A6WyOfjA5pfQP8XWidZ4EG8EBeTtqHQkIBZH46cbe5syZDaCQ","feed_url":"https://test.example/feed.json","items":{"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":[1,"czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"]},"seq":1,"updated":1736899200,"url":"https://test.example/"}
@@ -929,17 +889,17 @@ Full published canonical bytes (signed by `test-key-1`, `updated` = 1736899200).
 
 Base64url SHA-256 of these canonical bytes (this is `seq: 2`'s `prev`): `8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI`
 
-### D.3b. Manifest, `seq: 2` (chained)
+### B.3b. Manifest, `seq: 2` (chained)
 
-Adds D.2b and chains to the genesis via `prev`. Signed by `test-key-1`, `updated` = 1739577600. The retained `seq: 1` version is served at the derived URL `https://test.example/manifest/1.json` (§5.4).
+Adds B.2b and chains to the genesis via `prev`. Signed by `test-key-1`, `updated` = 1739577600. The retained `seq: 1` version is served at the derived URL `https://test.example/manifest/1.json` (§5.4).
 
 ```
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..LBK_PNGYQfLYOA9NrXvboRe-hmMqu59FZx9wQiyYbC3xh7SWalvwWHXUCaFJD42Z1FictCWEDmigvVoWMAx2Aw","feed_url":"https://test.example/feed.json","items":{"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8":[1,"qWyq-M1dzN2Nf4zUcF08mVzLhpCw_ykJSTeoT8-xTio"],"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6":[1,"czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"]},"prev":"8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI","seq":2,"updated":1739577600,"url":"https://test.example/"}
 ```
 
-Its `prev` equals the D.3 genesis hash, demonstrating manifest chaining (§9.1), and each `items` entry names the exact bytes of D.2 and D.2b respectively.
+Its `prev` equals the B.3 genesis hash, demonstrating manifest chaining (§9.1), and each `items` entry names the exact bytes of B.2 and B.2b respectively.
 
-### D.4. Identity Document, `seq: 1` (genesis)
+### B.4. Identity Document, `seq: 1` (genesis)
 
 Full published canonical bytes — this exact string is what `seq: 2`'s `prev` hashes. Note the shape: one `feeds` array (§3.2.1), each entry naming a manifest.
 
@@ -951,7 +911,7 @@ Hash (base64url SHA-256, = `seq: 2`'s `prev`): `vvjaE1GRk0wxvVU37Ik8h6uVzFLoAZ_-
 
 Once `seq: 2` exists, this version is served byte-identically at `https://test.example/openfeed/1.json`, derived by §5.4.
 
-### D.5. Identity Document, `seq: 2` (rotation)
+### B.5. Identity Document, `seq: 2` (rotation)
 
 Adds `test-key-2`, revokes `test-key-1`. Signed by `test-key-1` — the continuity key, valid in `seq: 1`, revoked by the very version it signs, and still listed in it (§5.2):
 
@@ -959,25 +919,25 @@ Adds `test-key-2`, revokes `test-key-1`. Signed by `test-key-1` — the continui
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..qpsmemLozSvp8vaFVkCHmJM_iWJWc5YGfcKAqyGTsBxt2hPrUGNMiC-7-b7NSHWyLtSzs2Sd8mlcy_1RnAg0DA","feeds":[{"manifest":"https://test.example/manifest.json","rel":"primary","url":"https://test.example/feed.json"}],"inbox":"https://test.example/inbox","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"test-key-1","kty":"OKP","revoked_at":1739577600,"x":"EJCQMfAAiRcCJPeshSuCgQeEOSmcG6OL0xbMJGcuwf0"},{"crv":"Ed25519","iat":1739577600,"kid":"test-key-2","kty":"OKP","x":"KOvPWZT35Xzwcsw6vfQzO3idc8oa67BdHZ0oXpriOQA"},{"crv":"Ed25519","iat":1736899200,"kid":"recovery-1","kty":"OKP","use":"recovery","x":"1M1BV4w0Z0njYasNg-EmwrblKcCt1zmese8W278yYkk"}],"name":"Test Identity","prev":"vvjaE1GRk0wxvVU37Ik8h6uVzFLoAZ_-TInTrQB4zho","seq":2,"updated":1739577600,"url":"https://test.example/"}
 ```
 
-### D.6. Reader Identity Document
+### B.6. Reader Identity Document
 
-A second identity, the reader `https://reader.example/`, publishing the key that signs D.7 and D.8. Without it those two signatures name a key no third party could resolve, since key ownership is structural — a key belongs to the identity whose document lists it (§4.2). A Level 1 consumer, so no `feeds` and no `inbox`: the follows document is all it publishes, referenced from here (§3.2). Full published canonical bytes:
+A second identity, the reader `https://reader.example/`, publishing the key that signs B.7 and B.8. Without it those two signatures name a key no third party could resolve, since key ownership is structural — a key belongs to the identity whose document lists it (§4.2). A Level 1 consumer, so no `feeds` and no `inbox`: the follows document is all it publishes, referenced from here (§3.2). Full published canonical bytes:
 
 ```
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvI3JlYWRlci1rZXktMSJ9..ga-sw3yC2OrP9R7CpNF8zqpHigGqnYL8zl760SCXaSwVlUxKXjHpqIp9_BnuhMaa_gR242CQJ2MySE8lKzrwAA","follows":"https://reader.example/follows.json","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"reader-key-1","kty":"OKP","x":"X1ImihHt5syI0lgZfDFRh3UIQTMUh5RYH4OAb-b52zc"}],"name":"Reader","seq":1,"updated":1739577600,"url":"https://reader.example/"}
 ```
 
-### D.7. Item Carrying Pins (§16.1)
+### B.7. Item Carrying Pins (§16.1)
 
-A delivered-only reply (no `_feed_url`) from the reader to the author of D.2's item, carrying pins of the recipient's identity document (D.4, `seq: 1`) and manifest (D.3, `seq: 1`). The entries name only chains of the identity the item is addressed to, so it satisfies §16.1's publication rule on either axis. Full published canonical bytes:
+A delivered-only reply (no `_feed_url`) from the reader to the author of B.2's item, carrying pins of the recipient's identity document (B.4, `seq: 1`) and manifest (B.3, `seq: 1`). The entries name only chains of the identity the item is addressed to, so it satisfies §16.1's publication rule on either axis. Full published canonical bytes:
 
 ```
 {"_pins":[{"hash":"vvjaE1GRk0wxvVU37Ik8h6uVzFLoAZ_-TInTrQB4zho","observed":1739577600,"seq":1,"url":"https://test.example/openfeed.json"},{"hash":"8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI","observed":1739577600,"seq":1,"url":"https://test.example/manifest.json"}],"_rel":[{"to":"https://test.example/feed.json#urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6","type":"reply"}],"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvI3JlYWRlci1rZXktMSJ9..k9CbSVhYurWpEAb7U9VadOjTU7Tbgf9JEL7raOhX2huJ4XjXBzgXtdGfobZLC-AiaPGxXiyizoTIlmQL4wijDw","_version":1,"authors":[{"url":"https://reader.example/"}],"content_text":"Lovely!","date_published":"2025-02-15T12:00:00Z","id":"urn:uuid:7c9e6679-7425-40de-944b-e07fc1f90ae7"}
 ```
 
-The two `hash` values equal, respectively, D.4's identity-document hash and D.3's manifest hash — so the recipient, holding its own pin of either chain, can run the compare rule (§5.3.1) against these entries after resolving them per §16.1.
+The two `hash` values equal, respectively, B.4's identity-document hash and B.3's manifest hash — so the recipient, holding its own pin of either chain, can run the compare rule (§5.3.1) against these entries after resolving them per §16.1.
 
-### D.8. Follows Document (§16.2)
+### B.8. Follows Document (§16.2)
 
 `https://reader.example/` follows the owner and a grandparent. Full published canonical bytes:
 
@@ -985,19 +945,19 @@ The two `hash` values equal, respectively, D.4's identity-document hash and D.3'
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvI3JlYWRlci1rZXktMSJ9..7rVRo4zwaPw_ALwAxf9DEmiTkdFZQRizEEKtKJ_ucJ0kNKUYsNB1vA-WJnht7QefhQWWogPbWRiR7PJiHDk6Bw","follows":["https://test.example/","https://gran.example/~gran/"],"updated":1739577600,"url":"https://reader.example/"}
 ```
 
-### D.9. Identity Document with Foreign Accounts (Appendix B.2)
+### B.9. Identity Document with Extension Fields
 
-A third identity, `https://posse.example/` (key `posse-key-1`), carrying an `accounts` array with both entry forms — a bare string and an object with `proof`. Standalone on purpose: adding `accounts` to D.4 would change its hash, which is D.5's `prev`, cascading through every vector. Full published canonical bytes:
+A third identity, `https://posse.example/` (key `posse-key-1`), carrying `_accounts` — a README convention this specification does not define — with both entry shapes, a bare string and an object. The vector exercises §3.2's normative rule: unknown `_` fields sit inside the signed bytes, survive re-serialization, and are ignored by every core check. Standalone on purpose: adding a field to B.4 would change its hash, which is B.5's `prev`, cascading through every vector. Full published canonical bytes:
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcG9zc2UuZXhhbXBsZS8jcG9zc2Uta2V5LTEifQ..qLHgc_2Crk23UYnyqNBJT7vu8q-FgzxqM4aJEY0asSGp_vn8-Hg-k77bxDbkYFTmEsEvseFA-lwBXtSDJ1yeDQ","accounts":["https://mastodon.social/@posse",{"handle":"posse.example","id":"did:plc:ewvi7nxzyoun6zhxrhs64oiz","proof":"atproto-handle"}],"keys":[{"crv":"Ed25519","iat":1739577600,"kid":"posse-key-1","kty":"OKP","x":"0RXGkHAP-wMs0x7mlkEgwgpBJ8fl8pguVW6A7npnRZo"}],"name":"POSSE Identity","seq":1,"updated":1739577600,"url":"https://posse.example/"}
+{"_accounts":["https://mastodon.social/@posse",{"handle":"posse.example","id":"did:plc:ewvi7nxzyoun6zhxrhs64oiz","proof":"atproto-handle"}],"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcG9zc2UuZXhhbXBsZS8jcG9zc2Uta2V5LTEifQ..SPUUIhGur3nLWfD6fALk08Mk8jIBaNbidZSNIEhfekucDSri-Ky_kvf3PsBVjsfxx-MT2jWJpxs8kzeaCGG6Dw","keys":[{"crv":"Ed25519","iat":1739577600,"kid":"posse-key-1","kty":"OKP","x":"0RXGkHAP-wMs0x7mlkEgwgpBJ8fl8pguVW6A7npnRZo"}],"name":"POSSE Identity","seq":1,"updated":1739577600,"url":"https://posse.example/"}
 ```
 
-The signature verifies with `accounts` treated as opaque — no core check consults it (B.2). The DID and the Mastodon URL are illustrative; neither resolves.
+The signature verifies with `_accounts` treated as opaque — no core check consults it, and a verifier that dropped or reordered it would fail the Ed25519 check, which is what "unknown `_` fields MUST survive re-serialization" protects. The DID and the Mastodon URL are illustrative; neither resolves.
 
-### D.10. Delegated Custody (§4.6)
+### B.10. Delegated Custody (§4.6)
 
-A fourth identity, `https://member.example/`, in §12's recommended architecture: the identity document is signed by the member's **root** key while the item and manifest are signed by the hub's **delegated** key. Standalone on purpose, like D.9. Identity document, full published canonical bytes:
+A fourth identity, `https://member.example/`, in §12's recommended architecture: the identity document is signed by the member's **root** key while the item and manifest are signed by the hub's **delegated** key. Standalone on purpose, like B.9. Identity document, full published canonical bytes:
 
 ```
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vbWVtYmVyLmV4YW1wbGUvI21lbWJlci1yb290LTEifQ..Y0tjVA-bgCMAIA1EQ250bsqeGZZ7dM8-Iblc1NEiDnzga85ONvcuKIFrdSGFoSPIyn9o3S5X_pN0tiwhsityBw","feeds":[{"manifest":"https://member.example/manifest.json","rel":"primary","url":"https://member.example/feed.json"}],"keys":[{"crv":"Ed25519","iat":1736899200,"kid":"member-root-1","kty":"OKP","x":"lBYIdfsoSyJtw7cR1busq-pKJ_sQSWAm7VyQXe7wJcA"},{"crv":"Ed25519","iat":1736899200,"kid":"hub-key-1","kty":"OKP","use":"delegated","x":"V9b9ajziR-hIyS-Kw7VEJMC5y5ODDVsIMjGceq8oabc"}],"name":"Delegated Member","seq":1,"updated":1736899200,"url":"https://member.example/"}
@@ -1015,13 +975,13 @@ The manifest committing it, also delegated-signed:
 {"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vbWVtYmVyLmV4YW1wbGUvI2h1Yi1rZXktMSJ9..g_v-LRTtuSol3sRe4Pv2cmfD2gYuxhFFCASk1gGyFRzMSDrIPMfBlwN8wsivcOUS7TVEhcVp6iRwVNSOmm8VAw","feed_url":"https://member.example/feed.json","items":{"urn:uuid:2f1e8c4a-9b3d-4e5f-8a71-6c2d9e0b4f13":[1,"yVUs8yjWaY40adkRZBDBeVslAd66x_Y5VKhjqza0MhU"]},"seq":1,"updated":1740045600,"url":"https://member.example/"}
 ```
 
-These are the positive half of §4.6 — the delegated key resolving where it may sign. The other half is a must-fail case (a delegated key signing an identity-document version), which Appendix D, being positive-only, cannot carry; the reference repository's negative corpus does.
+These are the positive half of §4.6 — the delegated key resolving where it may sign. The other half is a must-fail case (a delegated key signing an identity-document version), which Appendix B, being positive-only, cannot carry; the reference repository's negative corpus does.
 
-**Validation recipe.** Verify all thirteen `_sig` values (D.2, D.2b, D.3, D.3b, D.4, D.5 against `test-key-1`; D.7, D.8 against `reader-key-1`; D.6 and D.9 against the key each publishes; D.10's identity document against `member-root-1` and its item and manifest against the delegated `hub-key-1`). Resolve every one of those keys the way §6.5 step 5 does — out of the signer's **current** identity document, D.5 for `test.example` — so `iat` and `revoked_at` are in scope and not just the Ed25519 check; every vector here is intended to verify under that rule, and one that verifies only against a genesis document is a defect. Recompute D.3's full-bytes hash and confirm it equals D.3b's `prev` (manifest chaining); recompute D.4's full-bytes hash and confirm it equals D.5's `prev` (identity chaining). Recompute the full-published-bytes hashes of D.2 and D.2b and confirm each equals the `hash` half of its `items` entry in D.3b (content commitment, §9). Confirm D.7's `_pins` hashes equal the D.4 and D.3 hashes, and that D.7 carries no `_feed_url` (delivered-only, §16.1). `tmp/regen.js` performs all of these.
+**Validation recipe.** Verify all thirteen `_sig` values (B.2, B.2b, B.3, B.3b, B.4, B.5 against `test-key-1`; B.7, B.8 against `reader-key-1`; B.6 and B.9 against the key each publishes; B.10's identity document against `member-root-1` and its item and manifest against the delegated `hub-key-1`). Resolve every one of those keys the way §6.5 step 5 does — out of the signer's **current** identity document, B.5 for `test.example` — so `iat` and `revoked_at` are in scope and not just the Ed25519 check; every vector here is intended to verify under that rule, and one that verifies only against a genesis document is a defect. Recompute B.3's full-bytes hash and confirm it equals B.3b's `prev` (manifest chaining); recompute B.4's full-bytes hash and confirm it equals B.5's `prev` (identity chaining). Recompute the full-published-bytes hashes of B.2 and B.2b and confirm each equals the `hash` half of its `items` entry in B.3b (content commitment, §9). Confirm B.7's `_pins` hashes equal the B.4 and B.3 hashes, and that B.7 carries no `_feed_url` (delivered-only, §16.1). `tmp/regen.js` performs all of these.
 
-## Appendix E: Interoperability and Gateways
+## Appendix C: Interoperability and Gateways
 
-The cheapest interoperability is not a bridge, because Open Feed's wire formats are already other people's wire formats. That route is four things, none of which requires anything in this specification to be implemented: a JSON Feed that plain readers already consume (Level 0, §12), an Atom or RSS mirror alongside it for the larger installed base, h-card/h-entry markup on the human page, and the optional identifier aliases of Appendix B. Existing third-party bridges already consume that combination. README expands on it. This appendix governs the expensive route.
+The cheapest interoperability is not a bridge, because Open Feed's wire formats are already other people's wire formats. That route is four things, none of which requires anything in this specification to be implemented: a JSON Feed that plain readers already consume (Level 0, §12), an Atom or RSS mirror alongside it for the larger installed base, h-card/h-entry markup on the human page, and the identifier-alias conventions README documents (WebFinger, `did:web`). Existing third-party bridges already consume that combination. README expands on it. This appendix governs the expensive route.
 
 A **gateway** is a **trusted intermediary, never a transparent adapter**: each target protocol has a different trust primitive, and no bridge can hold a foreign author's Open Feed key. A gateway is an ordinary Open Feed identity — identity document, keys, chained manifest, inbox — so a gateway that equivocates about what it bridged forks its own chain and is caught by §9.1 like any other signer. Everything it must and must not do follows from one rule, applied in both directions:
 
@@ -1037,7 +997,7 @@ Those three questions are the test for any protocol, including one that does not
 
 **The two directions are separable, and outbound alone is cheap.** Notifying a foreign network about your *own published* relation item — sending a Webmention for a `to` that dereferences to an HTTP URL, say — mints no proxy identity, ingests nothing, keeps no state, and widens no audience, since the item was already published at your own URL. A publisher can do that and never operate a gateway; the trust argument begins at ingest.
 
-**Two kinds of gateway.** The variable that prices a gateway is not direction but **what it commits to publicly.** A **mirroring gateway** ingests foreign content into its own manifested feed for an Open Feed audience: every inbound rule below applies in full, retention is permanent, and proxy identities are required. A **syndication gateway** serves a POSSE publisher: outbound, it posts the publisher's *own published* items to the publisher's *own foreign account* — a client calling a foreign API, requiring nothing from this protocol — and inbound, it conveys responses home by **delivery**, publishing nothing. Its natural operator is the publisher themselves, holding their own OAuth token, so the deployment adds **no intermediary beyond the silos POSSE already accepts.** Where publisher and gateway are the same actor, even delivery collapses into the client polling its own foreign notifications and rendering locally — no inbox, no protocol machinery, and only the publication prohibition below still binding. The delivery rule exists for the third-party case: a hub conveying responses to identities it does not operate. A syndicated copy SHOULD link back to its item's permalink — the item-level half of B.2's attestation discipline, and the key a gateway uses to route a foreign reply home.
+**Two kinds of gateway.** The variable that prices a gateway is not direction but **what it commits to publicly.** A **mirroring gateway** ingests foreign content into its own manifested feed for an Open Feed audience: every inbound rule below applies in full, retention is permanent, and proxy identities are required. A **syndication gateway** serves a POSSE publisher: outbound, it posts the publisher's *own published* items to the publisher's *own foreign account* — a client calling a foreign API, requiring nothing from this protocol — and inbound, it conveys responses home by **delivery**, publishing nothing. Its natural operator is the publisher themselves, holding their own OAuth token, so the deployment adds **no intermediary beyond the silos POSSE already accepts.** Where publisher and gateway are the same actor, even delivery collapses into the client polling its own foreign notifications and rendering locally — no inbox, no protocol machinery, and only the publication prohibition below still binding. The delivery rule exists for the third-party case: a hub conveying responses to identities it does not operate. A syndicated copy SHOULD link back to its item's permalink — the item-level half of the bidirectional-attestation discipline README's foreign-account conventions use, and the key a gateway uses to route a foreign reply home.
 
 > **Backfeed is delivery, not ingest.** A gateway conveying foreign responses to the Open Feed identity they concern SHOULD deliver them to that identity's inbox (§10) as `_unverified` items with no `_feed_url`, and MUST NOT publish them into any feed or other publicly-readable artifact (§11.1.1). The audience test applies unchanged — only responses the source published publicly, because the inbox's custodian is not necessarily its owner (§13.2) and the foreign author consented to neither. The durability test does not bar delivery, which durabilizes content *for its recipient*, not for the public; but the cost must be stated: delivered items persist in the recipient's inbox and export bundle (§14) until tombstoned, so a foreign deletion round-trips as best-effort, never as recall.
 
@@ -1059,4 +1019,4 @@ Mechanics that make the round trip work rather than merely permitted:
 
 A proxy identity is **not** a hosted identity in §12's sense, and that distinction is what keeps §14 coherent: its principal never asked for it, holds no keys, and has a real home elsewhere. Because everything a proxy publishes is `_unverified`, it never claims to *be* that person — it claims to mirror them, a claim the gateway can support — so §12's device-generated recovery key, `(seq, hash)` disclosure, and export bundle do not apply: there is no captive user, because there is no user. The price of that carve-out is honesty. A gateway minting proxy identities MUST **disclose** in each proxy's identity document that it is a gateway-operated mirror, who operates it, and where the actor's real home is; MUST **never claim exit** (§14) for a proxy identity; and MUST **withdraw the proxy on the foreign actor's request**, which stands where exit stands for a real hosted identity and is weaker — say so rather than dressing it up. A gateway unwilling to meet these should not mint proxies; ingesting everything under the gateway's own single identity is always available, and costs only per-actor attribution.
 
-**Bridge profiles.** Because the rule above is protocol-independent, a normative profile for a specific protocol is a filled-in table rather than a fresh trust argument. A **syndication-class** profile is far smaller than a mirroring one — the safety-critical ingest slots drop out, leaving the identity seam (Appendix B), the backlink form, and the backfeed delivery mechanics above. No profile is defined here; README carries the template and the per-protocol survey. A profile MUST fix, at minimum, the identity and object mappings, the `external_url` form, the **audience test** and **durability test** that decide what may be ingested (the safety-critical slots), the update/delete mapping, which foreign objects have no item representation and MUST NOT be invented into `_rel` types, and the failure semantics when the foreign side disappears or is unreachable. Those last two are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
+**Bridge profiles.** Because the rule above is protocol-independent, a normative profile for a specific protocol is a filled-in table rather than a fresh trust argument. A **syndication-class** profile is far smaller than a mirroring one — the safety-critical ingest slots drop out, leaving the identity seam (README's alias and foreign-account conventions), the backlink form, and the backfeed delivery mechanics above. No profile is defined here; README carries the template and the per-protocol survey. A profile MUST fix, at minimum, the identity and object mappings, the `external_url` form, the **audience test** and **durability test** that decide what may be ingested (the safety-critical slots), the update/delete mapping, which foreign objects have no item representation and MUST NOT be invented into `_rel` types, and the failure semantics when the foreign side disappears or is unreachable. Those last two are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
