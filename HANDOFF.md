@@ -1,162 +1,122 @@
 # Handoff
 
-**This file is scaffolding, not a record.** It exists to get one fresh agent productive on the
-work in flight. When that work lands, delete it — the repo keeps design history in `git log`
-rather than in documents (see `CLAUDE.md`, "Rules for this file").
+**This file is scaffolding, not a record.** It gets one fresh agent productive on work in
+flight. When the work lands, delete it (see `CLAUDE.md`, "Rules for this file").
 
 ---
 
-## 1. The mandate, from the owner — read this before forming a plan
+## 1. What is happening
 
-The owner's goal is **the best balance of simplicity, flexibility, and capability — the shortest
-spec that still covers its bases.** The owner has said, verbatim: *"I'm not married to any
-particular aspect of the spec."* Churn is explicitly not a cost.
+**"The custody pass" is mid-execution: 4 of ~7 commits landed, all green.** The owner approved
+a full plan this session; it lives at
+`/Users/jessepence/.claude/plans/handoff-md-jiggly-kazoo.md` — **read it first**, it is the
+source of truth for what remains. Summary of the frame: key delegation (`use: "delegated"`)
+is drafted into §4.6 and promoted to §12's recommended custody architecture ("the hub is a
+servant, not a custodian"); every HANDOFF-§4 open question from the previous handoff gets a
+final closure; a set of subtraction cuts shrinks the spec. Delta manifests were evaluated and
+rejected (accounting to be recorded in the commit-3 message; see plan Part 2).
 
-The last pass was judged **good but too incremental** — it trimmed mechanisms one at a time
-inside the existing architecture, when the owner was hoping for proposals at a larger scale.
-Take that as your calibration: you are free to question the architecture itself, not just its
-parts. Nothing is pre-blessed — not the document set, not the object model, not the layering,
-not the conformance shape, not anything this file or `git log` treats as decided. A past
-decision, however well-argued, was made *within a frame*, and the owner is inviting proposals
-that change the frame.
+Owner decisions obtained this session (fixed inputs, do not re-ask):
+- **Client-held encryption keys** for the reference family hub; owner explicitly endorses
+  automatic client-side key generation and notes local models make on-device AI plausible.
+- **No timeline for a first user** — churn is free.
+- **Spec public eventually, no date.**
+- README demotions confirmed with the variant: **mechanics demote to README; the two B.2
+  warnings keep RFC 2119 force in §13** (now §13.16 — done).
 
-Two things still deserve their weight, not as constraints but as the measures of any proposal:
+## 2. Commits already landed (this pass)
 
-- **The threat model** (§13.2, and `CLAUDE.md`'s summary). A proposal is judged by whether the
-  people the protocol exists for end up better served — which includes being served by
-  something *simpler*, even at some cost elsewhere. Say what your proposal gives up as plainly
-  as what it gains.
-- **The prior reasoning is input, not authority.** `git log` records why things are the way
-  they are; read it so your bigger idea engages the strongest version of the current design
-  rather than a strawman — and then feel free to conclude the whole approach should be
-  different.
+1. `21fca82` — Delegation §4.6 + §12/§13.2 rewrite; threshold recovery permanently closed in
+   §4.5; split custody stated as bounded claim (new "delegated custodian" tier); `findKey`
+   `use`-allowlist fix in `src/jws.js`; delegated exclusions in `src/chain.js`
+   (`assertContinuityKey` + `identityChainPolicy.verifySignature`); `Publisher` refuses
+   recovery/delegated signers; vectors B.9 (was D.10); negative tests.
+2. `346e740` — Replies endpoint cut; §11.1.1 generalized to artifact classes and carries the
+   promotion rule; §16 shrank.
+3. `abbdbb7` — Appendices B (aliases/accounts) + C (WebSub) demoted to README; warnings moved
+   to **§13.16** with MUSTs intact; `accounts` → `_accounts` README convention; **appendices
+   renumbered: Test Vectors D→B, Gateways E→C, labels D.x→B.x everywhere**;
+   `test/appendix-d.test.js` renamed `test/vectors.test.js`; vector B.8 reworked to test
+   unknown-extension-field preservation.
+4. `ef91c34` — Follows document demoted to README (`_follows`); §16 = pins only; pin emission
+   MAY→SHOULD; **deliberate narrowing**: the `activity` rel token STAYS in §3.2.1 (demoting
+   it forces URL-namespaced rel values — worse than the one-word entry); the §3.2 example no
+   longer shows an activity feed. Vectors: B.8 follows dropped, B.6 re-signed without
+   `follows`, extension/delegated vectors renumbered B.8/B.9 (twelve signed vectors now).
 
-If you see a fundamentally better shape for this protocol, propose it to the owner before
-spending effort on incremental work. Big proposals are wanted, not tolerated.
+## 3. What remains (plan Parts 2–4, execution steps 3–5)
 
-## 2. Where things stand
+Work through the plan file's "Execution order"; remaining items:
 
-| | |
-|---|---|
-| Branch | `main` (old branches historical) |
-| License | Apache-2.0 |
-| Tests | `npm test` → 118 passing |
-| Vectors | `node tmp/regen.js` → all pass, exits non-zero on drift |
-| Spec | `open-feed-spec.md`, ~1045 lines, v0.1.0 draft, no outside readers, nothing implements it |
+- **Commit 3 — closure edits** (plan Part 4, all text-only):
+  - §11.2 group audiences → *permanently out of scope* wording (plan has the sketch: second
+    protocol's worth of machinery; separate spec layered on this one; MUST NOT present
+    author-held-list broadcast as group membership).
+  - §2.1 → "the spec is the registry" paragraph (registered tokens are what the text lists;
+    additions are spec revisions; no external registry; note the deliberate inversion for key
+    `use` — unrecognized hides the *key*).
+  - §6.1 → dual-signing rejected + one new boundary MUST: a key listed in `keys` MUST NOT
+    sign under any other construction; foreign suites get a separate key (listable as an
+    extension key per §4.1, or in a did:web doc).
+  - §16.1 + §13.10 → external time anchoring *permanently out of scope*; pin entries being
+    self-contained signed claims is WHY closure is safe (pure extension, no door ajar).
+    Replace "remains future work that nothing here forecloses" phrasing with the closed form.
+  - §5.4 or §13.4 → one non-normative sentence: retention is a *serving* obligation, not a
+    storage layout; retained versions compress/delta-encode to ~O(total changes).
+  - Appendix C (Gateways, formerly E) → "No profile is defined here" becomes *permanent*
+    non-normativity (profiles bind to foreign protocols' behavior-of-the-moment).
+  - Record the **delta-manifest rejection** accounting in this commit's message (plan Part 2
+    has the full argument: live set/rotation survive, cadence survives, skip-links' direct
+    map-comparison omission check breaks under deltas; 0 mechanisms deleted, 3+ added).
+- **Commit 4 — README + DISTRIBUTION-MODEL**:
+  - README: `_syndication` unchained-document convention (plan Part 4 item 3: document shape
+    per `tmp/syndication-prototype.js` — field shape loses retraction targets to §7.3's
+    tombstone allowlist; receipts double artifacts; unchained = erasable, mirrors
+    `_follows`); the worked **Mastodon syndication-class profile** (identity seam = rel-me,
+    backlink form, backfeed delivery, `_syndication` as mapping home); dual-signing FAQ
+    (FEP-8b32 recipe with a separate key).
+  - DISTRIBUTION-MODEL: custody sections flip from hub-held-keys default to
+    delegated-by-default (root+recovery+encryption keys generated on member's device; hub
+    holds delegated key only). Grep for "hub-managed keys", "Sign all feed items", onboarding
+    sections. Also reconcile its `family`-visibility/AI sections with the owner's client-held
+    keys decision (AI is client-side / explicitly-shared-content only; the doc's "server-side
+    AI reads everything" framing is now wrong).
+- **Commit 5 — final sweep**: delete this file; update CLAUDE.md's file table (HANDOFF row
+  out; tmp prototype rows for decided questions can note "decided — see git log"); grep spec
+  for `deferred|future work|remains future|not yet|for now` — every hit must read closed;
+  final `npm test` + `node tmp/regen.js`.
 
-That last cell is the important one: **there are no compatibility obligations of any kind.**
-No users, no implementations, no external readers. This is the cheapest a redesign will ever be.
+Left half-checked from commit 2c (small): DISTRIBUTION-MODEL / README may still carry stale
+references to a *spec-level* follows document or `follows` identity-document field — grep
+`follows` in both and fix any that say the spec defines it (README's §"Follows and pins" and
+the identity-document examples are already correct; unchecked was DISTRIBUTION-MODEL).
 
-The most recent pass (four commits beginning "Cut checkpointing and the derived lag bound")
-removed several mechanisms and redesigned pins; the commit messages record the arguments and
-measurements. Treat them as the current state of the design conversation, not its end.
+## 4. Traps for this pass specifically
 
-Not built: the CLI, `src/consumer.js`, the inbox (§10, Level 3), pagination (§7.4), §15, §16,
-Appendix E bridges, the export bundle (§14).
+- **Vector workflow**: any change touching signed bytes = edit `tmp/regen.js`, run it, paste
+  the emitted strings into spec Appendix B verbatim, re-run until "ALL CHECKS PASS". regen
+  cross-checks every vector string appears verbatim in the spec and exits non-zero on drift.
+  `npm test` must show **120 passing** (grows only if you add tests).
+- **Appendix letters changed this pass**: Test Vectors = **Appendix B** (labels B.1–B.9,
+  including B.2b/B.3b), Gateways = **Appendix C**. Old D.x/E references are gone; do not
+  reintroduce them. `test/vectors.test.js` extracts vectors from the spec by fenced
+  single-line JSON — label-agnostic, but counts signed vectors (≥12).
+- **Tier names, not ordinals**: §13.2 references now say "the hostile-custodian tier" — the
+  delegated-custodian tier insertion renumbered the list, so never cite tiers by number.
+- **`findKey` now enforces a `use` allowlist** (`undefined`/`sig`/`delegated` resolve;
+  `recovery` errors specifically; anything else is "ignored" per §4.1). Tests that pinned
+  old error layers were updated in `21fca82` — expect rejection one gate earlier.
+- **The previous handoff's traps still bind** (they described current mechanisms): revocation
+  strictly-after `revoked_at`; skip links manifest-only for security; `walkToPin` buffers
+  until anchored; item pins are claims (`admissibleItemPins`/`reconcilePeerPin`, never
+  `observe`); `PinStore` keeps `observed` per seq; identity URL inside every signed byte;
+  §9.3 invariant 3's no-history test; `claimedAuthor` selects carrier by document kind.
+- CLAUDE.md rules: no version bump, no changelog, archaeology goes in commit messages,
+  justification beside a MUST stays in the text.
 
-## 3. Orientation, in this order
+## 5. Unchanged backlog (not this pass)
 
-1. `CLAUDE.md` — short, and its rules bind you.
-2. `open-feed-spec.md` §13.2. The threat model is a family hub whose operator may be an abuser;
-   it drives more of the design than it looks.
-3. `git log` — long messages on purpose, recording reasoning and rejected alternatives.
-4. `npm test` and `node tmp/regen.js`. Both green before you change a line.
-5. `test/e2e.test.js` — currently the only place the layers are composed the way a real
-   consumer composes them.
-
-## 4. Answer everything, now
-
-These questions were carried in `CLAUDE.md` as "deferred, not forgotten." The owner's
-instruction is that they stop being carried: **the next pass resolves every one of them, one way
-or another.** Each gets a decision — designed into the spec, drafted, rejected, or declared
-permanently out of scope — with the reasoning in the commit, and none of them survives as an
-open question afterwards. A frame-level proposal (§1) may well answer several at once; that is
-one of its virtues. The notes attached below are the state of prior thinking, offered as input —
-a decision that overturns them is as welcome as one that ratifies them.
-
-- **Group audiences / membership documents** — cut from the spec, not solved. §11.2 states the
-  boundary: broadcast to an author-held list works today; group *replies* need a published
-  membership document, and anything defining one must answer staleness **and withholding**, use
-  identity-document-published encryption keys, exercise §15.2.1 carrier binding on wrapped
-  replies, and measure the identity-doc fetches one reply implies.
-- **Threshold (k-of-n) recovery** — cut to single-key. Re-adding it after anything implements
-  the spec fails **open**: an old verifier ignores the unknown `recovery_threshold` field and
-  accepts one co-signature against a threshold of two, handing a key thief the choice of
-  verifier — the same fail-open shape as the delegation `use` argument below.
-- **`_syndication` shape** — `tmp/syndication-prototype.js` measured the candidates. Leading
-  candidate: a §16-mold document, probably unchained (the `follows` precedent). Field and
-  receipt shapes are measured and disfavored.
-- **`_rel` type registry governance** — decide jointly with Appendix B.2's `proof` tokens; both
-  are §2.1 vocabularies and deserve one answer.
-- **Key delegation** — the highest-value trust upgrade available; the *shape* was settled even
-  though the text is undrafted. The member holds a root key the hub never sees; the hub holds a
-  key that may sign items and manifests but not identity-chain versions; revocation is an
-  ordinary chain version, so the pinned chain is exactly the revocation substrate whose absence
-  limited Nostr's NIP-26. Mark the delegated key with `use: "delegated"`, not an extension
-  field: §4.1 already requires implementations to ignore keys with an unrecognized `use`, so an
-  old verifier cannot find the key and fails **closed**, where an extension field on an
-  ordinary `sig` key fails **open**. Enforcement is one clause beside the recovery-key
-  exclusion in `assertContinuityKey`. The flag-day cost is zero while nothing implements this
-  and rises monotonically after.
-- **Normative bridge profiles** — framework in Appendix E, template in README. Prior thinking:
-  start with the syndication class, not Webmention.
-- **Author-side dual signing** — the only route to verified cross-protocol authorship. Taking
-  it up means deciding whether "one construction" governs this protocol's artifacts or
-  everything a publisher signs.
-- **External time anchoring** (transparency log / witness network) beyond §16.1's family-scale
-  item-carried pins. A published pins *document* (aggregator-readable) would be purely additive
-  if that scale ever arrives.
-- **Split custody** (hub holds the signing key, client holds only the encryption key) —
-  deliberately *not* claimed in the spec: the guarantee holds only when the client is not
-  distributed by the custodian, which the reference product does not satisfy. Decide whether
-  that stays a silence or becomes a stated non-claim.
-
-And the ones only the owner can answer — put them to the owner rather than deciding around them:
-
-1. Client-held encryption keys vs. server-side AI — `DISTRIBUTION-MODEL.md` says not to ship
-   the pair undecided.
-2. Who is the first real user, and when? Identity URLs are permanent and §12's custody
-   obligations bind from member one.
-3. Is this going public, and when? It changes how much §15's "never independently reviewed"
-   status matters.
-
-## 5. If you are continuing the current design
-
-The items below are real work under the architecture as it stands. They are deliberately listed
-*after* the mandate: do not let this queue substitute for the bigger thinking §1 asks for, and
-if a redesign would obsolete an item, that is a point in the redesign's favor, not a cost.
-
-- **A defect class to keep hunting**: a consumer acting on bytes before they are
-  chain-connected or key-authenticated (two prior security defects shared that root cause —
-  see `git log`). Unexercised sites: §10.2/§10.3's read-before-verify boundary, and
-  `assertRelocationCarriesForward` / `resolveFork`, pure functions whose preconditions no
-  caller enforces yet.
-- **Delegation** (`use: "delegated"`) — decided in §4, drafted here if adopted.
-- **`src/consumer.js`** — the composition layer, reporting per-check results; the CLI is a
-  formatter over it. Where the verified-input wrappers above belong.
-- **The exit walkthrough as an executable adversarial scenario** — the protocol's central claim
-  (§3.4 + §4.5 + §14 composing against an uncooperative hub) and nothing tests it end to end.
-- **Storage measurement** (§9.2's claims), **pagination** (§7.4), **the inbox** (§10), **a
-  language-neutral conformance corpus** (Appendix D is positive-only and repo-bound).
-- **The product spike** — none of this matters if the family will not use the app, and that is
-  knowable in a week with throwaway code.
-
-## 6. Traps already paid for
-
-These are facts about the *current* code and spec — they bind only as long as the mechanisms
-they describe exist.
-
-- **Revocation rejects signing times strictly after `revoked_at`, never equal** — §5.2's normal
-  rotation revokes the continuity key in the very version it signs, so `<=` breaks every
-  rotation. `assertContinuityKey`'s comment explains the direction.
-- **Skip links are manifest-only and the reason is security, not size** (§9.1.1).
-- **`walkToPin` buffers observations and commits them only on an anchored walk** — an
-  unanchored range proves nothing, since one forger can make it internally consistent.
-- **A pin arriving on an item is a claim, not an observation** — `admissibleItemPins` then
-  `reconcilePeerPin`, never `observe`; `untracked` chains are ignored outright (§13.9).
-- **`PinStore` keeps `observed` per `seq` and `firstPinned` per URL** — different questions.
-- **An identity URL is inside every signed byte** — nothing can be signed before its serving
-  URL is known.
-- **§9.3 invariant 3's stronger test needs no history** — a manifest whose `updated` postdates
-  an item's signing time has demonstrably passed it over; the consumer ceiling is the fallback.
-- **`claimedAuthor` selects the binding carrier by document kind, not field presence** (§6.6).
+`src/consumer.js`, the executable exit walkthrough (§3.4+§4.5+§14 end-to-end — still the
+protocol's central untested claim), inbox implementation (§10), pagination (§7.4), §9.2
+storage measurement, the product spike, and the verified-input wrappers for
+`assertRelocationCarriesForward`/`resolveFork` (the read-before-verify defect class).
