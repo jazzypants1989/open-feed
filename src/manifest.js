@@ -13,6 +13,7 @@ import { effectiveSigningTime, normalizeIdentityUrl, VerifyError } from './jws.j
 export class ManifestError extends Error {
   constructor(message, { url, seq, id } = {}) {
     super(message);
+    this.name = new.target.name;
     this.url = url;
     this.seq = seq;
     this.id = id;
@@ -120,6 +121,16 @@ export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
   if (later.seq <= earlier.seq) {
     throw new InvariantViolation(
       `${url ?? 'manifest'} seq ${later.seq} does not advance on seq ${earlier.seq}`,
+      { invariant: 2, url, seq: later.seq },
+    );
+  }
+  // §5.2, and invariant 2 restates it: `updated` advances too. Invariant 3 below reads a
+  // manifest's `updated` as proof the chain has moved past a given item's signing time, which
+  // it only is if `updated` moves — otherwise a publisher parks its clock and holds content in
+  // permanent, unfalsifiable lag.
+  if (later.updated <= earlier.updated) {
+    throw new InvariantViolation(
+      `${url ?? 'manifest'} seq ${later.seq} is dated ${later.updated}, not after seq ${earlier.seq}'s ${earlier.updated}`,
       { invariant: 2, url, seq: later.seq },
     );
   }

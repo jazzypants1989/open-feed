@@ -150,10 +150,19 @@ const ephFor = i => xKeyFromLabel('eph-'+i);
 // freshly-signed item, and have an audience member render Mom's private words
 // attributed to the attacker. Note the attacker need not be able to READ it.
 const ITEM_ID = 'urn:uuid:aaaaaaaa-7dec-11d0-a765-00a0c91e6bf6';
+const DAD = 'https://dad.example/';
+const KID_URL = 'https://kid.example/';
+
+// THE DECLARED AUDIENCE (§15.2.2): the identities Mom wrapped to, named inside the sealed
+// plaintext. Not in a JWE per-recipient header — those stay untagged so an *observer* learns
+// nothing. Readers learning the audience is the entire point: without it a recipient cannot
+// wrap a reply to the other recipients, so every reply collapses into a DM back to the author
+// and the family thread only works inside one hub.
 const plaintext = JSON.stringify({
   id: ITEM_ID,
   authors: [{ url: 'https://test.example/' }],
   _feed_url: 'https://test.example/feed.json',
+  audience: [DAD, KID_URL],
   content_text: 'Kid took her first steps today 🥹',
   mood: 'overjoyed',
 });
@@ -228,6 +237,60 @@ const relaySigValid = verify(relayed, eve.x);        // the forgery is a VALID s
 const relayOpened   = openBound(relayed, dadEnc.priv);
 const relayRejected = relayOpened && relayOpened.rejected === 'carrier-binding mismatch';
 
+// ---- CLAIM 6: a recipient replies to the SAME audience (§15.2.2) ----
+// The case a published roster was thought to be needed for. Dad decrypts Mom's entry, reads
+// the audience out of the sealed plaintext, and wraps his reply to the same identities —
+// resolving each one's X25519 key from that identity's own document (§15.1: the audience names
+// people and holds no keys). Nothing is published, nothing is chained, no roster exists, and
+// Kid — who is not the author of anything here — can read it.
+const publishedEncKeys = {                    // stands in for each identity's own openfeed.json
+  [DAD]: dadEnc,
+  [KID_URL]: kidEnc,
+  'https://test.example/': xKeyFromLabel('mom'),
+};
+const momEnc = publishedEncKeys['https://test.example/'];
+
+const REPLY_ID = 'urn:uuid:bbbbbbbb-7dec-11d0-a765-00a0c91e6bf6';
+// Dad replies to everyone who could read the parent: the declared audience, plus its author,
+// minus himself. Leaving the author out would be the one mistake that makes the thread useless.
+const replyAudience = [...new Set([...dadReads.audience, 'https://test.example/'])].filter(u => u !== DAD);
+const replyPlaintext = JSON.stringify({
+  id: REPLY_ID,
+  authors: [{ url: DAD }],
+  audience: replyAudience,
+  content_text: 'I cried. Do not tell anyone I cried.',
+});
+const replyJwe = encryptJWE(
+  replyPlaintext,
+  replyAudience.map(u => publishedEncKeys[u].x),
+  { cek: sha256(Buffer.from('probe-cek-reply')).subarray(0,32),
+    iv: sha256(Buffer.from('probe-iv-reply')).subarray(0,12),
+    ephFor: i => xKeyFromLabel('eph-reply-'+i) },
+);
+// Delivered, not published: no `_feed_url` (§15.4), so `_rel[].to` never lands in a
+// world-readable file. That is the other half of the design and it is why the reply is
+// POSTed to each audience member's inbox rather than appearing in Dad's feed.
+const reply = {
+  _version: 1,
+  authors: [{ url: DAD }],
+  content_text: '',
+  date_published: '2025-01-15T13:00:00Z',
+  id: REPLY_ID,
+  _rel: [{ type: 'reply', to: 'https://test.example/feed.json#' + ITEM_ID }],
+  _enc: replyJwe,
+};
+const dadSigner = edKeyFromLabel('dad-sig');
+reply._sig = sign(reply, dadSigner.priv, DAD + '#dad-key-1');
+
+const replySigOk = verify(reply, dadSigner.x);
+const kidReadsReply = openBound(reply, kidEnc.priv);      // the whole point: a non-author reads it
+const momReadsReply = openBound(reply, momEnc.priv);
+const strangerReadsReply = openBound(reply, strangerEnc.priv);
+const replyReaches =
+  kidReadsReply && !kidReadsReply.rejected &&
+  momReadsReply && !momReadsReply.rejected &&
+  strangerReadsReply === null;
+
 // ---- what does a passive host / non-recipient learn from the item bytes? ----
 const hostVisible = Object.keys(item).filter(k => k !== '_enc' && k !== '_sig');
 
@@ -249,12 +312,22 @@ console.log('           round-trip plaintext intact:', JSON.stringify(dadReads) 
 console.log('CLAIM 5 — ciphertext RELAY is rejected by carrier binding:');
 console.log('           Eve\'s relayed item is a validly signed item :', relaySigValid ? 'yes (as expected)' : 'no');
 console.log('           audience member rejects it on decrypt       :', relayRejected ? 'PASS' : 'FAIL (MISATTRIBUTION!)');
+console.log('CLAIM 6 — a recipient replies to the SAME audience (§15.2.2):');
+console.log('           audience Dad read out of the sealed payload :', dadReads.audience.join(', '));
+console.log('           Dad wraps his reply to                      :', replyAudience.join(', '));
+console.log('           reply signs and verifies (construction #1)  :', replySigOk ? 'PASS' : 'FAIL');
+console.log('           Kid — not the author of either — reads it   :', kidReadsReply && !kidReadsReply.rejected ? 'PASS' : 'FAIL');
+console.log('           Mom reads it                                :', momReadsReply && !momReadsReply.rejected ? 'PASS' : 'FAIL');
+console.log('           stranger still locked out                   :', strangerReadsReply === null ? 'PASS' : 'FAIL (LEAK!)');
+console.log('           reply is DELIVERED, not published (_feed_url):', reply._feed_url === undefined ? 'PASS (absent, §15.4)' : 'FAIL');
+console.log('           documents published to make this work       :', 0);
 console.log();
 console.log('What the serving host / a non-recipient sees in cleartext (metadata leak surface):');
 console.log('  ', hostVisible.join(', '));
 console.log('  → content is opaque; id/date/_feed_url/author remain public. (untagged recipients: audience hidden)');
+console.log('  → the declared audience is inside the ciphertext, so readers learn it and observers do not.');
 
 const allPass = sigOk && manOk && JSON.stringify(dadReads)===plaintext && kidReads && !kidReads.rejected
-  && strangerReads===null && relaySigValid && relayRejected;
+  && strangerReads===null && relaySigValid && relayRejected && replySigOk && replyReaches;
 console.log('\n=== '+(allPass ? 'ALL CLAIMS PASS' : 'FAILURE')+' ===');
 process.exit(allPass ? 0 : 1);

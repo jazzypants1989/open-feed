@@ -7,8 +7,10 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "exports": { ".": "./src/index.js" },
+  "bin": { "openfeed": "./bin/openfeed.js" },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
+    "verify": "node bin/openfeed.js verify",
     "vectors": "node tmp/regen.js"
   }
 }

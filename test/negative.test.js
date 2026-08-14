@@ -105,6 +105,19 @@ test('identity URL normalization matches the spec table', () => {
   assert.equal(normalizeIdentityUrl('https://bob:pw@example.com/'), 'https://example.com/');
   assert.equal(parseKid('https://bob@example.com/#key-1').identityUrl, 'https://example.com/');
   assert.throws(() => normalizeIdentityUrl('http://example.com/'), /must be https/);
+
+  // A U-label host and its A-label are one name everywhere below this layer, so comparing them
+  // as strings would make one identity two — two chains, two pins, never reconcilable.
+  assert.equal(normalizeIdentityUrl('https://münchen.example/'), 'https://xn--mnchen-3ya.example/');
+  assert.equal(normalizeIdentityUrl('https://MÜNCHEN.example/~mom'), 'https://xn--mnchen-3ya.example/~mom/');
+
+  // Percent-encoding runs the other way: it is compared as published, never decoded. A decoder
+  // that thinks `%7E` is `~` has to also decide about `%2F`, and that one merges distinct paths.
+  assert.equal(normalizeIdentityUrl('https://example.com/%7Ealice/'), 'https://example.com/%7Ealice/');
+  assert.notEqual(
+    normalizeIdentityUrl('https://example.com/%7Ealice/'),
+    normalizeIdentityUrl('https://example.com/~alice/'),
+  );
 });
 
 test('kid splits at the LAST hash', () => {
@@ -325,7 +338,18 @@ test('an authors field on a chained document does not displace its url binding',
 // whole safety property, not a detail.
 
 import { identityFixture, makeKey, pinOf } from './helpers/chain-fixture.js';
-import { walkToPin, PinStore, identityChainPolicy, ChainError, EquivocationError } from '../src/index.js';
+import {
+  walkToPin,
+  PinStore,
+  identityChainPolicy,
+  ChainError,
+  EquivocationError,
+  documentHash,
+  assertInvariantsAcrossHop,
+  InvariantViolation,
+  Publisher,
+  PublishError,
+} from '../src/index.js';
 
 /** An identity walked once and pinned at its tip — the starting state for both cases below. */
 async function pinnedAtTip(versions = 5) {
@@ -462,4 +486,77 @@ test('a delegated key MUST NOT sign an identity-document version', () => {
   const honest = { url: MEMBER, keys: memberKeys, seq: 2, updated: 1739577600, prev: 'AAAA' };
   honest._sig = sign(honest, kRoot.priv, MEMBER + '#member-root-1');
   assert.doesNotThrow(() => assertContinuityKey(honest, memberIdentity));
+});
+
+// ---- §5.2: `updated` strictly increases ----
+//
+// The one self-reported field with authority. It is the effective signing time for every
+// revocation and `iat` check on a chained document (§6.5), and §9.3 invariant 3 decides lag
+// from violation by asking whether a manifest's `updated` has moved past an item — so a chain
+// whose clock walks backward disables both while every signature on it still verifies.
+
+test('a chain version dated before its predecessor is rejected', async () => {
+  const fx = identityFixture({ versions: 3 });
+  const pins = new PinStore();
+  const pin = pinOf(fx.chain.at(1));
+
+  // Control: the honest chain walks.
+  assert.ok(await walkToPin({
+    url: fx.url, tip: fx.chain.at(3), pin, fetchVersion: fx.store.fetchVersion, policy: identityChainPolicy, pins,
+  }));
+
+  // Now the publisher parks its clock: seq 4 is properly linked, properly signed by a valid
+  // continuity key, and dated a day *before* seq 3. Nothing but this rule catches it.
+  const backdated = fx.chain.publish({
+    fields: { url: fx.identity, name: 'Owner', keys: fx.keys.map((k) => ({ ...k })) },
+    signer: fx.primary,
+    updated: fx.chain.at(3).updated - 86400,
+  });
+  assert.equal(backdated.prev, documentHash(fx.chain.at(3)), 'the hash linkage is intact — that is the point');
+
+  await assert.rejects(
+    () => walkToPin({
+      url: fx.url, tip: backdated, pin, fetchVersion: fx.store.fetchVersion, policy: identityChainPolicy,
+      pins: new PinStore(),
+    }),
+    (e) => e instanceof ChainError && /not after seq 3/.test(e.message),
+  );
+});
+
+test('a manifest hop that does not advance updated is an invariant violation', () => {
+  const base = {
+    url: MEMBER, feed_url: MEMBER + 'feed.json', seq: 1, updated: 1739577600,
+    items: { 'urn:uuid:a': [1, 'AAAA'] },
+  };
+  const stalled = { ...base, seq: 2, updated: 1739577600, prev: 'BBBB' };
+
+  assert.throws(
+    () => assertInvariantsAcrossHop(base, stalled, { url: MEMBER + 'manifest.json' }),
+    (e) => e instanceof InvariantViolation && e.invariant === 2 && /not after seq 1/.test(e.message),
+  );
+  // One second is enough; the rule is strict monotonicity, not a minimum cadence.
+  assert.ok(assertInvariantsAcrossHop(base, { ...stalled, updated: base.updated + 1 }, {}));
+});
+
+test('a publisher refuses to emit a version dated before its predecessor', () => {
+  const signer = makeKey('key-1');
+  signer.identity = 'https://pub.example/';
+  const pub = new Publisher({
+    identity: 'https://pub.example/',
+    signer: { kid: signer.kid, privateKey: signer.privateKey, jwk: signer.jwk },
+    now: () => 1739577600,
+  });
+
+  assert.throws(
+    () => pub.advanceIdentity({ name: 'Renamed' }, { updated: 1736899200 }),
+    (e) => e instanceof PublishError && /not after seq 1/.test(e.message),
+  );
+
+  pub.publishItem({ id: 'urn:uuid:one', content_text: 'hi' }, { at: 1739577600 });
+  pub.advanceManifest({ updated: 1739577700 });
+  assert.throws(
+    () => pub.advanceManifest({ updated: 1739577700 }),
+    (e) => e instanceof PublishError && /not after seq 1/.test(e.message),
+    'equal is not greater — a same-second re-advance is the accident this catches',
+  );
 });

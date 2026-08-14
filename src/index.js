@@ -75,3 +75,4 @@ export {
   LAG_CEILING_SECONDS,
 } from './manifest.js';
 export { Publisher, PublishError } from './publish.js';
+export { createReader, ObservationStore, normalizeUrlForCompare, ReaderError } from './reader.js';

@@ -16,7 +16,12 @@ import { sign, normalizeIdentityUrl } from './jws.js';
 import { derivedVersionUrl, skipAnchors } from './chain.js';
 import { assertManifestShape } from './manifest.js';
 
-export class PublishError extends Error {}
+export class PublishError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
 
 /** ISO 8601 for content fields; Unix seconds are for key and chain fields (§4.1). */
 const iso = (unixSeconds) => new Date(unixSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -82,6 +87,21 @@ export class Publisher {
     return signed;
   }
 
+  /**
+   * §5.2 step 2: a version is dated strictly after its predecessor. Refusing here rather than
+   * emitting the version is the whole point — a chain whose `updated` drifts backward passes
+   * every signature check and quietly disables §9.3 invariant 3, so the producer is the only
+   * party positioned to notice.
+   */
+  #assertDated(updated, previous, what) {
+    if (previous && updated <= previous.updated) {
+      throw new PublishError(
+        `${what} seq ${previous.seq + 1} would be dated ${updated}, not after seq ${previous.seq}'s ${previous.updated} (§5.2)`,
+      );
+    }
+    return updated;
+  }
+
   #genesisIdentity({ profile, recoveryKeys }) {
     const doc = {
       url: this.identity,
@@ -119,7 +139,7 @@ export class Publisher {
     delete next._recovery_sig;
     next.seq = previous.seq + 1;
     next.prev = documentHash(previous);
-    next.updated = updated ?? this.now();
+    next.updated = this.#assertDated(updated ?? this.now(), previous, 'identity document');
     const signed = this.#signDocument(next);
     this.identityVersions.push(signed);
     return signed;
@@ -247,7 +267,7 @@ export class Publisher {
       url: this.identity,
       feed_url: this.feedUrl,
       seq: (previous?.seq ?? 0) + 1,
-      updated: updated ?? this.now(),
+      updated: this.#assertDated(updated ?? this.now(), previous, 'manifest'),
       items: live,
     };
     if (Object.keys(deleted).length) doc.deleted = deleted;

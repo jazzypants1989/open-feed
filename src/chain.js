@@ -22,6 +22,9 @@ import crypto from 'node:crypto';
 export class ChainError extends Error {
   constructor(message, { url, seq } = {}) {
     super(message);
+    // Set explicitly on every error class in this package. A tool whose job is telling you
+    // *which kind* of failure you have prints `err.name`, and an unset one reads `Error`.
+    this.name = new.target.name;
     this.url = url;
     this.seq = seq;
   }
@@ -229,6 +232,38 @@ export class PinStore {
     this.pins.delete(url);
     return this.advance(url, seq, hash);
   }
+
+  /**
+   * The store as plain JSON, and back.
+   *
+   * A pin store that does not survive the process is not a pin store: §12 makes pinning a MUST
+   * because the guarantee only exists *across* observations, and a consumer that starts empty
+   * every run is the no-persistent-storage case §12 carves out — still useful, explicitly not
+   * providing the §13.2 guarantees. The frozen set round-trips too, because §5.3.1's response
+   * is to accept no further version *until a human re-pins*, and a freeze that evaporates on
+   * restart is a detection the consumer then forgets.
+   */
+  toJSON() {
+    return {
+      version: 1,
+      pins: Object.fromEntries(this.pins),
+      observations: Object.fromEntries(
+        [...this.observations].map(([url, seqs]) => [url, Object.fromEntries(seqs)]),
+      ),
+      frozen: Object.fromEntries(this.frozen),
+    };
+  }
+
+  static fromJSON(raw, options) {
+    const store = new PinStore(options);
+    if (!raw) return store;
+    for (const [url, pin] of Object.entries(raw.pins ?? {})) store.pins.set(url, pin);
+    for (const [url, seqs] of Object.entries(raw.observations ?? {})) {
+      store.observations.set(url, new Map(Object.entries(seqs).map(([seq, v]) => [Number(seq), v])));
+    }
+    for (const [url, f] of Object.entries(raw.frozen ?? {})) store.frozen.set(url, f);
+    return store;
+  }
 }
 
 /**
@@ -393,6 +428,27 @@ function assertVersionShape(doc, url) {
 }
 
 /**
+ * §5.2 step 2: `updated` strictly increases along a chain.
+ *
+ * It reads like bookkeeping and is not. `updated` is the effective signing time every
+ * revocation and `iat` check on a chained document resolves against (§6.5), and §9.3
+ * invariant 3 tells lag apart from a violation by asking whether a manifest's `updated` has
+ * passed a given item — so a publisher whose timestamps drift backward escapes both while
+ * every other check on this walk still passes.
+ *
+ * Checked on every hop kind, skips included: across a jump it is weaker (the intermediates are
+ * unobserved) but it is not wrong, and it costs a comparison.
+ */
+function assertUpdatedAdvances(successor, predecessor, url) {
+  if (successor.updated <= predecessor.updated) {
+    throw new ChainError(
+      `${url} seq ${successor.seq} is dated ${successor.updated}, not after seq ${predecessor.seq}'s ${predecessor.updated} (§5.2)`,
+      { url, seq: successor.seq },
+    );
+  }
+}
+
+/**
  * Decide whether a conflict at the pinned `seq` is the publisher equivocating or somebody
  * serving one bad response.
  *
@@ -545,6 +601,7 @@ export async function walkToPin({
         { url, seq: predecessor.seq },
       );
     }
+    assertUpdatedAdvances(current, predecessor, url);
     policy.verifySignature(predecessor);
     policy.verifyContinuity(current, predecessor);
     record(predecessor, hash);
@@ -628,6 +685,8 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
       { url, seq: anchor.seq },
     );
   }
+  assertUpdatedAdvances(above, landed, url);
+  assertUpdatedAdvances(current, landed, url);
   policy.verifySignature(landed);
   policy.verifyContinuity(above, landed);
   record(landed, hash);

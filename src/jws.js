@@ -5,7 +5,12 @@
 import crypto from 'node:crypto';
 import { canonicalBytes } from './canonical.js';
 
-export class VerifyError extends Error {}
+export class VerifyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
 
 export const SIGNATURE_FIELDS = ['_sig', '_recovery_sig'];
 

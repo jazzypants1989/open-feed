@@ -78,7 +78,7 @@ Two things make that real rather than nearly real, and both are requirements rat
 
 But the trust model is a **gradient, not a binary** (§13.2):
 
-- **Key custodian** (hub holds your key): forward impersonation is unpreventable — but even here the hub *cannot silently rewrite the past* against anyone who has pinned you. Deletions must appear as signed tombstones; per-reader rewriting surfaces as a detectable fork.
+- **Key custodian** (hub holds your key): forward impersonation is unpreventable, and so is *deletion* — a tombstone is an ordinary item, so anyone who can sign for you can retire your posts. But even here the hub *cannot silently rewrite the past* against anyone who has pinned you. Deletions must appear as signed tombstones; per-reader rewriting surfaces as a detectable fork.
 - **Serving-path compromise** (CDN / static bucket / web tier hacked, but the signing key is elsewhere): the most common real-world attack. The attacker can't sign, so the chains and manifest give **full integrity** — no undetectable omission, rollback, or injection.
 - **Dumb host, external signer** (build-time signing on static hosting; client-side keys): full integrity against the host by construction.
 
@@ -348,7 +348,7 @@ There is no separate interaction object. An interaction is an ordinary signed it
 }
 ```
 
-The `to` is `{feed_url}#{item_id}` (item id's never contain `#`, so receivers resolve relevance by splitting at the last `#`). Dad publishes this in his own feed *and* POSTs the same bytes to Mom's inbox — one object, one signature, nothing to keep in sync.
+The `to` is `{feed_url}#{item_id}` — the only form for an Open Feed target (item id's never contain `#`, so receivers resolve relevance by splitting at the last `#`). A bare URL in `to` names something outside the protocol: a web page, or a foreign object a gateway is pointing at. Dad publishes this in his own feed *and* POSTs the same bytes to Mom's inbox — one object, one signature, nothing to keep in sync.
 
 Core relation types (§8): `reply` and `quote` and `mention` carry content; `like` and `repost` carry none; `root` marks a thread root. Custom relations use an absolute-URL type (e.g. `"type": "https://example.com/ns#bookmark"`) — namespaced by URL so they never collide.
 
@@ -511,7 +511,11 @@ Because "delivered" is a choice the author makes and *other people* enforce, the
 
 **Encrypted content** (spec §15, optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
 
-One rule predicts the rest: **any audience larger than one needs a membership decision.** A DM needs none — there is exactly one counterparty. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not, and one the spec puts permanently out of scope (§11.2). That isn't a placeholder for a later section: a published roster has to be chained so members can pin it and encrypted so it isn't public, which brings staleness between versions, a custodian who can withhold one, a rekey on every removal, a binding between roster and items, and an identity fetch per reply — a second protocol's worth of trust machinery, and the honest home for it is a separate spec layered on this one. Broadcasting to a list you hold locally works today and is *not* a group: every reply comes back only to you.
+One rule predicts the rest: **any audience larger than one needs a membership decision — but not necessarily a membership document** (§11.2). Three arrangements, in ascending price:
+
+- **A list you hold locally.** You wrap to it; nothing leaves your client. This is *not* a group: every reply comes back only to you, because your recipients can't wrap to a list they can't read.
+- **An audience you declare in the item** (§15.2.2). The identities you wrapped to ride inside the *sealed plaintext*, so your recipients — and only your recipients — can read the list and wrap their replies to the same people. That's the family thread, working across hubs, and it costs no new document, no endpoint, and no second construction. The honest catch: a replier is trusting your stated audience the same way they're trusting you not to forward their reply, and neither is checkable (§15.5).
+- **A published roster.** Needed only when somebody *other* than the author convenes the audience, and permanently out of scope (§11.2). Not a placeholder for a later section: a roster has to be chained so members can pin it and encrypted so it isn't public, which brings staleness between versions, a custodian who can withhold one, a rekey on every removal, a binding between roster and items, and an identity fetch per reply — a second protocol's worth of trust machinery, and the honest home for it is a separate spec layered on this one. Six of those seven costs are exactly what the declared audience above avoids by not being shared mutable state.
 
 ### Follows and pins
 
@@ -577,7 +581,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push — a convention of this README
 
 ### Hub Trust
 
-**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier, and delegated keys (§4.6) go further: the hub holds only a revocable delegated key that can sign content but can never advance your identity chain, while your root key stays on your own device. That is the custody architecture §12 recommends.
+**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier, and delegated keys (§4.6) go further: the hub holds only a revocable delegated key that can sign content but can never advance your identity chain, while your root key stays on your own device. That is the custody architecture §12 recommends. What delegation does *not* remove is content deletion — a tombstone is an item, so a delegated key can retire your posts too, visibly but unstoppably; sign tombstones with your root key on your own device if that matters to you.
 
 ### Legal and Deletion
 

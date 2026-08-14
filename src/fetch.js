@@ -28,6 +28,7 @@ import { normalizeIdentityUrl } from './jws.js';
 export class FetchError extends Error {
   constructor(message, { code = 'fetch_failed', url, status, transient = false } = {}) {
     super(message);
+    this.name = new.target.name;
     this.code = code;
     this.url = url;
     this.status = status;
