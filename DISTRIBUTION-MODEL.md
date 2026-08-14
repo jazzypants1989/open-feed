@@ -1224,7 +1224,7 @@ external_members (id, identity_url, feed_url, manifest_url, display_name, avatar
                   last_fetched, created_at)
 
 -- Journal entries (hub users only; external entries are fetched, not stored permanently)
--- canonical_bytes = the exact signed bytes; ext_json preserves unknown/extension `_` fields
+-- canonical_bytes = the exact signed bytes; ext_json preserves every unknown member, `_`-prefixed or not
 -- (_ai_assisted, _pins, _enc, …) that have no column of their own
 entries (id, author_id, title, content_html, content_text, visibility, attachments_json,
          ext_json, version, published_at, modified_at, canonical_bytes, item_hash, sig,
@@ -1454,7 +1454,7 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 If you need to add custom fields to JSON objects:
 
 - Prefix with `_` (underscore): `_ai_assisted`, `_emoji`, etc.
-- Preserve unknown `_` fields when re-serializing (don't strip them) — **signatures depend on it**
+- Preserve unknown **members** when re-serializing, `_`-prefixed or not (don't strip them) — **signatures depend on it** (spec §7.2). The prefix is a convention for avoiding collisions, not the test for what to keep; an extension field that skipped it, or a field a later JSON Feed revision adds, is inside the signed bytes just the same
 - For relation *types*, use a registered token or a namespaced absolute URL (not a new field name), spec §8
 - Document any new fields you add
 

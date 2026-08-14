@@ -137,7 +137,7 @@ Open Feed defines four conformance levels (§12):
 | `/{user}/manifest/{seq}.json` | Retained prior manifest versions (once its `seq > 1`)  |
 | `/{user}/export`              | Your complete signed archive, on demand (Level 3, §14)      |
 
-Every public document MUST be served with `Access-Control-Allow-Origin: *` so browser readers work without a proxy.
+Every public document is served with `Access-Control-Allow-Origin: *` so browser readers work without a proxy.
 
 **Level 3 adds (requires a server):**
 
@@ -195,7 +195,7 @@ Notes:
 - `keys` is a standard array of JWKs (RFC 7517). The `x` field is the base64url Ed25519 public key. `iat`/`revoked_at` are Unix seconds (JOSE convention); content timestamps use ISO 8601 (JSON Feed convention). The `crv`/`use` constraints apply to *signing* keys — extensions can add other key types to the same array, and core verifiers ignore them.
 - `seq`/`prev`/`updated`/`_sig` are the version-chain fields. `prev` is the base64url SHA-256 of the *full* previous version's bytes. Genesis (`seq: 1`) has no `prev`. Prior versions are retained at a **derived URL** — strip `.json`, append `/{seq}.json`, so version 6 of this document is at `https://pence.family/~mom/openfeed/6.json`. There is no history-index document to maintain. See §5.4.
 - The identity doc commits to the manifest **by URL, not by hash** — so ordinary publishing advances the manifest chain and never re-signs the identity doc.
-- Unknown fields MUST be preserved when re-serializing. Extension fields use a `_` prefix.
+- Unknown fields survive re-serialization, since signatures depend on it. Extension fields use a `_` prefix.
 
 ### Key identifiers
 
@@ -394,7 +394,7 @@ Note what this example doesn't have: a `_feed_url`. A like should be **delivered
 }
 ```
 
-Jesse's reply points `reply` at Dad's reply (the parent) and `root` at Mom's original post (the thread root). The `root` entry matters: inbox relevance is judged per `_rel` entry, so without it the thread's host (Mom) would reject a reply-to-a-reply as `not_relevant` and never see it. Senders SHOULD deliver a nested reply to both the parent's and the root's inboxes (§8.1). Clients build the tree by walking parents and display flat or nested. `_in_reply_to` is gone — threading is a `root` relation now.
+Jesse's reply points `reply` at Dad's reply (the parent) and `root` at Mom's original post (the thread root). The `root` entry matters: inbox relevance is judged per `_rel` entry, so without it the thread's host (Mom) would reject a reply-to-a-reply as `not_relevant` and never see it. Senders deliver a nested reply to both the parent's and the root's inboxes (§8.1). Clients build the tree by walking parents and display flat or nested. `_in_reply_to` is gone — threading is a `root` relation now.
 
 **Retracting a reaction:** tombstone the item (same id, bumped `_version`, delivered to the same inbox). To *change* a reaction, tombstone the old item and publish a new one with a fresh id — reusing an id across different relations is not permitted (§8.2).
 
@@ -444,7 +444,7 @@ To verify any signed document (item, manifest, or identity document):
 
 1. **Determine the claimed author** from the signed bytes — for an item, its single `authors` entry's `url`; for a manifest or identity document, the `url` field.
 2. **Parse the JWS header** and enforce it: `"alg":"EdDSA","b64":false,"crit":["b64"]` plus a `kid`. Reject anything else.
-3. **Split the `kid`** at the last `#` → identity URL + key id. The identity URL MUST equal the claimed author (after normalization). This binding travels with the bytes, so you can't republish someone's content under a new name.
+3. **Split the `kid`** at the last `#` → identity URL + key id. The identity URL and the claimed author have to match, after normalization. This binding travels with the bytes, so you can't republish someone's content under a new name.
 4. **Fetch `{identity}openfeed.json`** and **enforce the pin** (§5.3): verify its `_sig` against a key it lists, walk `prev` back to your stored pin, reject any rollback or equivocation. Find the key by `kid`.
 5. **Check timing**: the key's `iat` (if present) must predate the content's effective signing time (`date_modified` else `date_published` for items; `updated` for manifests/identity docs), and the key must not have been revoked before that time.
 6. **Verify the Ed25519 signature** over the reconstructed RFC 7797 signing input: `base64url(header) + "." + canonical-json-bytes`. Canonical bytes are RFC 8785 with the signature fields removed; strings are signed byte-exact (producers emit NFC, verifiers do not normalize); JSON with duplicate keys is rejected (I-JSON).
@@ -467,7 +467,7 @@ The part that turns this from a domain-loss feature into an **exit** is who gene
 
 ### Key rotation and compromise
 
-Rotation (§4.3): publish a new chain version adding the new key, start signing with it, optionally set `revoked_at` on the old key. Keep rotated-out keys listed ≥30 days so old content still verifies; a key MUST stay listed in any chain version it signed.
+Rotation (§4.3): publish a new chain version adding the new key, start signing with it, optionally set `revoked_at` on the old key. Keep rotated-out keys listed ≥30 days so old content still verifies; a key stays listed in any chain version it signed.
 
 Listing more than one *active* signing key is ordinary, and it is how you survive a lost device: any listed key can advance the chain, so you sign the next version from your other device and revoke the lost one there (§4.3). Nothing escalates to the recovery key, and you don't have to move.
 
@@ -479,7 +479,7 @@ Compromise: rotate immediately, set `revoked_at` to the earliest suspected compr
 
 ### Field Conventions
 
-Extension fields on any JSON object MUST be prefixed with `_`, and implementations MUST preserve unknown `_` fields when re-serializing (signatures depend on it). Common ones:
+Extension fields on any JSON object should take a `_` prefix — that is collision avoidance, not a verification input. What signatures actually depend on is the other half: implementations preserve unknown members when re-serializing, prefixed or not (§7.2). Common ones:
 
 | Field              | Purpose                                              |
 | ------------------ | ---------------------------------------------------- |
@@ -494,7 +494,7 @@ Extension fields on any JSON object MUST be prefixed with `_`, and implementatio
 
 ### Custom relation types
 
-Interaction *types* are values, not field names, so they namespace cleanly by URL — e.g. `"type": "https://example.com/ns#bookmark"`. Receivers store unknown types and MAY hide them from display. 
+Interaction *types* are values, not field names, so they namespace cleanly by URL — e.g. `"type": "https://example.com/ns#bookmark"`. Receivers store unknown types and may hide them from display. 
 
 ### Privacy — publish or deliver
 
@@ -549,11 +549,11 @@ The backlink stays the primary routing key: each syndicated copy links to the en
 
 ### Media integrity and alt text
 
-Attachments use JSON Feed's `attachments`. The metadata is signed but the bytes aren't, so every attachment **MUST** carry a `_sha256` content hash — without it the bytes sit outside the signature envelope entirely and whoever controls them (including the host) can swap the photo under a signed item undetected. Consumers treat a hash-less attachment as unverified content. Use the attachment's `title` for alt text.
+Attachments use JSON Feed's `attachments`. The metadata is signed but the bytes aren't, so the spec **requires** every attachment to carry a `_sha256` content hash — without it the bytes sit outside the signature envelope entirely and whoever controls them (including the host) can swap the photo under a signed item undetected. Consumers treat a hash-less attachment as unverified content. Use the attachment's `title` for alt text.
 
 ### Real-time updates
 
-JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify signatures because the hub is untrusted infrastructure (Appendix C).
+JSON Feed 1.1's `hubs` field enables WebSub push — a convention of this README; nothing in the spec reads it. Push changes how the bytes arrive and nothing else, so a subscriber runs the ordinary Level 1 verification it would have run after polling (§12): a push hub is untrusted infrastructure like any other transport.
 
 ---
 

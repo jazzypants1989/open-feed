@@ -371,7 +371,7 @@ Every item MUST include:
 | `_version` | Integer, starts at 1 |
 | `_sig` | Detached JWS (§6) |
 
-plus at least one of `content_text` / `content_html`. A content-less relation item — a `like` or `repost` (§8) — satisfies this with `content_text: ""`, exactly as a tombstone does (§7.3): JSON Feed 1.1 requires a content field to be present, so "NONE" in §8's relation table means no *displayable* content, not an absent field. Consumers MUST preserve unknown `_` fields; signatures depend on it.
+plus at least one of `content_text` / `content_html`. A content-less relation item — a `like` or `repost` (§8) — satisfies this with `content_text: ""`, exactly as a tombstone does (§7.3): JSON Feed 1.1 requires a content field to be present, so "NONE" in §8's relation table means no *displayable* content, not an absent field. Consumers MUST preserve unknown **members**, `_`-prefixed or not — the same rule §3.2 states for the identity document and §8 and §16.1 state for open entries. Signatures depend on it, and the prefix is a collision convention (§3.2, a SHOULD) rather than a verification input: a field that skips the prefix, or one a later JSON Feed revision adds, sits inside the signed bytes exactly as a prefixed one does.
 
 ### 7.3. Versioning and Tombstones
 
