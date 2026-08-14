@@ -144,7 +144,6 @@ Every public document MUST be served with `Access-Control-Allow-Origin: *` so br
 | Path              | Purpose                                        |
 | ----------------- | ---------------------------------------------- |
 | `/{user}/inbox`   | POST endpoint for receiving signed items (§10) |
-| `/{user}/replies` | Optional thread discovery (spec §16.3) |
 
 Your feed is your outbox; there is no separate outbox endpoint.
 
@@ -433,17 +432,9 @@ GET /.well-known/webfinger?resource=acct:mom@pence.family
 
 This is purely a human-friendly aliasing layer (Appendix B). Nothing else depends on it; keys live in `openfeed.json`, so there is no key-document link to discover.
 
-### Thread Discovery (Replies Endpoint, Optional)
+### Thread Discovery
 
-An identity MAY expose a `replies` endpoint in its identity document. The response is a **JSON Feed** whose items are the reply items reproduced byte-verbatim (so signatures still verify), with the queried id echoed in `_replies_to`:
-
-```
-GET /~mom/replies?item=urn:uuid:550e8400-e29b-41d4-a716-446655440000
-```
-
-Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries. It is an OPTIONAL convention (§16.3), not part of the trust core: everything it returns is obtainable by polling the participants' feeds, so it buys discovery, never trust.
-
-The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see spec §11.1.1 and §16.3.1. The rule travels with the endpoint because an implementer who wants thread discovery will build *something*, and it is better that the thing they build comes with the guard attached.
+The spec deliberately defines no thread-discovery endpoint. Threads are complete by polling the participants' feeds, where replies are canonically published, and fast via inbox delivery; a public endpoint's only unique reach is replies from strangers — near-nothing at family scale, a spam surface at any other. An implementation that wants one anyway is building a public projection of received content, and spec §11.1.1 binds it: items with no `_feed_url` were delivered, not published, and must never appear in any public response. If you build one, a sensible shape is a JSON Feed of the reply items reproduced byte-verbatim, so signatures keep verifying and consumers reuse the ordinary feed parser.
 
 ---
 
@@ -514,7 +505,7 @@ There is no third cell — *published but not public* does not exist. Serving di
 
 What's genuinely incompatible is narrower than "privacy": a completeness proof is a public artifact, so content whose **existence** must be private can't have one. Content whose **bytes** are opaque still can — which is why encryption and the manifest compose fine.
 
-Because "delivered" is a choice the author makes and *other people* enforce, the spec makes it a MUST: **publication is the author's decision, and only the author's** (§11.1.1). A receiver holds a delivered item as a custodian, not an author, and must never put it in a feed, a manifest, the replies endpoint, or a bridge. This binds the bytes, not the information — nothing stops someone describing in their own post what you told them privately.
+Because "delivered" is a choice the author makes and *other people* enforce, the spec makes it a MUST: **publication is the author's decision, and only the author's** (§11.1.1). A receiver holds a delivered item as a custodian, not an author, and must never put it in a feed, a manifest, any public query surface, or a bridge. This binds the bytes, not the information — nothing stops someone describing in their own post what you told them privately.
 
 **Encrypted content** (spec §15, optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
 
