@@ -6,7 +6,7 @@
 //   (1) signs with construction #1 (same sign() as items/manifests/identity docs)
 //   (2) verifies with the same verifier (the signer never sees plaintext)
 //   (3) is committed by an ordinary manifest (host serves ciphertext it can't read)
-//   (4) decrypts for each intended recipient — and ONLY them (untagged recipients)
+//   (4) decrypts for each intended recipient — and ONLY them (blinded slot tags, §15.2)
 //
 // Crypto: JWE JSON Serialization, alg=ECDH-ES+A256KW, enc=A256GCM, X25519 (RFC 8037).
 // All randomness (CEK, IV, ephemeral keys) is derived deterministically from labels so
@@ -97,36 +97,46 @@ function encryptJWE(plaintext, recipientsXpub, {cek, iv, ephFor}){
   const ct = Buffer.concat([cipher.update(Buffer.from(plaintext,'utf8')), cipher.final()]);
   const tag = cipher.getAuthTag();
 
-  const recipients = recipientsXpub.map((rx, i) => {
-    const eph = ephFor(i);                                  // ephemeral X25519 (fresh per recipient)
+  // ONE ephemeral for the whole envelope (§15.2). Per-recipient ephemerals were the earlier
+  // shape and are what made recipient count a cost; tmp/enctags-prototype.js has the numbers.
+  const eph = ephFor(0);
+  const recipients = recipientsXpub.map((rx) => {
     const Z = crypto.diffieHellman({privateKey: eph.priv, publicKey: xPubFromJwkX(rx)});
     const kek = concatKDF(Z, 256, 'A256KW');
-    const encrypted_key = aesWrap(kek, cek);
     return {
-      // NOTE: no "kid" — untagged recipients hide audience membership; reader trial-decrypts.
-      header: { alg:'ECDH-ES+A256KW', epk:{ kty:'OKP', crv:'X25519', x: eph.x } },
-      encrypted_key: b64u(encrypted_key),
+      // No "kid" — the blinded tag identifies the slot to its recipient and to nobody else.
+      header: { alg:'ECDH-ES+A256KW', _tag: slotTag(Z) },
+      encrypted_key: b64u(aesWrap(kek, cek)),
     };
   });
 
-  return { protected: protB64, recipients, iv: b64u(iv), ciphertext: b64u(ct), tag: b64u(tag) };
+  return {
+    protected: protB64, epk: { kty:'OKP', crv:'X25519', x: eph.x },
+    recipients, iv: b64u(iv), ciphertext: b64u(ct), tag: b64u(tag),
+  };
 }
 
-// ---- decrypt: a reader tries every recipient slot with their own X25519 private key ----
+// §15.2's blinded slot tag: the first 8 bytes of SHA-256("openfeed-slot-tag" || Z). Computing
+// it needs one of the two private halves, so an observer holding every published encryption
+// key and the ephemeral learns nothing; and the ephemeral is per-item, so no recipient is
+// linkable across two items — the property that rules out `kid` here.
+function slotTag(Z){
+  return b64u(crypto.createHash('sha256').update('openfeed-slot-tag').update(Z).digest().subarray(0,8));
+}
+
+// ---- decrypt: one key agreement, then a comparison per slot ----
 function decryptJWE(jwe, myXpriv){
   const aad = Buffer.from(jwe.protected,'ascii');
-  for (const r of jwe.recipients){
-    try {
-      const Z = crypto.diffieHellman({privateKey: myXpriv, publicKey: xPubFromJwkX(r.header.epk.x)});
-      const kek = concatKDF(Z, 256, 'A256KW');
-      const cek = aesUnwrap(kek, Buffer.from(r.encrypted_key,'base64url')); // throws on wrong recipient
-      const dec = crypto.createDecipheriv('aes-256-gcm', cek, Buffer.from(jwe.iv,'base64url'), {authTagLength:16});
-      dec.setAAD(aad);
-      dec.setAuthTag(Buffer.from(jwe.tag,'base64url'));
-      return Buffer.concat([dec.update(Buffer.from(jwe.ciphertext,'base64url')), dec.final()]).toString('utf8');
-    } catch { /* not my slot — try next */ }
-  }
-  return null; // not in the audience
+  const Z = crypto.diffieHellman({privateKey: myXpriv, publicKey: xPubFromJwkX(jwe.epk.x)});
+  const want = slotTag(Z);
+  const mine = jwe.recipients.find(r => r.header._tag === want);
+  if (!mine) return null;                                   // not in the audience, and cheaply so
+  const kek = concatKDF(Z, 256, 'A256KW');
+  const cek = aesUnwrap(kek, Buffer.from(mine.encrypted_key,'base64url'));
+  const dec = crypto.createDecipheriv('aes-256-gcm', cek, Buffer.from(jwe.iv,'base64url'), {authTagLength:16});
+  dec.setAAD(aad);
+  dec.setAuthTag(Buffer.from(jwe.tag,'base64url'));
+  return Buffer.concat([dec.update(Buffer.from(jwe.ciphertext,'base64url')), dec.final()]).toString('utf8');
 }
 
 // =====================================================================
@@ -324,7 +334,7 @@ console.log('           documents published to make this work       :', 0);
 console.log();
 console.log('What the serving host / a non-recipient sees in cleartext (metadata leak surface):');
 console.log('  ', hostVisible.join(', '));
-console.log('  → content is opaque; id/date/_feed_url/author remain public. (untagged recipients: audience hidden)');
+console.log('  → content is opaque; id/date/_feed_url/author remain public. (blinded slot tags: audience hidden)');
 console.log('  → the declared audience is inside the ciphertext, so readers learn it and observers do not.');
 
 const allPass = sigOk && manOk && JSON.stringify(dadReads)===plaintext && kidReads && !kidReads.rejected

@@ -35,6 +35,10 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 | `tmp/skiplinks-prototype.js` | Manifest skip links on a 365-version chain; forged-anchor attack |
 | `tmp/deltamanifest-prototype.js` | Snapshot+delta manifest versions vs today's full-map-per-version, measured. Verdict: keep the current shape — deltas win 40–60× on storage and *lose* on a long walk, because `_skip` is O(log versions) and a delta chain is O(changes); the same storage win is available at rest with no wire change |
 | `tmp/itempins-prototype.js` | `_pins` on items — the disclosure and byte measurements behind §16.1 |
+| `tmp/migration-prototype.js` | §3.4 end to end: both migration paths, byte-verbatim back catalog, an abandoned host tombstoning it afterwards, and a stolen recovery key minting a *competing* migration. Imports `src/` — the question is whether existing mechanisms compose into an exit, which re-deriving them cannot answer |
+| `tmp/export-prototype.js` | §14 produced and restored with no network and no bundle-specific verifier; what decomposition costs; and why a successor's bundle needs the predecessor's chain |
+| `tmp/inbox-prototype.js` | §10.2's ordering made observable — outbound fetches counted and placed, §10.3's write-before-verify denial run both ways, and dedup across a migration |
+| `tmp/enctags-prototype.js` | §15.2's envelope measured three ways. The cost driver was the per-recipient ephemeral, not the missing tag; shared ephemeral and blinded tags only work together |
 
 ## The threat model that drives the design
 

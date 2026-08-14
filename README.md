@@ -97,7 +97,7 @@ Client-side keys move you from the key-custodian tier toward the dumb-host tier 
 ### What's Out of Scope
 
 - Confidentiality. Privacy in the core is a publication decision — publish or deliver (§11). Encrypted content is an **optional layer** (§15) whose guarantee is bounded by the recipient's key custody; there is no restricted-visibility feed mechanism.
-- Global-scale firehoses / aggregators. Open Feed scales *across* identities (each is self-contained and independently verifiable), not to millions of items per identity; the manifest is a deliberate family-scale boundary.
+- Global-scale firehoses / aggregators. Open Feed scales *across* identities (each is self-contained and independently verifiable), not to millions of items per identity; the manifest is a deliberate small-catalog boundary.
 - Content moderation policy (left to hub operators).
 - Storage formats and sync protocols (files on disk are fine).
 - Specific authentication methods (how you log in to your own hub is your business).
@@ -461,7 +461,7 @@ Your back catalog comes with you **byte-verbatim** — you do not re-sign it. Pr
 
 The same equivalence covers the other loose end: replies you already received point at the old feed URL inside *other people's* signed items, which nobody can re-sign, so consumers treat predecessor and successor targets as the same thing once the migration verifies (§3.4, §10.2). Without that, exercising your exit would make every inbound reply start bouncing.
 
-**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). Because one key in one place is one thing an adversary with access to that place can find — a relative in the same home, or the operator of the host itself — the key belongs where neither can reach it (§4.5). Item-carried pins (§16) are how a family propagates and cross-checks a recovery claim along the traffic it already exchanges.
+**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; first contact *after* a hijack is unprotectable by design (TOFU); and theft of the recovery key itself is worth stating precisely, because it does not fail the way people expect. A stolen recovery key **cannot sign a chain version** (§5.2), so nobody impersonates you with it. What its holder *can* do is mint a competing migration — a fresh identity at a URL they control, claiming you as predecessor, co-signed by the same committed key — which verifies exactly as well as yours. §3.4 calls that pair unresolvable, so the loss is not your identity but your **exit**: no reader is told which claim is you. Where the key lives is therefore the whole of the protection, which is why §4.5 asks for somewhere your host's operator cannot reach. Because one key in one place is one thing an adversary with access to that place can find — a relative in the same home, or the operator of the host itself — the key belongs where neither can reach it (§4.5). Item-carried pins (§16) are how a family propagates and cross-checks a recovery claim along the traffic it already exchanges.
 
 The part that turns this from a domain-loss feature into an **exit** is who generated the key. A recovery key the hub generated and handed you is no check on the hub, so a Level 3 host must generate it on your device and never receive it — and must show you your genesis `(seq, hash)` and the key's fingerprint at signup so you can compare them out of band with someone else. Otherwise the hub can honor the letter of the rule and serve everyone else a different genesis document.
 
@@ -522,7 +522,7 @@ One rule predicts the rest: **any audience larger than one needs a membership de
 One item field specified in spec §16, plus one README-level document convention, both *outside* the trust core:
 
 - **`_follows`** — who you read (`{ "url": ..., "follows": [...], "updated": ..., "_sig": ... }`, referenced by a `_follows` field in the identity document; entries are identity-URL strings or objects with a `url` plus optional petname/feed-narrowing keys). A convention of this README — nothing in the spec reads it, and the spec's extension rules (`_` prefix, preserve-unknown) are all it relies on. Turns "which feeds does my hub poll?" into shareable data, and doubles as the natural trust set for weighing pins. Keep it client-local if you don't want your reading graph published.
-- **`_pins` on items** — your signed `(url, seq, hash)` observations of others' chains, carried on the items you already send (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). They give a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography and no new document.
+- **`_pins` on items** — your signed `(url, seq, hash)` observations of others' chains, carried on the items you already send (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). They give a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the pairwise substitute for a transparency log, at essentially no new cryptography and no new document.
 Pins also answer a question the trust model raises and doesn't settle: equivocation is *detectable*, but only if somebody compares. Your own record of what you published is a weak check — a host that knows which client is yours can serve that client the honest branch. Comparison by other people is the durable one.
 
 ⚠️ A published `_follows` document publishes your social graph — keep it client-local if that matters; the enforcement value is entirely local. Pins are scoped so an entry never reveals a reading relationship its carrying item hasn't already revealed: published items pin only the identities they address, and third-party pins ride delivered items alone (§16.1).
@@ -569,7 +569,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push — a convention of this README
 
 ### Content completeness (solved)
 
-**Problem:** How do you know a host showed you *all* of someone's posts, and didn't quietly drop the ones it didn't like? **Approach:** the signed, chained manifest (§9) commits to the exact live set; omission or rollback surfaces as a detectable fork against your pin. This is the property Nostr relays lack. It does *not* scale to millions of items per identity — that's a deliberate family-scale boundary.
+**Problem:** How do you know a host showed you *all* of someone's posts, and didn't quietly drop the ones it didn't like? **Approach:** the signed, chained manifest (§9) commits to the exact live set; omission or rollback surfaces as a detectable fork against your pin. This is the property Nostr relays lack. It does *not* scale to millions of items per identity — that's a deliberate small-catalog boundary.
 
 ### Spam and Abuse
 
@@ -577,11 +577,11 @@ JSON Feed 1.1's `hubs` field enables WebSub push — a convention of this README
 
 ### Timestamp Trust
 
-**Problem:** Timestamps are self-reported; backdating is possible. **Approach:** for inbox items, use receipt time as a trustworthy lower bound; for polled content, use the time you first saw the id in a signed manifest; item-carried pins are a family-scale external time anchor. A transparency log or witness network is deliberately out of scope (§13.10, §16.1) — a pin is a self-contained signed claim, so anyone who wants to aggregate them can, and the spec declining to define the aggregator forecloses nothing.
+**Problem:** Timestamps are self-reported; backdating is possible. **Approach:** for inbox items, use receipt time as a trustworthy lower bound; for polled content, use the time you first saw the id in a signed manifest; item-carried pins are a pairwise external time anchor. A transparency log or witness network is deliberately out of scope (§13.10, §16.1) — a pin is a self-contained signed claim, so anyone who wants to aggregate them can, and the spec declining to define the aggregator forecloses nothing.
 
 ### Hub Trust
 
-**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier, and delegated keys (§4.6) go further: the hub holds only a revocable delegated key that can sign content but can never advance your identity chain, while your root key stays on your own device. That is the custody architecture §12 recommends. What delegation does *not* remove is content deletion — a tombstone is an item, so a delegated key can retire your posts too, visibly but unstoppably; sign tombstones with your root key on your own device if that matters to you.
+**Problem:** Hub admins who hold your keys can impersonate you. **Approach:** documented honestly as a gradient (§13.2) — even a key-holding hub can't silently rewrite the past against pinned consumers. Client-side keys move you off that tier, and delegated keys (§4.6) go further: the hub holds only a revocable delegated key that can sign content but can never advance your identity chain, while your root key stays on your own device. That is the custody architecture §12 recommends, and the sharpest reason is about leaving rather than about forgery: a hub holding your **root** key can publish a `successor` of its own, which §4.5 lets verifiers weigh against your recovery-signed departure — so it can *contest* your exit rather than merely decline it. A hub that never held such a key cannot answer at all. What delegation does *not* remove is content deletion — a tombstone is an item, so a delegated key can retire your posts too, visibly but unstoppably; sign tombstones with your root key on your own device if that matters to you.
 
 ### Legal and Deletion
 
@@ -589,7 +589,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push — a convention of this README
 
 ### Identity Portability
 
-**Problem:** Lose the domain without a recovery key and the identity is orphaned — the email trade-off. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity. Recovery keys + pins are the family-scale mitigation, not a fix.
+**Problem:** Lose the domain without a recovery key and the identity is orphaned — the email trade-off. Durable identity across domain loss is what atproto buys with DID indirection; Open Feed deliberately trades it for URL-native simplicity. Recovery keys + pins are the pairwise mitigation, not a fix.
 
 ### Offline Delivery
 
