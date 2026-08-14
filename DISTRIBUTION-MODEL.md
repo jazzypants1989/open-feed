@@ -175,7 +175,7 @@ When published, an entry becomes a signed JSON Feed item carrying `id`, `date_pu
 > **Do not label a tier `private` unless it is.** With hub-managed keys the operator can read every
 > tier in this table, including `private`. Call it what it is in the UI — "not shared with the
 > family" rather than "private" — because the person most likely to rely on the stronger reading is
-> the person for whom the operator *is* the adversary (spec §13.2, fourth tier). Content the
+> the person for whom the operator *is* the adversary (spec §13.2, the hostile-custodian tier). Content the
 > operator genuinely cannot read requires client-held encryption keys and the encrypted-content
 > extension; content that must not exist on their server should not be posted to it.
 
@@ -938,7 +938,7 @@ Start with in-app notifications. Add email/push later.
 3. Hub generates the member's **signing** key and publishes their genesis `openfeed.json` (`seq: 1`), empty feed, and genesis manifest
 3a. The member's **recovery key is generated in the browser/app on their own device and never transmitted to the hub** (spec §4.5). The hub receives only the public JWK to commit in the chain. The member is walked through storing the private half somewhere the hub cannot reach — a password manager, a printed card, a second device.
 
-   **Place the recovery key well** (spec §4.5): a card in a drawer is exactly the artifact a fourth-tier adversary (spec §13.2) has physical access to, and that adversary holding both the hub and the recovery key can produce a competing branch spec §5.5 actively prefers. Help the member store the private half with someone the operator cannot reach — held elsewhere is the version of this that survives the threat model the product is built around. It costs onboarding friction, which is real — so make it an offer with a good default, not a wall.
+   **Place the recovery key well** (spec §4.5): a card in a drawer is exactly the artifact a hostile-custodian adversary (spec §13.2) has physical access to, and that adversary holding both the hub and the recovery key can produce a competing branch spec §5.5 actively prefers. Help the member store the private half with someone the operator cannot reach — held elsewhere is the version of this that survives the threat model the product is built around. It costs onboarding friction, which is real — so make it an offer with a good default, not a wall.
 
    This step is not optional and not a nicety: a recovery key the operator generated is not a check on the operator, and without it a member **cannot leave** (spec §3.4, §14). It is the single most important thing this onboarding flow does. Note that spec §12 attaches this MUST to *hosting identities for other people*, not to Level 3 — it binds this hub from the first member in Phase 1, long before there is an inbox.
 
@@ -1285,7 +1285,7 @@ Keep it simple for a family app, but honest about the trust model (spec §13).
 
 The hub holds users' signing keys, so it *can* impersonate them forward — the email trust model, stated plainly (spec §13.2). What it **cannot** do is silently rewrite the past against a consumer who has pinned: both chains (identity and manifest) are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins. Offering client-side keys (or, later, the delegation extension — HANDOFF.md, pending decision) moves a user off the key-custodian tier.
 
-**The case this hub has to take seriously**, because it is the one the protocol names as its own fourth adversary tier (spec §13.2): the operator of a family hub is a family member, and family members are sometimes the danger. That adversary reads everything the hub can read, sees the metadata no mechanism hides, is not deterred by transparency because they are entitled to look, and can decline to let someone leave. Nothing in the integrity machinery helps, and neither does encryption if the operator supplies the client and generated the keys.
+**The case this hub has to take seriously**, because it is the one the protocol names as its own hostile-custodian adversary (spec §13.2): the operator of a family hub is a family member, and family members are sometimes the danger. That adversary reads everything the hub can read, sees the metadata no mechanism hides, is not deterred by transparency because they are entitled to look, and can decline to let someone leave. Nothing in the integrity machinery helps, and neither does encryption if the operator supplies the client and generated the keys.
 
 What this hub can actually offer that person is **exit** — a recovery key it never held (onboarding 3a), an export bundle it must serve on demand (§Leaving), and a migration path that needs no cooperation from it. Build those three properly and do not market audience control or encryption to that user as protection from their own hub.
 

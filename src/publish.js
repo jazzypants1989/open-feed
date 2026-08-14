@@ -54,6 +54,13 @@ export class Publisher {
     }
     this.identityUrl = `${this.identity}openfeed.json`;
     this.title = title;
+    // One signer signs everything here, identity-chain versions included, so it cannot be a
+    // recovery or delegated key (§4.5, §4.6). A delegated deployment (§12) splits signers —
+    // root on the member's device, delegated at the hub — which this single-signer publisher
+    // does not model; failing here beats emitting versions every verifier must reject.
+    if (signer?.jwk?.use === 'recovery' || signer?.jwk?.use === 'delegated') {
+      throw new PublishError(`a ${signer.jwk.use} key cannot sign identity-document versions (§4.5, §4.6)`);
+    }
     this.signer = signer;
     this.now = now;
     this.skipLinks = skipLinks;

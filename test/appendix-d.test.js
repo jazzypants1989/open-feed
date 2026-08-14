@@ -61,8 +61,8 @@ for (const { doc } of identityDocs) {
 }
 
 test('the spec contains the signed vectors Appendix D claims', () => {
-  assert.ok(signed.length >= 10, `expected at least 10 signed vectors, extracted ${signed.length}`);
-  for (const url of ['https://test.example/', 'https://reader.example/', 'https://posse.example/']) {
+  assert.ok(signed.length >= 13, `expected at least 13 signed vectors, extracted ${signed.length}`);
+  for (const url of ['https://test.example/', 'https://reader.example/', 'https://posse.example/', 'https://member.example/']) {
     assert.ok(currentByUrl.has(url), `no identity document for ${url}`);
   }
 });
@@ -98,7 +98,7 @@ test('every signed vector verifies against its author\'s current identity docume
     assert.equal(info.author, author);
     verified++;
   }
-  assert.ok(verified >= 10, `only ${verified} vectors verified`);
+  assert.ok(verified >= 13, `only ${verified} vectors verified`);
 });
 
 test('every vector was signed inside its key\'s validity window', () => {
@@ -141,11 +141,13 @@ test('manifest entries commit the exact published bytes of their items', () => {
 });
 
 test('manifest chain links by prev', () => {
+  // Scoped to one feed: D.10 adds a second, independent genesis manifest, and chains are
+  // per-document-URL (§5.3.1), never global.
   const manifests = signed
-    .filter((v) => typeof v.doc.feed_url === 'string')
+    .filter((v) => v.doc.feed_url === 'https://test.example/feed.json')
     .sort((a, b) => a.doc.seq - b.doc.seq);
   const [genesis, second] = manifests;
-  assert.equal(genesis.seq ?? genesis.doc.seq, 1);
+  assert.equal(genesis.doc.seq, 1);
   assert.equal(second.doc.prev, documentHash(genesis.doc), 'seq 2 prev does not name genesis bytes');
 });
 

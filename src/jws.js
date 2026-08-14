@@ -161,12 +161,27 @@ export function effectiveSigningTime(doc) {
   return Math.floor(ms / 1000);
 }
 
-/** Find a key by kid in an identity document. Key ownership is structural (spec §4.2). */
+// The `use` tokens a `_sig` may resolve against. `recovery` is recognized but is not a
+// `_sig` signer (§4.5 — it only ever produces `_recovery_sig`, resolved by §5.5's own
+// rule); anything else unrecognized hides the key entirely (§4.1). That ignore rule is
+// what makes §4.6's delegation marker fail closed at pre-§4.6 verifiers, so resolving by
+// `kid` alone here would quietly delete the property the design leans on.
+const SIG_USES = new Set([undefined, 'sig', 'delegated']);
+
+/** Find a `_sig` signing key by kid in an identity document. Ownership is structural (spec §4.2). */
 export function findKey(identityDocument, keyId) {
   const keys = identityDocument?.keys;
   if (!Array.isArray(keys)) throw new VerifyError('identity document has no keys array');
   const key = keys.find((k) => k?.kid === keyId);
   if (!key) throw new VerifyError(`identity ${identityDocument.url} lists no key ${keyId}`);
+  if (key.use === 'recovery') {
+    throw new VerifyError(`key ${keyId} is a recovery key, which MUST NOT sign content or manifests (§4.5)`);
+  }
+  if (!SIG_USES.has(key.use)) {
+    throw new VerifyError(
+      `identity ${identityDocument.url} lists no signing key ${keyId} (unrecognized use "${key.use}" is ignored, §4.1)`,
+    );
+  }
   return key;
 }
 
@@ -219,5 +234,5 @@ export function verifyDocument(doc, { identityDocument, sigField = '_sig', signe
   const ok = crypto.verify(null, signingInput(headerB64, signingPayload(doc)), publicKey, signature);
   if (!ok) throw new VerifyError('signature does not verify');
 
-  return { author, identityUrl, keyId, signedAt: when };
+  return { author, identityUrl, keyId, key: jwk, signedAt: when };
 }

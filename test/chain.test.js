@@ -165,12 +165,14 @@ test('a version signed by a key its predecessor does not list is refused', async
 });
 
 test('a recovery key cannot sign a chain version', async () => {
-  // §4.5: recovery keys MUST NOT sign regular content or manifests, and co-sign only.
+  // §4.5: recovery keys co-sign only. The rejection now happens at key resolution
+  // (findKey, §4.5) rather than at the continuity check, so any layer that resolves a
+  // `_sig` refuses a recovery signer — the error type follows the layer.
   const fx = identityFixture({ versions: 2 });
   fx.chain.publish({ fields: { url: fx.identity, name: 'Owner', keys: fx.keys }, signer: fx.recovery[0] });
   await assert.rejects(
     () => walk(fx, undefined, pinOf(fx.chain.at(1))),
-    (e) => e instanceof ChainError && /recovery key/.test(e.message),
+    (e) => /recovery key/.test(e.message),
   );
 });
 

@@ -270,11 +270,62 @@ console.log(' ', canonicalize(id3));
 console.log();
 embed('D.9 accounts identity bytes', canonicalize(id3), 'spec');
 
+// ---- D.10 delegated custody (§4.6) ----
+// A fourth identity whose identity document is signed by the member's root key while its
+// item and manifest are signed by the hub's delegated key — the split §4.6 defines.
+// Standalone so nothing chained to D.4/D.5 moves. The rejection half (a delegated key
+// signing an identity-document version) lives in test/negative.test.js, since Appendix D
+// is positive-only.
+const kRoot = keyFromLabel('member-root-1');
+const kDel  = keyFromLabel('hub-key-1');
+const MEMBER = 'https://member.example/';
+const MEMBER_ROOT_KID = MEMBER + '#member-root-1';
+const MEMBER_DEL_KID  = MEMBER + '#hub-key-1';
+
+const idMember = {
+  feeds:[{url:'https://member.example/feed.json', manifest:'https://member.example/manifest.json', rel:'primary'}],
+  keys:[
+    {crv:'Ed25519', iat:1736899200, kid:'member-root-1', kty:'OKP', x:kRoot.x},
+    {crv:'Ed25519', iat:1736899200, kid:'hub-key-1', kty:'OKP', use:'delegated', x:kDel.x}
+  ],
+  name:'Delegated Member',
+  seq:1, updated:1736899200, url:MEMBER
+};
+idMember._sig = sign(idMember, kRoot.priv, MEMBER_ROOT_KID);
+console.log('== D.10 member identity document (full published canonical bytes) ==');
+console.log(' ', canonicalize(idMember));
+console.log();
+embed('D.10 member identity bytes', canonicalize(idMember), 'spec');
+
+const DEL_ITEM_ID = 'urn:uuid:2f1e8c4a-9b3d-4e5f-8a71-6c2d9e0b4f13';
+const delItem = {
+  _feed_url:'https://member.example/feed.json', _version:1,
+  authors:[{url:MEMBER}],
+  content_text:'Posted by the hub on my behalf.',
+  date_published:'2025-02-20T10:00:00Z',
+  id: DEL_ITEM_ID
+};
+delItem._sig = sign(delItem, kDel.priv, MEMBER_DEL_KID);
+console.log('== D.10 delegated-signed item (full published canonical bytes) ==');
+console.log(' ', canonicalize(delItem));
+console.log();
+embed('D.10 delegated item bytes', canonicalize(delItem), 'spec');
+
+const delManifest = {
+  url: MEMBER, feed_url:'https://member.example/feed.json', seq:1, updated:1740045600,
+  items:{ [DEL_ITEM_ID]:[1, documentHash(delItem)] }
+};
+delManifest._sig = sign(delManifest, kDel.priv, MEMBER_DEL_KID);
+console.log('== D.10 delegated-signed manifest (full published canonical bytes) ==');
+console.log(' ', canonicalize(delManifest));
+console.log();
+embed('D.10 delegated manifest bytes', canonicalize(delManifest), 'spec');
+
 // ---- self-verify everything, the way a verifier does ----
 // Each vector resolves its key out of its author's CURRENT identity document — the tip of
 // that identity's chain — so revocation, `iat`, and author binding are all in scope, not
 // just the raw Ed25519 check.
-const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3 };
+const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3, [MEMBER]: idMember };
 
 function verifies(doc){
   const author = claimedAuthor(doc);
@@ -314,6 +365,12 @@ const checks = [
   // and both entry forms (string, object) must be present in the signed bytes.
   ['D.9 accounts id', verifies(id3)
                         && typeof id3.accounts[0]==='string' && typeof id3.accounts[1]==='object'],
+  ['D.10 member id',  verifies(idMember)],
+  // the delegated key resolves for an item and a manifest — the half of §4.6 a positive
+  // vector can show; the identity-document rejection is in test/negative.test.js
+  ['D.10 del item',   verifies(delItem)],
+  ['D.10 del manifest', verifies(delManifest)
+                        && delManifest.items[DEL_ITEM_ID][1]===documentHash(delItem)],
 ];
 
 console.log('SELF-VERIFY (against each author\'s current identity document):');

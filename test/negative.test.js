@@ -258,17 +258,22 @@ test('a key issued after the signing time is rejected', () => {
 
 test('non-Ed25519 keys cannot be pressed into service', () => {
   // Spec §6.2: the alg alone does not fix the curve. An X25519 encryption key (§15.1)
-  // lives in the same array and must never verify a signature.
+  // lives in the same array and must never verify a signature. It is stopped one gate
+  // earlier than it used to be — §4.1's use-allowlist hides it before the curve check —
+  // and the curve check still catches a key with a recognized use but the wrong crv.
   const item = signedItem();
-  for (const bad of [
-    { kid: 'test-key-1', kty: 'OKP', crv: 'X25519', x: k1.x, use: 'enc' },
-    { kid: 'test-key-1', kty: 'EC', crv: 'P-256', x: k1.x },
-  ]) {
-    assert.throws(
-      () => verifyDocument(item, { identityDocument: { ...identity, keys: [bad] } }),
-      throwsVerify(/not an Ed25519 signing key/),
-    );
-  }
+  assert.throws(
+    () => verifyDocument(item, {
+      identityDocument: { ...identity, keys: [{ kid: 'test-key-1', kty: 'OKP', crv: 'X25519', x: k1.x, use: 'enc' }] },
+    }),
+    throwsVerify(/unrecognized use/),
+  );
+  assert.throws(
+    () => verifyDocument(item, {
+      identityDocument: { ...identity, keys: [{ kid: 'test-key-1', kty: 'EC', crv: 'P-256', x: k1.x }] },
+    }),
+    throwsVerify(/not an Ed25519 signing key/),
+  );
 });
 
 test('a key absent from the identity document is rejected', () => {
@@ -378,4 +383,83 @@ test('rewriting a retained version still freezes the chain', async () => {
   );
   assert.equal(pins.isFrozen(fx.url), true, '§5.3.1: stop advancing and surface it');
   assert.equal(pins.pin(fx.url).seq, 5, 'the pin is retained, not advanced');
+});
+
+// ---- delegated keys (spec §4.6) and the §4.1 use allowlist ----
+// The fail-closed argument for `use: "delegated"` rests on §4.1's rule that a key with an
+// unrecognized `use` cannot be found at all. A verifier that resolves by `kid` alone has
+// silently deleted that property — which is exactly what this file's verifier did before
+// these tests existed.
+
+import { assertContinuityKey } from '../src/index.js';
+
+const kRoot = keyFromLabel('member-root-1');
+const kDel = keyFromLabel('hub-key-1');
+const kRec = keyFromLabel('recovery-1');
+const MEMBER = 'https://member.example/';
+
+const memberKeys = [
+  { kid: 'member-root-1', kty: 'OKP', crv: 'Ed25519', x: kRoot.x, iat: 1736899200 },
+  { kid: 'hub-key-1', kty: 'OKP', crv: 'Ed25519', x: kDel.x, use: 'delegated', iat: 1736899200 },
+  { kid: 'recovery-1', kty: 'OKP', crv: 'Ed25519', x: kRec.x, use: 'recovery', iat: 1736899200 },
+];
+const memberIdentity = { url: MEMBER, keys: memberKeys, seq: 1, updated: 1736899200 };
+
+function memberItem(signer, kid) {
+  const item = {
+    id: 'urn:uuid:0e37c1d6-5f7a-4b28-9c41-8d2e6a90f5b2',
+    authors: [{ url: MEMBER }],
+    _feed_url: 'https://member.example/feed.json',
+    _version: 1,
+    content_text: 'hello',
+    date_published: '2025-02-20T10:00:00Z',
+  };
+  item._sig = sign(item, signer.priv, MEMBER + '#' + kid);
+  return item;
+}
+
+test('a delegated key signs items; recovery and unrecognized-use keys cannot', () => {
+  // Positive control: the delegated key is a real signing key for content.
+  assert.doesNotThrow(() => verifyDocument(memberItem(kDel, 'hub-key-1'), { identityDocument: memberIdentity }));
+
+  // A recovery key never signs content or manifests (§4.5).
+  assert.throws(
+    () => verifyDocument(memberItem(kRec, 'recovery-1'), { identityDocument: memberIdentity }),
+    throwsVerify(/recovery key/),
+  );
+
+  // §4.1: an unrecognized `use` hides the key — the fail-closed direction §4.6 depends on.
+  const extIdentity = {
+    url: MEMBER,
+    keys: [{ kid: 'hub-key-1', kty: 'OKP', crv: 'Ed25519', x: kDel.x, use: 'frobnicate', iat: 1736899200 }],
+    seq: 1,
+    updated: 1736899200,
+  };
+  assert.throws(
+    () => verifyDocument(memberItem(kDel, 'hub-key-1'), { identityDocument: extIdentity }),
+    throwsVerify(/unrecognized use/),
+  );
+});
+
+test('a delegated key MUST NOT sign an identity-document version', () => {
+  // At genesis / a fresh tip, where there is no predecessor to judge continuity against:
+  const genesis = { url: MEMBER, keys: memberKeys, seq: 1, updated: 1736899200 };
+  genesis._sig = sign(genesis, kDel.priv, MEMBER + '#hub-key-1');
+  assert.throws(
+    () => identityChainPolicy.verifySignature(genesis),
+    (e) => e instanceof ChainError && /delegated key .* MUST NOT sign identity-document versions/.test(e.message),
+  );
+
+  // And as a continuity key across a hop (§5.2 step 3):
+  const successor = { url: MEMBER, keys: memberKeys, seq: 2, updated: 1739577600, prev: 'AAAA' };
+  successor._sig = sign(successor, kDel.priv, MEMBER + '#hub-key-1');
+  assert.throws(
+    () => assertContinuityKey(successor, memberIdentity),
+    (e) => e instanceof ChainError && /delegated key/.test(e.message),
+  );
+
+  // The root key signing the same version is fine — the exclusion is the delegation, not the hop.
+  const honest = { url: MEMBER, keys: memberKeys, seq: 2, updated: 1739577600, prev: 'AAAA' };
+  honest._sig = sign(honest, kRoot.priv, MEMBER + '#member-root-1');
+  assert.doesNotThrow(() => assertContinuityKey(honest, memberIdentity));
 });

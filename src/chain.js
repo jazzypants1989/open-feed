@@ -293,6 +293,12 @@ export function assertContinuityKey(successor, predecessor) {
       { seq: successor.seq },
     );
   }
+  if (key.use === 'delegated') {
+    throw new ChainError(
+      `seq ${successor.seq} is signed by the delegated key ${keyId}, which MUST NOT sign identity-document versions (§4.6)`,
+      { seq: successor.seq },
+    );
+  }
   // Revocation is judged against the predecessor's state. A key revoked *in* the version it
   // signs is normal rotation (§5.2) and stays valid there — but it cannot then sign the next
   // one, which is why equality counts as revoked here and as valid in §6.5.
@@ -327,7 +333,16 @@ export const identityChainPolicy = {
   kind: 'identity',
   allowSkipLinks: false,
   verifySignature(doc) {
-    return verifyDocument(doc, { identityDocument: doc, kind: 'document' });
+    const info = verifyDocument(doc, { identityDocument: doc, kind: 'document' });
+    // §4.6's exclusion has to hold at genesis and at a freshly-fetched tip too, where
+    // there is no predecessor for assertContinuityKey to judge against.
+    if (info.key.use === 'delegated') {
+      throw new ChainError(
+        `seq ${doc.seq} is signed by the delegated key ${info.keyId}, which MUST NOT sign identity-document versions (§4.6)`,
+        { seq: doc.seq },
+      );
+    }
+    return info;
   },
   verifyContinuity(successor, predecessor) {
     return assertContinuityKey(successor, predecessor);

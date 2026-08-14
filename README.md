@@ -82,7 +82,7 @@ But the trust model is a **gradient, not a binary** (§13.2):
 - **Serving-path compromise** (CDN / static bucket / web tier hacked, but the signing key is elsewhere): the most common real-world attack. The attacker can't sign, so the chains and manifest give **full integrity** — no undetectable omission, rollback, or injection.
 - **Dumb host, external signer** (build-time signing on static hosting; client-side keys): full integrity against the host by construction.
 
-Client-side keys move you from the first tier toward the third. They're supported for anyone who wants them.
+Client-side keys move you from the key-custodian tier toward the dumb-host tier — and delegated custody (spec §4.6, §12) is the recommended way to get most of that move while a hub still publishes for you. Both are supported for anyone who wants them.
 
 ### What's In Scope
 
