@@ -18,7 +18,7 @@ https://pence.family/~mom/inbox          ← POST signed items here (Level 3 onl
 
 plus each chain's retained prior versions, served at URLs derived from the document they version (§5.4). Built on four standards and nothing else: **HTTPS**, **JSON Feed 1.1**, **JOSE** (JWK/JWS, RFC 7515/7517/7797), and **JSON canonicalization** (RFC 8785 + I-JSON RFC 7493).
 
-Open Feed is a **transparency** protocol: it makes publication tamper-evident and is deliberately not private (§1, principle 7). What it offers anyone who needs to leave the host serving them is a portable identity, a recovery key that host never held, and a complete signed copy of their own content (§3.4, §4.5, §14). Two OPTIONAL layers are specified here and required by nothing: encrypted content (§15) and the follows/pins conventions (§16).
+Open Feed is a **transparency** protocol: it makes publication tamper-evident and is deliberately not private (§1, principle 7). What it offers anyone who needs to leave the host serving them is a portable identity, a recovery key that host never held, and a complete signed copy of their own content (§3.4, §4.5, §14). Two OPTIONAL layers are specified here and required by nothing: encrypted content (§15) and item-carried pins (§16).
 
 ## 1. Design Principles
 
@@ -81,8 +81,7 @@ The identity document lives at the fixed path `{identity_url}openfeed.json` — 
   "bio": "Grandmother, gardener, cat enthusiast.",
   "avatar": "https://pence.family/~mom/avatar.jpg",
   "feeds": [
-    { "url": "https://pence.family/~mom/feed.json", "manifest": "https://pence.family/~mom/manifest.json", "rel": "primary" },
-    { "url": "https://pence.family/~mom/activity.json", "manifest": "https://pence.family/~mom/activity-manifest.json", "rel": "activity" }
+    { "url": "https://pence.family/~mom/feed.json", "manifest": "https://pence.family/~mom/manifest.json", "rel": "primary" }
   ],
   "inbox": "https://pence.family/~mom/inbox",
   "seq": 7,
@@ -106,7 +105,6 @@ The identity document lives at the fixed path `{identity_url}openfeed.json` — 
 | `prev` | MUST if `seq > 1` | Base64url SHA-256 of the full canonical bytes of the previous version, including its `_sig` and `_recovery_sig` if present. |
 | `feeds` | SHOULD (MUST for Level 2) | Array of feed entries (§3.2.1). Every feed this identity publishes, in one place. |
 | `inbox` | MAY (MUST for Level 3) | Inbox endpoint URL. |
-| `follows` | MAY | URL of the OPTIONAL follows document (§16). Outside the trust core. |
 | `name`, `bio`, `avatar`, `content_warning` | MAY | Profile metadata. `content_warning`, if present, marks all content from this identity as sensitive. |
 | `successor`, `predecessor` | MAY | Migration links (§3.4). |
 | `_recovery_sig` | MAY | A recovery co-signature — a detached JWS by a recovery key (§4.5) — for recovery-based migration (§3.4) and fork resolution (§5.5). |
@@ -761,11 +759,11 @@ Encryption does nothing about §11.4's cleartext metadata, and on a published fe
 
 This layer defines no new conformance level; it refines core Level 1+. A client that renders encrypted content MUST implement carrier binding (§15.2.1) and MUST NOT render a payload that fails it. A client that encrypts MUST resolve each recipient's encryption key from that recipient's own identity document (§15.1). An implementation offering encryption MUST provide encryption-key backup and MUST disclose, at opt-in, that key loss is unrecoverable and that the guarantee is bounded by recipient key custody (§11.3).
 
-## 16. Conventions: Follows and Pins (OPTIONAL)
+## 16. Item-Carried Pins (OPTIONAL)
 
-Two OPTIONAL facilities: a follows document referenced from the identity document (`follows`, §3.2), and one that needs no document at all, **pins carried on items** (§16.1). Neither is required for core conformance and neither is needed to verify anything — a consumer never needs anyone's follows or pins to verify an item, a manifest, or an identity document — and neither introduces a new signing construction (§6). **The compare rule is deliberately not here** — §5.3.1 defines it and §12 makes it a Level 1 MUST. What this section supplies is the other half: a *supply of second observations* to compare against.
+One OPTIONAL facility, needing no document, no endpoint, and no discovery: **pins carried on items**. It is not required for core conformance and is not needed to verify anything — a consumer never needs anyone's pins to verify an item, a manifest, or an identity document — and it introduces no new signing construction (§6). **The compare rule is deliberately not here** — §5.3.1 defines it and §12 makes it a Level 1 MUST. What this section supplies is the other half: a *supply of second observations* to compare against. (A published reading list — a follows document — is a README convention; nothing normative consumes one, and a consumer's follow set MAY stay entirely client-local.)
 
-**Scope and privacy — read before publishing anything.** The follows document is opt-in and MAY be kept client-local: a hub that polls feeds and pins what it sees needs no published document at all, since the enforcement value is entirely local. **Follows publish who you read** — your reading graph, in cleartext, including your private petnames if entries carry them (§16.2). Pins are scoped so that an entry never reveals a reading relationship its carrying item has not already revealed (§16.1). **A pin leaks no content** — `hash` is a preimage-resistant SHA-256, and the ids, versions, and timestamps inside a pinned manifest cannot be recovered from it. **Signing does not make a pin true**: it proves its author *asserts* it observed `(url, seq, hash)` at `observed`, not that the observation is honest, and a lying witness can assert a hash it never saw. The properties in §16.1 are evidential, not proofs, and gain strength from *multiple independent* witnesses.
+**Scope and privacy — read before emitting anything.** Pins are scoped so that an entry never reveals a reading relationship its carrying item has not already revealed (§16.1). **A pin leaks no content** — `hash` is a preimage-resistant SHA-256, and the ids, versions, and timestamps inside a pinned manifest cannot be recovered from it. **Signing does not make a pin true**: it proves its author *asserts* it observed `(url, seq, hash)` at `observed`, not that the observation is honest, and a lying witness can assert a hash it never saw. The properties in §16.1 are evidential, not proofs, and gain strength from *multiple independent* witnesses.
 
 ### 16.1. Pins carried on items
 
@@ -779,7 +777,7 @@ An item MAY carry `_pins`, an array of **pin entries**:
 ]
 ```
 
-Each entry carries `url` (MUST — the **chained document** observed: an identity document or a manifest; the URL disambiguates all of an identity's chains uniformly), `seq` (MUST — the observed version counter), `hash` (MUST — the §5.1 hash of that version's full published bytes, the same value its successor names in `prev`), and `observed` (SHOULD — wall-clock Unix seconds when the item's author **first** observed this `(url, seq, hash)`). Entries are open objects: unknown keys MUST be preserved (§3.2). Timestamps are Unix seconds, since `observed` is compared against key `iat` / `revoked_at` (§4). Because `_pins` sits inside the signed bytes, a custodian can neither strip nor rewrite it — only drop the item whole.
+Each entry carries `url` (MUST — the **chained document** observed: an identity document or a manifest; the URL disambiguates all of an identity's chains uniformly), `seq` (MUST — the observed version counter), `hash` (MUST — the §5.1 hash of that version's full published bytes, the same value its successor names in `prev`), and `observed` (SHOULD — wall-clock Unix seconds when the item's author **first** observed this `(url, seq, hash)`). Entries are open objects: unknown keys MUST be preserved (§3.2). Timestamps are Unix seconds, since `observed` is compared against key `iat` / `revoked_at` (§4). Because `_pins` sits inside the signed bytes, a custodian can neither strip nor rewrite it — only drop the item whole. A publisher that already tracks a recipient's chains SHOULD carry pins for them on the interaction items it sends: emission is the supply side of §5.3.1's Level 1 MUST, and a compare rule nobody feeds is evidence collected and thrown away. Heeding what arrives stays optional.
 
 **What an entry may name is scoped by how the item travels**, and the scoping is the entire basis of the claim that pins disclose nothing new:
 
@@ -797,30 +795,15 @@ Each entry carries `url` (MUST — the **chained document** observed: an identit
 
 **Reach, stated honestly.** A pin travels no further than the item carrying it. On a published relation item it lands in its author's own feed and manifest, where anyone reads it with no participation from the recipient's host. On a delivered-only item its path runs through the recipient's host, which cannot alter it but can drop it whole. Properties 2–4 are therefore **pairwise** — they work between parties who exchange items and accrue with traffic; there is no aggregator reading everyone's assertions at once, because a standing published record of who observed whom and when is a reading graph with timestamps, and this specification deliberately does not define one. At the scale this protocol targets (§13.4), out-of-band comparison plus item-carried pins covers the cases that matter; a published pins document remains future work that nothing here forecloses, and it would be purely additive.
 
-### 16.2. The `follows` document
+### 16.2. Conformance
 
-An identity MAY publish a follows document and reference it via the `follows` field.
-
-```json
-{
-  "url": "https://reader.example/",
-  "follows": ["https://test.example/", "https://gran.example/~gran/"],
-  "updated": 1739577600,
-  "_sig": "..."
-}
-```
-
-`url` MUST be the publisher's identity (author binding, §6.6), `_sig` SHOULD be present when published, and `updated` is Unix seconds. `follows` is an array whose entries are either an **identity URL string** or an **object** `{ "url": <identity URL>, ... }` carrying optional extension keys — a `name` petname, or a `feeds` array narrowing which of the followed identity's feeds are polled; consumers MUST accept both forms and MUST preserve unknown keys. The follows document doubles as the natural trust set for weighing item-carried pins (§16.1) and carries no authority over content.
-
-### 16.3. Conformance
-
-This section defines no new conformance level; it refines core Level 1+. A consumer that publishes a follows document MUST sign it with the core construction (§6) and set `url` to its own identity. A consumer that heeds item-carried pins MUST resolve each disagreeing entry against the derived URL rather than treating the entry itself as an observation for §5.3.1, and MUST ignore entries naming chains it does not track (§16.1); one that emits pins MUST scope every entry as §16.1's publication rule requires. Both facilities remain OPTIONAL: a peer that uses neither is fully conformant, and no consumer may require them of a peer.
+This section defines no new conformance level; it refines core Level 1+. A consumer that heeds item-carried pins MUST resolve each disagreeing entry against the derived URL rather than treating the entry itself as an observation for §5.3.1, and MUST ignore entries naming chains it does not track (§16.1); one that emits pins MUST scope every entry as §16.1's publication rule requires. The facility remains OPTIONAL: a peer that neither emits nor heeds pins is fully conformant, and no consumer may require them of a peer.
 
 ## Appendix A: Media Types
 
 | Document | Content-Type (serve) | Accept (consume) |
 |----------|---------------------|------------------|
-| Identity document, manifest, retained prior versions, follows, export bundle, inbox body | `application/json` | any JSON; reject non-JSON |
+| Identity document, manifest, retained prior versions, export bundle, inbox body | `application/json` | any JSON; reject non-JSON |
 | Feed | `application/feed+json` | that, or `application/json` |
 
 All served with `Access-Control-Allow-Origin: *`.
@@ -921,10 +904,10 @@ Adds `test-key-2`, revokes `test-key-1`. Signed by `test-key-1` — the continui
 
 ### B.6. Reader Identity Document
 
-A second identity, the reader `https://reader.example/`, publishing the key that signs B.7 and B.8. Without it those two signatures name a key no third party could resolve, since key ownership is structural — a key belongs to the identity whose document lists it (§4.2). A Level 1 consumer, so no `feeds` and no `inbox`: the follows document is all it publishes, referenced from here (§3.2). Full published canonical bytes:
+A second identity, the reader `https://reader.example/`, publishing the key that signs B.7. Without it that signature names a key no third party could resolve, since key ownership is structural — a key belongs to the identity whose document lists it (§4.2). A Level 1 consumer, so no `feeds` and no `inbox`: it publishes only its identity document. Full published canonical bytes:
 
 ```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvI3JlYWRlci1rZXktMSJ9..ga-sw3yC2OrP9R7CpNF8zqpHigGqnYL8zl760SCXaSwVlUxKXjHpqIp9_BnuhMaa_gR242CQJ2MySE8lKzrwAA","follows":"https://reader.example/follows.json","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"reader-key-1","kty":"OKP","x":"X1ImihHt5syI0lgZfDFRh3UIQTMUh5RYH4OAb-b52zc"}],"name":"Reader","seq":1,"updated":1739577600,"url":"https://reader.example/"}
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvI3JlYWRlci1rZXktMSJ9..tkkN9rZwWeM32lecNDTMyilo6rDIB1B7W9AkXfMFlaDyZM3Qxk7vM6wia3qDROkaiWmWisKATkBfOtVqez7aCA","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"reader-key-1","kty":"OKP","x":"X1ImihHt5syI0lgZfDFRh3UIQTMUh5RYH4OAb-b52zc"}],"name":"Reader","seq":1,"updated":1739577600,"url":"https://reader.example/"}
 ```
 
 ### B.7. Item Carrying Pins (§16.1)
@@ -937,15 +920,7 @@ A delivered-only reply (no `_feed_url`) from the reader to the author of B.2's i
 
 The two `hash` values equal, respectively, B.4's identity-document hash and B.3's manifest hash — so the recipient, holding its own pin of either chain, can run the compare rule (§5.3.1) against these entries after resolving them per §16.1.
 
-### B.8. Follows Document (§16.2)
-
-`https://reader.example/` follows the owner and a grandparent. Full published canonical bytes:
-
-```
-{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vcmVhZGVyLmV4YW1wbGUvI3JlYWRlci1rZXktMSJ9..7rVRo4zwaPw_ALwAxf9DEmiTkdFZQRizEEKtKJ_ucJ0kNKUYsNB1vA-WJnht7QefhQWWogPbWRiR7PJiHDk6Bw","follows":["https://test.example/","https://gran.example/~gran/"],"updated":1739577600,"url":"https://reader.example/"}
-```
-
-### B.9. Identity Document with Extension Fields
+### B.8. Identity Document with Extension Fields
 
 A third identity, `https://posse.example/` (key `posse-key-1`), carrying `_accounts` — a README convention this specification does not define — with both entry shapes, a bare string and an object. The vector exercises §3.2's normative rule: unknown `_` fields sit inside the signed bytes, survive re-serialization, and are ignored by every core check. Standalone on purpose: adding a field to B.4 would change its hash, which is B.5's `prev`, cascading through every vector. Full published canonical bytes:
 
@@ -955,7 +930,7 @@ A third identity, `https://posse.example/` (key `posse-key-1`), carrying `_accou
 
 The signature verifies with `_accounts` treated as opaque — no core check consults it, and a verifier that dropped or reordered it would fail the Ed25519 check, which is what "unknown `_` fields MUST survive re-serialization" protects. The DID and the Mastodon URL are illustrative; neither resolves.
 
-### B.10. Delegated Custody (§4.6)
+### B.9. Delegated Custody (§4.6)
 
 A fourth identity, `https://member.example/`, in §12's recommended architecture: the identity document is signed by the member's **root** key while the item and manifest are signed by the hub's **delegated** key. Standalone on purpose, like B.9. Identity document, full published canonical bytes:
 
@@ -977,7 +952,7 @@ The manifest committing it, also delegated-signed:
 
 These are the positive half of §4.6 — the delegated key resolving where it may sign. The other half is a must-fail case (a delegated key signing an identity-document version), which Appendix B, being positive-only, cannot carry; the reference repository's negative corpus does.
 
-**Validation recipe.** Verify all thirteen `_sig` values (B.2, B.2b, B.3, B.3b, B.4, B.5 against `test-key-1`; B.7, B.8 against `reader-key-1`; B.6 and B.9 against the key each publishes; B.10's identity document against `member-root-1` and its item and manifest against the delegated `hub-key-1`). Resolve every one of those keys the way §6.5 step 5 does — out of the signer's **current** identity document, B.5 for `test.example` — so `iat` and `revoked_at` are in scope and not just the Ed25519 check; every vector here is intended to verify under that rule, and one that verifies only against a genesis document is a defect. Recompute B.3's full-bytes hash and confirm it equals B.3b's `prev` (manifest chaining); recompute B.4's full-bytes hash and confirm it equals B.5's `prev` (identity chaining). Recompute the full-published-bytes hashes of B.2 and B.2b and confirm each equals the `hash` half of its `items` entry in B.3b (content commitment, §9). Confirm B.7's `_pins` hashes equal the B.4 and B.3 hashes, and that B.7 carries no `_feed_url` (delivered-only, §16.1). `tmp/regen.js` performs all of these.
+**Validation recipe.** Verify all twelve `_sig` values (B.2, B.2b, B.3, B.3b, B.4, B.5 against `test-key-1`; B.7 against `reader-key-1`; B.6 and B.8 against the key each publishes; B.9's identity document against `member-root-1` and its item and manifest against the delegated `hub-key-1`). Resolve every one of those keys the way §6.5 step 5 does — out of the signer's **current** identity document, B.5 for `test.example` — so `iat` and `revoked_at` are in scope and not just the Ed25519 check; every vector here is intended to verify under that rule, and one that verifies only against a genesis document is a defect. Recompute B.3's full-bytes hash and confirm it equals B.3b's `prev` (manifest chaining); recompute B.4's full-bytes hash and confirm it equals B.5's `prev` (identity chaining). Recompute the full-published-bytes hashes of B.2 and B.2b and confirm each equals the `hash` half of its `items` entry in B.3b (content commitment, §9). Confirm B.7's `_pins` hashes equal the B.4 and B.3 hashes, and that B.7 carries no `_feed_url` (delivered-only, §16.1). `tmp/regen.js` performs all of these.
 
 ## Appendix C: Interoperability and Gateways
 

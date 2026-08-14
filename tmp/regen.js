@@ -193,18 +193,16 @@ console.log('  retained seq 1 is served at: https://test.example/openfeed/1.json
 console.log();
 embed('B.5 identity seq2 bytes', id2Bytes, 'spec');
 
-// ==== Conventions vectors (spec Appendix B.6-B.8) ====
+// ==== Conventions vectors (spec Appendix B.6-B.7) ====
 const kReader = keyFromLabel('reader-key-1');
 const READER = 'https://reader.example/';
 const READER_KID = READER + '#reader-key-1';
 
 // ---- B.6 reader identity document ----
-// Published so B.7 and B.8 are verifiable from the spec alone: without a document listing
-// reader-key-1, their signatures name a key no third party can resolve (§4.2).
-// A Level 1 consumer, so no `feeds` and no `inbox` — the follows document is all it
-// publishes, referenced the way §3.2 says to.
+// Published so B.7 is verifiable from the spec alone: without a document listing
+// reader-key-1, its signature names a key no third party can resolve (§4.2).
+// A Level 1 consumer, so no `feeds` and no `inbox` — it publishes only its identity.
 const idReader = {
-  follows:'https://reader.example/follows.json',
   keys:[ {crv:'Ed25519', iat:1736899200, kid:'reader-key-1', kty:'OKP', x:kReader.x} ],
   name:'Reader',
   seq:1, updated:1739577600, url:READER
@@ -237,19 +235,7 @@ console.log(' ', canonicalize(pinItem));
 console.log();
 embed('B.7 item-carried pins bytes', canonicalize(pinItem), 'spec');
 
-// ---- B.8 follows document ----
-const follows = {
-  url: READER,
-  follows: [ ID, 'https://gran.example/~gran/' ],
-  updated: 1739577600
-};
-follows._sig = sign(follows, kReader.priv, READER_KID);
-console.log('== B.8 follows document (full published canonical bytes) ==');
-console.log(' ', canonicalize(follows));
-console.log();
-embed('B.8 follows bytes', canonicalize(follows), 'spec');
-
-// ---- B.9 identity document with extension fields (§3.2) ----
+// ---- B.8 identity document with extension fields (§3.2) ----
 // Standalone third identity so B.4/B.5's hashes (and everything chained to them) never move.
 // `_accounts` is a README convention the core does not define: the vector exercises the
 // normative rule that unknown `_` fields are preserved inside the signed bytes and ignored
@@ -267,12 +253,12 @@ const id3 = {
   seq:1, updated:1739577600, url:POSSE
 };
 id3._sig = sign(id3, kPosse.priv, POSSE_KID);
-console.log('== B.9 identity with extension fields (full published canonical bytes) ==');
+console.log('== B.8 identity with extension fields (full published canonical bytes) ==');
 console.log(' ', canonicalize(id3));
 console.log();
-embed('B.9 extension identity bytes', canonicalize(id3), 'spec');
+embed('B.8 extension identity bytes', canonicalize(id3), 'spec');
 
-// ---- B.10 delegated custody (§4.6) ----
+// ---- B.9 delegated custody (§4.6) ----
 // A fourth identity whose identity document is signed by the member's root key while its
 // item and manifest are signed by the hub's delegated key — the split §4.6 defines.
 // Standalone so nothing chained to B.4/B.5 moves. The rejection half (a delegated key
@@ -294,10 +280,10 @@ const idMember = {
   seq:1, updated:1736899200, url:MEMBER
 };
 idMember._sig = sign(idMember, kRoot.priv, MEMBER_ROOT_KID);
-console.log('== B.10 member identity document (full published canonical bytes) ==');
+console.log('== B.9 member identity document (full published canonical bytes) ==');
 console.log(' ', canonicalize(idMember));
 console.log();
-embed('B.10 member identity bytes', canonicalize(idMember), 'spec');
+embed('B.9 member identity bytes', canonicalize(idMember), 'spec');
 
 const DEL_ITEM_ID = 'urn:uuid:2f1e8c4a-9b3d-4e5f-8a71-6c2d9e0b4f13';
 const delItem = {
@@ -308,20 +294,20 @@ const delItem = {
   id: DEL_ITEM_ID
 };
 delItem._sig = sign(delItem, kDel.priv, MEMBER_DEL_KID);
-console.log('== B.10 delegated-signed item (full published canonical bytes) ==');
+console.log('== B.9 delegated-signed item (full published canonical bytes) ==');
 console.log(' ', canonicalize(delItem));
 console.log();
-embed('B.10 delegated item bytes', canonicalize(delItem), 'spec');
+embed('B.9 delegated item bytes', canonicalize(delItem), 'spec');
 
 const delManifest = {
   url: MEMBER, feed_url:'https://member.example/feed.json', seq:1, updated:1740045600,
   items:{ [DEL_ITEM_ID]:[1, documentHash(delItem)] }
 };
 delManifest._sig = sign(delManifest, kDel.priv, MEMBER_DEL_KID);
-console.log('== B.10 delegated-signed manifest (full published canonical bytes) ==');
+console.log('== B.9 delegated-signed manifest (full published canonical bytes) ==');
 console.log(' ', canonicalize(delManifest));
 console.log();
-embed('B.10 delegated manifest bytes', canonicalize(delManifest), 'spec');
+embed('B.9 delegated manifest bytes', canonicalize(delManifest), 'spec');
 
 // ---- self-verify everything, the way a verifier does ----
 // Each vector resolves its key out of its author's CURRENT identity document — the tip of
@@ -362,16 +348,15 @@ const checks = [
   ['B.7 item pins',   verifies(pinItem)
                         && pinItem._pins[0].hash===id1Hash && pinItem._pins[1].hash===manifestHash1
                         && !('_feed_url' in pinItem)],
-  ['B.8 follows',     verifies(follows)],
   // an unknown `_` field carries no authority: verification must succeed with it treated as
   // opaque, and both entry forms (string, object) must be present in the signed bytes.
-  ['B.9 extension id', verifies(id3)
+  ['B.8 extension id', verifies(id3)
                         && typeof id3._accounts[0]==='string' && typeof id3._accounts[1]==='object'],
-  ['B.10 member id',  verifies(idMember)],
+  ['B.9 member id',   verifies(idMember)],
   // the delegated key resolves for an item and a manifest — the half of §4.6 a positive
   // vector can show; the identity-document rejection is in test/negative.test.js
-  ['B.10 del item',   verifies(delItem)],
-  ['B.10 del manifest', verifies(delManifest)
+  ['B.9 del item',    verifies(delItem)],
+  ['B.9 del manifest', verifies(delManifest)
                         && delManifest.items[DEL_ITEM_ID][1]===documentHash(delItem)],
 ];
 

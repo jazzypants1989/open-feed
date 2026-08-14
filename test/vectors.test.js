@@ -61,7 +61,7 @@ for (const { doc } of identityDocs) {
 }
 
 test('the spec contains the signed vectors Appendix B claims', () => {
-  assert.ok(signed.length >= 13, `expected at least 13 signed vectors, extracted ${signed.length}`);
+  assert.ok(signed.length >= 12, `expected at least 12 signed vectors, extracted ${signed.length}`);
   for (const url of ['https://test.example/', 'https://reader.example/', 'https://posse.example/', 'https://member.example/']) {
     assert.ok(currentByUrl.has(url), `no identity document for ${url}`);
   }
@@ -98,7 +98,7 @@ test('every signed vector verifies against its author\'s current identity docume
     assert.equal(info.author, author);
     verified++;
   }
-  assert.ok(verified >= 13, `only ${verified} vectors verified`);
+  assert.ok(verified >= 12, `only ${verified} vectors verified`);
 });
 
 test('every vector was signed inside its key\'s validity window', () => {

@@ -511,15 +511,15 @@ Because "delivered" is a choice the author makes and *other people* enforce, the
 
 One rule predicts the rest: **any audience larger than one needs a membership decision.** A DM needs none — there is exactly one counterparty. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not, and one the spec deliberately leaves out of scope (§11.2): group audiences wait until something can define them safely.
 
-### Follows and pins — conventions
+### Follows and pins
 
-One optional document plus one item field, both *outside* the trust core, specified in spec §16:
+One item field specified in spec §16, plus one README-level document convention, both *outside* the trust core:
 
-- **`follows`** — who you read (`{ "follows": [...], "updated": ... }`). Turns "which feeds does my hub poll?" into protocol. MAY be kept private/client-local.
+- **`_follows`** — who you read (`{ "url": ..., "follows": [...], "updated": ..., "_sig": ... }`, referenced by a `_follows` field in the identity document; entries are identity-URL strings or objects with a `url` plus optional petname/feed-narrowing keys). A convention of this README — nothing in the spec reads it, and the spec's extension rules (`_` prefix, preserve-unknown) are all it relies on. Turns "which feeds does my hub poll?" into shareable data, and doubles as the natural trust set for weighing pins. Keep it client-local if you don't want your reading graph published.
 - **`_pins` on items** — your signed `(url, seq, hash)` observations of others' chains, carried on the items you already send (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). They give a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography and no new document.
 Pins also answer a question the trust model raises and doesn't settle: equivocation is *detectable*, but only if somebody compares. Your own record of what you published is a weak check — a host that knows which client is yours can serve that client the honest branch. Comparison by other people is the durable one.
 
-⚠️ The follows document publishes your social graph — keep it client-local if that matters; the enforcement value is entirely local. Pins are scoped so an entry never reveals a reading relationship its carrying item hasn't already revealed: published items pin only the identities they address, and third-party pins ride delivered items alone (§16.1).
+⚠️ A published `_follows` document publishes your social graph — keep it client-local if that matters; the enforcement value is entirely local. Pins are scoped so an entry never reveals a reading relationship its carrying item hasn't already revealed: published items pin only the identities they address, and third-party pins ride delivered items alone (§16.1).
 
 ### Media integrity and alt text
 
