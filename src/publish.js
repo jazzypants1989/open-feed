@@ -43,7 +43,6 @@ export class Publisher {
     signer,
     profile = {},
     recoveryKeys = [],
-    recoveryThreshold,
     now = () => Math.floor(Date.now() / 1000),
     skipLinks = true,
   }) {
@@ -64,7 +63,7 @@ export class Publisher {
     this.items = new Map();     // id -> the latest signed revision
     this.committed = new Map(); // id -> the version the manifest last committed
 
-    this.#genesisIdentity({ profile, recoveryKeys, recoveryThreshold });
+    this.#genesisIdentity({ profile, recoveryKeys });
   }
 
   // ---- §3.2, §5.2: the identity chain ----
@@ -76,7 +75,7 @@ export class Publisher {
     return signed;
   }
 
-  #genesisIdentity({ profile, recoveryKeys, recoveryThreshold }) {
+  #genesisIdentity({ profile, recoveryKeys }) {
     const doc = {
       url: this.identity,
       ...profile,
@@ -85,7 +84,6 @@ export class Publisher {
       updated: this.now(),
       keys: [this.signer.jwk, ...recoveryKeys],
     };
-    if (recoveryThreshold !== undefined) doc.recovery_threshold = recoveryThreshold;
     // Genesis omits `prev` — it names nothing, and a walk that accepted one would hold a
     // seq 1 it believes is linked to something.
     this.identityVersions.push(this.#signDocument(doc));

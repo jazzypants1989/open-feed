@@ -12,7 +12,7 @@ import {
   identityChainPolicy,
   manifestChainPolicy,
   assertContinuityKey,
-  verifyRecoverySignatures,
+  verifyRecoverySignature,
   resolveFork,
   ChainError,
   EquivocationError,
@@ -427,71 +427,60 @@ test('a manifest claiming an identity other than its signer is refused', async (
 
 // ---- §4.5 / §5.5 recovery and fork resolution ----
 
-function coSign(doc, keys) {
+function coSign(doc, key) {
   const { _sig, _recovery_sig, ...rest } = doc;
-  const out = { ...doc };
-  out._recovery_sig = keys.map((k) => sign(rest, k.privateKey, `${k.identity}#${k.kid}`));
-  return out;
+  return { ...doc, _recovery_sig: sign(rest, key.privateKey, `${key.identity}#${key.kid}`) };
 }
 
-test('recovery co-signatures verify against the keys committed in the pinned ancestor', async () => {
-  const fx = identityFixture({ versions: 1, recoveryKeys: 3, recoveryThreshold: 2 });
+test('a recovery co-signature verifies against the key committed in the pinned ancestor', async () => {
+  const fx = identityFixture({ versions: 1, recoveryKeys: 1 });
   const ancestor = fx.chain.at(1);
-  const claim = coSign({ ...ancestor, seq: 2, updated: ancestor.updated + 86400 }, fx.recovery.slice(0, 2));
+  const claim = coSign({ ...ancestor, seq: 2, updated: ancestor.updated + 86400 }, fx.recovery[0]);
 
-  const result = verifyRecoverySignatures(claim, { pinnedAncestor: ancestor });
-  assert.equal(result.met, true);
-  assert.equal(result.threshold, 2);
-  assert.deepEqual(result.signers.sort(), ['recovery-1', 'recovery-2']);
+  const result = verifyRecoverySignature(claim, { pinnedAncestor: ancestor });
+  assert.equal(result.valid, true);
+  assert.equal(result.signer, 'recovery-1');
+
+  // No co-signature at all is simply invalid, not an error.
+  const bare = { ...ancestor, seq: 2, updated: ancestor.updated + 86400 };
+  assert.equal(verifyRecoverySignature(bare, { pinnedAncestor: ancestor }).valid, false);
 });
 
-test('the threshold is read from the pinned ancestor, never from the document claiming it', () => {
-  // §4.5: otherwise a thief holding one key declares a threshold of one and the mechanism
-  // defeats itself. This is the whole reason the rule is stated as a MUST.
-  const fx = identityFixture({ versions: 1, recoveryKeys: 3, recoveryThreshold: 3 });
+test('the co-signing key must be a recovery key the pinned ancestor commits, naming this identity', () => {
+  const fx = identityFixture({ versions: 1, recoveryKeys: 1 });
   const ancestor = fx.chain.at(1);
-  const claim = coSign(
-    { ...ancestor, seq: 2, updated: ancestor.updated + 86400, recovery_threshold: 1 },
-    [fx.recovery[0]],
-  );
-  const result = verifyRecoverySignatures(claim, { pinnedAncestor: ancestor });
-  assert.equal(result.threshold, 3, 'the claiming document must not set the threshold');
-  assert.equal(result.met, false);
-});
+  const at2 = (extra) => ({ ...ancestor, seq: 2, updated: ancestor.updated + 86400, ...extra });
 
-test('co-signatures must be by distinct keys, and must name this identity', () => {
-  const fx = identityFixture({ versions: 1, recoveryKeys: 2, recoveryThreshold: 2 });
-  const ancestor = fx.chain.at(1);
-
-  // One key co-signing twice is one co-signature.
-  const doubled = coSign(
-    { ...ancestor, seq: 2, updated: ancestor.updated + 86400 },
-    [fx.recovery[0], fx.recovery[0]],
-  );
-  assert.equal(verifyRecoverySignatures(doubled, { pinnedAncestor: ancestor }).met, false);
-
-  // Author binding holds for co-signatures: every kid names *this* identity.
+  // Author binding holds for co-signatures: the kid names *this* identity.
   const foreign = makeKey('recovery-1', { use: 'recovery' });
   foreign.identity = 'https://elsewhere.example/';
-  const outside = coSign({ ...ancestor, seq: 2, updated: ancestor.updated + 86400 }, [fx.recovery[0], foreign]);
-  const result = verifyRecoverySignatures(outside, { pinnedAncestor: ancestor });
-  assert.equal(result.met, false);
-  assert.match(result.rejected.join(' '), /elsewhere\.example/);
+  const outside = coSign(at2(), foreign);
+  const result = verifyRecoverySignature(outside, { pinnedAncestor: ancestor });
+  assert.equal(result.valid, false);
+  assert.match(result.reason, /elsewhere\.example/);
 
-  // A key that is not a recovery key does not count toward the threshold either.
-  const withPrimary = coSign({ ...ancestor, seq: 2, updated: ancestor.updated + 86400 }, [fx.recovery[0], fx.primary]);
-  assert.equal(verifyRecoverySignatures(withPrimary, { pinnedAncestor: ancestor }).met, false);
+  // A key that is not a recovery key cannot co-sign.
+  assert.equal(verifyRecoverySignature(coSign(at2(), fx.primary), { pinnedAncestor: ancestor }).valid, false);
+
+  // The keys are read from the pinned ancestor, never from the claiming document — otherwise
+  // anyone mints a "recovery key" alongside the claim it blesses.
+  const minted = makeKey('recovery-9', { use: 'recovery' });
+  minted.identity = fx.identity;
+  const selfServing = coSign(at2({ keys: [...ancestor.keys, minted.jwk] }), minted);
+  const mintedResult = verifyRecoverySignature(selfServing, { pinnedAncestor: ancestor });
+  assert.equal(mintedResult.valid, false);
+  assert.match(mintedResult.reason, /not a recovery key committed/);
 });
 
-test('a fork resolves to the branch meeting the threshold, and otherwise does not resolve', () => {
-  const fx = identityFixture({ versions: 1, recoveryKeys: 2, recoveryThreshold: 2 });
+test('a fork resolves to the recovery-co-signed branch, and otherwise does not resolve', () => {
+  const fx = identityFixture({ versions: 1, recoveryKeys: 1 });
   const ancestor = fx.chain.at(1);
   const at2 = (extra) => ({ ...ancestor, seq: 2, updated: ancestor.updated + 86400, ...extra });
 
   // The thief holds the online key, so their branch signs but cannot co-sign: recovery keys
   // are offline, which is the entire basis for preferring the other branch.
   const stolen = at2({ name: 'Thief' });
-  const honest = coSign(at2({ name: 'Owner' }), fx.recovery);
+  const honest = coSign(at2({ name: 'Owner' }), fx.recovery[0]);
 
   const resolved = resolveFork([stolen, honest], { pinnedAncestor: ancestor });
   assert.equal(resolved.resolved, true);
@@ -500,21 +489,12 @@ test('a fork resolves to the branch meeting the threshold, and otherwise does no
   // Neither branch co-signed: unresolvable, and flagged rather than guessed at.
   const neither = resolveFork([stolen, at2({ name: 'Other' })], { pinnedAncestor: ancestor });
   assert.equal(neither.resolved, false);
-  assert.match(neither.reason, /no branch meets/);
+  assert.match(neither.reason, /no branch carries/);
 
-  // Both co-signed, which means the recovery keys are themselves in question.
-  const both = resolveFork([honest, coSign(at2({ name: 'Also' }), fx.recovery)], { pinnedAncestor: ancestor });
+  // Both co-signed, which means the recovery key is itself in question.
+  const both = resolveFork([honest, coSign(at2({ name: 'Also' }), fx.recovery[0])], { pinnedAncestor: ancestor });
   assert.equal(both.resolved, false);
-  assert.match(both.reason, /themselves in question/);
-});
-
-test('recovery_threshold defaults to 1 when the pinned ancestor sets none', () => {
-  const fx = identityFixture({ versions: 1, recoveryKeys: 1 });
-  const ancestor = fx.chain.at(1);
-  const claim = coSign({ ...ancestor, seq: 2, updated: ancestor.updated + 86400 }, fx.recovery);
-  const result = verifyRecoverySignatures(claim, { pinnedAncestor: ancestor });
-  assert.equal(result.threshold, 1);
-  assert.equal(result.met, true);
+  assert.match(both.reason, /itself in question/);
 });
 
 // ---- the seams where a check runs but nothing observes it running ----

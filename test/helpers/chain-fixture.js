@@ -113,7 +113,6 @@ export function identityFixture({
   store = new DocumentStore(),
   versions = 1,
   recoveryKeys = 1,
-  recoveryThreshold,
   skipLinks = false,
 } = {}) {
   const url = `${identity}openfeed.json`;
@@ -127,11 +126,7 @@ export function identityFixture({
 
   const chain = new ChainBuilder({ url, store });
   const keys = [primary.jwk, ...recovery.map((k) => k.jwk)];
-  const body = () => {
-    const fields = { url: identity, name: 'Owner', keys: keys.map((k) => ({ ...k })) };
-    if (recoveryThreshold !== undefined) fields.recovery_threshold = recoveryThreshold;
-    return fields;
-  };
+  const body = () => ({ url: identity, name: 'Owner', keys: keys.map((k) => ({ ...k })) });
 
   // An identity chain MUST NOT be walked by skip links (§9.1.1), but a publisher can still
   // put `_skip` in one — it is an ordinary extension field — so a fixture that can produce

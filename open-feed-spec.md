@@ -110,8 +110,7 @@ The identity document lives at the fixed path `{identity_url}openfeed.json` — 
 | `accounts` | MAY | Foreign accounts this identity claims to control (Appendix B.2). Carries no authority over content; a claim until the foreign side attests back; a **permanent disclosure** — read B.2's warning before using. |
 | `name`, `bio`, `avatar`, `content_warning` | MAY | Profile metadata. `content_warning`, if present, marks all content from this identity as sensitive. |
 | `successor`, `predecessor` | MAY | Migration links (§3.4). |
-| `recovery_threshold` | MAY | How many recovery co-signatures a recovery claim needs; integer ≥ 1, default 1 (§4.5). Read from the pinned ancestor committing the keys, never from a document claiming recovery. |
-| `_recovery_sig` | MAY | Array of recovery co-signatures, for recovery-based migration (§3.4) and fork resolution (§5.5). |
+| `_recovery_sig` | MAY | A recovery co-signature — a detached JWS by a recovery key (§4.5) — for recovery-based migration (§3.4) and fork resolution (§5.5). |
 
 Unknown fields MUST be preserved when re-serializing and ignored otherwise; extension fields SHOULD use a `_` prefix. Every identity document is signed and versioned — there is no unsigned or unchained mode — and verification is trust-on-first-observation (§5.3): the signature proves continuity between versions, not first-contact authenticity.
 
@@ -143,7 +142,7 @@ To move from `https://old.example/~alice/` to `https://alice.new/`:
 
 1. Establish the new identity (new identity document, new or same keys), adding `"predecessor": "https://old.example/~alice/"`.
 2. **Cooperative migration** (old domain still controlled): the old identity document publishes a new chain version adding `"successor": "https://alice.new/"`. Consumers follow `successor` when both links exist and agree — each sits inside a signed document, so the pair is a cryptographic cross-signature verifiable against the old identity's pinned chain.
-3. **Recovery** (old domain lost): the new identity document additionally carries `_recovery_sig`, detached JWS values by **recovery keys** (§4.5) committed in a pinned ancestor of the predecessor, meeting that ancestor's `recovery_threshold`. A consumer holding a pin of the old identity verifies the co-signatures against those keys and follows `predecessor` even though the old side can no longer publish a `successor`.
+3. **Recovery** (old domain lost): the new identity document additionally carries `_recovery_sig`, a detached JWS by a **recovery key** (§4.5) committed in a pinned ancestor of the predecessor. A consumer holding a pin of the old identity verifies the co-signature against that key and follows `predecessor` even though the old side can no longer publish a `successor`.
 
 A `successor` claim without a matching `predecessor` (or vice versa), unaccompanied by a valid recovery co-signature, MUST NOT be treated as migration. Consumers with no prior pin of the old identity can only treat a recovery-based migration as unverified; out-of-band confirmation is recommended, and §16's `pins` convention is how a family propagates such a claim through its social graph. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself. There is no separate recovery-claim document: the chained identity document — signed by an active key, carrying `predecessor`, co-signed by a committed recovery key — *is* the attestation. A consumer that has **not** verified a migration sees the same `id` presented as canonical at two feeds; it MUST treat the higher-`_version` copy as *unverified pending migration verification* rather than as an equivocation to reject, and reconcile once the pair or the co-signature verifies against a pin. This is the one situation where an `id` legitimately carries two live `_feed_url` values.
 
@@ -195,13 +194,11 @@ Publish a new chain version (§5.2) adding the new key; sign new content and man
 A key with `"use": "recovery"`:
 
 - MUST NOT sign regular content or manifests
-- MUST be stored offline, not on the hub
+- MUST be stored offline, not on the hub — and SHOULD be held where whoever operates the identity's host cannot reach it either, because §13.2's fourth-tier adversary is defined by access, not by protocol position: for a family hub that means outside the home the operator shares, and for a commercial host outside the operator's custody, or the key checks nobody
 - SHOULD be generated at identity creation
 - Co-signs a migration for domain-loss recovery (§3.4) and MAY co-sign a chain version for fork resolution (§5.5)
 
-Because recovery keys are committed in the chain, any consumer holding a pin can verify a later recovery-based migration or fork resolution against the recovery keys present at that pinned `(seq, hash)`. **Which pinned version is not a free choice**: a consumer MUST use the most recent version of the predecessor chain it has verified, not any older ancestor it happens to retain. Retaining observations at every `seq` is what makes a peer's older pin checkable (§5.3.1, §16.2), and reading recovery state out of one would undo every revocation published since — a key retired and replaced years ago would still meet the threshold against the version that first committed it. Revocations the consumer never fetched remain invisible to it, which is inherent to a stale pin and is what §16.2.2 exists to shorten.
-
-**Threshold recovery (OPTIONAL).** One recovery key is one artifact in one place, and against the §13.2 fourth-tier adversary — who shares the household — physical access to that artifact is their whole advantage; a printed card in a drawer is the wrong shape for the persona this mechanism exists to serve. An identity MAY therefore commit several recovery keys and require *k* of them: `recovery_threshold` in the identity document, and `_recovery_sig` an array of that many valid co-signatures by **distinct** committed recovery keys. This is not a second signing construction and not secret sharing — it is *k* instances of §6.1, each an ordinary detached JWS, and author binding is untouched because every `kid` names *this* identity even when a relative holds the private half. Each key is independently sufficient at its own slot, so `k = 1` lets any single holder act alone; `k ≥ 2` is what buys the property. **A verifier MUST read `recovery_threshold` from the pinned ancestor that commits the keys, never from the document making the claim** — otherwise a thief holding one key declares a threshold of one and the mechanism defeats itself. Threshold recovery restores identity continuity only; §15.1 is explicit that no recovery key restores readability.
+Because recovery keys are committed in the chain, any consumer holding a pin can verify a later recovery-based migration or fork resolution against the recovery keys present at that pinned `(seq, hash)`. **Which pinned version is not a free choice**: a consumer MUST use the most recent version of the predecessor chain it has verified, not any older ancestor it happens to retain. Retaining observations at every `seq` is what makes a peer's older pin checkable (§5.3.1, §16.2), and reading recovery state out of one would undo every revocation published since — a key retired and replaced years ago would still verify against the version that first committed it. Revocations the consumer never fetched remain invisible to it, which is inherent to a stale pin and is what §16.2.2 exists to shorten. Recovery restores identity continuity only; §15.1 is explicit that no recovery key restores readability.
 
 Verifiers MAY reject a recovery-based migration while the original identity serves a **conflicting** chain — one advancing with its own `successor` claim, or otherwise contradicting the migration. They MUST NOT reject it merely because the original identity is *still being served*. An uncooperative departure (§3.4) is exactly the case where the old host keeps serving an unchanged chain and simply declines to acknowledge the move; treating "still reachable" as grounds for rejection would hand a hostile custodian a veto over their user's exit by doing nothing at all. Where both sides advance with contradictory claims, that is a fork and §5.5 governs.
 
@@ -268,7 +265,7 @@ Every chained document's URL MUST end in `.json`, so the derivation is total —
 
 ### 5.5. Fork Resolution
 
-Equivocation detection reveals *that* a chain forked, not *which* branch is honest — after key theft, both branches carry valid continuity signatures. A version MAY carry `_recovery_sig`: an array of detached JWS values by recovery keys committed in a pinned ancestor, meeting that ancestor's `recovery_threshold` (§4.5). `_sig` and every `_recovery_sig` entry are each computed over the canonical document with **both** signature fields removed, so all co-signers sign identical bytes and their order carries no meaning. A thief of the online key cannot produce them, since recovery keys are offline, so verifiers detecting a fork SHOULD prefer the branch meeting the threshold; a fork where neither branch does is unresolvable and SHOULD be flagged for manual review. Producers SHOULD co-sign the first version published after a suspected compromise.
+Equivocation detection reveals *that* a chain forked, not *which* branch is honest — after key theft, both branches carry valid continuity signatures. A version MAY carry `_recovery_sig`: a detached JWS by a recovery key committed in a pinned ancestor (§4.5), computed over the co-signing bytes of §6.3. A thief of the online key cannot produce it, since recovery keys are offline, so verifiers detecting a fork SHOULD prefer the branch carrying a valid recovery co-signature; a fork where neither branch carries one — or both do, which puts the recovery key itself in question — is unresolvable and SHOULD be flagged for manual review. Producers SHOULD co-sign the first version published after a suspected compromise.
 
 ## 6. Signatures
 
@@ -300,6 +297,8 @@ All four fields MUST be present with exactly these `alg`/`b64`/`crit` values. Ve
 
 1. Remove `_sig` (and `_recovery_sig` if present)
 2. Serialize per RFC 8785: UTF-8, no whitespace, keys sorted, ES6 number formatting
+
+Because step 1 removes **both** signature fields, a signer and a recovery co-signer (§3.4, §5.5) compute their signatures over identical bytes, and neither signature covers the other.
 
 Strings are signed **byte-exact as published** — no Unicode normalization at sign or verify time. Producers SHOULD emit NFC. Implementations MUST reject JSON containing duplicate member names (I-JSON, RFC 7493).
 
@@ -613,7 +612,7 @@ Pinning is a MUST because it is what the §13.2 guarantees are made of: a verifi
 
 **Hosting identities on behalf of other people** cuts across all four levels and carries its own MUSTs. The hazard is custody, not capability: a Level 2 hub that publishes members' feeds and never implements an inbox holds their keys and controls their exit exactly as a Level 3 one does. Any implementation hosting identities for others MUST:
 
-1. Provision each hosted identity with a recovery key — or, where threshold recovery is offered, all of them (§4.5) — generated on the member's own device and never transmitted to the host.
+1. Provision each hosted identity with a recovery key (§4.5), generated on the member's own device and never transmitted to the host.
 2. Present the member, at onboarding, with their **genesis** `(seq, hash)` and their recovery key's fingerprint in a form they can compare out-of-band (§4.5), and record and expose the `(seq, hash)` of every later chain version it produces for them (§5.2).
 3. Serve that owner a complete export bundle on demand (§14).
 

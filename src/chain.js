@@ -589,58 +589,44 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
 // ---- §5.5 fork resolution ----
 
 /**
- * Verify a version's `_recovery_sig` array against the recovery keys and threshold committed
- * in a **pinned ancestor**.
+ * Verify a version's `_recovery_sig` against a recovery key committed in a **pinned ancestor**.
  *
- * §4.5 is emphatic about where the threshold is read from: the pinned ancestor that commits
- * the keys, never the document making the claim. Otherwise a thief holding one key declares
- * a threshold of one and the mechanism defeats itself.
+ * The keys are read from the pinned ancestor, never from the document making the claim —
+ * otherwise anyone can mint a "recovery key" alongside the claim it blesses.
  *
  * `pinnedAncestor` MUST be the **most recent** version of the predecessor chain the caller has
  * verified, not any older one it retains (§4.5). A `PinStore` keeps observations at every
  * `seq` so a peer's older pin stays checkable, and reaching into that history here would undo
  * every revocation published since — a recovery key retired years ago would still count.
  *
- * Every co-signature is computed over the canonical document with **both** signature fields
- * removed, which `signingPayload` already does — so all co-signers sign identical bytes and
- * their order carries no meaning.
+ * The co-signature is computed over the canonical document with **both** signature fields
+ * removed, which `signingPayload` already does (§6.3) — so the signer and the recovery
+ * co-signer sign identical bytes.
  */
-export function verifyRecoverySignatures(doc, { pinnedAncestor }) {
-  const threshold = Number.isInteger(pinnedAncestor?.recovery_threshold)
-    ? pinnedAncestor.recovery_threshold
-    : 1;
-  if (threshold < 1) throw new ChainError(`recovery_threshold must be at least 1, got ${threshold}`);
-
+export function verifyRecoverySignature(doc, { pinnedAncestor }) {
   const identity = normalizeIdentityUrl(pinnedAncestor.url);
   const recoveryKeys = (pinnedAncestor.keys ?? []).filter((k) => k?.use === 'recovery');
-  const entries = Array.isArray(doc._recovery_sig) ? doc._recovery_sig : [];
   const payload = signingPayload(doc);
   const when = doc.updated;
 
-  const signers = new Set();
-  const rejected = [];
-  for (const entry of entries) {
-    try {
-      const { headerB64, header, signature } = parseDetachedSig(entry);
-      const { identityUrl, keyId } = parseKid(header.kid);
-      // Author binding holds for co-signatures too: every kid names *this* identity, even
-      // when a relative holds the private half (§4.5).
-      if (identityUrl !== identity) throw new VerifyError(`kid names ${identityUrl}, not ${identity}`);
-      const jwk = recoveryKeys.find((k) => k.kid === keyId);
-      if (!jwk) throw new VerifyError(`${keyId} is not a recovery key committed at seq ${pinnedAncestor.seq}`);
-      if (typeof jwk.iat === 'number' && jwk.iat > when) throw new VerifyError(`${keyId} was issued after ${when}`);
-      if (typeof jwk.revoked_at === 'number' && when > jwk.revoked_at) throw new VerifyError(`${keyId} was revoked`);
-      if (!crypto.verify(null, signingInput(headerB64, payload), publicKeyFromJwk(jwk), signature)) {
-        throw new VerifyError('signature does not verify');
-      }
-      // Distinct keys: k co-signatures by one key is one co-signature (§4.5).
-      signers.add(keyId);
-    } catch (e) {
-      rejected.push(e.message);
+  try {
+    if (typeof doc._recovery_sig !== 'string') throw new VerifyError('no recovery co-signature');
+    const { headerB64, header, signature } = parseDetachedSig(doc._recovery_sig);
+    const { identityUrl, keyId } = parseKid(header.kid);
+    // Author binding holds for co-signatures too: the kid names *this* identity, even when
+    // someone else holds the private half (§4.5).
+    if (identityUrl !== identity) throw new VerifyError(`kid names ${identityUrl}, not ${identity}`);
+    const jwk = recoveryKeys.find((k) => k.kid === keyId);
+    if (!jwk) throw new VerifyError(`${keyId} is not a recovery key committed at seq ${pinnedAncestor.seq}`);
+    if (typeof jwk.iat === 'number' && jwk.iat > when) throw new VerifyError(`${keyId} was issued after ${when}`);
+    if (typeof jwk.revoked_at === 'number' && when > jwk.revoked_at) throw new VerifyError(`${keyId} was revoked`);
+    if (!crypto.verify(null, signingInput(headerB64, payload), publicKeyFromJwk(jwk), signature)) {
+      throw new VerifyError('signature does not verify');
     }
+    return { valid: true, signer: keyId };
+  } catch (e) {
+    return { valid: false, signer: null, reason: e.message };
   }
-
-  return { met: signers.size >= threshold, threshold, signers: [...signers], rejected };
 }
 
 /**
@@ -648,17 +634,17 @@ export function verifyRecoverySignatures(doc, { pinnedAncestor }) {
  *
  * Equivocation detection reveals *that* a chain forked, not which branch is honest: after key
  * theft both branches carry valid continuity signatures. A thief of the online key cannot
- * produce recovery co-signatures, since recovery keys are offline, so the branch meeting the
- * pinned ancestor's threshold is preferred. A fork where neither branch does — or where both
- * do, which means the recovery keys themselves are compromised — is unresolvable and is
- * flagged for manual review rather than guessed at.
+ * produce a recovery co-signature, since recovery keys are offline, so the branch carrying a
+ * valid one is preferred. A fork where neither branch does — or where both do, which means the
+ * recovery key itself is compromised — is unresolvable and is flagged for manual review rather
+ * than guessed at.
  */
 export function resolveFork(branches, { pinnedAncestor }) {
   const assessed = branches.map((branch) => ({
     branch,
-    recovery: verifyRecoverySignatures(branch, { pinnedAncestor }),
+    recovery: verifyRecoverySignature(branch, { pinnedAncestor }),
   }));
-  const preferred = assessed.filter((a) => a.recovery.met);
+  const preferred = assessed.filter((a) => a.recovery.valid);
   if (preferred.length === 1) {
     return { resolved: true, preferred: preferred[0].branch, assessed };
   }
@@ -667,7 +653,7 @@ export function resolveFork(branches, { pinnedAncestor }) {
     preferred: null,
     assessed,
     reason: preferred.length === 0
-      ? 'no branch meets the recovery threshold committed in the pinned ancestor'
-      : `${preferred.length} branches meet the threshold, so the recovery keys are themselves in question`,
+      ? 'no branch carries a valid co-signature by a recovery key committed in the pinned ancestor'
+      : `${preferred.length} branches carry one, so the recovery key is itself in question`,
   };
 }

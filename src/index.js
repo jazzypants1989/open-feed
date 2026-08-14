@@ -55,7 +55,7 @@ export {
   identityChainPolicy,
   manifestChainPolicy,
   assertContinuityKey,
-  verifyRecoverySignatures,
+  verifyRecoverySignature,
   resolveFork,
   ChainError,
   EquivocationError,
