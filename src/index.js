@@ -51,6 +51,7 @@ export {
   derivedVersionUrl,
   skipAnchors,
   PinStore,
+  admissibleItemPins,
   walkToPin,
   identityChainPolicy,
   manifestChainPolicy,

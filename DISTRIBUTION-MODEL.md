@@ -396,7 +396,7 @@ Error bodies: `{ "error": "code", "message": "human text" }` with codes `invalid
 
 Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliveries are recovered by polling the sender's feed — the feed is the source of truth; the inbox is a latency optimization (spec §10.4, §1).
 
-**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in a replies endpoint if one is ever built (spec §16.4.1), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
+**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in a replies endpoint if one is ever built (spec §16.3.1), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
 
 This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (spec §15.4). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
 
@@ -1023,7 +1023,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Profile customization (advances the identity chain)
 - [ ] Search (entries, comments)
 - [ ] Signing tools for self-hosters
-- [ ] Optional `pins`/`follows` documents (spec §16) for family-scale anti-equivocation and recovery propagation
+- [ ] Optional `follows` document and item-carried `_pins` (spec §16) for family-scale anti-equivocation and recovery propagation
 
 **Test**: Does it feel good to use daily?
 

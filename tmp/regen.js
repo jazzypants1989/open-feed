@@ -201,13 +201,12 @@ const READER_KID = READER + '#reader-key-1';
 // ---- D.6 reader identity document ----
 // Published so D.7 and D.8 are verifiable from the spec alone: without a document listing
 // reader-key-1, their signatures name a key no third party can resolve (§4.2).
-// A Level 1 consumer, so no `feeds` and no `inbox` — the §16 conventions documents are all
-// it publishes, and it references them the way §3.2 says to.
+// A Level 1 consumer, so no `feeds` and no `inbox` — the follows document is all it
+// publishes, referenced the way §3.2 says to.
 const idReader = {
   follows:'https://reader.example/follows.json',
   keys:[ {crv:'Ed25519', iat:1736899200, kid:'reader-key-1', kty:'OKP', x:kReader.x} ],
   name:'Reader',
-  pins:'https://reader.example/pins.json',
   seq:1, updated:1739577600, url:READER
 };
 idReader._sig = sign(idReader, kReader.priv, READER_KID);
@@ -216,20 +215,27 @@ console.log(' ', canonicalize(idReader));
 console.log();
 embed('D.6 reader identity bytes', canonicalize(idReader), 'spec');
 
-// ---- D.7 pins document (observer) ----
-const pins = {
-  url: READER,
-  pins: [
+// ---- D.7 item carrying pins (§16.1) ----
+// A delivered-only reply (no _feed_url) from the reader to the owner of D.2's item, carrying
+// pins of the recipient's identity document (D.4) and manifest (D.3). Recipient-scoped, so it
+// is valid on either axis of §16.1's publication rule.
+const pinItem = {
+  _pins: [
     { url:'https://test.example/openfeed.json', seq:1, hash:id1Hash,       observed:1739577600 },
     { url:'https://test.example/manifest.json', seq:1, hash:manifestHash1, observed:1739577600 }
   ],
-  updated: 1739577600
+  _rel: [ { type:'reply', to:'https://test.example/feed.json#urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6' } ],
+  _version: 1,
+  authors: [ { url: READER } ],
+  content_text: 'Lovely!',
+  date_published: '2025-02-15T12:00:00Z',
+  id: 'urn:uuid:7c9e6679-7425-40de-944b-e07fc1f90ae7'
 };
-pins._sig = sign(pins, kReader.priv, READER_KID);
-console.log('== D.7 pins document (full published canonical bytes) ==');
-console.log(' ', canonicalize(pins));
+pinItem._sig = sign(pinItem, kReader.priv, READER_KID);
+console.log('== D.7 item carrying pins (full published canonical bytes) ==');
+console.log(' ', canonicalize(pinItem));
 console.log();
-embed('D.7 pins bytes', canonicalize(pins), 'spec');
+embed('D.7 item-carried pins bytes', canonicalize(pinItem), 'spec');
 
 // ---- D.8 follows document ----
 const follows = {
@@ -300,8 +306,9 @@ const checks = [
   ['D.5 id seq2',     verifies(id2) && id2.prev===id1Hash],
   ['no history field', !('history' in id1) && !('history' in id2) && !('history' in manifest2)],
   ['D.6 reader id',   verifies(idReader)],
-  ['D.7 pins',        verifies(pins)
-                        && pins.pins[0].hash===id1Hash && pins.pins[1].hash===manifestHash1],
+  ['D.7 item pins',   verifies(pinItem)
+                        && pinItem._pins[0].hash===id1Hash && pinItem._pins[1].hash===manifestHash1
+                        && !('_feed_url' in pinItem)],
   ['D.8 follows',     verifies(follows)],
   // accounts carries no authority: verification must succeed with the field treated as opaque,
   // and both entry forms (string, object) must be present in the signed bytes.

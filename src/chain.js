@@ -96,16 +96,17 @@ export function skipAnchors(seq) {
  * and it is not optional or deferred.
  *
  * Observations are kept per `seq` rather than only at the pin, because that is what makes a
- * peer's pin at an *older* `seq` (§16.2) checkable. The map is bounded by chain length.
+ * peer's pin at an *older* `seq` (§16.1) checkable. The map is bounded by chain length.
  */
 export class PinStore {
   constructor({ now = () => Math.floor(Date.now() / 1000) } = {}) {
     this.now = now;
     this.pins = new Map();          // url -> { seq, hash, observed, firstPinned }
     // url -> Map(seq -> { hash, observed }). The time is per `seq`, not per URL, because
-    // §16.1's `observed` is "when this `(url, seq, hash)` was **first** observed" — publish a
+    // §16.1's `observed` is "when this `(url, seq, hash)` was **first** observed" — share a
     // URL-level first-contact time in that field and every entry becomes a signed assertion
-    // that you witnessed a version before it existed, which is what §16.2.3 rests on.
+    // that you witnessed a version before it existed, which is what §16.1's informal
+    // timestamping rests on.
     this.observations = new Map();
     this.frozen = new Map();        // url -> { seq, held, seen, reason }
   }
@@ -148,11 +149,11 @@ export class PinStore {
   }
 
   /**
-   * This store's observations of one chained document, in the shape §16.1 publishes.
+   * This store's observations of one chained document, in §16.1's entry shape — what an
+   * emitter puts in `_pins`.
    *
-   * Whether to publish them is a privacy decision (§16 is emphatic that a pins document
-   * discloses who you read *and when*), so this returns entries and does not sign or emit
-   * anything.
+   * What an item may carry is scoped by §16.1's publication rule (`admissibleItemPins` is
+   * that rule), so this returns entries and does not sign or emit anything.
    */
   observationsFor(url) {
     return [...(this.observations.get(url) ?? new Map())]
@@ -181,9 +182,9 @@ export class PinStore {
     this.pins.set(url, {
       seq,
       hash,
-      // When *this version* was first seen — §16.1's `observed`, and the value a pins document
-      // may carry. Distinct from `firstPinned`, which is how long this identity has been known
-      // at all and is what TOFU age means (§5.3).
+      // When *this version* was first seen — §16.1's `observed`, the value an item-carried
+      // pin may carry. Distinct from `firstPinned`, which is how long this identity has been
+      // known at all and is what TOFU age means (§5.3).
       observed: this.observations.get(url).get(seq).observed,
       firstPinned: held?.firstPinned ?? this.now(),
     });
@@ -191,18 +192,23 @@ export class PinStore {
   }
 
   /**
-   * Take in a peer's published pin (§16.1) or one carried on an item (§16.5) — **without**
-   * letting it touch the store.
+   * Take in a pin carried on a peer's item (§16.1) — **without** letting it touch the store.
    *
    * A pin proves its author asserts something, not that the assertion is true (§16), so it is
    * a claim rather than an observation (§5.3.1). Routing one into `observe` would mean any
-   * peer could freeze any chain for any reader by publishing one wrong entry, and via §16.5
-   * any stranger who can reach an inbox could do the same.
+   * stranger who can reach an inbox could freeze any chain for any reader with one wrong entry.
    *
    * So this decides nothing and mutates nothing. `check` is the interesting verdict: fetch that
-   * `seq` from its derived URL (§5.4) and let the result be your own observation.
+   * `seq` from its derived URL (§5.4) and let the result be your own observation. `unknown` —
+   * a tracked chain at a seq this store has not seen — is §16.1's re-walk signal (recovery
+   * propagation) when it is above the pin. `untracked` MUST be ignored outright: §16.1 forbids
+   * dereferencing a chain you do not already track on a stranger's word, or every inbox
+   * becomes a fetch-amplification oracle (§13.9).
    */
   reconcilePeerPin(url, seq, hash) {
+    if (!this.observations.has(url) && !this.pins.has(url)) {
+      return { verdict: 'untracked', held: null, seq };
+    }
     const held = this.observations.get(url)?.get(seq);
     if (held === undefined) return { verdict: 'unknown', held: null, seq };
     return { verdict: held.hash === hash ? 'corroborates' : 'check', held: held.hash, seq };
@@ -223,6 +229,35 @@ export class PinStore {
     this.pins.delete(url);
     return this.advance(url, seq, hash);
   }
+}
+
+/**
+ * §16.1's publication rule for `_pins`, applied to one item.
+ *
+ * On a published item (`_feed_url` present) every entry must name a chained document of an
+ * identity the item is addressed to; anything else is ignored on receipt, because honoring it
+ * would let a published item broadcast its author's reading graph. On a delivered-only item,
+ * third-party entries are admissible — delivery reaches exactly one counterparty.
+ *
+ * `ownedChainUrls` is the set of chained-document URLs belonging to the identities the item is
+ * addressed to: their identity-document URLs plus the manifest URLs their `feeds` entries name.
+ * The caller assembles it from documents it has already verified; this function stays pure.
+ * Malformed entries are ignored on either axis.
+ */
+export function admissibleItemPins(item, { ownedChainUrls = new Set() } = {}) {
+  const entries = Array.isArray(item?._pins) ? item._pins : [];
+  const delivered = item?._feed_url === undefined;
+  const admissible = [];
+  const ignored = [];
+  for (const e of entries) {
+    const wellFormed = e && typeof e === 'object'
+      && typeof e.url === 'string'
+      && Number.isInteger(e.seq) && e.seq >= 1
+      && typeof e.hash === 'string';
+    if (wellFormed && (delivered || ownedChainUrls.has(e.url))) admissible.push(e);
+    else ignored.push(e);
+  }
+  return { admissible, ignored, delivered };
 }
 
 // ---- chain policies ----

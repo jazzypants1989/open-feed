@@ -70,7 +70,7 @@ Open Feed pins two things on first contact (trust-on-first-use) and re-checks th
 
 A consumer that has seen you even once will detect a rollback (un-revoking a stolen key, resurrecting a deleted post) or equivocation (showing different people different histories), because both are hash-linked and both are pinned. This is the certificate-transparency bargain: transparency rather than perfect integrity, but transparency with teeth.
 
-Two things make that real rather than nearly real, and both are requirements rather than good intentions. The manifest commits to each item's **exact bytes**, not just its version number — otherwise a hub holding your key could tell two family members different things under one `(id, version)` and produce identical manifests. And **somebody has to compare**: a pin nobody ever checks against a second observation is evidence collected and thrown away, so applying the compare rule is a Level 1 MUST (§5.3.1), and the optional `pins` convention is how a family supplies each other with observations to compare.
+Two things make that real rather than nearly real, and both are requirements rather than good intentions. The manifest commits to each item's **exact bytes**, not just its version number — otherwise a hub holding your key could tell two family members different things under one `(id, version)` and produce identical manifests. And **somebody has to compare**: a pin nobody ever checks against a second observation is evidence collected and thrown away, so applying the compare rule is a Level 1 MUST (§5.3.1), and the optional item-carried pins (§16) are how a family supplies each other with observations to compare.
 
 ### Trust Model
 
@@ -144,7 +144,7 @@ Every public document MUST be served with `Access-Control-Allow-Origin: *` so br
 | Path              | Purpose                                        |
 | ----------------- | ---------------------------------------------- |
 | `/{user}/inbox`   | POST endpoint for receiving signed items (§10) |
-| `/{user}/replies` | Optional thread discovery (spec §16.4) |
+| `/{user}/replies` | Optional thread discovery (spec §16.3) |
 
 Your feed is your outbox; there is no separate outbox endpoint.
 
@@ -441,9 +441,9 @@ An identity MAY expose a `replies` endpoint in its identity document. The respon
 GET /~mom/replies?item=urn:uuid:550e8400-e29b-41d4-a716-446655440000
 ```
 
-Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries. It is an OPTIONAL convention (§16.4), not part of the trust core: everything it returns is obtainable by polling the participants' feeds, so it buys discovery, never trust.
+Consumers reuse the ordinary feed parser, re-verify each reply, and build the tree from `_rel` `reply`/`root` entries. It is an OPTIONAL convention (§16.3), not part of the trust core: everything it returns is obtainable by polling the participants' feeds, so it buys discovery, never trust.
 
-The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see spec §11.1.1 and §16.4.1. The rule travels with the endpoint because an implementer who wants thread discovery will build *something*, and it is better that the thing they build comes with the guard attached.
+The endpoint returns **published replies only**. An item delivered to your inbox without a `_feed_url` was one its author chose not to publish, and serving it here would publish it for them — see spec §11.1.1 and §16.3.1. The rule travels with the endpoint because an implementer who wants thread discovery will build *something*, and it is better that the thing they build comes with the guard attached.
 
 ---
 
@@ -470,7 +470,7 @@ Your back catalog comes with you **byte-verbatim** — you do not re-sign it. Pr
 
 The same equivalence covers the other loose end: replies you already received point at the old feed URL inside *other people's* signed items, which nobody can re-sign, so consumers treat predecessor and successor targets as the same thing once the migration verifies (§3.4, §10.2). Without that, exercising your exit would make every inbound reply start bouncing.
 
-**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). Because one key in one place is one thing an adversary with access to that place can find — a relative in the same home, or the operator of the host itself — the key belongs where neither can reach it (§4.5). The `pins` convention (§16) is how a family propagates and cross-checks a recovery claim.
+**Recovery keys** (§4.5) are generated at identity creation, stored offline, never on the hub, and never sign regular content. Recovery handles *domain loss*; it does not protect against theft of the recovery key itself, and first contact *after* a hijack is unprotectable by design (TOFU). Because one key in one place is one thing an adversary with access to that place can find — a relative in the same home, or the operator of the host itself — the key belongs where neither can reach it (§4.5). Item-carried pins (§16) are how a family propagates and cross-checks a recovery claim along the traffic it already exchanges.
 
 The part that turns this from a domain-loss feature into an **exit** is who generated the key. A recovery key the hub generated and handed you is no check on the hub, so a Level 3 host must generate it on your device and never receive it — and must show you your genesis `(seq, hash)` and the key's fingerprint at signup so you can compare them out of band with someone else. Otherwise the hub can honor the letter of the rule and serve everyone else a different genesis document.
 
@@ -522,13 +522,13 @@ One rule predicts the rest: **any audience larger than one needs a membership de
 
 ### Follows and pins — conventions
 
-Two optional documents referenced from the identity document, both *outside* the trust core, specified in spec §16:
+One optional document plus one item field, both *outside* the trust core, specified in spec §16:
 
 - **`follows`** — who you read (`{ "follows": [...], "updated": ... }`). Turns "which feeds does my hub poll?" into protocol. MAY be kept private/client-local.
-- **`pins`** — your **signed** `(url, seq, hash)` observations of others' chains (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). Publishing them gives a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography.
+- **`_pins` on items** — your signed `(url, seq, hash)` observations of others' chains, carried on the items you already send (keyed by document URL, so one identity's identity-doc and each manifest are distinguished). They give a family anti-equivocation cross-checking, recovery propagation, informal timestamping, and a first-contact web-of-trust — the family-scale substitute for a transparency log, at essentially no new cryptography and no new document.
 Pins also answer a question the trust model raises and doesn't settle: equivocation is *detectable*, but only if somebody compares. Your own record of what you published is a weak check — a host that knows which client is yours can serve that client the honest branch. Comparison by other people is the durable one.
 
-⚠️ Both documents publish your social graph. `pins` additionally publishes *when* you read. Keep them client-local if that matters; the enforcement value is entirely local either way.
+⚠️ The follows document publishes your social graph — keep it client-local if that matters; the enforcement value is entirely local. Pins are scoped so an entry never reveals a reading relationship its carrying item hasn't already revealed: published items pin only the identities they address, and third-party pins ride delivered items alone (§16.1).
 
 ### Media integrity and alt text
 
@@ -556,7 +556,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify 
 
 ### Timestamp Trust
 
-**Problem:** Timestamps are self-reported; backdating is possible. **Approach:** for inbox items, use receipt time as a trustworthy lower bound; for polled content, use the time you first saw the id in a signed manifest; the `pins` convention is a family-scale external time anchor. A true transparency log / witness network is future work.
+**Problem:** Timestamps are self-reported; backdating is possible. **Approach:** for inbox items, use receipt time as a trustworthy lower bound; for polled content, use the time you first saw the id in a signed manifest; item-carried pins are a family-scale external time anchor. A true transparency log / witness network is future work.
 
 ### Hub Trust
 

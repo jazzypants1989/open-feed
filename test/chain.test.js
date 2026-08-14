@@ -8,6 +8,7 @@ import {
   derivedVersionUrl,
   skipAnchors,
   PinStore,
+  admissibleItemPins,
   walkToPin,
   identityChainPolicy,
   manifestChainPolicy,
@@ -251,8 +252,8 @@ test('equal hashes at one seq are corroboration, not equivocation', async () => 
 test('a peer pin is a claim, and a wrong one cannot freeze anybody', async () => {
   // §16 says plainly that signing a pin does not make it true. If a peer's assertion were a
   // second observation, §5.3.1's response — accept no further version until a human re-pins —
-  // would be available to anyone who can publish a file, and through §16.5's item-carried pins
-  // to any stranger who can reach an inbox.
+  // would be available through §16.1's item-carried pins to any stranger who can reach an
+  // inbox.
   const fx = identityFixture({ versions: 2 });
   const pins = new PinStore();
   const hash = documentHash(fx.chain.at(2));
@@ -263,11 +264,39 @@ test('a peer pin is a claim, and a wrong one cannot freeze anybody', async () =>
   });
   assert.equal(pins.isFrozen(fx.url), false, 'a claim resolves to "go look", never to a freeze');
   assert.equal(pins.reconcilePeerPin(fx.url, 2, hash).verdict, 'corroborates');
+  // A tracked chain at an unseen seq is the re-walk signal (§16.1 recovery propagation)...
   assert.equal(pins.reconcilePeerPin(fx.url, 9, 'whatever').verdict, 'unknown');
+  // ...but a chain this store has never tracked is ignored outright: dereferencing on a
+  // stranger's word is §13.9's fetch-amplification vector, and §16.1 forbids it.
+  assert.equal(pins.reconcilePeerPin('https://stranger.example/openfeed.json', 1, 'x').verdict, 'untracked');
 
   // And the consumer is still able to advance, which is the property the old behavior lost.
   fx.chain.publish({ fields: { url: fx.identity, name: 'Owner', keys: fx.keys.map((k) => ({ ...k })) }, signer: fx.primary });
   assert.equal(pins.advance(fx.url, 3, documentHash(fx.chain.at(3))).seq, 3);
+});
+
+test("an item's pins are scoped by how the item travels (§16.1)", () => {
+  // Published items may pin only chains of the identities they address; delivered-only items
+  // may also pin third parties, because delivery reaches exactly one counterparty.
+  const mom = { url: 'https://mom.example/openfeed.json', seq: 3, hash: 'h-mom' };
+  const gran = { url: 'https://gran.example/openfeed.json', seq: 1, hash: 'h-gran' };
+  const ownedByRecipient = new Set([mom.url, 'https://mom.example/manifest.json']);
+
+  const published = { _feed_url: 'https://me.example/feed.json', _pins: [mom, gran] };
+  const pub = admissibleItemPins(published, { ownedChainUrls: ownedByRecipient });
+  assert.equal(pub.delivered, false);
+  assert.deepEqual(pub.admissible, [mom], 'a third-party pin on a published item is ignored');
+  assert.deepEqual(pub.ignored, [gran]);
+
+  const deliveredOnly = { _pins: [mom, gran] };
+  const del = admissibleItemPins(deliveredOnly, { ownedChainUrls: ownedByRecipient });
+  assert.equal(del.delivered, true);
+  assert.deepEqual(del.admissible, [mom, gran], 'delivery may carry third-party pins');
+
+  // Malformed entries are ignored on either axis.
+  const junk = admissibleItemPins({ _pins: [{ url: mom.url, seq: 0, hash: 'h' }, 'nope', null] });
+  assert.deepEqual(junk.admissible, []);
+  assert.equal(junk.ignored.length, 3);
 });
 
 test('re-pinning is deliberate, and it discards the observations that disagreed', async () => {
@@ -642,7 +671,7 @@ test('a pin never moves backwards, even without a walk', () => {
   pins.advance(fx.url, 3, documentHash(fx.chain.at(3)));
 
   assert.equal(pins.pin(fx.url).firstPinned, firstPinned, 'pin age survives an advance');
-  // But `observed` is per version, because that is what §16.1 publishes. Carrying the
+  // But `observed` is per version, because that is what §16.1 shares. Carrying the
   // first-contact time forward would assert you witnessed seq 3 before it was written.
   assert.ok(pins.pin(fx.url).observed > observedAt2, 'observed tracks this version, not the URL');
   assert.deepEqual(
