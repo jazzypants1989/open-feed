@@ -6,141 +6,110 @@ rather than in documents (see `CLAUDE.md`, "Rules for this file").
 
 ---
 
-## 1. Where things stand
+## 1. The mandate, from the owner — read this before forming a plan
+
+The owner's goal is **the best balance of simplicity, flexibility, and capability — the shortest
+spec that still covers its bases.** The owner has said, verbatim: *"I'm not married to any
+particular aspect of the spec."* Churn is explicitly not a cost.
+
+The last pass was judged **good but too incremental** — it trimmed mechanisms one at a time
+inside the existing architecture, when the owner was hoping for proposals at a larger scale.
+Take that as your calibration: you are free to question the architecture itself, not just its
+parts. Nothing is pre-blessed — not the document set, not the object model, not the layering,
+not the conformance shape, not anything this file or `git log` treats as decided. A past
+decision, however well-argued, was made *within a frame*, and the owner is inviting proposals
+that change the frame.
+
+Two things still deserve their weight, not as constraints but as the measures of any proposal:
+
+- **The threat model** (§13.2, and `CLAUDE.md`'s summary). A proposal is judged by whether the
+  people the protocol exists for end up better served — which includes being served by
+  something *simpler*, even at some cost elsewhere. Say what your proposal gives up as plainly
+  as what it gains.
+- **The prior reasoning is input, not authority.** `git log` records why things are the way
+  they are; read it so your bigger idea engages the strongest version of the current design
+  rather than a strawman — and then feel free to conclude the whole approach should be
+  different.
+
+If you see a fundamentally better shape for this protocol, propose it to the owner before
+spending effort on incremental work. Big proposals are wanted, not tolerated.
+
+## 2. Where things stand
 
 | | |
 |---|---|
-| Branch | `main` (the old `spec/review-fixes` fully merged; `v0.2.0-privacy-and-exit` is historical) |
+| Branch | `main` (old branches historical) |
 | License | Apache-2.0 |
 | Tests | `npm test` → 118 passing |
 | Vectors | `node tmp/regen.js` → all pass, exits non-zero on drift |
+| Spec | `open-feed-spec.md`, ~1045 lines, v0.1.0 draft, no outside readers, nothing implements it |
 
-**The §4 cut decision this file used to exist for is DECIDED and LANDED**, owner-confirmed, in
-four commits starting at "Cut checkpointing and the derived lag bound". Read those commit
-messages before re-litigating any of it; each records the argument and the measurements. The
-shape of the outcome:
+That last cell is the important one: **there are no compatibility obligations of any kind.**
+No users, no implementations, no external readers. This is the cheapest a redesign will ever be.
 
-- **Cut**: checkpointing; the derived (median) lag bound, replaced by a consumer ceiling;
-  rosters (group audiences now out of scope, §11.2); threshold recovery (single-key now — the
-  re-add caveat is recorded in `CLAUDE.md` open questions); the pins *document*.
-- **Kept, against the prior handoff's advice**: skip links (§9.1.1) — `tmp/skiplinks-prototype.js`
-  showed linear walking breaches §13.4's byte cap ~150 days into a reader lapse at daily cadence,
-  while `_skip` costs +0.3%; and §5.5 fork resolution — without the prefer-the-recovery-cosigned
-  branch rule, a hostile hub publishing a competing `successor` manufactures an unresolvable fork
-  and re-acquires the exit veto by doing nothing but contesting.
-- **Redesigned**: pins now ride items only (§16.1), scoped by travel axis — published items pin
-  only the identities they address; delivered-only items may carry third-party pins. Recovery
-  propagation, timestamping, and first-contact corroboration survive pairwise; the aggregator is
-  the one loss, re-addable additively.
+The most recent pass (four commits beginning "Cut checkpointing and the derived lag bound")
+removed several mechanisms and redesigned pins; the commit messages record the arguments and
+measurements. Treat them as the current state of the design conversation, not its end.
 
-### Not built
+Not built: the CLI, `src/consumer.js`, the inbox (§10, Level 3), pagination (§7.4), §15, §16,
+Appendix E bridges, the export bundle (§14).
 
-The CLI, `src/consumer.js`, the inbox (§10, Level 3), pagination (§7.4), §15, §16, Appendix E
-bridges, and the export bundle (§14).
-
-## 2. Orientation, in this order
+## 3. Orientation, in this order
 
 1. `CLAUDE.md` — short, and its rules bind you.
-2. `open-feed-spec.md` §13.2 before anything security-relevant. The threat model is a family hub
-   whose operator may be an abuser; it drives more of the design than it looks.
-3. `git log` — the messages are long on purpose and record reasoning, including alternatives
-   rejected with reasons.
+2. `open-feed-spec.md` §13.2. The threat model is a family hub whose operator may be an abuser;
+   it drives more of the design than it looks.
+3. `git log` — long messages on purpose, recording reasoning and rejected alternatives.
 4. `npm test` and `node tmp/regen.js`. Both green before you change a line.
-5. `test/e2e.test.js` last, as the worked example: it is currently the only place the layers are
-   composed the way a real consumer composes them.
+5. `test/e2e.test.js` — currently the only place the layers are composed the way a real
+   consumer composes them.
 
-## 3. The defect class to keep hunting
+## 4. Questions only the owner can answer
 
-The last review pass found two security defects with one root cause: **a consumer acting on
-bytes before they are chain-connected or key-authenticated** (the skip-link takeover; the
-false-alarm freeze — both fixed, see `git log`). Assume there are more of this class at the
-sites not yet exercised because the code does not exist: §10.2/§10.3's read-before-verify
-boundary in the inbox, and the callers of `assertRelocationCarriesForward` and `resolveFork` —
-both pure functions that verify nothing about their inputs and currently have no non-test
-caller, so their preconditions are unenforced rather than met. Wrap them before they acquire a
-real caller (that work belongs with `src/consumer.js`).
-
-## 4. Queue
-
-**a. Delegation, `use: "delegated"`.** Design settled, text undrafted; the argument is recorded
-in `CLAUDE.md`. Its central claim — the pinned chain is the revocation substrate — survives the
-cuts intact.
-
-**b. `src/consumer.js`.** The only statement of how the layers compose into a §12 Level 1 reader
-is `walkChain(...)` inside `e2e.test.js`, and a test is the wrong place for it. Make it a class
-that reports **per-check results rather than a boolean**; the CLI is then a formatter over it and
-`e2e.test.js` shrinks. This is also where `admissibleItemPins` and `reconcilePeerPin` get their
-real caller, and where §3's verified-input wrappers land. Do this before the CLI.
-
-**c. Measure the storage claims.** §9.2 gives a ten-year example in gigabytes and SHOULDs two
-mechanisms. The publisher makes it measurable: vary cadence and rotation, put a real table in
-the README.
-
-**d. The exit walkthrough, as an executable adversarial scenario.** The protocol's central claim
-and nothing tests it: §3.4 migration, §4.5 recovery, §14 export, and the claim that they
-compose. Hub A serves Mom; Mom re-establishes at hub B with `predecessor` co-signed by a
-recovery key committed in a pinned ancestor; hub A keeps serving an unchanged chain and declines
-to publish a `successor`. Then the parts that are easy to get wrong — back catalog byte-verbatim
-rather than re-signed, invariant 5 binding the successor's genesis to the predecessor's final
-state, predecessor equivalence resolving relation targets, §4.4's `(author, id)` record
-surviving the move. Then the adversarial variants: a competing `successor` from hub A (§5.5 must
-separate them); a recovery key hub A generated at onboarding (§4.5 says there is then no exit —
-demonstrate it); the genesis-equivocation attack, whose defence is one relative comparing one
-hash; and recovery propagation via a third-party pin on a delivered item (§16.1), which no test
-exercises yet.
-
-**e. Pagination (§7.4).** `reconcileFeed` takes `partial`, but nothing exercises it because no
-caller paginates.
-
-**f. The inbox (§10),** Level 3, the first thing here that accepts input from strangers. Three
-places will bite, all documented and none implemented: §10.3's read-before-verify /
-write-after-verify rule; §10.4's three existence oracles; §11.1.1 (§13.14 calls it "the failure
-mode most likely to be introduced by an implementer being *helpful*"). Plus the new one: item
-`_pins` from strangers route through `admissibleItemPins` + `reconcilePeerPin`, never `observe`.
-
-**g. A language-neutral conformance corpus.** Appendix D is positive-only and `negative.test.js`
-lives inside this repo's test framework, so neither proves anything about anyone else's
-implementation. Extract both into `conformance/` — a directory of cases, each carrying the
-documents, the identity document to resolve against, and the expected verdict and error class —
-with a thin runner here. This is the artifact that turns a specification into a protocol.
-
-**h. The product spike, still untaken.** None of this matters if the family will not use the
-app, and that is knowable in a week with throwaway code. Protocol work compounds; the product
-question is a coin flip that invalidates all of it if it lands wrong.
-
-## 5. Ask the owner
-
-1. **Client-held encryption keys vs. server-side AI.** `DISTRIBUTION-MODEL.md` is explicit: do
-   not ship the pair undecided, because the default outcome is "we recommended client-held keys
-   and quietly gave those members a worse app."
-2. **Who is the first real user, and when?** Identity URLs are permanent, §12's custody
-   obligations bind from member one, and the `family`-visibility call is irreversible. §4d's
-   exit walkthrough should pass with the hub deliberately refusing to help *before* anyone real
-   is onboarded.
-3. **Is this going public, and when?** It changes how much §15's "never independently reviewed"
+1. Client-held encryption keys vs. server-side AI — `DISTRIBUTION-MODEL.md` says not to ship
+   the pair undecided.
+2. Who is the first real user, and when? Identity URLs are permanent and §12's custody
+   obligations bind from member one.
+3. Is this going public, and when? It changes how much §15's "never independently reviewed"
    status matters.
+
+## 5. If you are continuing the current design
+
+The items below are real work under the architecture as it stands. They are deliberately listed
+*after* the mandate: do not let this queue substitute for the bigger thinking §1 asks for, and
+if a redesign would obsolete an item, that is a point in the redesign's favor, not a cost.
+
+- **A defect class to keep hunting**: a consumer acting on bytes before they are
+  chain-connected or key-authenticated (two prior security defects shared that root cause —
+  see `git log`). Unexercised sites: §10.2/§10.3's read-before-verify boundary, and
+  `assertRelocationCarriesForward` / `resolveFork`, pure functions whose preconditions no
+  caller enforces yet.
+- **Delegation** (`use: "delegated"`) — design argument recorded in `CLAUDE.md`, text undrafted.
+- **`src/consumer.js`** — the composition layer, reporting per-check results; the CLI is a
+  formatter over it. Where the verified-input wrappers above belong.
+- **The exit walkthrough as an executable adversarial scenario** — the protocol's central claim
+  (§3.4 + §4.5 + §14 composing against an uncooperative hub) and nothing tests it end to end.
+- **Storage measurement** (§9.2's claims), **pagination** (§7.4), **the inbox** (§10), **a
+  language-neutral conformance corpus** (Appendix D is positive-only and repo-bound).
+- **The product spike** — none of this matters if the family will not use the app, and that is
+  knowable in a week with throwaway code.
 
 ## 6. Traps already paid for
 
-- **Revocation rejects signing times strictly after `revoked_at`, never equal.** §5.2's normal
+These are facts about the *current* code and spec — they bind only as long as the mechanisms
+they describe exist.
+
+- **Revocation rejects signing times strictly after `revoked_at`, never equal** — §5.2's normal
   rotation revokes the continuity key in the very version it signs, so `<=` breaks every
-  rotation, D.5 included. In `assertContinuityKey` the comparison runs the other way, and the
-  comment there explains why.
+  rotation. `assertContinuityKey`'s comment explains the direction.
 - **Skip links are manifest-only and the reason is security, not size** (§9.1.1).
-  `identityChainPolicy.allowSkipLinks` is `false` and a caller cannot override it.
-- **`walkToPin` buffers observations and commits them only on an anchored walk.** Recording as
-  you go is what created the freeze defect; a range of versions is internally consistent
-  whenever one party forged all of it, so an unanchored range proves nothing.
-- **A pin arriving on an item is a claim, not an observation.** It goes through
-  `admissibleItemPins` and then `reconcilePeerPin`, which mutates nothing; `untracked` chains
-  are ignored outright (fetch-amplification, §13.9). Feeding one to `observe` restores the
-  remote-freeze vector.
-- **`PinStore` keeps `observed` per `seq` and `firstPinned` per URL.** They are different
-  questions, and sharing the second as §16.1's `observed` asserts you witnessed a version
-  before it existed.
-- **An identity URL is inside every signed byte.** Nothing can be signed before the URL it will
-  be served under is known, which is why `test/e2e.test.js` binds its server before it publishes.
-- **§9.3 invariant 3's stronger test needs no history**: a manifest whose `updated` is later
-  than an item's signing time has demonstrably advanced past it. The consumer ceiling is the
-  fallback, not the lead.
+- **`walkToPin` buffers observations and commits them only on an anchored walk** — an
+  unanchored range proves nothing, since one forger can make it internally consistent.
+- **A pin arriving on an item is a claim, not an observation** — `admissibleItemPins` then
+  `reconcilePeerPin`, never `observe`; `untracked` chains are ignored outright (§13.9).
+- **`PinStore` keeps `observed` per `seq` and `firstPinned` per URL** — different questions.
+- **An identity URL is inside every signed byte** — nothing can be signed before its serving
+  URL is known.
+- **§9.3 invariant 3's stronger test needs no history** — a manifest whose `updated` postdates
+  an item's signing time has demonstrably passed it over; the consumer ceiling is the fallback.
 - **`claimedAuthor` selects the binding carrier by document kind, not field presence** (§6.6).
