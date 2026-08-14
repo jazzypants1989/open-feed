@@ -192,7 +192,7 @@ This one signed file carries the profile, the keys, and the endpoints together. 
 
 Notes:
 
-- `feeds` is one array for every feed you publish — entries are `{url, manifest, rel}`, and `rel: "primary"` names the authoritative one. Every listed feed is manifested; there is no unproven feed. A high-volume feed doesn't pay a chain advance per item, because a manifest may advance on a schedule rather than per publication (§9.2) — and the resulting lag window is bounded, so it can't quietly become a place to hide content from one reader (§9.4).
+- `feeds` is one array for every feed you publish — entries are `{url, manifest, rel}`, and `rel: "primary"` names the authoritative one. Every listed feed is manifested; there is no unproven feed. A high-volume feed doesn't pay a chain advance per item, because a manifest may advance on a schedule rather than per publication (§9.2) — and the resulting lag window is bounded, so it can't quietly become a place to hide content from one reader (§9.3).
 - `keys` is a standard array of JWKs (RFC 7517). The `x` field is the base64url Ed25519 public key. `iat`/`revoked_at` are Unix seconds (JOSE convention); content timestamps use ISO 8601 (JSON Feed convention). The `crv`/`use` constraints apply to *signing* keys — extensions can add other key types to the same array, and core verifiers ignore them.
 - `seq`/`prev`/`updated`/`_sig` are the version-chain fields. `prev` is the base64url SHA-256 of the *full* previous version's bytes. Genesis (`seq: 1`) has no `prev`. Prior versions are retained at a **derived URL** — strip `.json`, append `/{seq}.json`, so version 6 of this document is at `https://pence.family/~mom/openfeed/6.json`. There is no history-index document to maintain. See §5.4.
 - The identity doc commits to the manifest **by URL, not by hash** — so ordinary publishing advances the manifest chain and never re-signs the identity doc.
@@ -259,7 +259,7 @@ The manifest is the headline feature. It's a separately-signed, chained document
 
 - `items` maps each live item id to `[version, hash]` — the item's current `_version`, and the SHA-256 of its exact published bytes. `deleted` records tombstoned id's the same way. The hash is what makes the guarantee hold against a hub that holds your key: with a version-only manifest, a key-holding host could sign one `(id, version)` as two different things for two readers and produce identical manifests, so the equivocation would be undetectable in principle. It costs about 48 bytes per item (§9).
 - A consumer pins the manifest at its `(seq, hash)` and walks `prev` back to that pin on every later fetch — the *same* pin-and-walk discipline as the identity chain (§9.1).
-- Invariants (§9.4): an id, once in `items`, must appear in every later manifest (in `items` or `deleted`) until folded into an optional checkpoint. Content can't silently vanish; removal requires a signed tombstone.
+- Invariants (§9.3): an id, once in `items`, must appear in every later manifest (in `items` or `deleted`). Content can't silently vanish; removal requires a signed tombstone.
 - Checkpointing (§9.3) bounds growth for anyone who needs it; a family-scale identity may never bother.
 
 Together, the manifest and `_feed_url` close both gaps: the manifest proves **presence** (a host can't drop your content), and `_feed_url` proves **exclusivity** (a host can't inject or resurrect your content by copying it into its own feed). As a bonus, a follower can serve its cached copy of your feed when your host is down, and it still verifies.
@@ -518,7 +518,7 @@ Because "delivered" is a choice the author makes and *other people* enforce, the
 
 **Encrypted content** (spec §15, optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
 
-One rule predicts the rest: **any audience larger than one needs a membership document.** A DM needs no roster. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not.
+One rule predicts the rest: **any audience larger than one needs a membership decision.** A DM needs none — there is exactly one counterparty. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not, and one the spec deliberately leaves out of scope (§11.2): group audiences wait until something can define them safely.
 
 ### Follows and pins — conventions
 
@@ -691,7 +691,7 @@ Note what stays visible on a published feed even when encrypted: who posted, whe
 
 **Q: How do I send a private message?**
 
-A: An ordinary signed item with no `_feed_url`, delivered to that person's inbox. An audience of one needs no roster, so this is the case that just works — threading, edits, and tombstones all behave normally. Encrypt it if your host shouldn't read it.
+A: An ordinary signed item with no `_feed_url`, delivered to that person's inbox. An audience of one needs no membership document, so this is the case that just works — threading, edits, and tombstones all behave normally. Encrypt it if your host shouldn't read it.
 
 **Q: What if my hub operator is malicious?**
 

@@ -3,8 +3,8 @@
 //
 // The problem: pin-and-walk is linear in versions, every manifest version carries its whole
 // `items` map, and §13.4 caps total history bytes fetched per update at 10 MB. So the cost of
-// reconnecting a pin is O(versions x items). §9.3 checkpointing prunes for the PUBLISHER; it
-// does nothing for a consumer walking forward from a live pin.
+// reconnecting a pin is O(versions x items). Cadence and rotation bound what a publisher
+// stores; neither shortens a consumer's walk forward from a live pin.
 //
 // Candidate: `_skip`, a map of {seq: hash} naming earlier versions of the same chain, so a
 // walk is O(log) fetches instead of O(V). Three questions this settles with real bytes:
@@ -267,8 +267,8 @@ if (!skipperAccepted || !spotCheckCaught || !rollbackRejected || !monotonic || s
 }
 console.log('\nVERDICT');
 console.log('  Adopt for the MANIFEST chain, OPTIONAL and additive:');
-console.log('   - the only thing that keeps a lapsed reader inside §13.4. §9.3 checkpointing helps');
-console.log('     the publisher prune; it never shortens a walk from a live pin.');
+console.log('   - the only thing that keeps a lapsed reader inside §13.4. Cadence and rotation bound');
+console.log('     storage for the publisher; neither shortens a walk from a live pin.');
 console.log('   - anchors MUST be absolute (multiples of powers of two), or the §5.3.1 comparison');
 console.log('     network dissolves — relative offsets walk just as fast and witness nothing shared.');
 console.log('   - a skipping consumer SHOULD spot-check one `prev` per hop: ~2x fetches, still');

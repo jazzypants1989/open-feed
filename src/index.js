@@ -62,7 +62,6 @@ export {
   MAX_VERSIONS_PER_UPDATE,
 } from './chain.js';
 export {
-  lagBound,
   assertManifestShape,
   assertManifestBinding,
   assertInvariantsAcrossHop,
@@ -72,7 +71,6 @@ export {
   ManifestError,
   InvariantViolation,
   ITEM_STATES,
-  LAG_FLOOR_SECONDS,
-  LAG_WINDOW_VERSIONS,
+  LAG_CEILING_SECONDS,
 } from './manifest.js';
 export { Publisher, PublishError } from './publish.js';

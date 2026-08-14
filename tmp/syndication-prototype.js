@@ -192,7 +192,7 @@ NOTES
 - Shape C stays inside the one-object model with zero new document types, but doubles
   signed artifacts and makes routing a feed scan; receipts also outlive retraction as
   permanent published statements of where copies went (a disclosure shape B can prune
-  only by checkpointing and shape A genuinely deletes).
+  only by feed rotation, and shape A genuinely deletes).
 `);
 const sane = shapes.A.retractFromPublic===false && shapes.B.retractFromPublic && shapes.C.retractFromPublic
   && shapes.A.copyRecognitionFromBytes && !shapes.B.copyRecognitionFromBytes;

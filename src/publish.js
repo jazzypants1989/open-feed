@@ -146,7 +146,7 @@ export class Publisher {
 
   /**
    * Sign and hold an item. It is servable in the feed immediately and uncommitted until the
-   * next `advanceManifest()` — which is manifest lag (§9.4 invariant 3), the normal state of
+   * next `advanceManifest()` — which is manifest lag (§9.3 invariant 3), the normal state of
    * freshly-published content under a cadence, and not a violation.
    */
   publishItem(fields, { at } = {}) {

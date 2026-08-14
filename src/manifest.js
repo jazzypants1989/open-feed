@@ -1,7 +1,7 @@
 // The manifest (§9): what a feed's contents are, committed by a separately-signed chain.
 //
 // §9.1's chain mechanics are `chain.js` — one walk, two policies — so what is here is the
-// part that is manifest-specific: §9.4's five invariants, and the distinction §13.13 says
+// part that is manifest-specific: §9.3's five invariants, and the distinction §13.13 says
 // never to collapse. Lag, withholding, and violation are three states, not three names for
 // one. The second and third are attacks; the first is not.
 //
@@ -20,7 +20,7 @@ export class ManifestError extends Error {
 }
 
 /**
- * A §9.4 invariant violation. Its own type because §9.4 opens with "violations MUST be treated
+ * A §9.3 invariant violation. Its own type because §9.3 opens with "violations MUST be treated
  * like chain equivocation" — the response is to stop trusting the chain's future, not to
  * report a bad fetch.
  */
@@ -31,53 +31,16 @@ export class InvariantViolation extends ManifestError {
   }
 }
 
-// ---- §9.4 invariant 3: the lag bound ----
-
-/** The floor the RECOMMENDED bound is the greater of (§9.4 invariant 3). */
-export const LAG_FLOOR_SECONDS = 3600;
-
-/** "over the last 10 versions" — the window the median is taken across. */
-export const LAG_WINDOW_VERSIONS = 10;
+// ---- §9.3 invariant 3: the lag ceiling ----
 
 /**
- * The derived lag bound: the greater of one hour and twice the median inter-version interval
- * over the last 10 versions.
- *
- * Returns `null` when there is not enough history, and that is the whole point of the
- * function. §9.4 is explicit that a consumer without enough observed intervals **MUST NOT**
- * fall back to the one-hour floor: applied to an honest daily publisher it reports a violation
- * on nearly every item. Until the history exists, uncommitted items are unverified-pending
- * with no deadline at all.
- *
- * The window is required in full rather than sampled from whatever is to hand, because
- * under-sampling is the failure the MUST NOT guards against: three versions published in one
- * busy afternoon would set a bound of minutes for a publisher who normally advances weekly.
- *
- * `versions` is any set of versions of one manifest chain; order does not matter and gaps are
- * tolerated, since a skipping walk (§9.1.1) yields gaps by construction — but a gap means the
- * intervals spanning it are wide, so the bound it derives is loose rather than wrong.
+ * The RECOMMENDED absolute ceiling on the unverified-pending state (§9.3 invariant 3): 7 days,
+ * matching §10.2's staleness bound. The ceiling is the consumer's own, never derived from the
+ * publisher's observed cadence — a derived bound catches only a publisher deviating from its
+ * rhythm, never one that declares a slow one, and gives a first-contact consumer no deadline
+ * at all.
  */
-export function lagBound(versions) {
-  const updates = versions
-    .map((v) => v?.updated)
-    .filter((u) => typeof u === 'number')
-    .sort((a, b) => a - b)
-    .slice(-LAG_WINDOW_VERSIONS);
-
-  if (updates.length < LAG_WINDOW_VERSIONS) {
-    return { bound: null, intervals: Math.max(0, updates.length - 1), median: null };
-  }
-
-  const intervals = [];
-  for (let i = 1; i < updates.length; i++) intervals.push(updates[i] - updates[i - 1]);
-  intervals.sort((a, b) => a - b);
-  const mid = intervals.length >> 1;
-  const median = intervals.length % 2
-    ? intervals[mid]
-    : (intervals[mid - 1] + intervals[mid]) / 2;
-
-  return { bound: Math.max(LAG_FLOOR_SECONDS, 2 * median), intervals: intervals.length, median };
-}
+export const LAG_CEILING_SECONDS = 7 * 24 * 3600;
 
 // ---- shape ----
 
@@ -143,19 +106,15 @@ export function assertManifestBinding(doc, { identityUrl, feedUrl }) {
   return doc;
 }
 
-// ---- §9.4 invariants 1 and 2: across a hop ----
+// ---- §9.3 invariants 1 and 2: across a hop ----
 
 /**
  * Invariants 1 and 2, applied to one adjacent pair of manifest versions.
  *
  * 1. An `id`, once present in `items`, MUST appear in every later manifest — in `items` at the
- *    same or a higher version, or in `deleted` — until folded into a checkpoint. Content cannot
- *    silently vanish; removal requires a signed tombstone.
+ *    same or a higher version, or in `deleted`. Content cannot silently vanish; removal
+ *    requires a signed tombstone.
  * 2. `seq` and per-item versions never decrease.
- *
- * The checkpoint escape is honored rather than assumed away: an id committed at or before a
- * later version's `checkpoint_seq` MAY be absent, because §9.3 preserves its permanence in the
- * retained checkpoint instead.
  */
 export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
   if (later.seq <= earlier.seq) {
@@ -165,15 +124,12 @@ export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
     );
   }
 
-  const checkpointed = Number.isInteger(later.checkpoint_seq) && later.checkpoint_seq >= earlier.seq;
-
   for (const id of Object.keys(earlier.items)) {
     const was = entryOf(earlier.items, id);
     const live = entryOf(later.items, id);
     const gone = entryOf(later.deleted, id);
 
     if (!live && !gone) {
-      if (checkpointed) continue; // §9.3: folded into a checkpoint at or after this version
       throw new InvariantViolation(
         `${id} was live at seq ${earlier.seq} and appears nowhere in seq ${later.seq}: removal requires a signed tombstone`,
         { invariant: 1, url, seq: later.seq, id },
@@ -206,7 +162,7 @@ export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
         { invariant: 1, url, seq: later.seq, id },
       );
     }
-    if (!live && !gone && !checkpointed) {
+    if (!live && !gone) {
       throw new InvariantViolation(
         `${id} was tombstoned at seq ${earlier.seq} and its deletion is not recorded at seq ${later.seq}`,
         { invariant: 1, url, seq: later.seq, id },
@@ -246,7 +202,7 @@ export function assertHistoryInvariants(versions, { url, contiguous = true } = {
   return { checked: 'every-hop', hops, skippedGaps: false };
 }
 
-// ---- §9.4 invariants 3 and 4, plus withholding: the feed against its manifest ----
+// ---- §9.3 invariants 3 and 4, plus withholding: the feed against its manifest ----
 
 /**
  * The three states, and they are three. §13.13: "Do not collapse them: the second and third
@@ -254,7 +210,7 @@ export function assertHistoryInvariants(versions, { url, contiguous = true } = {
  *
  * - `live` / `deleted` — the feed and the manifest agree, and the bytes hash to what was
  *   committed.
- * - `pending` — manifest lag (§9.4 invariant 3). The feed carries content newer than the
+ * - `pending` — manifest lag (§9.3 invariant 3). The feed carries content newer than the
  *   manifest commits. Not a violation, and not evidence of anything either: uncommitted
  *   content is content a host can serve to one reader and not another without forking.
  * - `withheld` — the manifest commits an exact revision the feed never yields. No invariant is
@@ -264,7 +220,7 @@ export function assertHistoryInvariants(versions, { url, contiguous = true } = {
  * - `absent` — committed, not on **this page**, and the caller said it was reading one (§7.4).
  *   The same evidence as `withheld` with the one honest explanation still open, so it is a
  *   separate state rather than a softer word for the same thing.
- * - `violation` — §9.4. Treated like chain equivocation.
+ * - `violation` — §9.3. Treated like chain equivocation.
  */
 export const ITEM_STATES = ['live', 'deleted', 'pending', 'withheld', 'absent', 'violation'];
 
@@ -272,17 +228,17 @@ export const ITEM_STATES = ['live', 'deleted', 'pending', 'withheld', 'absent', 
  * Reconcile a served feed against the manifest that commits it.
  *
  * `items` are the feed's items as fetched, verbatim — their bytes are what invariant 4 hashes,
- * so a re-serialized copy will not reconcile. `now` and `bound` come from the caller: `bound`
- * is `lagBound(...).bound`, and passing `null` means "no deadline yet", which is the correct
- * state for a consumer without enough observed history rather than an error.
+ * so a re-serialized copy will not reconcile. `now` and `ceiling` come from the caller;
+ * `ceiling` defaults to the RECOMMENDED `LAG_CEILING_SECONDS` and is the consumer's own
+ * absolute deadline on the pending state (§9.3 invariant 3).
  *
  * `partial` says the caller is holding **one page** rather than the whole feed (§7.4). It is
  * the difference between the two readings of "the manifest commits this and the feed did not
  * yield it": withholding, or the next page. A caller that has followed `next_url` to the end
- * passes `false` and gets the withholding verdict §9.4 requires it to surface; one reading a
+ * passes `false` and gets the withholding verdict §9.3 requires it to surface; one reading a
  * single page passes `true` and gets `absent`, which asserts nothing.
  */
-export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), bound = null, url, partial = false } = {}) {
+export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS, url, partial = false } = {}) {
   assertManifestShape(manifest, url ?? manifest.url);
 
   const states = new Map();
@@ -310,9 +266,9 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
 
     if (!committed) {
       // Absent from the manifest entirely: lag, or the manifest passed it over.
-      const passedOver = describeLag(item, manifest, { now, bound });
+      const passedOver = describeLag(item, manifest, { now, ceiling });
       if (passedOver) violate(`${id} is served live but absent from seq ${manifest.seq}: ${passedOver}`, { invariant: 3, id });
-      else record(id, 'pending', { reason: 'newer than the manifest commits (§9.4 invariant 3)' });
+      else record(id, 'pending', { reason: 'newer than the manifest commits (§9.3 invariant 3)' });
       continue;
     }
 
@@ -326,7 +282,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
       continue;
     }
     if (version > committed.version) {
-      const passedOver = describeLag(item, manifest, { now, bound });
+      const passedOver = describeLag(item, manifest, { now, ceiling });
       if (passedOver) violate(`${id} version ${version} is uncommitted at seq ${manifest.seq}: ${passedOver}`, { invariant: 3, id });
       else record(id, 'pending', { reason: `committed at version ${committed.version}, served at ${version}` });
       continue;
@@ -351,7 +307,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
   // Anything the manifest commits that the feed did not yield. Pagination is the honest
   // reason, so a caller reading one page gets `absent` — a state that accuses nobody — while a
   // caller that has followed §7.4's `next_url` to the end holds the whole feed, and then this
-  // is the withholding state §9.4 says MUST be surfaced rather than held as perpetually-pending.
+  // is the withholding state §9.3 says MUST be surfaced rather than held as perpetually-pending.
   for (const id of Object.keys(manifest.items)) {
     if (!seen.has(id)) {
       const e = entryOf(manifest.items, id);
@@ -379,13 +335,12 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
 /**
  * Why an uncommitted item is a violation rather than lag, or `null` if it is still lag.
  *
- * Two tests, and the first needs no bound at all. §9.4: "an item still uncommitted after an
- * advance that demonstrably happened has been passed over, and that is a violation." A manifest
- * whose `updated` is later than the item's own signing time has advanced past it, so lag is not
- * the explanation. Only when no such advance has been observed does the derived bound apply,
- * and a consumer without enough history to derive one has no deadline (§9.4's MUST NOT).
+ * Two tests, and neither needs history (§9.3 invariant 3). A manifest whose `updated` is later
+ * than the item's own signing time has demonstrably advanced past it, so lag is not the
+ * explanation. Otherwise the consumer's own absolute ceiling applies, regardless of the
+ * publisher's rhythm.
  */
-function describeLag(item, manifest, { now, bound }) {
+function describeLag(item, manifest, { now, ceiling }) {
   let signedAt;
   try {
     signedAt = effectiveSigningTime(item);
@@ -396,13 +351,12 @@ function describeLag(item, manifest, { now, bound }) {
   if (manifest.updated > signedAt) {
     return `the manifest advanced at ${manifest.updated}, after the item was signed at ${signedAt}`;
   }
-  if (bound === null) return null; // no observed cadence yet, so no deadline (§9.4)
   const age = now - signedAt;
-  if (age > bound) return `uncommitted for ${age}s, past the derived bound of ${bound}s`;
+  if (age > ceiling) return `uncommitted for ${age}s, past the consumer's ceiling of ${ceiling}s`;
   return null;
 }
 
-// ---- §9.4 invariant 5: relocation does not reset the chain ----
+// ---- §9.3 invariant 5: relocation does not reset the chain ----
 
 /**
  * "Where a `feeds` entry's `manifest` URL changes, or a verified migration (§3.4) moves the

@@ -552,7 +552,7 @@ test('a PinStore threaded through a real walk catches equivocation mid-hop', asy
 });
 
 test('a skipping walk reports that its version list has gaps', async () => {
-  // §9.1.1 skipping observes fewer versions. A caller checking anything per-version — §9.4's
+  // §9.1.1 skipping observes fewer versions. A caller checking anything per-version — §9.3's
   // invariants across a manifest's history — must not read the returned array as a range.
   const store = new DocumentStore();
   const fx = identityFixture({ versions: 1, store });

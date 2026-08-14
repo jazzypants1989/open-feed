@@ -37,7 +37,6 @@ import {
   reconcileFeed,
   assertHistoryInvariants,
   assertManifestBinding,
-  lagBound,
   verifyDocument,
   EquivocationError,
   InvariantViolation,
@@ -183,14 +182,14 @@ test('a published identity verifies end to end over the wire', async (t) => {
   assert.equal(manifest.tip.seq, 6);
   assertManifestBinding(manifest.tip, { identityUrl: origin, feedUrl: feedEntry.url });
 
-  // 3. The feed, reconciled against the manifest that commits it (§9.4).
+  // 3. The feed, reconciled against the manifest that commits it (§9.3).
   const feed = await me.fetcher.fetchDocument(feedEntry.url, { kind: 'feed' });
   assert.equal(feed.contentType, 'application/feed+json');
   for (const item of feed.doc.items) {
     assert.ok(verifyDocument(item, { identityDocument: identity.tip, kind: 'item' }));
   }
   const { states, violations } = reconcileFeed(manifest.tip, feed.doc.items, {
-    now: T0 + 6 * DAY, bound: lagBound(manifest.versions).bound, url: feedEntry.url,
+    now: T0 + 6 * DAY, url: feedEntry.url,
   });
   assert.deepEqual(violations, []);
   assert.equal(states.length, 6);
@@ -281,7 +280,7 @@ test('a pruned intermediate makes the chain unverifiable, never silently re-pinn
   p.publishItem({ id: 'urn:uuid:day-6', content_text: 'day 6' }, { at: T0 + 6 * DAY });
   p.advanceManifest({ updated: T0 + 6 * DAY + 3600 });
   for (const [path, bytes] of p.files()) site.replace(path, JSON.parse(bytes.toString('utf8')));
-  site.remove('manifest/6.json'); // §9.3 permits pruning before a checkpoint; there is none here
+  site.remove('manifest/6.json'); // a retained version gone missing (§5.4)
 
   await assert.rejects(
     () => walkChain(me, url, policy, { kind: 'manifest' }),
@@ -291,7 +290,7 @@ test('a pruned intermediate makes the chain unverifiable, never silently re-pinn
 });
 
 test('withholding is surfaced as withholding, not as content that never existed', async (t) => {
-  // §9.4's third state. No invariant is broken and nothing is forged: the consumer knows an
+  // §9.3's third state. No invariant is broken and nothing is forged: the consumer knows an
   // exact revision exists, knows its hash, and cannot obtain the bytes.
   const signer = makeSigner();
   const site = await newSite(t);
@@ -307,7 +306,7 @@ test('withholding is surfaced as withholding, not as content that never existed'
 
   const served = await me.fetcher.fetchDocument(`${site.url}feed.json`, { kind: 'feed' });
   const { byId, violations } = reconcileFeed(manifest.tip, served.doc.items, {
-    now: T0 + 6 * DAY, bound: lagBound(manifest.versions).bound,
+    now: T0 + 6 * DAY,
   });
   assert.equal(byId.get('urn:uuid:day-2').state, 'withheld');
   assert.equal(byId.get('urn:uuid:day-2').hash, documentHash(p.items.get('urn:uuid:day-2')));
@@ -338,7 +337,7 @@ test('a swapped item body is caught by the manifest, not by its signature', asyn
 
   const served = await me.fetcher.fetchDocument(`${site.url}feed.json`, { kind: 'feed' });
   const { violations } = reconcileFeed(manifest.tip, served.doc.items, {
-    now: T0 + 6 * DAY, bound: lagBound(manifest.versions).bound,
+    now: T0 + 6 * DAY,
   });
   assert.equal(violations.length, 1);
   assert.ok(violations[0] instanceof InvariantViolation);

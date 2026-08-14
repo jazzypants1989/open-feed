@@ -402,7 +402,7 @@ async function classifyConflictAtPin({ url, tip, pin, fetchVersion, policy }) {
  *
  * `contiguous` says whether `versions` is every version between the pin and the tip or has
  * gaps. A skipping walk jumps over versions it never fetches (§9.1.1), so a caller checking
- * anything *per version* — §9.4's invariants across a manifest's history, say — must not read
+ * anything *per version* — §9.3's invariants across a manifest's history, say — must not read
  * this array as a complete range. It is also what makes a skipping consumer a weaker witness
  * for others.
  */

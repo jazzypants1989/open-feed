@@ -7,7 +7,7 @@ export const b64u = (buf) => Buffer.from(buf).toString('base64url');
 /**
  * The one hashing rule in this protocol (spec §5.1): base64url SHA-256 of a document's
  * full published canonical bytes, signature fields included. Same value in `prev`, in a
- * manifest's item commitments, in `checkpoint_hash`, and in a pin.
+ * manifest's item commitments, and in a pin.
  */
 export function documentHash(doc) {
   return b64u(sha256(canonicalBytes(doc)));

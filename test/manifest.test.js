@@ -1,13 +1,9 @@
-// §9.4's five invariants, and the three states §13.13 says never to collapse.
-//
-// The lag bound gets the most attention here because it is the one rule in §9 that can report
-// a violation against an honest publisher if it is implemented the obvious way.
+// §9.3's five invariants, and the three states §13.13 says never to collapse.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  lagBound,
   assertManifestShape,
   assertManifestBinding,
   assertInvariantsAcrossHop,
@@ -16,8 +12,7 @@ import {
   assertRelocationCarriesForward,
   ManifestError,
   InvariantViolation,
-  LAG_FLOOR_SECONDS,
-  LAG_WINDOW_VERSIONS,
+  LAG_CEILING_SECONDS,
   documentHash,
   sign,
 } from '../src/index.js';
@@ -73,60 +68,44 @@ function manifest({ seq = 1, updated = T0, items = [], deleted = [], ...rest } =
   return doc;
 }
 
-// ---- §9.4 invariant 3: the derived lag bound ----
+// ---- §9.3 invariant 3: the lag ceiling ----
 
-test('the lag bound is twice the median interval, floored at one hour', () => {
-  // A daily publisher: median interval one day, bound two days — comfortably above the floor.
-  const daily = Array.from({ length: 10 }, (_, i) => ({ updated: T0 + i * DAY }));
-  const { bound, median, intervals } = lagBound(daily);
-  assert.equal(median, DAY);
-  assert.equal(bound, 2 * DAY);
-  assert.equal(intervals, 9);
-
-  // A publisher advancing every ten minutes: twice the median is under an hour, so the floor
-  // governs. The floor is a floor, not a default.
-  const brisk = Array.from({ length: 10 }, (_, i) => ({ updated: T0 + i * 600 }));
-  assert.equal(lagBound(brisk).bound, LAG_FLOOR_SECONDS);
-
-  // The median, not the mean: one long outage must not stretch the bound for everything after.
-  const withOutage = [...Array.from({ length: 9 }, (_, i) => ({ updated: T0 + i * DAY })), { updated: T0 + 9 * DAY + 30 * DAY }];
-  assert.equal(lagBound(withOutage).median, DAY);
-});
-
-test('a consumer without enough history has no deadline, and MUST NOT use the floor', () => {
-  // The rule §9.4 states in capitals, and the reason: one hour applied to an honest daily
-  // publisher reports a violation on nearly every item.
-  for (let n = 0; n < LAG_WINDOW_VERSIONS; n++) {
-    const versions = Array.from({ length: n }, (_, i) => ({ updated: T0 + i * DAY }));
-    assert.equal(lagBound(versions).bound, null, `${n} versions must not yield a bound`);
-  }
-  assert.notEqual(lagBound(Array.from({ length: LAG_WINDOW_VERSIONS }, (_, i) => ({ updated: T0 + i * DAY }))).bound, null);
-
-  // And the consequence, end to end: an item a week old against a publisher whose cadence is
-  // not yet known is pending, not a violation.
+test('the consumer ceiling bounds the pending state, first contact included', () => {
+  // §9.3 invariant 3: the ceiling is the consumer's own and needs no observed history, so an
+  // uncommitted item is pending inside it and a violation beyond it — from the first fetch.
   const m = manifest({ seq: 3, updated: T0 });
   const fresh = item({ id: 'a', at: T0 + 60 });
-  const { states, violations } = reconcileFeed(m, [fresh], { now: T0 + 7 * DAY, bound: null });
-  assert.equal(violations.length, 0);
-  assert.equal(states[0].state, 'pending');
+
+  const inside = reconcileFeed(m, [fresh], { now: T0 + 60 + LAG_CEILING_SECONDS - 1 });
+  assert.equal(inside.violations.length, 0);
+  assert.equal(inside.states[0].state, 'pending');
+
+  const beyond = reconcileFeed(m, [fresh], { now: T0 + 60 + LAG_CEILING_SECONDS + 1 });
+  assert.equal(beyond.violations.length, 1);
+  assert.equal(beyond.violations[0].invariant, 3);
+  assert.match(beyond.violations[0].message, /ceiling/);
+
+  // The ceiling is the consumer's, so a stricter one is honored as given.
+  const strict = reconcileFeed(m, [fresh], { now: T0 + 60 + 7200, ceiling: 3600 });
+  assert.equal(strict.violations.length, 1);
 });
 
-test('an advance that demonstrably happened converts lag into a violation, with no bound at all', () => {
-  // §9.4: "an item still uncommitted after an advance that demonstrably happened has been
-  // passed over." The manifest's own `updated` is the evidence, so this needs no cadence.
+test('an advance that demonstrably happened converts lag into a violation, before any ceiling', () => {
+  // §9.3: a manifest whose `updated` is later than the item's signing time has demonstrably
+  // advanced past it. The manifest's own `updated` is the evidence, so this needs no cadence.
   const passedOver = item({ id: 'a', at: T0 });
   const advanced = manifest({ seq: 4, updated: T0 + 60 });
-  const { violations } = reconcileFeed(advanced, [passedOver], { now: T0 + 120, bound: null });
+  const { violations } = reconcileFeed(advanced, [passedOver], { now: T0 + 120 });
   assert.equal(violations.length, 1);
   assert.equal(violations[0].invariant, 3);
   assert.match(violations[0].message, /advanced at/);
 
   // The same item against a manifest that has not advanced since is ordinary lag.
   const notYet = manifest({ seq: 4, updated: T0 - 60 });
-  assert.equal(reconcileFeed(notYet, [passedOver], { now: T0 + 120, bound: null }).violations.length, 0);
+  assert.equal(reconcileFeed(notYet, [passedOver], { now: T0 + 120 }).violations.length, 0);
 });
 
-// ---- §9.4 invariants 1 and 2 ----
+// ---- §9.3 invariants 1 and 2 ----
 
 test('content cannot silently vanish: removal requires a signed tombstone', () => {
   const a = item({ id: 'a' });
@@ -141,11 +120,6 @@ test('content cannot silently vanish: removal requires a signed tombstone', () =
   // Tombstoned: fine, and that is the whole point of the escape.
   const bGone = item({ id: 'b', version: 2, at: T0 + DAY, deleted: true });
   assert.ok(assertInvariantsAcrossHop(earlier, manifest({ seq: 2, updated: T0 + DAY, items: [a], deleted: [bGone] })));
-  // Folded into a checkpoint at or after the earlier version: also fine (§9.3).
-  assert.ok(assertInvariantsAcrossHop(
-    earlier,
-    manifest({ seq: 9, updated: T0 + DAY, items: [a], checkpoint_seq: 4, checkpoint_hash: 'x' }),
-  ));
 });
 
 test('versions never decrease, and one revision has one hash', () => {
@@ -218,7 +192,7 @@ test('lag, withholding, and violation are three states, not three names for one'
     item({ id: 'ahead', at: T0 + DAY + 60 }),        // feed ahead, no advance since: lag
     // 'withheld' is committed and simply not yielded.
   ];
-  const { byId, violations } = reconcileFeed(m, served, { now: T0 + DAY + 120, bound: 2 * DAY });
+  const { byId, violations } = reconcileFeed(m, served, { now: T0 + DAY + 120, ceiling: 2 * DAY });
 
   assert.equal(byId.get('live').state, 'live');
   assert.equal(byId.get('withheld').state, 'withheld');
@@ -265,7 +239,7 @@ test('a tombstone served as live content is a violation, and one aged out of the
   assert.equal(reconcileFeed(m, [resurrected], { now: T0 + DAY }).violations[0].invariant, 4);
 });
 
-// ---- §9.4 invariant 5 ----
+// ---- §9.3 invariant 5 ----
 
 test('relocation does not reset the chain', () => {
   const a = item({ id: 'a' });
