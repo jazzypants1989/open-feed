@@ -113,23 +113,7 @@ Their identity URL is `https://mom.pence.family/`, and their machine-readable id
 
 Costs, all one-time: a wildcard certificate (or per-subdomain ACME), per-member DNS, and `/.well-known/atproto-did` served per subdomain. WebFinger stays at the apex: `acct:mom@pence.family` resolves to `https://mom.pence.family/` in `aliases` — aliasing across hosts is what README's WebFinger convention already permits. Everything else — §3.1 normalization, §5.4 derived URLs, export, migration — is unchanged; the identity URL is simply the subdomain root. One honest limit: a subdomain proves the *domain operator* controls it, not the member — but that is equally true of a subpath, and it is the custody trust model spec §13.2 already states — narrowed here to the delegated-custodian tier — not a new cost of this choice.
 
-**Identity URL normalization** (spec §3.1):
-
-When comparing or storing identity URLs (for external members or author attribution):
-- Use the `https` scheme
-- Normalize domain to lowercase (`Alice.Example` → `alice.example`)
-- Remove default ports (`:443` for HTTPS)
-- Strip query parameters and fragments
-- Ensure trailing slash on path (path is case-sensitive)
-
-Examples:
-| Input | Normalized |
-|-------|------------|
-| `https://Alice.Example/~mom` | `https://alice.example/~mom/` |
-| `https://example.com:443/~alice/` | `https://example.com/~alice/` |
-| `https://example.com/~alice?ref=twitter` | `https://example.com/~alice/` |
-
-This prevents the same identity from appearing as multiple different users due to URL variations.
+**Normalize identity URLs before storing or comparing them** — spec §3.1 has the rules and the trap table. Do not write a second normalizer from memory: the two rows that decide whether one identity stays one identity (A-label hosts, and percent-encoding compared as published rather than decoded) are exactly the ones a from-memory version gets wrong, in opposite directions. A member whose URL normalizes two ways has two chains and two pins that can never be reconciled.
 
 ### Entries
 
@@ -383,18 +367,7 @@ Access-Control-Allow-Methods: POST, OPTIONS
 Access-Control-Allow-Headers: Content-Type
 ```
 
-**Response codes** (spec §10.4):
-
-| Status | Meaning |
-|--------|---------|
-| `202` | Accepted / queued (blocked authors SHOULD also get `202`, content silently discarded) |
-| `400` | Malformed, missing fields, or not relevant to this inbox |
-| `401` | Signature invalid or key revoked |
-| `404` | Referenced target item does not exist |
-| `409` | Stale version |
-| `429` | Rate limited (include `Retry-After`) |
-
-Error bodies: `{ "error": "code", "message": "human text" }` with codes `invalid_json`, `missing_field`, `not_relevant`, `invalid_signature`, `key_revoked`, `target_not_found`, `stale_version`, `rate_limited`.
+Statuses and error codes are spec §10.4 exactly; implement that table rather than a copy of it. Read the paragraph under it before choosing what this hub returns, because two of its rules are product decisions and not defaults. **Blocked authors get `202`** with the content discarded — a distinct status tells a harasser to make a new identity, and in a family app the harasser is frequently someone who knows exactly which account they are probing. And `404`/`409` are an unauthenticated existence oracle for `(author, id)` pairs; this app's ids are unguessable UUIDs, which is what makes them safe here, so the day something derives an id from anything guessable, those two statuses have to become `202`.
 
 Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliveries are recovered by polling the sender's feed — the feed is the source of truth; the inbox is a latency optimization (spec §10.4, §1).
 
@@ -521,9 +494,7 @@ All published artifacts are signed with one construction (spec §6): detached JW
 
 ### Where keys live
 
-Keys are JWK objects in the `keys` array of the identity document (`openfeed.json`) — there is **no separate JWKS document** (spec §3.2, §4). Key ownership is structural: the identity named by a `kid` either lists the key or it doesn't (spec §4.2).
-
-The full key identifier in a JWS header is `{identity_url}#{kid}` (spec §4.2), e.g. `https://jessepence.com/#key-1` — **not** a JWKS URL fragment. Verifiers split at the **last** `#`: left side is the identity URL, right side is the `kid` to find in that identity's `openfeed.json`.
+Keys are JWK objects in the `keys` array of the identity document — there is **no separate JWKS document**, and the full key identifier is `{identity_url}#{kid}`, not a JWKS URL fragment (spec §4.2). This is worth stating once here only because it is the thing most likely to be built from habit: a JWKS file and a `jku`-style lookup are what every neighbouring ecosystem does, and both are absent by design.
 
 ### Key custody: delegated by default
 
@@ -548,14 +519,6 @@ What delegation does **not** buy, stated plainly so the UI never overstates it: 
 
 **Where a deployment cannot meet this** — a purely server-side signup with no client capable of generating or holding keys — spec §12 requires it to *disclose* that the operator can rewrite the member's identity state, not merely impersonate their content. That is a materially different sentence from the email trust model, and it must be shown to the member, not buried.
 
-### JWS header (spec §6.2)
-
-```json
-{ "alg": "EdDSA", "b64": false, "crit": ["b64"], "kid": "https://jessepence.com/#key-1" }
-```
-
-All four fields MUST be present with exactly these `alg`/`b64`/`crit` values. Reject unrecognized `alg`, unknown `crit` entries, and any key whose `crv` is not `Ed25519`.
-
 ### Signed item example
 
 ```json
@@ -575,64 +538,24 @@ All four fields MUST be present with exactly these `alg`/`b64`/`crit` values. Re
 
 Item author binding: the item-level `authors` array MUST contain **exactly one entry** whose `url` is the signer's identity (spec §6.6). Feed-level `authors` carry no authority. Items served in a feed MUST include `_feed_url`; inbox-only items omit it.
 
-### Verification process (spec §6.5)
+### Signing and verifying
 
-1. Extract and remove `_sig` (and `_recovery_sig` if present); canonicalize the remaining JSON (RFC 8785)
-2. Parse the JWS header; enforce §6.2 (`alg=EdDSA`, `b64=false`, `crit=["b64"]`); read `kid`
-3. Split `kid` at the last `#` → identity URL + key id
-4. **Author binding:** the `kid`'s identity URL MUST equal the claimed author (the single `authors[].url` for items; the `url` field for manifests/identity docs) after normalization. Reject otherwise
-5. Fetch the identity document at `{identity_url}openfeed.json`; enforce pinning (spec §5.3); find the key by `kid`. (No arbitrary URL from the `kid` is ever fetched — the path convention makes discovery structural, spec §13.9.)
-6. If the key has `iat`, verify it predates the content's **effective signing time** (`date_modified` if present, else `date_published`; `updated` for manifests/identity docs)
-7. Verify the key was not revoked before the effective signing time (for inbox items, check against **receipt time**, spec §4.4)
-8. Verify the Ed25519 signature over the reconstructed signing input (`ASCII(header-b64 || '.') || canonical-bytes`)
+Spec §6.2–§6.5 is the whole of it — header, canonicalization, signing, the eight verification steps — and `src/` in this repo is a working implementation of exactly that, so build against those two and do not transcribe either into app code from a summary. Three consequences do belong here, because they shape the app rather than the construction:
 
-### JSON Canonicalization (RFC 8785)
-
-Before signing or verifying:
-1. Serialize with no whitespace between tokens
-2. Sort object keys lexicographically (recursively)
-3. ES6 number formatting (no unnecessary leading/trailing zeros)
-
-Strings are signed **byte-exact as published** — no verify-time Unicode normalization (spec §6.3). Emit NFC when authoring content, and **reject JSON with duplicate object keys** (I-JSON, RFC 7493).
-
-```json
-// Input (with whitespace)
-{ "b": 1, "a": 2 }
-
-// Canonical output
-{"a":2,"b":1}
-```
-
-Libraries: none needed — `src/canonical.js` in this repo does RFC 8785 and the strict I-JSON parse together, and the strict parse is unavoidable anyway (spec §6.3 requires rejecting duplicate member names, which `JSON.parse` and the `canonicalize` npm package both accept silently).
+- **Sign once on write, cache the signature.** Nothing re-signs on read. The cost of conformance is a one-time cost per version, which is why "sign everything" is affordable at all.
+- **No canonicalization library will do.** RFC 8785 has npm implementations, but spec §6.3's duplicate-member rejection is not something `JSON.parse` can express, so a strict parser is required regardless — and it may as well canonicalize too. `src/canonical.js` is both, in about 200 lines, with no dependencies.
+- **Revocation is checked against the time the hub learned of the content**, not the time the content claims: receipt time for inbox items, first-observed time for polled ones (spec §4.4). The timestamps are the sender's to write, so a revoked key backdating an item is the attack this closes.
 
 ### The manifest (spec §9)
 
-Signing an item is not enough — a host could silently drop or roll back your content. So each feed carries a **separately-signed, chained manifest** committing to its item set. Whenever the app publishes, edits, or tombstones an item, it MUST **advance the manifest**:
+Signing an item is not enough — a host could silently drop or roll back your content. So each feed carries a **separately-signed, chained manifest** committing every live item as `[version, hash]` and every tombstoned one under `deleted`, advanced whenever the app publishes, edits, or tombstones. Spec §9 has the shape; what the app has to get right:
 
-```json
-{
-  "url": "https://mom.pence.family/",
-  "feed_url": "https://mom.pence.family/feed.json",
-  "seq": 412,
-  "prev": "Jq3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
-  "updated": 1739577600,
-  "items": {
-    "urn:uuid:550e8400-...": [3, "czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8"],
-    "urn:uuid:661f9511-...": [1, "vdS1bhnFd5XsIugXNLR0k-7UHDxRJi7DO6XRWF5l_gU"]
-  },
-  "deleted": { "urn:uuid:99aa2222-...": [4, "8HgMi021TdOCqbaGYnTY5UJzDdWf7JO1nlp-wt1QWTI"] },
-  "_sig": "..."
-}
-```
+- **Commit the bytes, not just the version.** The hash is SHA-256 over the item's exact published bytes. A version alone would let a key-holding hub show two family members different text under one `(id, version)` with identical manifests — which is precisely the hub this document is designing against.
+- **Publishing advances the manifest chain, never the identity chain.** The identity document commits to the manifest by **URL**, not by hash, so a decade of posting never re-signs `openfeed.json` and never wakes the member's device for a root signature. This is the split that makes delegated custody practical rather than theoretical.
+- **Emit `_skip` (spec §9.1.1) once a member's manifest passes ~100 KB.** It reads like a tuning knob and is not: without it, a family member who stops reading for a few weeks cannot reconnect their pin inside spec §13.4's fetch budget, and a conforming verifier must then treat the chain as unverifiable (spec §5.3). The hub would be stranding its own readers by omission.
+- **Serve the current version at its derived URL too, and write `manifest/{seq}.json` *before* `manifest.json`** (spec §5.4). One extra file gives a reader whose tip disagrees with its pin a retained copy to settle against at the `seq` consumers most often pin. The write order is not incidental: publish in reverse and there is a window where the tip and its derived copy disagree, which is the exact conflict the copy exists to resolve.
 
-- `items`: map of live item `id` → `[version, hash]`, the hash being the SHA-256 of that item's exact published bytes (spec §9). Sign the item, then commit its bytes — a version alone would let a key-holding hub show two family members different text under one `(id, version)` with identical manifests
-- `deleted`: map of tombstoned `id` → `[version, hash]` of its tombstone
-- `seq`/`prev`/`_sig`: the same pin-and-walk chain discipline as the identity document (spec §5), applied to content. Publishing advances the **manifest** chain; the identity chain stays short (it only versions keys/profile/endpoints). Prior versions are served at derived URLs (spec §5.4) — no history-index file to write
-- The identity document commits to the manifest by **URL**, not by hash, so ordinary publishing never re-signs `openfeed.json`.
-
-Emit `_skip` (spec §9.1.1) once a member's manifest passes ~100 KB. It reads like a tuning knob and is not: without it, a family member who stops reading for a few weeks cannot reconnect their pin inside spec §13.4's fetch budget, and a conforming verifier must then treat the chain as unverifiable (spec §5.3). The hub would be stranding its own readers by omission. Emit the current version at its derived URL too (`manifest/{seq}.json` written *before* `manifest.json`, spec §5.4), so a reader whose tip disagrees with its pin has a retained copy to settle it against.
-
-Consumers pin the manifest at its `(seq, hash)` on first observation and walk `prev` to the pin on every later fetch (spec §9.1). Together with `_feed_url` (spec §7.5), the manifest closes both omission (a host can't drop your content) and injection (a host can't resurrect or inject content by copying it into its own feed).
+Together with `_feed_url` (spec §7.5), the manifest closes both omission (a host can't drop your content) and injection (a host can't resurrect or inject content by copying it into its own feed).
 
 ### When to verify
 
@@ -642,11 +565,9 @@ Consumers pin the manifest at its `(seq, hash)` on first observation and walk `p
 
 ### Transient failures (spec §12)
 
-If an `openfeed.json` or manifest fetch fails transiently: cache the failure and retry at 1 h, 4 h, 24 h before permanent rejection. Don't reject on the first transient failure.
+If an `openfeed.json` or manifest fetch fails transiently: cache the failure and retry at 1 h, 4 h, 24 h before permanent rejection. A verification failure and an unreachable host are different findings, and collapsing them means a member's whole feed reads as forged the afternoon their host has an outage.
 
-### SSRF and fetch discipline (spec §13.5, §13.9)
-
-For every outbound fetch: HTTPS only, ≤5 redirects, 10 s timeout, size limits, reject private/loopback/link-local addresses. Never follow a cross-origin redirect for an identity document. Rate-limit inbox by source IP *before* fetching (the `author` is attacker-controlled until verification succeeds), and negatively cache lookup failures.
+(Outbound fetch discipline — SSRF, redirect and size limits, negative caching — is under "Fetching External URLs" in Security.)
 
 ---
 
@@ -1147,46 +1068,15 @@ To participate in the family network, a self-hosted site needs at least spec con
 
 ### Identity Document (`openfeed.json`)
 
-Your identity URL (e.g. `https://jessepence.com/`) MAY serve a human HTML page, but the **machine entry point is a signed JSON document at `https://jessepence.com/openfeed.json`** (spec §3.2). This replaces the old profile-HTML-plus-`<link rel="jwks">` discovery entirely — there is no separate JWKS file and no discovery links to parse.
+Your identity URL (e.g. `https://jessepence.com/`) MAY serve a human HTML page, but the **machine entry point is a signed JSON document at `https://jessepence.com/openfeed.json`** — no separate JWKS file, no discovery links to parse. Spec §3.2 defines the fields and Appendix B.4 is a genesis document you can copy; the shape under "Identity Document (`openfeed.json`)" above is the same file with a hub's URLs in it.
 
-```json
-{
-  "url": "https://jessepence.com/",
-  "name": "Jesse",
-  "bio": "Software developer, family member",
-  "avatar": "https://jessepence.com/avatar.jpg",
-  "feeds": [
-    { "url": "https://jessepence.com/feed.json",
-      "manifest": "https://jessepence.com/manifest.json",
-      "rel": "primary" }
-  ],
-  "inbox": "https://jessepence.com/inbox",
-  "seq": 1,
-  "updated": 1736899200,
-  "keys": [
-    { "kid": "key-1", "kty": "OKP", "crv": "Ed25519", "x": "your-base64url-public-key", "iat": 1736899200 },
-    { "kid": "recovery-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "use": "recovery", "iat": 1736899200 }
-  ],
-  "_sig": "..."
-}
-```
-
-Serve it (and every public document) with `Content-Type: application/json` and `Access-Control-Allow-Origin: *` (spec §3.3, §12). The genesis version is `seq: 1` (no `prev`); any later change bumps `seq`, sets `prev` (hash of the prior version), and is signed by a **continuity key** valid in the previous version (spec §5.2). The superseded version stays served, byte-identically, at the derived URL `https://jessepence.com/openfeed/1.json` (spec §5.4).
+Two operational rules do the work here. Serve it — and every public document — with `Access-Control-Allow-Origin: *` (spec §3.3, §12), because a browser client is a first-class reader of this protocol and a missing header makes your identity unreadable to every one of them while looking fine in `curl`. And once you rotate past `seq: 1`, **keep serving the superseded version byte-identically** at `openfeed/1.json` (spec §5.4): that retained copy is what lets a reader holding an old pin walk forward to you instead of concluding you forked.
 
 ### Signing Your Content
 
-Generate an Ed25519 keypair (plus an offline recovery key), and put the public keys in `openfeed.json`'s `keys` array (there is nowhere else — no standalone JWKS).
+Generate an Ed25519 keypair plus an offline recovery key, and put the public keys in `openfeed.json`'s `keys` array — there is nowhere else. Sign per spec §6.4, verify per §6.5, and after publishing an item advance and re-sign your **manifest** (spec §9) so the new item is committed; an item no manifest commits is not published, only served.
 
-**Sign an item/manifest/identity doc** by:
-1. Remove signature fields (`_sig`, `_recovery_sig`); build the JSON object
-2. Canonicalize (RFC 8785: sorted keys, no whitespace; emit NFC; reject duplicate keys)
-3. Build the header `{"alg":"EdDSA","b64":false,"crit":["b64"],"kid":"https://jessepence.com/#key-1"}` — note the `kid` is `{identity_url}#{kid}`, **not** a JWKS URL
-4. Sign `ASCII(base64url(header) || '.') || canonical-bytes` with Ed25519
-5. Set `_sig` = `base64url(header) || '..' || base64url(signature)`
-
-Then advance and re-sign your **manifest** (spec §9) so the new item is committed.
-
-Libraries: `jose` (Node.js), `@noble/ed25519` (pure JS), `canonicalize` (RFC 8785).
+You do not need a library and should not start with one: this repo's `src/` is a dependency-free implementation of the whole construction — `canonical.js` for RFC 8785 and the strict I-JSON parse, `jws.js` for the signature, `publish.js` for emitting the artifacts — and `bin/openfeed.js verify <identity-url>` will tell you whether what you built verifies. Node's `crypto` does Ed25519 and imports an OKP JWK directly. See "Known Libraries" for where a dependency actually earns its keep — HTML sanitization and feed parsing, not signing.
 
 ### Static Site Option
 
