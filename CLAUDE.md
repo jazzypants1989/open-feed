@@ -27,14 +27,13 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 | `open-feed-spec.md` | **The specification.** Core §1–§14; OPTIONAL layers §15 (encrypted content) and §16 (follows/pins/replies conventions); Appendices A–E (media types, aliases + foreign accounts, WebSub, test vectors, gateways) |
 | `README.md` | Human-facing docs: examples, protocol comparisons, interop routes, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub |
-| `src/` | **Reference implementation**, zero dependencies: Level 1 verifier and Level 2 publisher. `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction; `chain.js` is §5.3's walk for both chained documents; `manifest.js` is §9.4; `publish.js` emits every artifact as bytes. **`fetch.js` is the only module that opens a socket — keep it that way.** Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
+| `src/` | **Reference implementation**, zero dependencies: Level 1 verifier and Level 2 publisher. `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction; `chain.js` is §5.3's walk for both chained documents; `manifest.js` is §9.3; `publish.js` emits every artifact as bytes. **`fetch.js` is the only module that opens a socket — keep it that way.** Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
 | `test/` | `npm test`. `appendix-d.test.js` extracts vectors from the spec document itself and resolves keys structurally (§4.2); `negative.test.js` is the must-fail corpus Appendix D has none of; `e2e.test.js` runs the publisher against the verifier over a real TLS socket, with `helpers/tls.js` hand-encoding the certificate because §3.1 makes HTTPS part of the identity |
 | `tmp/regen.js` | Regenerates and validates Appendix D test vectors |
 | `tmp/enc-prototype.js` | Encrypted items; demonstrates the ciphertext-relay attack and §15.2.1's rejection of it |
-| `tmp/circles-prototype.js` | Roster spike — models rollback only, **not** withholding |
 | `tmp/syndication-prototype.js` | Compares `_syndication` shapes (field / document / receipt) on routing, retraction, retained history |
 | `tmp/skiplinks-prototype.js` | Manifest skip links on a 365-version chain; forged-anchor attack |
-| `tmp/itempins-prototype.js` | Recipient-scoped `_pins` on items |
+| `tmp/itempins-prototype.js` | `_pins` on items — the disclosure and byte measurements behind §16.1 |
 
 ## The threat model that drives the design
 
@@ -83,10 +82,15 @@ RFC 2119 keywords, and keep examples consistent with the spec's object model.
 
 ## Open questions (deferred, not forgotten)
 
-- **Circle rosters are not ready to ship** — §15.4 states the gate as four conditions. The prototype
-  still needs to model **withholding** (not just rollback), use identity-document-published
-  encryption keys, exercise carrier binding on roster-wrapped replies, and measure the identity-doc
-  fetches one reply implies.
+- **Group audiences / membership documents** — cut from the spec, not solved. §11.2 states the
+  boundary: broadcast to an author-held list works today; group *replies* need a published
+  membership document, and anything defining one must answer staleness **and withholding**, use
+  identity-document-published encryption keys, exercise §15.2.1 carrier binding on wrapped
+  replies, and measure the identity-doc fetches one reply implies.
+- **Threshold (k-of-n) recovery** — cut to single-key; re-decide **before 1.0, not after**.
+  Re-adding it later fails **open**: an old verifier ignores the unknown `recovery_threshold`
+  field and accepts one co-signature against a threshold of two, handing a key thief the choice
+  of verifier — the same fail-open shape as the delegation `use` argument below.
 - **`_syndication` shape** — pending a call on `tmp/syndication-prototype.js`. Leading candidate: a
   §16-mold document, probably unchained (the `follows` precedent). Field and receipt shapes are
   measured and disfavored.
@@ -109,8 +113,9 @@ RFC 2119 keywords, and keep examples consistent with the spec's object model.
 - **Author-side dual signing** — parked. The only route to verified cross-protocol authorship. Taking
   it up means deciding whether "one signing construction" governs this protocol's artifacts or
   everything a publisher signs.
-- **External time anchoring** (transparency log / witness network) beyond the family-scale `pins`
-  convention.
+- **External time anchoring** (transparency log / witness network) beyond §16.1's family-scale
+  item-carried pins. A published pins *document* (aggregator-readable) would be purely additive
+  if that scale ever arrives.
 - **Split custody** (hub holds the signing key, client holds only the encryption key) is deliberately
   *not* claimed in the spec: the guarantee holds only when the client is not distributed by the
   custodian, which the reference product does not satisfy.
