@@ -2,7 +2,7 @@
 
 A family journaling app with AI assistance, built as a conforming **Open Feed** implementation (see `open-feed-spec.md`, Version 0.1.0). Start simple, add complexity only when needed — but stay on-protocol from day one, so hub users and self-hosted members interoperate through the same signed formats rather than a private API that diverges from the spec.
 
-**Relationship to the spec:** This app is a Level 3 hub (spec §12). Every identity serves **one signed identity document** at `{identity_url}openfeed.json` — profile, keys, endpoints, and a tamper-evident version chain (spec §3.2, §4, §5). Content is published as signed JSON Feed items (spec §7), and a **separately-signed, chained manifest** commits each feed's contents so the host can't silently drop, reorder, or roll them back (spec §9). Interactions (replies, likes, reposts) **are** feed items carrying a `_rel` relation array (spec §8), delivered by POSTing the signed item to the recipient's inbox (spec §10). `family`-visibility content is **published encrypted** to the family audience in one form for every reader (spec §11.3, spec §15): hub members read it because the hub decrypts on their behalf, off-hub members because they hold their own key. There is no gated feed and no second authorization mechanism — a document served in audience-varying forms is equivocation (spec §5.3.1). Until the encryption layer ships, `family` entries are **not published at all** (see "What Gets Published"). Keys follow the rotation/recovery/chain model (spec §4, §5, §3.4), and members generate their own recovery keys (spec §4.5). Where this document previously described spec-divergent shortcuts, it has been brought into line; the app's own additions (AI companion, drafting flow) are layered on top and never replace the wire formats.
+**Relationship to the spec:** This app is a Level 3 hub (spec §12). Every identity serves **one signed identity document** at `{identity_url}openfeed.json` — profile, keys, endpoints, and a tamper-evident version chain (spec §3.2, §4, §5). Content is published as signed JSON Feed items (spec §7), and a **separately-signed, chained manifest** commits each feed's contents so the host can't silently drop, reorder, or roll them back (spec §9). Interactions (replies, likes, reposts) **are** feed items carrying a `_rel` relation array (spec §8), delivered by POSTing the signed item to the recipient's inbox (spec §10). `family`-visibility content is **published encrypted** to the family audience in one form for every reader (spec §11.3, spec §15), wrapped to each member's own encryption key and decrypted in each member's client — on-hub and off-hub members alike. There is no gated feed and no second authorization mechanism — a document served in audience-varying forms is equivocation (spec §5.3.1). Until the encryption layer ships, `family` entries are **not published at all** (see "What Gets Published"). Custody is **delegated by default** (spec §4.6, §12): the member's device generates the root signing key, the recovery key, and the encryption key; the hub holds only a delegated key, which signs items and manifests but can never advance the identity chain (see "Key custody"). Where this document previously described spec-divergent shortcuts, it has been brought into line; the app's own additions (AI companion, drafting flow) are layered on top and never replace the wire formats.
 
 ---
 
@@ -30,7 +30,7 @@ Earlier drafts of this doc took spec-divergent shortcuts to save effort. Followi
 
 | Earlier shortcut | Now (spec-aligned) | Why |
 |------------------|--------------------|-----|
-| No signatures on hub content | **Sign all feed items** (spec §6, §7.2) | Signing on write is cheap (sign once, cache). It makes hub content portable and verifiable off-hub, and is required for a conforming feed. Hub-managed keys keep it invisible to users (spec §13.2). |
+| No signatures on hub content | **Sign all feed items** (spec §6, §7.2) | Signing on write is cheap (sign once, cache). It makes hub content portable and verifiable off-hub, and is required for a conforming feed. The hub's delegated key (spec §4.6) keeps it invisible to users. |
 | Separate JWKS + profile-HTML discovery | **One signed identity document** at `{identity}openfeed.json` (spec §3.2) | Keys, profile, and endpoints live in one signed, chained JSON file at a fixed path. No HTML parsing, no `<link rel="jwks">`, no cross-document key-ownership check — key ownership is structural (spec §4.2). |
 | Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix C) that ingests lower-trust `_unverified` copies. |
 | Standalone interaction objects (`type`/`target`/`target_item`) | **Interactions are items with a `_rel` array** (spec §8) | A comment = an item with `_rel:[{type:"reply", to:"{feed_url}#{item_id}"}]`; a reaction = an item with `_rel:[{type:"like",...}]` and `_emoji`. One schema, one verifier; publishing and delivering are the same bytes. |
@@ -111,7 +111,7 @@ Their identity URL is `https://mom.pence.family/`, and their machine-readable id
 
 **Subdomains are never reused.** An identity URL is permanent and its chain is pinned by consumers, so a departed member's `mom.pence.family` cannot be handed to a new member: a fresh genesis under a pinned chain reads as an equivocating fork to everyone who ever followed the first one (spec §5.3.1). Retire the label with the member, and keep serving their `openfeed.json`, feed, and manifest so old signatures still verify.
 
-Costs, all one-time: a wildcard certificate (or per-subdomain ACME), per-member DNS, and `/.well-known/atproto-did` served per subdomain. WebFinger stays at the apex: `acct:mom@pence.family` resolves to `https://mom.pence.family/` in `aliases` — aliasing across hosts is what spec Appendix B already permits. Everything else — §3.1 normalization, §5.4 derived URLs, export, migration — is unchanged; the identity URL is simply the subdomain root. One honest limit: a subdomain proves the *domain operator* controls it, not the member — but that is equally true of a subpath, and it is the hub-custody trust model spec §13.2 already states, not a new cost of this choice.
+Costs, all one-time: a wildcard certificate (or per-subdomain ACME), per-member DNS, and `/.well-known/atproto-did` served per subdomain. WebFinger stays at the apex: `acct:mom@pence.family` resolves to `https://mom.pence.family/` in `aliases` — aliasing across hosts is what README's WebFinger convention already permits. Everything else — §3.1 normalization, §5.4 derived URLs, export, migration — is unchanged; the identity URL is simply the subdomain root. One honest limit: a subdomain proves the *domain operator* controls it, not the member — but that is equally true of a subpath, and it is the custody trust model spec §13.2 already states — narrowed here to the delegated-custodian tier — not a new cost of this choice.
 
 **Identity URL normalization** (spec §3.1):
 
@@ -168,16 +168,18 @@ When published, an entry becomes a signed JSON Feed item carrying `id`, `date_pu
 | Visibility | Who can see it |
 |------------|----------------|
 | `public` | Anyone |
-| `family` | The family audience, via content **published encrypted** to them (spec §11.3, spec §15) — one form for every reader; the hub decrypts for hub-managed members, off-hub members decrypt with their own key. **Not published in any form until the encryption layer ships** |
+| `family` | The family audience, via content **published encrypted** to them (spec §11.3, spec §15) — one form for every reader, decrypted in each member's own client with a key the hub never holds. **Not published in any form until the encryption layer ships** |
 | `private` | Only the author **and the hub operator** — see the note below |
 | `unlisted` | Anyone with the link (not in feeds) |
 
-> **Do not label a tier `private` unless it is.** With hub-managed keys the operator can read every
-> tier in this table, including `private`. Call it what it is in the UI — "not shared with the
-> family" rather than "private" — because the person most likely to rely on the stronger reading is
-> the person for whom the operator *is* the adversary (spec §13.2, the hostile-custodian tier). Content the
-> operator genuinely cannot read requires client-held encryption keys and the encrypted-content
-> extension; content that must not exist on their server should not be posted to it.
+> **Do not label a tier `private` unless it is.** A `private` entry is stored in cleartext on the
+> hub so the app can show it back to its author, so the operator can read it — key custody has
+> nothing to do with it, and delegated custody (see "Key custody") does not change it. Call it what
+> it is in the UI — "not shared with the family" rather than "private" — because the person most
+> likely to rely on the stronger reading is the person for whom the operator *is* the adversary
+> (spec §13.2, the hostile-custodian tier). `family` content is the tier the operator genuinely
+> cannot read, because it is encrypted to keys the hub never holds; content that must not exist on
+> their server should not be posted to it.
 
 
 ### Comments
@@ -411,7 +413,7 @@ A `reply` entry's `to` points at the **parent** item (spec §8.1). When the pare
 To comment on, like, or reply to another identity's item, a hub user's action produces a signed item and the hub POSTs it to the target's inbox:
 
 1. Build the item with the appropriate `_rel` entry/entries (`reply`, `like` + `_emoji`, `repost`, `quote`, plus `root` for nested replies)
-2. Sign it (hub-managed key, invisible to the user)
+2. Sign it with the hub's delegated key (spec §4.6; invisible to the user)
 3. Discover the recipient's inbox from their `openfeed.json` (`inbox` field)
 4. POST the signed item verbatim; retry with backoff on 5xx/timeout
 5. For relations meant to be seen (`reply`, `repost`, `quote`, `mention`), also publish the same item in the sender's own feed so it's discoverable by polling. Likes stop at the inbox — no `_feed_url`, no feed, no manifest (spec §8)
@@ -452,7 +454,7 @@ When a family member self-hosts, their journal entries should appear in the fami
 
 Start with polling. Add WebSub later if latency matters. Polling also **heals missed inbox deliveries**: a reply found in a member's feed whose `_rel` targets a hub entry is reconciled against the inbox record (the feed is authoritative; the inbox is a cache).
 
-**External `family` feeds (the two-self-hosters case):** when a relative runs their own hub, their `family` feed is fetched like any other feed — it is a public, CORS-`*`, manifested file whose *contents* are encrypted to the family audience (spec §11.3). There is no authenticated fetch, no `401`, and no reader list: the hub polls it exactly as it polls a public feed, and decrypts with the reading member's encryption key. For hub-managed members the hub holds that key and decrypts server-side; a member holding their own key decrypts client-side and the hub renders nothing for them. This is why cross-hub family sharing works at all without a second authorization mechanism — and why the encryption extension is a launch dependency rather than a nice-to-have.
+**External `family` feeds (the two-self-hosters case):** when a relative runs their own hub, their `family` feed is fetched like any other feed — it is a public, CORS-`*`, manifested file whose *contents* are encrypted to the family audience (spec §11.3). There is no authenticated fetch, no `401`, and no reader list: the hub polls it exactly as it polls a public feed. Decryption happens in the reading member's own client, since the hub holds no member's encryption key (see "Key custody") — the hub's job on this path is fetching, verifying, and handing over bytes it cannot read. This is why cross-hub family sharing works at all without a second authorization mechanism — and why the encryption extension is a launch dependency rather than a nice-to-have.
 
 ```typescript
 interface ExternalMember {
@@ -514,13 +516,34 @@ For inbox items, authorship is cryptographic (the signature + author binding), s
 
 ## Signatures
 
-All published artifacts are signed with one construction (spec §6): detached JWS Compact Serialization with **unencoded payload** (RFC 7515 + RFC 7797), Ed25519, over RFC 8785-canonical bytes. This single construction signs identity documents, feed items, and manifests identically. On the hub, signing happens at write time with hub-managed keys (invisible to users); self-hosters sign with their own keys.
+All published artifacts are signed with one construction (spec §6): detached JWS Compact Serialization with **unencoded payload** (RFC 7515 + RFC 7797), Ed25519, over RFC 8785-canonical bytes. This single construction signs identity documents, feed items, and manifests identically. On the hub, items and manifests are signed at write time with the hub's **delegated** key (spec §4.6), invisibly to the member; versions of `openfeed.json` are signed by the member's **root** key on their own device (see "Key custody"). Self-hosters sign everything with their own keys.
 
 ### Where keys live
 
 Keys are JWK objects in the `keys` array of the identity document (`openfeed.json`) — there is **no separate JWKS document** (spec §3.2, §4). Key ownership is structural: the identity named by a `kid` either lists the key or it doesn't (spec §4.2).
 
 The full key identifier in a JWS header is `{identity_url}#{kid}` (spec §4.2), e.g. `https://jessepence.com/#key-1` — **not** a JWKS URL fragment. Verifiers split at the **last** `#`: left side is the identity URL, right side is the `kid` to find in that identity's `openfeed.json`.
+
+### Key custody: delegated by default
+
+**The hub is a servant, not a custodian** (spec §12's recommended architecture). Each member's identity carries three keys generated in the member's own client at onboarding, plus one the hub holds:
+
+| Key | `use` | Generated | Held by | Signs / does |
+|---|---|---|---|---|
+| Root signing key | `sig` | Member's device | Member only | Every version of `openfeed.json` — keys, profile, endpoints, migration |
+| Recovery key | `recovery` | Member's device | Member, offline | Co-signs migration and fork resolution (spec §4.5) |
+| Encryption key | (extension, spec §15.1) | Member's device | Member only | Decrypts `family` content |
+| Delegated key | `delegated` | Hub | Hub | Feed items, manifests, delivered items — **never** an identity-document version (spec §4.6) |
+
+Day to day this is invisible: publishing an entry, batching a manifest, propagating a tombstone, POSTing an interaction — all of it runs on the delegated key with the member's device asleep. What changes is what the hub *cannot* do. It cannot add a key, un-revoke one, publish a `successor`, or edit the delegation itself, because every one of those is a version of the identity document and the hub never held a key that can sign one. The hostile-custodian adversary's cheapest identity attack — quietly adding a key of its own to the chain — stops being a thing this hub is trusted not to do and becomes a thing it cannot do.
+
+**Identity-chain events therefore need the member's device**, and there are few of them: key rotation, revoking the hub's delegation, profile edits, migration — five to twenty in an identity's life, plus profile changes. The flow is the same every time: the hub composes the candidate version bytes, the client shows the member a diff of what changed, and the **root key signs on-device**. Build this once, in Phase 1, and every later ceremony reuses it.
+
+What delegation does **not** buy, stated plainly so the UI never overstates it: a hub holding a delegated key can impersonate a member's *content* until the member revokes the delegation, and revocation is itself a root-signed chain version, so the member must still be able to reach their root key. And where this hub also ships the client (it does), every client-side guarantee is bounded by that client — the out-of-band genesis comparison at onboarding step 3b is the one check that survives it (spec §13.2, delegated-custodian tier).
+
+**Root-key loss** falls back to the recovery key: the member re-establishes at a new URL carrying `predecessor` with a recovery co-signature (spec §3.4, §4.5), which is the same path as domain loss and already on the Phase 1 list. Same-URL root replacement is deliberately not supported — a hub that could re-key a member's identity in place is the custodian this architecture exists to eliminate.
+
+**Where a deployment cannot meet this** — a purely server-side signup with no client capable of generating or holding keys — spec §12 requires it to *disclose* that the operator can rewrite the member's identity state, not merely impersonate their content. That is a materially different sentence from the email trust model, and it must be shown to the member, not buried.
 
 ### JWS header (spec §6.2)
 
@@ -786,7 +809,7 @@ Atom (not RSS 2.0) for maximum compatibility with plain feed readers (spec Level
 
 What this buys, versus the authenticated-fetch design it replaces: the feed stays statically hostable and CDN-cacheable, the completeness proof survives, the export bundle and migration cover it, and cross-reader equivocation detection works by construction rather than needing a separate commitment mechanism.
 
-What it costs, and users must be told: **the metadata is public.** Anyone can see that this identity posted, when, how often, and — from `_rel` — who replied to whom. Only the content is opaque. Where the interaction graph itself is sensitive, keep those items off the feed and deliver them to inboxes instead (spec §11.1). See also the honest bound on the guarantee: encrypted content is exactly as private as the recipient's key custody, and for hub-managed members that means this hub can read it.
+What it costs, and users must be told: **the metadata is public.** Anyone can see that this identity posted, when, how often, and — from `_rel` — who replied to whom. Only the content is opaque. Where the interaction graph itself is sensitive, keep those items off the feed and deliver them to inboxes instead (spec §11.1). See also the honest bound on the guarantee: encrypted content is exactly as private as the recipient's key custody. Here every member holds their own encryption key, so this hub cannot read `family` content — with the residual stated at "Key custody": the hub also ships the client that holds the key.
 
 ### Visibility Changes & Unpublishing
 
@@ -852,18 +875,19 @@ interface AIContext {
 | User's own entries (all) | Other users' private entries |
 | User's own drafts | Other users' drafts |
 | Family posts user can see | Other users' AI conversations |
-| Comments on user's entries | Auth tokens, passwords, signing keys |
+| Comments on user's entries | Auth tokens, passwords, any private key |
+| Encrypted `family` content — **only in the member's own client**, which is the only place it decrypts | Encrypted content, server-side: the hub holds no encryption key |
 
 AI conversations are stored per-user and never shared with other users or their AI companions.
 
-**Cross-user consent:** "Family posts user can see" means *other members'* content — including their `family`-visibility entries — enters this user's AI context and is sent to the AI provider, which those authors never explicitly agreed to. Handle this explicitly:
+**Cross-user consent:** "Family posts user can see" means *other members'* content — including their `family`-visibility entries — enters this user's AI context and reaches whatever model serves it, which those authors never explicitly agreed to. Encryption changes *where* that happens, not whether it needs consent: once `family` content is encrypted (Phase 3), the hub cannot assemble it at all, so the disclosure happens in the reading member's own client and is theirs to make. Handle it explicitly either way:
 
-- Disclose during onboarding that family-visible posts may be processed by the AI provider on behalf of other members
+- Disclose during onboarding that family-visible posts may be processed by a model on another member's behalf, and say which model runs where — on the hub, on that member's device, or at a provider that member chose
 - Provide a per-user opt-out (`ai_exclude` flag): excluded members' entries and comments never enter anyone else's AI context
 - Never include another member's `private` entries or drafts (already the rule above)
 - **Delivered-only items never enter AI context.** An interaction with no `_feed_url` is one its author deliberately kept off the public web (spec §11.1.1), and on encrypted content that is where every family reply lives by design (spec §15.4). Shipping it to the AI provider is not a §11.1.1 violation — an API call is not a publicly-readable artifact — but it is the same disclosure the sender declined, made on their behalf by the hub. Gate it on the field the republication gate already reads: `if (!item._feed_url) return`, on the context-assembly path as well as the publish path. A member's *own* client running over their *own* inbox is a different question and theirs to answer; this binds the hub
-- Be precise about what `ai_exclude` is worth: with hub-managed keys it is a **policy promise** the hub keeps, enforceable only by the hub. It becomes a cryptographic fact only for a member who holds their own encryption key, where exclusion means "not in the wrap-list" and the hub could not include them if it wanted to. Say which one a given member is getting
-- Note the collision this creates: server-side AI and host-blind reading are mutually exclusive on the same content. Encrypting an entry means the AI for it runs client-side. That is coherent, but it makes encryption a per-entry mode rather than a global default — and it is scheduled work, not a footnote. **Client-side AI companion** is a Phase 3 item below, because without it the configuration this document recommends everywhere else (client-held encryption keys — see "Signing Hub Content") silently costs a member the product's headline feature. Until it ships, state plainly which members get the AI and which do not
+- Be precise about what `ai_exclude` is worth. On **encrypted** content it is a cryptographic fact: exclusion means "not in the wrap-list," and no server-side process could include them if it wanted to. On cleartext content the hub stores — `public` and `unlisted` entries, drafts, comments — it is a **policy promise** the hub keeps, enforceable only by the hub. Say which one applies to the content at hand rather than which one applies to the member
+- The underlying rule: **server-side AI and host-blind reading are mutually exclusive on the same content**, and this product has chosen host-blind for `family`. So the companion for `family` content runs client-side — a scheduled Phase 3 item shipping alongside encryption, not a footnote. Until it ships, `family` entries are not published at all (see "What Gets Published") and the AI works over cleartext the hub already holds; state plainly which tiers get which
 
 ### Daily Flow
 
@@ -935,14 +959,17 @@ Start with in-app notifications. Add email/push later.
 
 1. Admin creates invite: `POST /api/invites` → returns invite link
 2. Invitee clicks link, creates account (username, password/passkey)
-3. Hub generates the member's **signing** key and publishes their genesis `openfeed.json` (`seq: 1`), empty feed, and genesis manifest
-3a. The member's **recovery key is generated in the browser/app on their own device and never transmitted to the hub** (spec §4.5). The hub receives only the public JWK to commit in the chain. The member is walked through storing the private half somewhere the hub cannot reach — a password manager, a printed card, a second device.
+3. The **member's client generates three keys — root signing, recovery, and encryption — on their own device**, and sends the hub only their public JWKs (spec §4.5, §12, "Key custody"). The hub generates its own **delegated** key, composes the genesis `openfeed.json` (`seq: 1`) carrying all four public keys, and the client signs it with the root key. The hub then publishes it along with an empty feed and genesis manifest, both signed with the delegated key.
+
+   Generating all three at once is why this costs no extra friction: the ceremony below already had to happen for the recovery key, and the root and encryption keys ride along in the same generate-and-store step. Automatic client-side generation with a good default is the design goal — the member should see a "save this" moment, not a key-management screen.
+
+3a. The **recovery key never leaves the device** and is the one the member must store deliberately — a password manager, a printed card, a second device.
 
    **Place the recovery key well** (spec §4.5): a card in a drawer is exactly the artifact a hostile-custodian adversary (spec §13.2) has physical access to, and that adversary holding both the hub and the recovery key can produce a competing branch spec §5.5 actively prefers. Help the member store the private half with someone the operator cannot reach — held elsewhere is the version of this that survives the threat model the product is built around. It costs onboarding friction, which is real — so make it an offer with a good default, not a wall.
 
    This step is not optional and not a nicety: a recovery key the operator generated is not a check on the operator, and without it a member **cannot leave** (spec §3.4, §14). It is the single most important thing this onboarding flow does. Note that spec §12 attaches this MUST to *hosting identities for other people*, not to Level 3 — it binds this hub from the first member in Phase 1, long before there is an inbox.
 
-3b. **Show the member their genesis `(seq, hash)` and their recovery key's fingerprint**, in a form they can read aloud or photograph — and tell them to compare it with one relative. Record every later chain version's own hash and expose it on a "chain receipts" page (spec §4.5, §5.2, §12).
+3b. **Show the member their genesis `(seq, hash)` and the fingerprints of their root and recovery keys**, in a form they can read aloud or photograph — and tell them to compare it with one relative. Record every later chain version's own hash and expose it on a "chain receipts" page (spec §4.5, §5.2, §12).
 
    Step 3a is defeated in full without this, while being honored to the letter. A hub that publishes the identity document also chooses what it says, and first contact is trust-on-first-use: this hub could serve *the member's* client a genesis carrying their real recovery key and serve *everyone else* one carrying a key it holds. The member's own view would be correct. At exit their co-signature would fail against every consumer's pin while the hub produced a competing branch that spec §5.5 *prefers*. One relative comparing one hash defeats it, and nothing else does — the defence is comparison, not cryptography.
 4. Invitee is added with `member` role
@@ -962,6 +989,8 @@ A member must be able to leave without the operator's cooperation. This is a req
 
    **It MUST also carry the unpublished half** — every `private` and `unlisted` entry, every draft, and the member's AI conversations — in spec §14's `unpublished` slot. This is the part most likely to be skipped and the part that matters most here: the published feed is, by construction, the content the member already gave away. A journaling app whose export returns the public journal and withholds the private one has built a backup, not an exit. Sign private entries at rest with the ordinary construction and no `_feed_url` (spec §6) so they land in the bundle export-native rather than as a loose dump.
 2. **Re-establish elsewhere.** The member stands up a new identity at a URL they control, carrying `predecessor`, and co-signs it with the recovery key from onboarding step 3a — which this hub never held and therefore cannot forge a competing branch with.
+
+   Delegated custody adds a lever before that one. The member's **root key** can revoke the hub's delegation and publish the departure directly, from their own device, with no card to find and nothing to reconstruct — and because the hub never held a key that can advance the identity chain, it cannot answer with a branch of its own. The recovery key is what remains for the harder cases: domain loss, or a root key the member no longer has.
 3. **Consumers follow.** Anyone holding a pin of the old identity verifies the co-signature against the recovery key committed in the chain and follows the migration, with no participation from this hub (spec §3.4).
 
 If any one of the three is missing, there is no exit. Build all three, and test the walkthrough end to end before launch — with the hub deliberately refusing to help.
@@ -974,7 +1003,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 - [ ] **Per-member subdomains** (DNS + wildcard/ACME TLS; one document root per subdomain). Identity URLs are permanent, so this precedes the first onboarding — see "Decision: subdomains, not subpaths"
 - [ ] User auth (magic links or passkeys)
-- [ ] Per-user keypair generation; hub-managed keys encrypted at rest
+- [ ] **Client-side key generation** (root + recovery + encryption on the member's device) and the on-device root-signing flow for identity-chain versions; the hub's per-member delegated key stored encrypted at rest (spec §4.6, §12; see "Key custody")
 - [ ] **Serve `openfeed.json`** per user (signed, chained; profile + keys + endpoints), retaining prior versions at `openfeed/{seq}.json` once `seq > 1` (spec §3.2, §5.4)
 - [ ] Entry CRUD
 - [ ] **`family` entries stay unpublished until Phase 3's encryption lands** — held in the app and in the export bundle's `unpublished` slot, never written to `feed.json`, `manifest.json`, or the Atom mirror. A cleartext family feed behind a login wall cannot be taken back later (see "What Gets Published")
@@ -993,6 +1022,8 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 ### Phase 2: AI Integration
 
+**Where the companion runs follows what it can read.** Phase 2's content — drafts, `private`, `public`, and `unlisted` entries — is cleartext on the hub, so server-side context assembly is fine and simplest. `family` content is encrypted from Phase 3 onward to keys the hub never holds (see "Key custody"), so its drafting and assembly move into the member's client. Build the context assembler once, behind an interface that can run in either place; that is the entire cost of not painting yourself into a server-side corner, and paying it here is much cheaper than paying it in Phase 3.
+
 - [ ] Conversation UI
 - [ ] AI context assembly
 - [ ] Entry drafting from conversation
@@ -1009,7 +1040,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Thread backfill during polling: reconcile external feed items whose `_rel` targets hub entries, healing replies whose inbox delivery was missed (the signed feed is the source of truth; the inbox is a latency optimization)
 - [ ] External entries in family feed
 - [ ] **Encrypted content** (spec §15) for `family`-visibility feeds — a **launch dependency** for cross-hub family sharing, not an optional extra, and the gate on publishing `family` entries in any form at all (Phase 1 holds them back). Broadcast to an **author-held** audience list is specified and shippable — the list never leaves the client (spec §11.2). What needs a *published* membership document is group **replies**, because a replier must wrap to an audience they did not choose, and the spec deliberately defines no such document (spec §11.2). Until something does, cross-hub family *posts* work and family *replies* are single-hub only
-- [ ] **Client-side AI companion** for members holding their own encryption keys — drafting and context assembly running in the member's own client, because the hub cannot read their entries to assist with them. This is the other half of the encryption item above, not an optimization: a member who takes custody of their encryption key gets no server-side AI on encrypted entries, and what they lose is the product. Either scope this or descope client-held encryption keys for v1 — do not ship the pair undecided, because the default that results is "we recommended client-held keys and quietly gave those members a worse app"
+- [ ] **Client-side AI companion** — the other half of the encryption item above, and scoped rather than optional. Every member holds their own encryption key, so on `family` content the hub is blind, and drafting and context assembly run in the member's client against content only that client can decrypt. Shipping encryption without this would quietly remove the product's headline feature from exactly the tier the product is about. Two viable engines: a local model on the member's device (increasingly plausible on ordinary hardware, and the version with no third party at all), or the member's own provider key called from their own client — in which case say plainly that the content reaches that provider, since the hub can no longer make that disclosure on their behalf
 - [ ] **Exit, re-tested across hosts** — the export bundle and recovery keys ship in Phase 1 (above); what Phase 3 adds is the other end, a consumer that follows a recovery-based migration from a pin with no cooperation from this hub (spec §3.4, §14)
 
 **Test**: Can Jesse (self-hosted) post a signed reply item to Mom's inbox and have his own signed entries appear verified (signature + manifest) in the family feed?
@@ -1023,7 +1054,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Profile customization (advances the identity chain)
 - [ ] Search (entries, comments)
 - [ ] Signing tools for self-hosters
-- [ ] Optional `follows` document and item-carried `_pins` (spec §16) for family-scale anti-equivocation and recovery propagation
+- [ ] Item-carried `_pins` (spec §16) for family-scale anti-equivocation and recovery propagation, plus the optional `_follows` document (a README convention, not a spec document) as the natural trust set for weighing them
 
 **Test**: Does it feel good to use daily?
 
@@ -1056,18 +1087,18 @@ For hub members the gateway is naturally a hub-operated service; for self-hoster
 - **Timestamps and restarts.** `date_published` on a delivered item is the gateway's signing time (or the inbox's 7-day bound rejects backfill); the foreign creation time rides in an extension key on the `_rel` entry. The gateway persists its foreign-object → `(author, id)` mapping so a restart cannot orphan later tombstones.
 - **Deletion is best-effort.** A foreign delete observed by the gateway becomes a delivered tombstone; one it never observes leaves the copy in the member's inbox and export bundle. The enrollment flow states this.
 
-**What renders under a post.** Beneath an entry page, the app shows three bands with distinct provenance: verified family replies (signed, published or delivered by known family); `_unverified` backfeed from enrolled gateways, rendered on the **entry's HTML page only** — the unsigned, revocable surface spec Appendix C and §11.1.1 permit, which honors a later foreign deletion — clearly marked as from Mastodon/Bluesky and never entering any signed artifact; and delivered-private family content, which renders **only** in the authenticated family view, never on the public page. These three MUST NOT share a "verified" badge (spec Appendix B.2).
+**What renders under a post.** Beneath an entry page, the app shows three bands with distinct provenance: verified family replies (signed, published or delivered by known family); `_unverified` backfeed from enrolled gateways, rendered on the **entry's HTML page only** — the unsigned, revocable surface spec Appendix C and §11.1.1 permit, which honors a later foreign deletion — clearly marked as from Mastodon/Bluesky and never entering any signed artifact; and delivered-private family content, which renders **only** in the authenticated family view, never on the public page. These three MUST NOT share a "verified" badge (spec §13.16).
 
 ### ActivityPub (Mastodon/Fediverse) — mirroring class
 
-The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (spec Appendix C.4).
+The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (README, "vs ActivityPub").
 
 Two things this bridge MUST NOT do, both of which a naive implementation does by default (spec §11.1.1, F.2): emit an item with no `_feed_url` (delivered, not published — the family comment threads), and emit anything derived from an encrypted item, **including a placeholder**. Encrypted posts are skipped entirely, not announced as "encrypted post."
 
 ### Public Discovery
 
 Currently, you share your URL directly. For public discovery:
-- WebFinger support (`/.well-known/webfinger`) resolving `@user@domain` to the identity URL, after which clients fetch `openfeed.json` as authoritative (spec Appendix B)
+- WebFinger support (`/.well-known/webfinger`) resolving `@user@domain` to the identity URL, after which clients fetch `openfeed.json` as authoritative (a README convention, not a spec document)
 - Hub directory page
 - Search engine optimization
 
@@ -1172,7 +1203,8 @@ No server required for Level 2. Receiving interactions (an inbox) needs a small 
 -- Hub users
 users (id, username, display_name, bio, avatar_url, role, created_at)
 
--- Signing keys (hub-managed), including recovery keys; drives openfeed.json `keys`
+-- Public JWKs for every key (root, recovery, encryption — public halves only) plus the hub's
+-- own delegated private key; drives openfeed.json `keys`
 -- Never DELETE a row and never drop a key from openfeed.json: revocation ends authority,
 -- delisting ends verifiability of everything it ever signed (spec §4.3)
 keys (id, user_id, kid, use, public_jwk, private_key_encrypted, iat, revoked_at, created_at)
@@ -1283,7 +1315,9 @@ Keep it simple for a family app, but honest about the trust model (spec §13).
 
 ### Trust model (be honest)
 
-The hub holds users' signing keys, so it *can* impersonate them forward — the email trust model, stated plainly (spec §13.2). What it **cannot** do is silently rewrite the past against a consumer who has pinned: both chains (identity and manifest) are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins. Offering client-side keys (or, later, the delegation extension — HANDOFF.md, pending decision) moves a user off the key-custodian tier.
+The hub holds a **delegated** key per member and nothing more (spec §4.6, see "Key custody"), which fixes exactly what it can be dishonest about. It **can** impersonate a member's *content* — sign an entry they never wrote — until the member revokes the delegation from their own device. It **cannot** touch identity state at all: not adding a key, not un-revoking one, not publishing a `successor`, because every one of those is a version of `openfeed.json` and the hub has never held a key that can sign one. And it cannot silently rewrite the *past* against a consumer who has pinned: both chains are retained and served, so removals surface as signed tombstones and per-consumer rewriting surfaces as a fork (same-`seq`/different-hash), detectable via pins.
+
+The residual, stated where the operator will read it: this hub ships the client that generates and holds those keys, so every client-side guarantee is bounded by that client (spec §13.2, delegated-custodian tier). The check that survives is the out-of-band comparison at onboarding 3b — one relative comparing one hash — which is why that step is not a nicety.
 
 **The case this hub has to take seriously**, because it is the one the protocol names as its own hostile-custodian adversary (spec §13.2): the operator of a family hub is a family member, and family members are sometimes the danger. That adversary reads everything the hub can read, sees the metadata no mechanism hides, is not deterred by transparency because they are entitled to look, and can decline to let someone leave. Nothing in the integrity machinery helps, and neither does encryption if the operator supplies the client and generated the keys.
 
@@ -1332,7 +1366,7 @@ For every outbound fetch (verifying inbox items, polling feeds, resolving `openf
 
 To keep scope manageable:
 
-- **End-to-end encryption *by default*** - With hub-managed keys the admin can read everything; say so rather than implying otherwise. Encrypted content is available as an optional extension (spec §15) and is what makes cross-hub `family` visibility work at all — but its guarantee is exactly as strong as the recipient's key custody, so for hub-managed members it protects content from *other* hosts and CDNs, not from this one. Client-held encryption keys are the upgrade path; offer them, don't assume them.
+- **End-to-end encryption for *everything*** - Encryption (spec §15) covers `family` content, which is what makes cross-hub `family` visibility work at all, and members hold their own keys. It does not cover `public` or `unlisted` entries, which are published in cleartext by definition, nor drafts and conversations the hub stores to run the app. The admin can read those; say so rather than implying otherwise. And no amount of encryption defends against the operator as *audience member* — they are inside the family.
 - **Algorithmic feeds** - Chronological only. No engagement optimization.
 - **Global-scale firehose/aggregator** - Open Feed scales across identities, not into a global index (spec §13.4). Public discovery is share-your-URL.
 - **Real-time chat** - This is journaling, not messaging.
@@ -1369,12 +1403,12 @@ Interactions are items with a `_rel` array (spec §8); build the model around th
 
 Hub content is signed on write (spec §6, §6.6):
 
-1. Generate a **signing** keypair per hub user and store the private half encrypted at rest. The **recovery** key is generated on the member's device and never reaches the hub (spec §4.5) — the hub stores only its public JWK. Encryption keys, if offered, follow the recovery key: client-held, or the guarantee is void. **Never remove a public key from `openfeed.json`**, even long after rotation: revocation ends a key's authority, delisting ends verifiability of every item it ever signed, and verifiers resolve a `kid` against the *current* document (spec §4.3, §6.5)
+1. Generate a **delegated** keypair per hub user (spec §4.6) and store the private half encrypted at rest. The member's **root**, **recovery**, and **encryption** keys are generated on their own device and never reach the hub (spec §4.5, §12) — the hub stores only their public JWKs. **Never remove a public key from `openfeed.json`**, even long after rotation: revocation ends a key's authority, delisting ends verifiability of every item it ever signed, and verifiers resolve a `kid` against the *current* document (spec §4.3, §6.5)
 2. Add `_sig` to each feed item on publish; include the single-entry `authors` binding and `_feed_url`
 3. Advance and re-sign the **manifest** on every publish/edit/delete (spec §9)
 4. Keys live in `openfeed.json`; `kid` = `{identity_url}#{kid}` (no separate JWKS)
 5. Sign once on write and cache the signature (don't re-sign on read)
-6. Key custody: hub-managed is the default (invisible, hub can impersonate — documented, spec §13.2); offer client-side keys for members who want them, and watch for the delegation extension (HANDOFF.md, pending decision) that moves hub custody down a trust tier without a second signing construction
+6. Key custody: **delegated by default** (spec §4.6, §12) — the member's device holds root, recovery, and encryption keys; the hub holds a delegated key that signs items and manifests but can never advance the identity chain. Day-to-day publishing stays invisible; identity-chain versions wake the member's client for an on-device root signature. See "Key custody"
 
 ### If You Need Real-Time Updates
 
@@ -1396,7 +1430,7 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 
 ### Nostr / atproto
 
-- **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — relevant if you explore the delegation extension (HANDOFF.md, pending decision). Also the simplest syndication target: publishing to relays needs no OAuth, no domain verification, no PDS, and a Nostr event can carry an `r` tag pointing at the entry permalink
+- **Nostr**: the pinned identity chain is exactly the revocation substrate whose absence limited Nostr's NIP-26 delegation — which is why spec §4.6's delegation is safe here and NIP-26's was not. Also the simplest syndication target: publishing to relays needs no OAuth, no domain verification, no PDS, and a Nostr event can carry an `r` tag pointing at the entry permalink
 - **atproto**: a full content bridge is the heaviest option (mirror PDS: DID + DAG-CBOR + MST). The practical identity seam is the **domain handle** — `mom.pence.family` resolves to the member's DID via DNS TXT or `/.well-known/atproto-did`, working with an ordinary bsky.social-hosted account (README, "Aliases": WebFinger and did:web are README conventions). `did:web` is atproto-valid only at hostname level (another reason for subdomain identities), and atproto signing keys are P-256/K-256 — the Ed25519 key never crosses
 
 ### Known Libraries

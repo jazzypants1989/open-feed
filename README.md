@@ -74,7 +74,7 @@ Two things make that real rather than nearly real, and both are requirements rat
 
 ### Trust Model
 
-**Be clear about this:** if your hub holds your signing key (the simple default), the admin can sign content as you. That is the same trust model as email — you trust your provider not to read your mail even though they could. For family hubs, this is fine.
+**Be clear about this:** if your hub holds your signing key — the simplest arrangement, and what most hosted setups do today, though no longer what the spec recommends (§12) — the admin can sign content as you. That is the same trust model as email — you trust your provider not to read your mail even though they could. For family hubs, this is fine.
 
 But the trust model is a **gradient, not a binary** (§13.2):
 
@@ -509,7 +509,7 @@ Because "delivered" is a choice the author makes and *other people* enforce, the
 
 **Encrypted content** (spec §15, optional) is an ordinary signed item whose content is an opaque payload. The feed stays public, CORS-`*`, statically hostable, byte-identical for everyone; the host serves bytes it can't read. Its guarantee, stated plainly: **exactly as private as the recipient's key custody** — if their host holds their key, their host can read it. It is not a defence against your own host.
 
-One rule predicts the rest: **any audience larger than one needs a membership decision.** A DM needs none — there is exactly one counterparty. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not, and one the spec deliberately leaves out of scope (§11.2): group audiences wait until something can define them safely.
+One rule predicts the rest: **any audience larger than one needs a membership decision.** A DM needs none — there is exactly one counterparty. A group does, because a replier is a reader and nothing tells them who the audience is — a membership problem, identical whether the content is encrypted or not, and one the spec puts permanently out of scope (§11.2). That isn't a placeholder for a later section: a published roster has to be chained so members can pin it and encrypted so it isn't public, which brings staleness between versions, a custodian who can withhold one, a rekey on every removal, a binding between roster and items, and an identity fetch per reply — a second protocol's worth of trust machinery, and the honest home for it is a separate spec layered on this one. Broadcasting to a list you hold locally works today and is *not* a group: every reply comes back only to you.
 
 ### Follows and pins
 
@@ -520,6 +520,30 @@ One item field specified in spec §16, plus one README-level document convention
 Pins also answer a question the trust model raises and doesn't settle: equivocation is *detectable*, but only if somebody compares. Your own record of what you published is a weak check — a host that knows which client is yours can serve that client the honest branch. Comparison by other people is the durable one.
 
 ⚠️ A published `_follows` document publishes your social graph — keep it client-local if that matters; the enforcement value is entirely local. Pins are scoped so an entry never reveals a reading relationship its carrying item hasn't already revealed: published items pin only the identities they address, and third-party pins ride delivered items alone (§16.1).
+
+### Syndication map (`_syndication`)
+
+A POSSE publisher (see "The POSSE route" below) needs to know where the copies went — to route a foreign reply home when the backlink is missing, and to know what to retract when the original is deleted. A third README-level convention, built like `_follows`: a **signed, unchained** document referenced by a `_syndication` field in the identity document.
+
+```json
+{
+  "url": "https://pence.family/~mom/openfeed.json",
+  "syndication": {
+    "urn:uuid:4f8c...": ["https://mastodon.social/@mom/112233", "at://did:plc:abcd1234/app.bsky.feed.post/3kx..."]
+  },
+  "updated": "2026-02-15T09:00:00Z",
+  "_sig": "..."
+}
+```
+
+Keys are item ids; values are the URIs of the copies. Unchained means no `seq`, no `prev`, nothing committed by a manifest — so it can be rewritten or deleted outright, which is the point: where your copies live is exactly the kind of disclosure you should be able to withdraw, and the map carries no authority anyone verifies anything against. Keep it client-local if you'd rather not publish it at all.
+
+Two shapes it deliberately isn't:
+
+- **A `_syndication` field on the item.** Tombstones are an allowlist (§7.3), so deleting a post strips the field — the targets disappear from the published bytes at exactly the moment you need them to retract the copies. Editing the map also means bumping `_version`, re-signing, and re-manifesting an item whose content never changed.
+- **A signed receipt item per copy.** Doubles the signed artifacts, turns routing into a feed scan, and a published receipt outlives the retraction as a permanent statement of where the copies went — the disclosure this convention lets you erase.
+
+The backlink stays the primary routing key: each syndicated copy links to the entry's permalink, so a gateway observing a reply usually already holds the parent. The map is the fallback and the retraction list.
 
 ### Media integrity and alt text
 
@@ -592,6 +616,7 @@ What the protocol contributes, none of it requiring anything from Mastodon or Bl
 - **A signed claim that the account is yours** — an `_accounts` extension field in your identity document (a convention of this README — see "Foreign accounts" below; the spec's §13.16 carries its warnings). Unlike an HTML `rel="me"`, it can't be varied per reader without forking your chain, and removing it is a dated, signed revocation every pinned reader observes. This is where Open Feed picks up what IndieWeb leaves on the table: IndieWeb's interop links are unsigned HTML assertions a host can vary per reader with no evidence and revise with no record. The honest cost — a permanent, irreversible disclosure of your cross-platform identity graph — is stated at the field, and for some people the deletable HTML link is genuinely the better tool.
 - **A safe channel for responses to return** — backfeed is *delivery, not ingest* (spec Appendix C): foreign replies arrive in your inbox as `_unverified` items, never enter any manifested feed, and may render on your entry page's own revocable HTML surface, which can honor a later foreign deletion the way a permanent signed artifact never could.
 - **A backlink discipline** — each syndicated copy links to the entry's permalink: the routing key for backfeed, and the item-level half of the foreign-attestation rule (see "Foreign accounts" below).
+- **A record of where the copies went** — the `_syndication` map (see "Extensions"), which is what you route an unlinked reply with and what you consult to retract copies when you delete the original.
 
 For a static site with no inbox it's simpler still: your own client polls your own silo notifications and renders what it finds locally. No gateway identity, no delivery, no protocol machinery — the delivery rule exists for third-party gateways (a family hub bridging for its members), not for you.
 
@@ -629,7 +654,7 @@ ActivityPub is comprehensive but complex: JSON-LD, HTTP Signatures, and a large 
 
 atproto is technically decentralized but practically Bluesky-centric today, with DIDs, repos, lexicons, and significant infrastructure. Its signed repo gives it the same anti-omission guarantee Open Feed gets from the manifest, and its DID indirection buys real account portability across hosts.
 
-The portability gap is narrower than it looks, and worth stating precisely. `did:plc` is a chained log of key-rotation operations with recovery keys — structurally the same thing as Open Feed's identity chain (§5) plus recovery keys (§4.5). The difference isn't sophistication, it's *where the log lives*: Bluesky operates it at a neutral third party, so losing your domain doesn't orphan you. Open Feed keeps the log at your own URL and pays for that with the domain-loss risk, mitigated but not fixed by recovery keys and pins. `did:web`, the DID method that isn't centrally operated, is domain-bound exactly as an Open Feed identity URL is — but it serves only the self-hosted-PDS minority, and only at hostname level; the identity seam for an ordinary Bluesky account is the **domain handle** (Appendix B.1). A full content bridge is still a heavy mirror PDS with no transparent path; the lightweight route is POSSE (below).
+The portability gap is narrower than it looks, and worth stating precisely. `did:plc` is a chained log of key-rotation operations with recovery keys — structurally the same thing as Open Feed's identity chain (§5) plus recovery keys (§4.5). The difference isn't sophistication, it's *where the log lives*: Bluesky operates it at a neutral third party, so losing your domain doesn't orphan you. Open Feed keeps the log at your own URL and pays for that with the domain-loss risk, mitigated but not fixed by recovery keys and pins. `did:web`, the DID method that isn't centrally operated, is domain-bound exactly as an Open Feed identity URL is — but it serves only the self-hosted-PDS minority, and only at hostname level; the identity seam for an ordinary Bluesky account is the **domain handle** (see "Foreign accounts" below). A full content bridge is still a heavy mirror PDS with no transparent path; the lightweight route is POSSE (below).
 
 ### vs Nostr
 
@@ -653,7 +678,7 @@ Open Feed builds on JSON Feed, the modern JSON equivalent of RSS/Atom. Plain fee
 
 ### Writing a bridge profile
 
-Spec Appendix C states the one rule that governs every gateway — *a gateway may not change the terms under which content was published*: not the **audience**, not the **durability**, not the **verification status**. Because that rule is protocol-independent, a profile for a specific protocol is a filled-in table rather than a fresh trust argument. None is written yet; this is the template.
+Spec Appendix C states the one rule that governs every gateway — *a gateway may not change the terms under which content was published*: not the **audience**, not the **durability**, not the **verification status**. Because that rule is protocol-independent, a profile for a specific protocol is a filled-in table rather than a fresh trust argument. **Profiles live here rather than in the spec, permanently**: a profile binds to a foreign protocol's behavior of the moment — its visibility flags, its deletion semantics, its identity seam — and normative text that goes stale at a trust boundary is worse than none, because implementers keep obeying it. This is the template; a worked one follows.
 
 | Slot | What it fixes |
 |---|---|
@@ -667,6 +692,25 @@ Spec Appendix C states the one rule that governs every gateway — *a gateway ma
 | **Failure semantics** | The foreign object disappears; a delete arrives for something never ingested; the foreign side is unreachable |
 
 Those last two are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
+
+#### Worked profile: Mastodon, syndication class (POSSE)
+
+The cheapest real profile, and the one most people want. **Class: syndication** — outbound posts go to *your own* Mastodon account; inbound responses are **delivered, never ingested**. Nothing foreign enters a manifested feed, so the safety-critical ingest slots collapse into a delivery test, no proxy identities are minted, and the whole thing is a client with an OAuth token. Written against Mastodon's behavior as of this writing; check the API before implementing, which is exactly why this table isn't in the spec.
+
+| Slot | This profile |
+|---|---|
+| **Identity mapping** | Your identity URL ↔ your own account; no third parties are mapped. Seam is `rel-me` in both directions: a profile metadata field on Mastodon pointing at your identity URL, an `<a rel="me">` back on your human page, and an `_accounts` entry with `proof: "rel-me"` as the signed half (see "Foreign accounts") |
+| **Object mapping** | Published item (has `_feed_url`) → public status. `_rel` `reply` at a foreign status → status with `in_reply_to_id`, resolved from the target URL. `like` → favourite; `repost` → boost. `quote` has no native analog: post as an ordinary status carrying the link, never as a boost |
+| **Source URI form** | Delivered backfeed items carry the foreign status URL in `external_url` (dereferenceable). Each syndicated copy links back to the item's permalink; the copy's URI goes in your `_syndication` map |
+| **Audience test** | Deliver responses whose visibility is `public` or `unlisted` — both world-readable at their URL. `private` and `direct` never leave the silo, at all. The revocable-render carve-out (Appendix C: rendering a delivered `_unverified` item on your own mutable HTML page) applies to `public` only; `unlisted` means "public but not amplified," and putting it on your entry page is amplification the author declined |
+| **Durability test** | Nothing is ingested, so nothing is durabilized publicly — which is *why* this is a syndication profile. Mastodon deletions are real, so a mirroring gateway ingesting statuses into a manifested feed would durabilize content whose deletion is genuine, and Appendix C forbids it. Delivered copies still persist in the recipient's inbox and export bundle until tombstoned: best-effort, never recall |
+| **Update and delete mapping** | Foreign edit → deliver a new `_version` of the delivered item. Foreign delete → tombstone signed by the **same author** as the original delivery, or `(author, id)` dedup can never match it. Keep the foreign-status-id → `(author, id)` map across restarts |
+| **What does not map** | `Follow`, `Accept`, `Block`, poll votes, pins, filters, follow requests. Bridge-internal or none of your business; never invent `_rel` types for them |
+| **Failure semantics** | The notifications API is a cursor over a finite buffer: gaps are normal, so silence is never proof of no reply, and a missed notification must not be reported as a deletion. A delete for a status never delivered → ignore. Account `Move` → the `_accounts` claim drops to unverified until re-checked at the new account. Instance unreachable → assert nothing; the correct output is no output |
+
+#### The Bluesky variant, in one line
+
+Same class, same table; the seam differs. Identity is a **domain handle** (`mom.pence.family` bound by DNS TXT or `/.well-known/atproto-did` to an ordinary Bluesky account), keyed by the immutable DID with `proof: "atproto-handle"`; there is no `unlisted` tier, so the audience test is simply "public," and quote-posts *do* have a native analog.
 
 ---
 
@@ -691,6 +735,12 @@ A: So your host can't lie about *what you published*. Without it, a host could q
 **Q: Is this compatible with Mastodon?**
 
 A: Not natively — but two routes work today, requiring nothing from Mastodon. Zero-effort: an Atom mirror plus h-card, bridged by Bridgy Fed as `@yourdomain.com`. Recommended: POSSE — your own Mastodon account, posted to by your own tooling, with replies delivered back to your inbox (the syndication gateway, Appendix C). Pick one per network; running both splits your reply graph. A full ActivityPub mirroring gateway remains possible and remains a trusted intermediary — no bridge can hold your Open Feed key.
+
+**Q: Can I also sign my posts for another protocol — ActivityPub's object integrity proofs (FEP-8b32), say?**
+
+A: Yes, and it needs nothing from this spec — which is why there's no dual-signing mechanism in it. The recipe: **use a separate keypair for the foreign suite.** Serialize the item into the foreign shape, sign that with the foreign key, and let the two signatures cover different bytes; neither claims anything about the other, and a consumer verifying one learns nothing about the other. Publish the foreign key wherever that suite looks for it — a `did:web` document, an actor object — or list it in `keys` as an extension key with its own `use` value, which core verifiers ignore (§4.1).
+
+What you must not do is sign both constructions with **one** key. Spec §6.1 makes that a MUST: two suites that disagree about what's covered can each accept bytes the other's signer never meant to authorize, and that attack needs no flaw in either suite by itself. Keys are cheap; signature confusion isn't.
 
 **Q: How do I handle private content?**
 
