@@ -577,7 +577,7 @@ Strings are signed **byte-exact as published** — no verify-time Unicode normal
 {"a":2,"b":1}
 ```
 
-Libraries: `canonicalize` (npm) implements RFC 8785 directly.
+Libraries: none needed — `src/canonical.js` in this repo does RFC 8785 and the strict I-JSON parse together, and the strict parse is unavoidable anyway (spec §6.3 requires rejecting duplicate member names, which `JSON.parse` and the `canonicalize` npm package both accept silently).
 
 ### The manifest (spec §9)
 
@@ -1402,11 +1402,13 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 
 ### Known Libraries
 
+**The core needs no dependencies at all.** Node's built-in `crypto` does Ed25519 sign/verify and imports an OKP JWK directly, and the repo's own `src/` implements RFC 8785 plus the strict I-JSON parser in ~200 lines. Reach for the libraries below only where the table says so.
+
 | Purpose | Library | Notes |
 |---------|---------|-------|
-| Ed25519 signing | `@noble/ed25519` | Pure JS, no native deps |
-| JWS/JWK handling | `jose` | Full JWT/JWS/JWK support |
-| JSON canonicalization | `canonicalize` | RFC 8785 implementation |
+| Ed25519 signing | *none* | `crypto.sign(null, input, key)` / `crypto.verify`; `createPublicKey({key: jwk, format:'jwk'})` imports an OKP key |
+| JWS/JWK handling | *none* | The one construction is detached JWS with `b64:false` (spec §6.1); `jose` builds it, but assembling three base64url segments by hand is smaller than configuring it, and `jose` is needed for JWE if you implement spec §15 |
+| JSON canonicalization | *none* | `canonicalize` (npm) implements RFC 8785, but it cannot reject duplicate member names — a spec §6.3 MUST — so a strict parser is required regardless, and it may as well canonicalize too |
 | HTML sanitization | `sanitize-html` | Allowlist-based |
 | Feed parsing | `feedparser` / `rss-parser` | For polling external feeds |
 | Webmention (bridge only) | `send-webmention`, `microformats-parser` | Only if you build the optional IndieWeb bridge |

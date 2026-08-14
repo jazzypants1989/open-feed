@@ -26,6 +26,8 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 | `open-feed-spec.md` | **The specification.** Core §1–§14; OPTIONAL layers §15 (encrypted content) and §16 (follows/pins/replies conventions); Appendices A–E (media types, aliases + foreign accounts, WebSub, test vectors, gateways) |
 | `README.md` | Human-facing docs: examples, protocol comparisons, interop routes, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub |
+| `src/` | **Reference verifier** (Level 1, zero dependencies). `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction. Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
+| `test/` | `npm test`. `appendix-d.test.js` extracts vectors from the spec document itself and resolves keys structurally (§4.2); `negative.test.js` is the must-fail corpus Appendix D has none of |
 | `tmp/regen.js` | Regenerates and validates Appendix D test vectors |
 | `tmp/enc-prototype.js` | Encrypted items; demonstrates the ciphertext-relay attack and §15.2.1's rejection of it |
 | `tmp/circles-prototype.js` | Roster spike — models rollback only, **not** withholding |

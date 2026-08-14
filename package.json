@@ -1,0 +1,13 @@
+{
+  "name": "open-feed",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reference verifier for the Open Feed Protocol (see open-feed-spec.md)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "exports": { ".": "./src/index.js" },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "vectors": "node tmp/regen.js"
+  }
+}

@@ -1,0 +1,217 @@
+// RFC 8785 canonicalization and RFC 7493 (I-JSON) strict parsing.
+//
+// Spec §6.3 makes both a MUST: documents are signed as canonical bytes, and a parser
+// that silently accepts duplicate member names lets one set of bytes verify under two
+// readings. `JSON.parse` keeps the last duplicate without complaint, so the parser here
+// is hand-written rather than delegated.
+
+export class CanonicalError extends Error {}
+export class JsonError extends Error {}
+
+// ---- canonicalization (RFC 8785) ----
+
+function serializeString(s, where) {
+  // Reject lone surrogates: RFC 8785 canonicalizes well-formed Unicode only, and
+  // JSON.stringify would otherwise escape them into bytes no other implementation
+  // would reproduce from the same source text.
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new CanonicalError(`lone high surrogate at index ${i}${where}`);
+      }
+      i++;
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      throw new CanonicalError(`lone low surrogate at index ${i}${where}`);
+    }
+  }
+  // V8's JSON.stringify already matches RFC 8785 §3.2.2.2: shortest escape for the
+  // control characters that have one, lowercase \u00xx for the rest, non-ASCII raw.
+  return JSON.stringify(s);
+}
+
+function serializeNumber(n) {
+  if (!Number.isFinite(n)) throw new CanonicalError(`non-finite number: ${n}`);
+  // RFC 8785 §3.2.2.3 defers to ECMAScript Number::toString, which is what
+  // JSON.stringify applies; -0 renders as "0" under that rule.
+  //
+  // Integers beyond Number.MAX_SAFE_INTEGER lose precision here, as they do in any
+  // double-based implementation. That needs no guard: a verifier that reparsed such a
+  // value would produce different canonical bytes than the publisher and the signature
+  // would fail, which is the correct outcome rather than a silent mismatch.
+  return JSON.stringify(n);
+}
+
+/** Serialize a value to RFC 8785 canonical JSON text. */
+export function canonicalize(value, path = '') {
+  const where = path ? ` (at ${path})` : '';
+  if (value === null) return 'null';
+
+  const t = typeof value;
+  if (t === 'boolean') return value ? 'true' : 'false';
+  if (t === 'number') return serializeNumber(value);
+  if (t === 'string') return serializeString(value, where);
+  if (t === 'bigint') throw new CanonicalError(`BigInt is not representable in I-JSON${where}`);
+  if (t === 'undefined' || t === 'function' || t === 'symbol') {
+    throw new CanonicalError(`${t} is not representable in JSON${where}`);
+  }
+
+  if (Array.isArray(value)) {
+    return '[' + value.map((v, i) => canonicalize(v, `${path}[${i}]`)).join(',') + ']';
+  }
+
+  if (t === 'object') {
+    // RFC 8785 §3.2.3 sorts by UTF-16 code unit, which is what the default
+    // string comparison in Array.prototype.sort already does.
+    const keys = Object.keys(value).sort();
+    const parts = keys.map((k) => {
+      const v = value[k];
+      if (v === undefined) throw new CanonicalError(`undefined value at key ${JSON.stringify(k)}${where}`);
+      return serializeString(k, where) + ':' + canonicalize(v, path ? `${path}.${k}` : k);
+    });
+    return '{' + parts.join(',') + '}';
+  }
+
+  throw new CanonicalError(`not representable: ${t}${where}`);
+}
+
+/** Canonical bytes, the form everything in this protocol is signed and hashed over. */
+export function canonicalBytes(value) {
+  return Buffer.from(canonicalize(value), 'utf8');
+}
+
+// ---- I-JSON parsing (RFC 7493) ----
+
+const NUMBER_RE = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/;
+const ESCAPES = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+
+class Parser {
+  constructor(text) {
+    this.s = text;
+    this.i = 0;
+  }
+
+  error(msg) {
+    return new JsonError(`${msg} at offset ${this.i}`);
+  }
+
+  skipWs() {
+    while (this.i < this.s.length) {
+      const c = this.s[this.i];
+      if (c === ' ' || c === '\t' || c === '\n' || c === '\r') this.i++;
+      else break;
+    }
+  }
+
+  expect(ch) {
+    if (this.s[this.i] !== ch) throw this.error(`expected ${JSON.stringify(ch)}`);
+    this.i++;
+  }
+
+  parseValue(depth = 0) {
+    if (depth > 200) throw this.error('nesting too deep');
+    this.skipWs();
+    if (this.i >= this.s.length) throw this.error('unexpected end of input');
+    const c = this.s[this.i];
+    if (c === '{') return this.parseObject(depth);
+    if (c === '[') return this.parseArray(depth);
+    if (c === '"') return this.parseString();
+    if (this.s.startsWith('true', this.i)) return (this.i += 4), true;
+    if (this.s.startsWith('false', this.i)) return (this.i += 5), false;
+    if (this.s.startsWith('null', this.i)) return (this.i += 4), null;
+    return this.parseNumber();
+  }
+
+  parseObject(depth) {
+    this.expect('{');
+    const out = {};
+    const seen = new Set();
+    this.skipWs();
+    if (this.s[this.i] === '}') return this.i++, out;
+    for (;;) {
+      this.skipWs();
+      if (this.s[this.i] !== '"') throw this.error('expected member name');
+      const key = this.parseString();
+      // The rule this whole parser exists for (spec §6.3, RFC 7493).
+      if (seen.has(key)) throw this.error(`duplicate member name ${JSON.stringify(key)}`);
+      seen.add(key);
+      this.skipWs();
+      this.expect(':');
+      out[key] = this.parseValue(depth + 1);
+      this.skipWs();
+      const c = this.s[this.i];
+      if (c === ',') { this.i++; continue; }
+      if (c === '}') { this.i++; return out; }
+      throw this.error('expected "," or "}"');
+    }
+  }
+
+  parseArray(depth) {
+    this.expect('[');
+    const out = [];
+    this.skipWs();
+    if (this.s[this.i] === ']') return this.i++, out;
+    for (;;) {
+      out.push(this.parseValue(depth + 1));
+      this.skipWs();
+      const c = this.s[this.i];
+      if (c === ',') { this.i++; continue; }
+      if (c === ']') { this.i++; return out; }
+      throw this.error('expected "," or "]"');
+    }
+  }
+
+  parseString() {
+    this.expect('"');
+    let out = '';
+    for (;;) {
+      if (this.i >= this.s.length) throw this.error('unterminated string');
+      const c = this.s[this.i];
+      if (c === '"') { this.i++; return out; }
+      if (c === '\\') {
+        this.i++;
+        const e = this.s[this.i];
+        if (e === 'u') {
+          const hex = this.s.slice(this.i + 1, this.i + 5);
+          if (!/^[0-9a-fA-F]{4}$/.test(hex)) throw this.error('bad \\u escape');
+          out += String.fromCharCode(parseInt(hex, 16));
+          this.i += 5;
+        } else if (e in ESCAPES) {
+          out += ESCAPES[e];
+          this.i++;
+        } else {
+          throw this.error(`bad escape \\${e}`);
+        }
+        continue;
+      }
+      const code = this.s.charCodeAt(this.i);
+      if (code < 0x20) throw this.error('unescaped control character in string');
+      out += c;
+      this.i++;
+    }
+  }
+
+  parseNumber() {
+    const m = NUMBER_RE.exec(this.s.slice(this.i));
+    if (!m) throw this.error('invalid value');
+    this.i += m[0].length;
+    const n = Number(m[0]);
+    if (!Number.isFinite(n)) throw this.error('non-finite number');
+    return n;
+  }
+}
+
+/**
+ * Parse JSON with I-JSON strictness: duplicate member names are rejected rather than
+ * silently collapsed, and lone surrogates are rejected so parse/canonicalize round-trips.
+ */
+export function parseIJSON(text) {
+  const p = new Parser(text);
+  const value = p.parseValue();
+  p.skipWs();
+  if (p.i < p.s.length) throw p.error('trailing content after top-level value');
+  // Surfaces lone surrogates introduced by \u escapes at parse time rather than later.
+  canonicalize(value);
+  return value;
+}
