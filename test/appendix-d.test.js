@@ -18,7 +18,10 @@ import {
   verifyDocument,
   normalizeIdentityUrl,
   claimedAuthor,
-  VerifyError,
+  parseKid,
+  parseDetachedSig,
+  findKey,
+  effectiveSigningTime,
 } from '../src/index.js';
 
 const SPEC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'open-feed-spec.md');
@@ -44,18 +47,24 @@ const vectors = extractVectors(specText);
 const signed = vectors.filter((v) => typeof v.doc._sig === 'string');
 const identityDocs = signed.filter((v) => Array.isArray(v.doc.keys));
 
-/** Identity documents by URL, keeping the lowest `seq` — genesis lists every key in use. */
-const genesisByUrl = new Map();
+/**
+ * Identity documents by URL, keeping the HIGHEST `seq` — the tip of each identity's chain.
+ * This is the document §6.5 step 5 resolves a `kid` against, so it is the only one that puts
+ * revocation in scope. Resolving against genesis instead would accept a signature by a key
+ * the identity has since revoked.
+ */
+const currentByUrl = new Map();
 for (const { doc } of identityDocs) {
   const url = normalizeIdentityUrl(doc.url);
-  const held = genesisByUrl.get(url);
-  if (!held || doc.seq < held.seq) genesisByUrl.set(url, doc);
+  const held = currentByUrl.get(url);
+  if (!held || doc.seq > held.seq) currentByUrl.set(url, doc);
 }
 
 test('the spec contains the signed vectors Appendix D claims', () => {
-  assert.ok(signed.length >= 7, `expected at least 7 signed vectors, extracted ${signed.length}`);
-  assert.ok(genesisByUrl.has('https://test.example/'), 'no identity document for test.example');
-  assert.ok(genesisByUrl.has('https://posse.example/'), 'no identity document for posse.example');
+  assert.ok(signed.length >= 10, `expected at least 10 signed vectors, extracted ${signed.length}`);
+  for (const url of ['https://test.example/', 'https://reader.example/', 'https://posse.example/']) {
+    assert.ok(currentByUrl.has(url), `no identity document for ${url}`);
+  }
 });
 
 test('canonicalizer reproduces D.2 known SHA-256', () => {
@@ -75,32 +84,39 @@ test('canonicalizer reproduces D.2 known SHA-256', () => {
   );
 });
 
-test('every resolvable signed vector verifies', () => {
-  const results = [];
+test('every signed vector verifies against its author\'s current identity document', () => {
+  // No skips: a vector whose signer publishes no identity document is unverifiable from
+  // the spec alone, which defeats the point of shipping test vectors at all.
+  let verified = 0;
   for (const { doc } of signed) {
     const author = claimedAuthor(doc);
-    const identityDocument = genesisByUrl.get(author);
-    if (!identityDocument) { results.push({ author, skipped: true }); continue; }
+    const identityDocument = currentByUrl.get(author);
+    assert.ok(identityDocument, `no identity document published for ${author}`);
     // Not a throw-guard: verifyDocument does author binding, key resolution, iat,
     // revocation, and the Ed25519 check, and throws with a reason on any failure.
     const info = verifyDocument(doc, { identityDocument });
     assert.equal(info.author, author);
-    results.push({ author, keyId: info.keyId });
+    verified++;
   }
-  const verified = results.filter((r) => !r.skipped);
-  assert.ok(verified.length >= 7, `only ${verified.length} vectors verified`);
+  assert.ok(verified >= 10, `only ${verified} vectors verified`);
 });
 
-test('vectors signed by reader.example cannot be verified from the spec alone', () => {
-  // Appendix D publishes reader.example's *signatures* (D.6 pins, D.7 follows) but never
-  // its identity document or its key's `x`, so a third party working only from the
-  // published spec cannot check them. Recorded here so it stays visible; fixing it means
-  // publishing a reader.example identity document as a vector.
-  const unresolvable = signed.filter((v) => !genesisByUrl.has(claimedAuthor(v.doc)));
-  for (const { doc } of unresolvable) {
-    assert.equal(claimedAuthor(doc), 'https://reader.example/');
+test('every vector was signed inside its key\'s validity window', () => {
+  // Stated independently of verifyDocument, because this is the check that caught a real
+  // defect: a reply vector signed nine hours after D.5 revoked the key that signed it. A
+  // sound Ed25519 signature is not enough — §4.4 bounds it at both ends.
+  for (const { doc } of signed) {
+    const identityDocument = currentByUrl.get(claimedAuthor(doc));
+    const { keyId } = parseKid(parseDetachedSig(doc._sig).header.kid);
+    const key = findKey(identityDocument, keyId);
+    const when = effectiveSigningTime(doc);
+    assert.ok(key.iat <= when, `${keyId} signed at ${when}, before its iat ${key.iat}`);
+    if (typeof key.revoked_at === 'number') {
+      // Equality is valid: §5.2's normal rotation revokes the continuity key in the very
+      // version that key signs, which is exactly what D.5 does.
+      assert.ok(when <= key.revoked_at, `${keyId} signed at ${when}, after revoked_at ${key.revoked_at}`);
+    }
   }
-  assert.equal(unresolvable.length, 2, 'expected exactly D.6 and D.7 to be unresolvable');
 });
 
 test('manifest entries commit the exact published bytes of their items', () => {
@@ -147,32 +163,4 @@ test('re-canonicalizing a published vector reproduces its bytes verbatim', () =>
   for (const { text, doc } of signed) {
     assert.equal(canonicalize(doc), text);
   }
-});
-
-// ---- known inconsistency, characterized rather than fixed ----
-
-test('KNOWN: D.2b is signed after test-key-1 is revoked in D.5', () => {
-  // D.2b's date_published is 2025-02-15T09:00:00Z (1739610000). D.5 sets test-key-1's
-  // revoked_at to 1739577600 — nine hours earlier. Spec §6.5 step 5 resolves a kid
-  // against the CURRENT identity document, which is D.5, so a conforming verifier must
-  // reject D.2b per §4.4. regen.js does not catch this because it checks the raw
-  // signature and not revocation.
-  //
-  // This test asserts the inconsistency so it stays visible and fails loudly once the
-  // vectors are corrected. Fixing it means moving D.2b's timestamp before the revocation
-  // or moving the revocation later, either of which cascades through D.2b's hash, D.3b's
-  // items entry, and D.3b's own bytes — a call for the spec author, not this test.
-  const current = signed
-    .filter((v) => Array.isArray(v.doc.keys) && normalizeIdentityUrl(v.doc.url) === 'https://test.example/')
-    .sort((a, b) => b.doc.seq - a.doc.seq)[0].doc;
-  const reply = signed.find((v) => v.doc.id === 'urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8').doc;
-
-  assert.throws(
-    () => verifyDocument(reply, { identityDocument: current }),
-    (e) => e instanceof VerifyError && /revoked/.test(e.message),
-  );
-
-  // The signature itself is sound; only the revocation window is wrong.
-  const genesis = genesisByUrl.get('https://test.example/');
-  assert.ok(verifyDocument(reply, { identityDocument: genesis }));
 });

@@ -1,19 +1,31 @@
+// Regenerates Appendix D and checks the published spec against it.
+//
+// Canonicalization, hashing, signing, and verification all come from `src/`. There is no
+// second implementation here: a private canonicalizer in this file would drift from the
+// one verifiers use, and the external anchor below (D.2's known SHA-256, computed outside
+// any code in this repo) is what actually guards the canonicalizer against itself.
+//
+// Verification goes through `verifyDocument` against each author's CURRENT identity
+// document, which is what a conforming verifier resolves (§6.5 step 5). An earlier version
+// checked raw Ed25519 signatures only, and so did not notice that a vector was signed by a
+// key the current identity document had already revoked.
+
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// ---- RFC 8785-ish canonicalizer (sufficient for string/int-only docs; validated below) ----
-function canon(v){
-  if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
-  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k)+':'+canon(v[k])).join(',') + '}';
-  return JSON.stringify(v);
-}
-const b64u = b => Buffer.from(b).toString('base64url');
-const sha256 = b => crypto.createHash('sha256').update(b).digest();
-// One hashing rule everywhere in the protocol: base64url SHA-256 of a document's
-// full published canonical bytes, including its signature fields (spec §5.1, §9).
-const docHash = obj => b64u(sha256(Buffer.from(canon(obj), 'utf8')));
+import {
+  canonicalize,
+  documentHash,
+  sha256,
+  b64u,
+  canonicalBytes,
+  sign,
+  verifyDocument,
+  claimedAuthor,
+  buildHeader,
+} from '../src/index.js';
 
 // ---- deterministic test keys ----
 function keyFromLabel(label){
@@ -29,16 +41,6 @@ const kR = keyFromLabel('recovery-1');
 const k2 = keyFromLabel('test-key-2');
 
 const ID = 'https://test.example/';
-
-function header(kid){ return {alg:'EdDSA', b64:false, crit:['b64'], kid}; }
-function sign(obj, priv, kid){
-  const {_sig, _recovery_sig, ...rest} = obj;
-  const payload = Buffer.from(canon(rest), 'utf8');
-  const hb = b64u(Buffer.from(JSON.stringify(header(kid)),'utf8'));
-  const input = Buffer.concat([Buffer.from(hb+'.','ascii'), payload]);
-  const sig = crypto.sign(null, input, priv);
-  return hb + '..' + b64u(sig);
-}
 const KID1 = ID + '#test-key-1';
 
 // Collected (label -> exact string) pairs that MUST appear verbatim in the docs.
@@ -53,15 +55,15 @@ const item = {
   date_published:'2025-01-15T12:00:00Z',
   id:'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6'
 };
-const itemCanon = canon(item);
-const itemHashHex = sha256(Buffer.from(itemCanon,'utf8')).toString('hex');
+const itemCanon = canonicalize(item);
+const itemHashHex = sha256(canonicalBytes(item)).toString('hex');
 console.log('CANONICALIZER CHECK (must equal 7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168):');
 console.log('  item sha256 =', itemHashHex, itemHashHex==='7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168' ? 'OK' : 'MISMATCH');
 console.log();
 embed('D.2 item canonical bytes', itemCanon, 'spec');
 embed('D.2 item sha256 (hex)', itemHashHex, 'spec');
 
-const headerB64 = b64u(Buffer.from(JSON.stringify(header(KID1)),'utf8'));
+const headerB64 = b64u(Buffer.from(JSON.stringify(buildHeader(KID1)),'utf8'));
 
 console.log('== D.1 keys (x, base64url) ==');
 console.log('  test-key-1 :', k1.x);
@@ -76,8 +78,8 @@ embed('D.1 header b64', headerB64, 'spec');
 
 // ---- D.2 item ----
 item._sig = sign(item, k1.priv, KID1);
-const itemFullBytes = canon(item);
-const itemFullHash = docHash(item);   // what the manifest commits to (spec §9)
+const itemFullBytes = canonicalize(item);
+const itemFullHash = documentHash(item);   // what the manifest commits to (spec §9)
 console.log('== D.2 item _sig ==');
 console.log(' ', item._sig);
 console.log('== D.2 item full published bytes hash (manifest commitment) ==');
@@ -90,17 +92,21 @@ embed('D.2 item full hash', itemFullHash, 'spec');
 // ---- D.2b relation item (a reply) ----
 // Exercises the _rel array (§8), and gives the seq:2 manifest a real second item to
 // commit to rather than a phantom id.
+//
+// date_published sits BEFORE test-key-1's revocation at 1739577600 (D.5). It has to:
+// §6.5 step 5 resolves a kid against the current identity document, so a reply signed by
+// test-key-1 after that instant is one a conforming verifier must reject (§4.4).
 const item2 = {
   _feed_url:'https://test.example/feed.json', _version:1,
   _rel:[{to:'https://gran.example/~gran/feed.json#urn:uuid:00112233-4455-6677-8899-aabbccddeeff', type:'reply'}],
   authors:[{url:'https://test.example/'}],
   content_text:'Thanks, Gran!',
-  date_published:'2025-02-15T09:00:00Z',
+  date_published:'2025-02-10T09:00:00Z',
   id:'urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8'
 };
 item2._sig = sign(item2, k1.priv, KID1);
-const item2FullBytes = canon(item2);
-const item2FullHash = docHash(item2);
+const item2FullBytes = canonicalize(item2);
+const item2FullHash = documentHash(item2);
 console.log('== D.2b relation item (full published canonical bytes) ==');
 console.log(' ', item2FullBytes);
 console.log('  hash:', item2FullHash);
@@ -116,8 +122,8 @@ const manifest = {
   items:{'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6':[1, itemFullHash]}
 };
 manifest._sig = sign(manifest, k1.priv, KID1);
-const manifestBytes1 = canon(manifest);
-const manifestHash1 = docHash(manifest);
+const manifestBytes1 = canonicalize(manifest);
+const manifestHash1 = documentHash(manifest);
 console.log('== D.3 manifest (full published canonical bytes) ==');
 console.log(' ', manifestBytes1);
 console.log();
@@ -140,9 +146,9 @@ manifest2._sig = sign(manifest2, k1.priv, KID1);
 console.log('== D.3b manifest seq 1 hash (= seq 2 prev) ==');
 console.log(' ', manifestHash1);
 console.log('== D.3b manifest seq 2 (full published canonical bytes) ==');
-console.log(' ', canon(manifest2));
+console.log(' ', canonicalize(manifest2));
 console.log();
-embed('D.3b manifest seq2 bytes', canon(manifest2), 'spec');
+embed('D.3b manifest seq2 bytes', canonicalize(manifest2), 'spec');
 
 // ---- D.4 identity seq 1 ----
 // One `feeds` array (spec §3.2.1), each entry {url, manifest, rel}. No `history` field.
@@ -158,8 +164,8 @@ const id1 = {
   seq:1, updated:1736899200, url:ID
 };
 id1._sig = sign(id1, k1.priv, KID1);
-const id1Bytes = canon(id1);
-const id1Hash = docHash(id1);
+const id1Bytes = canonicalize(id1);
+const id1Hash = documentHash(id1);
 console.log('== D.4 identity seq 1 (full published canonical bytes) ==');
 console.log(' ', id1Bytes);
 console.log('  hash (= seq 2 prev):', id1Hash);
@@ -180,19 +186,37 @@ const id2 = {
   prev:id1Hash, seq:2, updated:1739577600, url:ID
 };
 id2._sig = sign(id2, k1.priv, KID1);
-const id2Bytes = canon(id2);
+const id2Bytes = canonicalize(id2);
 console.log('== D.5 identity seq 2 (full published canonical bytes) ==');
 console.log(' ', id2Bytes);
 console.log('  retained seq 1 is served at: https://test.example/openfeed/1.json  (§5.4)');
 console.log();
 embed('D.5 identity seq2 bytes', id2Bytes, 'spec');
 
-// ==== Conventions vectors (spec Appendix D.6-D.7) ====
+// ==== Conventions vectors (spec Appendix D.6-D.8) ====
 const kReader = keyFromLabel('reader-key-1');
 const READER = 'https://reader.example/';
 const READER_KID = READER + '#reader-key-1';
 
-// ---- D.6 pins document (observer) ----
+// ---- D.6 reader identity document ----
+// Published so D.7 and D.8 are verifiable from the spec alone: without a document listing
+// reader-key-1, their signatures name a key no third party can resolve (§4.2).
+// A Level 1 consumer, so no `feeds` and no `inbox` — the §16 conventions documents are all
+// it publishes, and it references them the way §3.2 says to.
+const idReader = {
+  follows:'https://reader.example/follows.json',
+  keys:[ {crv:'Ed25519', iat:1736899200, kid:'reader-key-1', kty:'OKP', x:kReader.x} ],
+  name:'Reader',
+  pins:'https://reader.example/pins.json',
+  seq:1, updated:1739577600, url:READER
+};
+idReader._sig = sign(idReader, kReader.priv, READER_KID);
+console.log('== D.6 reader identity document (full published canonical bytes) ==');
+console.log(' ', canonicalize(idReader));
+console.log();
+embed('D.6 reader identity bytes', canonicalize(idReader), 'spec');
+
+// ---- D.7 pins document (observer) ----
 const pins = {
   url: READER,
   pins: [
@@ -202,24 +226,24 @@ const pins = {
   updated: 1739577600
 };
 pins._sig = sign(pins, kReader.priv, READER_KID);
-console.log('== C.1 pins document (full published canonical bytes) ==');
-console.log(' ', canon(pins));
+console.log('== D.7 pins document (full published canonical bytes) ==');
+console.log(' ', canonicalize(pins));
 console.log();
-embed('D.6 pins bytes', canon(pins), 'spec');
+embed('D.7 pins bytes', canonicalize(pins), 'spec');
 
-// ---- D.7 follows document ----
+// ---- D.8 follows document ----
 const follows = {
   url: READER,
   follows: [ ID, 'https://gran.example/~gran/' ],
   updated: 1739577600
 };
 follows._sig = sign(follows, kReader.priv, READER_KID);
-console.log('== C.2 follows document (full published canonical bytes) ==');
-console.log(' ', canon(follows));
+console.log('== D.8 follows document (full published canonical bytes) ==');
+console.log(' ', canonicalize(follows));
 console.log();
-embed('D.7 follows bytes', canon(follows), 'spec');
+embed('D.8 follows bytes', canonicalize(follows), 'spec');
 
-// ---- D.8 identity document with foreign accounts (Appendix B.2) ----
+// ---- D.9 identity document with foreign accounts (Appendix B.2) ----
 // Standalone third identity so D.4/D.5's hashes (and everything chained to them) never move.
 // Exercises both entry forms: a bare string and an object with proof/handle.
 const kPosse = keyFromLabel('posse-key-1');
@@ -235,48 +259,57 @@ const id3 = {
   seq:1, updated:1739577600, url:POSSE
 };
 id3._sig = sign(id3, kPosse.priv, POSSE_KID);
-console.log('== D.8 identity with accounts (full published canonical bytes) ==');
-console.log(' ', canon(id3));
+console.log('== D.9 identity with accounts (full published canonical bytes) ==');
+console.log(' ', canonicalize(id3));
 console.log();
-embed('D.8 accounts identity bytes', canon(id3), 'spec');
+embed('D.9 accounts identity bytes', canonicalize(id3), 'spec');
 
-// ---- self-verify everything ----
-function verify(obj, kid, xPub){
-  const {_sig, _recovery_sig, ...rest} = obj;
-  const [hb,,sb] = _sig.split('.');
-  const input = Buffer.concat([Buffer.from(hb+'.','ascii'), Buffer.from(canon(rest),'utf8')]);
-  const kidName = kid.slice(kid.lastIndexOf('#')+1);
-  const x = xPub !== undefined ? xPub : (obj.keys ? obj.keys.find(k=>k.kid===kidName).x : k1.x);
-  const pub = crypto.createPublicKey({key:{kty:'OKP',crv:'Ed25519',x}, format:'jwk'});
-  return crypto.verify(null, input, pub, Buffer.from(sb,'base64url'));
+// ---- self-verify everything, the way a verifier does ----
+// Each vector resolves its key out of its author's CURRENT identity document — the tip of
+// that identity's chain — so revocation, `iat`, and author binding are all in scope, not
+// just the raw Ed25519 check.
+const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3 };
+
+function verifies(doc){
+  const author = claimedAuthor(doc);
+  const identityDocument = CURRENT[author];
+  if (!identityDocument) { console.log('    no identity document published for ' + author); return false; }
+  try {
+    verifyDocument(doc, { identityDocument });
+    return true;
+  } catch (e) {
+    console.log('    ' + e.message);
+    return false;
+  }
 }
 
 const ITEM_ID  = 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6';
 const ITEM2_ID = 'urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 
 const checks = [
-  ['D.2 item',        verify(item, KID1)],
-  ['D.2b rel item',   verify(item2, KID1)],
-  ['D.3 manifest',    verify(manifest, KID1)],
+  ['D.2 item',        verifies(item)],
+  ['D.2b rel item',   verifies(item2)],
+  ['D.3 manifest',    verifies(manifest)],
   // the manifest entry must name the item's exact published bytes, not merely its version
   ['D.3 item commit', manifest.items[ITEM_ID][0]===item._version
-                        && manifest.items[ITEM_ID][1]===docHash(item)],
-  ['D.3b manifest2',  verify(manifest2, KID1) && manifest2.prev===manifestHash1],
-  ['D.3b commits',    manifest2.items[ITEM_ID][1]===docHash(item)
-                        && manifest2.items[ITEM2_ID][1]===docHash(item2)],
-  ['D.4 id seq1',     verify(id1, KID1)],
-  ['D.5 id seq2',     verify(id2, KID1) && id2.prev===id1Hash],
+                        && manifest.items[ITEM_ID][1]===documentHash(item)],
+  ['D.3b manifest2',  verifies(manifest2) && manifest2.prev===manifestHash1],
+  ['D.3b commits',    manifest2.items[ITEM_ID][1]===documentHash(item)
+                        && manifest2.items[ITEM2_ID][1]===documentHash(item2)],
+  ['D.4 id seq1',     verifies(id1)],
+  ['D.5 id seq2',     verifies(id2) && id2.prev===id1Hash],
   ['no history field', !('history' in id1) && !('history' in id2) && !('history' in manifest2)],
-  ['D.6 pins',        verify(pins, READER_KID, kReader.x)
+  ['D.6 reader id',   verifies(idReader)],
+  ['D.7 pins',        verifies(pins)
                         && pins.pins[0].hash===id1Hash && pins.pins[1].hash===manifestHash1],
-  ['D.7 follows',     verify(follows, READER_KID, kReader.x)],
+  ['D.8 follows',     verifies(follows)],
   // accounts carries no authority: verification must succeed with the field treated as opaque,
   // and both entry forms (string, object) must be present in the signed bytes.
-  ['D.8 accounts id', verify(id3, POSSE_KID, kPosse.x)
+  ['D.9 accounts id', verifies(id3)
                         && typeof id3.accounts[0]==='string' && typeof id3.accounts[1]==='object'],
 ];
 
-console.log('SELF-VERIFY:');
+console.log('SELF-VERIFY (against each author\'s current identity document):');
 let ok = true;
 for (const [name, pass] of checks){
   console.log('  ' + name.padEnd(18) + ':', pass);

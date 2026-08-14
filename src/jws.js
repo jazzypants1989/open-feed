@@ -23,6 +23,10 @@ export function normalizeIdentityUrl(input) {
   // `new URL` already lowercases the host and drops the default :443 for https.
   u.hash = '';
   u.search = '';
+  // An identity is a place, not a credential. Left in, userinfo makes one identity two —
+  // and `identityDocumentUrl` would put it on the wire as basic auth.
+  u.username = '';
+  u.password = '';
   if (!u.pathname.endsWith('/')) u.pathname += '/'; // path stays case-sensitive
   return u.toString();
 }
@@ -119,12 +123,19 @@ export function sign(doc, privateKey, kid) {
 
 /**
  * The author named inside the signed bytes (spec §6.6). For items the carrier is the
- * item-level `authors` array, which MUST hold exactly one entry; for every other signed
- * document it is `url`. Checked in that order because a JSON Feed item may also carry a
- * `url` of its own — its permalink, which carries no authority.
+ * item-level `authors` array, which MUST hold exactly one entry; for manifests and identity
+ * documents it is `url`.
+ *
+ * §6.6 selects the carrier by **document kind**, so callers that know the kind say so. The
+ * fallback for callers that do not is presence of `authors`, which is right for an item — a
+ * JSON Feed item may also carry a `url`, its permalink, which carries no authority — but is
+ * wrong for a chained document that happens to carry an `authors` extension field: §3.2 says
+ * unknown fields are preserved and *ignored*, and ignoring one must not mean letting it
+ * displace the binding the document actually has.
  */
-export function claimedAuthor(doc) {
-  if ('authors' in doc) {
+export function claimedAuthor(doc, { kind } = {}) {
+  const carrier = kind ?? ('authors' in doc ? 'item' : 'document');
+  if (carrier === 'item') {
     const authors = doc.authors;
     if (!Array.isArray(authors) || authors.length !== 1) {
       throw new VerifyError(`item authors must hold exactly one entry, found ${Array.isArray(authors) ? authors.length : typeof authors}`);
@@ -170,7 +181,7 @@ export function findKey(identityDocument, keyId) {
  * for inbox items, manifest first-observation time on the pull path (spec §4.4), neither
  * of which a key thief can backdate.
  */
-export function verifyDocument(doc, { identityDocument, sigField = '_sig', signedAt } = {}) {
+export function verifyDocument(doc, { identityDocument, sigField = '_sig', signedAt, kind } = {}) {
   const sig = doc[sigField];
   if (typeof sig !== 'string') throw new VerifyError(`document has no ${sigField}`);
 
@@ -178,7 +189,7 @@ export function verifyDocument(doc, { identityDocument, sigField = '_sig', signe
   const { identityUrl, keyId } = parseKid(header.kid);
 
   // Author binding: the kid's identity MUST equal the author named in the signed bytes.
-  const author = claimedAuthor(doc);
+  const author = claimedAuthor(doc, { kind });
   if (identityUrl !== author) {
     throw new VerifyError(`author binding failed: kid names ${identityUrl}, document claims ${author}`);
   }

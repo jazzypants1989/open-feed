@@ -99,6 +99,11 @@ test('identity URL normalization matches the spec table', () => {
   assert.equal(normalizeIdentityUrl('https://Alice.Example/~mom'), 'https://alice.example/~mom/');
   assert.equal(normalizeIdentityUrl('https://example.com:443/~alice/'), 'https://example.com/~alice/');
   assert.equal(normalizeIdentityUrl('https://example.com/~alice?ref=x#about'), 'https://example.com/~alice/');
+  // Userinfo is stripped: an identity is a place, not a credential. Left in it would make one
+  // identity two, and the derived openfeed.json URL would carry it onto the wire as basic auth.
+  assert.equal(normalizeIdentityUrl('https://bob@example.com/~alice/'), 'https://example.com/~alice/');
+  assert.equal(normalizeIdentityUrl('https://bob:pw@example.com/'), 'https://example.com/');
+  assert.equal(parseKid('https://bob@example.com/#key-1').identityUrl, 'https://example.com/');
   assert.throws(() => normalizeIdentityUrl('http://example.com/'), /must be https/);
 });
 
@@ -269,4 +274,108 @@ test('non-Ed25519 keys cannot be pressed into service', () => {
 test('a key absent from the identity document is rejected', () => {
   const item = signedItem();
   assert.throws(() => verifyDocument(item, { identityDocument: { ...identity, keys: [] } }), throwsVerify(/lists no key/));
+});
+
+// ---- §6.6: the carrier is chosen by document kind, not by field presence ----
+
+test('an authors field on a chained document does not displace its url binding', () => {
+  // §6.6: "For manifests and identity documents the carrier is the `url` field. For items it
+  // is the item-level `authors` array." §3.2 says unknown fields are preserved and *ignored*,
+  // and ignoring one must not mean letting it stand in for the binding the document has. A
+  // caller that knows the kind says so; the fallback only guesses for callers that do not.
+  const manifest = {
+    url: ID,
+    feed_url: 'https://test.example/feed.json',
+    items: {},
+    seq: 1,
+    updated: 1736899200,
+    // An extension field a publisher is entitled to carry, naming somebody else.
+    authors: [{ url: 'https://impostor.example/' }],
+  };
+  manifest._sig = sign(manifest, k1.priv, KID);
+
+  assert.equal(claimedAuthor(manifest, { kind: 'document' }), ID);
+  assert.equal(claimedAuthor(manifest), 'https://impostor.example/', 'the guess is what the kind overrides');
+
+  // Told the kind, the manifest verifies against its own `url`.
+  assert.ok(verifyDocument(manifest, { identityDocument: identity, kind: 'document' }));
+  // Left to guess, author binding fails — safely, but for the wrong reason, and a document
+  // whose `authors` happened to name its own identity would have skipped the check entirely.
+  assert.throws(
+    () => verifyDocument(manifest, { identityDocument: identity }),
+    throwsVerify(/author binding failed/),
+  );
+
+  // An item is unaffected: its permalink `url` still carries no authority.
+  const item = signedItem({ url: 'https://test.example/posts/1' });
+  assert.equal(claimedAuthor(item, { kind: 'item' }), ID);
+  assert.ok(verifyDocument(item, { identityDocument: identity, kind: 'item' }));
+});
+
+// ---- §5.3.1: what may fire the compare rule, and what may not ----
+//
+// The rule's response is to accept no further version of a chain until a human deliberately
+// re-pins. That is the right answer to a publisher who equivocated and much too much authority
+// to hand to anyone who can answer one request — so what counts as an *observation* is the
+// whole safety property, not a detail.
+
+import { identityFixture, makeKey, pinOf } from './helpers/chain-fixture.js';
+import { walkToPin, PinStore, identityChainPolicy, ChainError, EquivocationError } from '../src/index.js';
+
+/** An identity walked once and pinned at its tip — the starting state for both cases below. */
+async function pinnedAtTip(versions = 5) {
+  const fx = identityFixture({ versions });
+  const pins = new PinStore();
+  const walk = (tip, pin) =>
+    walkToPin({ url: fx.url, tip, pin, fetchVersion: fx.store.fetchVersion, policy: identityChainPolicy, pins });
+  const first = await walk(fx.chain.at(versions), pinOf(fx.chain.at(1)));
+  pins.advance(fx.url, versions, first.hash);
+  return { fx, pins, walk };
+}
+
+test('a forged tip does not freeze the chain against its own owner', async () => {
+  const { fx, pins, walk } = await pinnedAtTip();
+
+  // An identity document is its own key source (§5.3 step 1), so a serving-path attacker
+  // holding **no key at all** mints one, lists it, and self-signs a document at the pinned seq.
+  // It cannot survive a walk — but before this was fixed it was recorded as an observation
+  // first, which tripped §5.3.1 and locked the consumer out of the identity permanently.
+  const evil = makeKey('evil-1');
+  evil.identity = fx.identity;
+  const forged = { url: fx.identity, name: 'Owner', keys: [evil.jwk], seq: 5, updated: 1737000000, prev: 'AAAA' };
+  forged._sig = sign(forged, evil.privateKey, `${fx.identity}#evil-1`);
+
+  await assert.rejects(
+    () => walk(forged, pins.pin(fx.url)),
+    (e) => e instanceof ChainError && !(e instanceof EquivocationError),
+    'a document the publisher’s own retained copy contradicts is noise, not equivocation',
+  );
+  assert.equal(pins.isFrozen(fx.url), false, 'one bad response must not cost the owner their identity');
+
+  // The attacker goes away. Everything must keep working: the honest tip verifies, and the
+  // owner can still publish.
+  assert.ok(await walk(fx.chain.at(5), pins.pin(fx.url)));
+  fx.chain.publish({ fields: { url: fx.identity, name: 'Owner', keys: fx.keys.map((k) => ({ ...k })) }, signer: fx.primary });
+  const next = await walk(fx.chain.at(6), pins.pin(fx.url));
+  pins.advance(fx.url, 6, next.hash);
+  assert.equal(pins.pin(fx.url).seq, 6, 'the consumer follows the honest chain forward');
+});
+
+test('rewriting a retained version still freezes the chain', async () => {
+  const { fx, pins, walk } = await pinnedAtTip();
+
+  // The other half, and the reason the check above is a tiebreak rather than a blanket
+  // exemption. §5.4 requires a retained version to be served byte-identically forever, so when
+  // the copy at the **derived** URL moves it is the publisher's own record that changed — which
+  // only the publisher serves. That is equivocation and §5.3.1 fires.
+  const rewritten = { ...fx.chain.at(5), name: 'Rewritten' };
+  rewritten._sig = sign(rewritten, fx.primary.privateKey, `${fx.identity}#key-1`);
+  fx.store.replaceVersion(fx.url, 5, rewritten);
+
+  await assert.rejects(
+    () => walk(rewritten, pins.pin(fx.url)),
+    (e) => e instanceof EquivocationError && e.seq === 5,
+  );
+  assert.equal(pins.isFrozen(fx.url), true, '§5.3.1: stop advancing and surface it');
+  assert.equal(pins.pin(fx.url).seq, 5, 'the pin is retained, not advanced');
 });

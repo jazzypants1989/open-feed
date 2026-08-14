@@ -724,6 +724,14 @@ The goal is to keep the core minimal. If it can be an extension, it should be an
 
 ---
 
+## License
+
+[Apache License 2.0](LICENSE). The specification and the reference implementation are under the
+same terms — a permissive license with an explicit patent grant, chosen so that implementing this
+protocol carries no legal question for anyone, commercial or otherwise.
+
+---
+
 ## Acknowledgments
 
 This spec synthesizes ideas from IndieWeb, ActivityPub, AT Protocol, Nostr, JSON Feed, and the broader conversation about what decentralized social could look like if we prioritized simplicity — and the ability to prove nobody edited your past.

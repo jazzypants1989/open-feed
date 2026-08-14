@@ -23,11 +23,12 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 
 | File | Purpose |
 | ---- | ------- |
+| `HANDOFF.md` | **Read first if you are picking up work in flight.** State, queue, open decisions, and what to distrust. Scaffolding — delete it when the work it describes lands |
 | `open-feed-spec.md` | **The specification.** Core §1–§14; OPTIONAL layers §15 (encrypted content) and §16 (follows/pins/replies conventions); Appendices A–E (media types, aliases + foreign accounts, WebSub, test vectors, gateways) |
 | `README.md` | Human-facing docs: examples, protocol comparisons, interop routes, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub |
-| `src/` | **Reference verifier** (Level 1, zero dependencies). `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction. Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
-| `test/` | `npm test`. `appendix-d.test.js` extracts vectors from the spec document itself and resolves keys structurally (§4.2); `negative.test.js` is the must-fail corpus Appendix D has none of |
+| `src/` | **Reference implementation**, zero dependencies: Level 1 verifier and Level 2 publisher. `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction; `chain.js` is §5.3's walk for both chained documents; `manifest.js` is §9.4; `publish.js` emits every artifact as bytes. **`fetch.js` is the only module that opens a socket — keep it that way.** Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
+| `test/` | `npm test`. `appendix-d.test.js` extracts vectors from the spec document itself and resolves keys structurally (§4.2); `negative.test.js` is the must-fail corpus Appendix D has none of; `e2e.test.js` runs the publisher against the verifier over a real TLS socket, with `helpers/tls.js` hand-encoding the certificate because §3.1 makes HTTPS part of the identity |
 | `tmp/regen.js` | Regenerates and validates Appendix D test vectors |
 | `tmp/enc-prototype.js` | Encrypted items; demonstrates the ciphertext-relay attack and §15.2.1's rejection of it |
 | `tmp/circles-prototype.js` | Roster spike — models rollback only, **not** withholding |
@@ -91,11 +92,18 @@ RFC 2119 keywords, and keep examples consistent with the spec's object model.
   measured and disfavored.
 - **`_rel` type registry governance** — decide jointly with Appendix B.2's `proof` tokens; both are
   §2.1 vocabularies and deserve one answer.
-- **Key delegation** (`open-feed-delegation.md`, planned, undrafted) — the highest-value trust
-  upgrade available. A delegation signed by a root key and published in the identity document lets a
-  hub hold only a delegated key; revocation is an ordinary chain version, so the pinned chain is
-  exactly the revocation substrate whose absence killed Nostr's NIP-26. Moves hub deployments from
-  the key-custodian tier to the serving-path tier, with no second signing construction.
+- **Key delegation** — the highest-value trust upgrade available, and the *shape* is settled even
+  though the text is undrafted. The member holds a root key the hub never sees; the hub holds a key
+  that may sign items and manifests but not identity-chain versions; revocation is an ordinary
+  chain version, so the pinned chain is exactly the revocation substrate whose absence limited
+  Nostr's NIP-26. **Mark the delegated key with `use: "delegated"`, not with an extension field.**
+  §4.1 already requires implementations to ignore keys with an unrecognized `use`, so a verifier
+  predating the token cannot find the key and treats the hub's content as unverifiable — it fails
+  **closed**. An extension field on an ordinary `sig` key fails **open**: §3.2 says to ignore
+  unknown fields, so an old verifier sees a full-authority key and accepts it signing a chain
+  version, which hands the attacker the choice of which verifier to be judged by. Enforcement is
+  one clause beside the recovery-key exclusion in `assertContinuityKey`. The cost is a flag day for
+  readers, which is free while nothing implements this and rises monotonically after.
 - **Normative bridge profiles** — framework in Appendix E, template in README. Start with the
   syndication class, not Webmention.
 - **Author-side dual signing** — parked. The only route to verified cross-protocol authorship. Taking
@@ -106,9 +114,10 @@ RFC 2119 keywords, and keep examples consistent with the spec's object model.
 - **Split custody** (hub holds the signing key, client holds only the encryption key) is deliberately
   *not* claimed in the spec: the guarantee holds only when the client is not distributed by the
   custodian, which the reference product does not satisfy.
-- **The line budget needs restating.** The spec is ~1080 lines against a 1000-line target, and the
-  overage is not duplication — a duplication pass moved the count by ~5, because paragraphs are one
-  line each, so only deleting whole blocks moves the number. Core is ~640 lines. Getting under 1000
-  means splitting §15/§16 out (against "one document"), cutting justification next to MUSTs
-  (forbidden by rule 3), or counting core lines and setting the budget there. The third looks right.
-  Do not run another compression pass expecting the number to move.
+- **There is no line budget. Do not reintroduce one.** It was retired deliberately: a line count
+  measures the wrong thing, and chasing it pushes toward exactly the two edits this file forbids —
+  splitting the document up, and cutting the justification that sits next to a MUST. The real
+  target is **the shortest spec that still covers its bases**, and the lever that actually moves it
+  is deleting whole mechanisms that the guarantee survives without, which is a design decision
+  informed by the prototypes rather than a compression pass. Removing an equivocation between two
+  sections is worth more than removing fifty lines.
