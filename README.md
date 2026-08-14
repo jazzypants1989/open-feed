@@ -571,7 +571,7 @@ JSON Feed 1.1's `hubs` field enables WebSub push; subscribers MUST still verify 
 
 ### Timestamp Trust
 
-**Problem:** Timestamps are self-reported; backdating is possible. **Approach:** for inbox items, use receipt time as a trustworthy lower bound; for polled content, use the time you first saw the id in a signed manifest; item-carried pins are a family-scale external time anchor. A true transparency log / witness network is future work.
+**Problem:** Timestamps are self-reported; backdating is possible. **Approach:** for inbox items, use receipt time as a trustworthy lower bound; for polled content, use the time you first saw the id in a signed manifest; item-carried pins are a family-scale external time anchor. A transparency log or witness network is deliberately out of scope (§13.10, §16.1) — a pin is a self-contained signed claim, so anyone who wants to aggregate them can, and the spec declining to define the aggregator forecloses nothing.
 
 ### Hub Trust
 

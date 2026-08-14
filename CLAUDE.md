@@ -23,8 +23,7 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 
 | File | Purpose |
 | ---- | ------- |
-| `HANDOFF.md` | **Read first if you are picking up work in flight.** State, queue, open decisions, and what to distrust. Scaffolding — delete it when the work it describes lands |
-| `open-feed-spec.md` | **The specification.** Core §1–§14; OPTIONAL layers §15 (encrypted content) and §16 (follows/pins conventions); Appendices A–E |
+| `open-feed-spec.md` | **The specification.** Core §1–§14; OPTIONAL layers §15 (encrypted content) and §16 (item-carried pins); Appendices A (media types), B (test vectors), C (gateways) |
 | `README.md` | Human-facing docs: examples, protocol comparisons, interop routes, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub |
 | `src/` | **Reference implementation**, zero dependencies: Level 1 verifier and Level 2 publisher. `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction; `chain.js` is §5.3's walk for both chained documents; `manifest.js` is §9.3; `publish.js` emits every artifact as bytes. **`fetch.js` is the only module that opens a socket — keep it that way.** Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |

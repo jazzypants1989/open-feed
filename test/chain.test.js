@@ -202,7 +202,7 @@ test('a kid cannot be rebound to different key material across a hop', async () 
   // The substitution the continuity rule exists to prevent, arrived at from the other side:
   // keep the label, swap the key. The successor's signature verifies against the key listed
   // in the successor, and the kid *is* listed in the predecessor — so a check that compares
-  // only kids passes an identity takeover. See HANDOFF: the spec does not spell this out.
+  // only kids passes an identity takeover. §4.2 closes it: a kid permanently names one key.
   const fx = identityFixture({ versions: 1 });
   const impostor = makeKey('key-1'); // same kid, new material
   impostor.identity = fx.identity;
