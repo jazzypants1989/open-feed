@@ -28,6 +28,7 @@ import {
   signingPayload,
   signingInput,
   buildHeader,
+  documentHash,
 } from '../src/index.js';
 
 const CATALOG = ['urn:uuid:0001-cookies', 'urn:uuid:0002-garden', 'urn:uuid:0003-birthday'];
@@ -288,6 +289,50 @@ test('two migrations claiming one predecessor are unresolvable, and neither is f
   // by arrival order — which is to say, in the thief's favour as often as not.
   assert.equal(migrations.successorOf(oldSite.url), null);
   assert.ok(migrations.isContested(oldSite.url));
+
+  // And it stays void until a human says otherwise. §3.4 requires "out-of-band confirmation"
+  // and nothing in the protocol can supply it, so the store needs a way to take one — otherwise
+  // the correct verdict is also a permanent dead end. Named for the decision, like `rePin`.
+  assert.throws(() => migrations.settle(oldSite.url, 'https://nobody.example/'), /not one of the competing claims/);
+  const settled = migrations.settle(oldSite.url, honestSite.url);
+  assert.equal(settled.successor, migrations.successorOf(oldSite.url));
+  assert.equal(migrations.isContested(oldSite.url), false);
+
+  // The reader now follows the settled claim, and the thief's is simply another identity.
+  const followed = await reader(gran, { migrations }).read(oldSite.url);
+  assert.equal(followed.identity.identity, honestSite.url);
+});
+
+test('the retained predecessor state is a recovery pin, not the document', async (t) => {
+  // §4.5 asks for `(url, seq, hash)` plus the keys and feed URLs, and that is all anything
+  // consumes: the recovery keys for the co-signature, the *signing* keys because a migrated
+  // back catalog is signed by the predecessor and §3.4 forbids re-signing it, and the feed URLs
+  // for §7.5's exception. Keeping the whole document instead is up to §13.4's 100 KB held
+  // forever per identity, for a question a few hundred bytes answers.
+  const store = new MigrationStore({ now: () => T0 });
+  const document = {
+    url: 'https://old.example/',
+    seq: 4,
+    updated: T0,
+    name: 'Mom',
+    bio: 'x'.repeat(4096),
+    avatar: 'https://old.example/avatar.jpg',
+    _accounts: ['https://mastodon.social/@mom'],
+    feeds: [{ url: 'https://old.example/feed.json', manifest: 'https://old.example/manifest.json' }],
+    keys: [{ crv: 'Ed25519', kid: 'key-1', kty: 'OKP', x: 'a'.repeat(43) }],
+    _sig: 'zzz',
+  };
+
+  store.noteIdentity(document);
+  const held = store.pinnedAncestorFor('https://old.example/');
+
+  assert.deepEqual(Object.keys(held).sort(), ['hash', 'keys', 'seq', 'url']);
+  assert.equal(held.hash, documentHash(document), 'the pin half is still a real §5.1 hash');
+  assert.deepEqual(held.keys, document.keys, 'and every key it committed survives');
+  assert.ok(JSON.stringify(held).length * 4 < JSON.stringify(document).length);
+
+  // The feed URLs live beside it, because they accumulate across versions.
+  assert.ok(store.predecessorFeedUrls('https://old.example/') !== undefined);
 });
 
 // ---- the claim shapes that are not migrations ----

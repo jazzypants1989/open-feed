@@ -20,6 +20,7 @@
 // reason you migrated. `inbox.js` matches ids; nothing there consults a MigrationStore.
 
 import { normalizeIdentityUrl, VerifyError } from './jws.js';
+import { documentHash } from './hash.js';
 import { verifyRecoverySignature } from './chain.js';
 
 export class MigrationError extends Error {
@@ -54,6 +55,23 @@ export class CompetingMigrations extends MigrationError {
 }
 
 const MAX_CHAIN = 32; // A lifetime of moves is a handful; this only bounds a malicious cycle.
+
+/**
+ * §4.5's recovery pin: `(url, seq, hash)` plus the keys committed there.
+ *
+ * Deliberately identity-document-shaped so `verifyDocument`, `findKey`, and
+ * `verifyRecoverySignature` take it with no special case — a reduction, not a second type.
+ * `feedUrls` live beside it in the chain record rather than in here, because they are a set
+ * accumulated across versions while this is one version's key state.
+ */
+export function recoveryPin(document) {
+  return {
+    url: document.url,
+    seq: document.seq,
+    hash: documentHash(document),
+    keys: Array.isArray(document.keys) ? document.keys.map((k) => ({ ...k })) : [],
+  };
+}
 
 /**
  * Verify one migration link (§3.4). Returns a verdict rather than throwing, because "not a
@@ -174,13 +192,22 @@ export class MigrationStore {
    * removed — §7.5's exception asks about a *predecessor's* feeds, which by then may be listed
    * nowhere a consumer can still reach.
    *
-   * **Retaining the document, not just its pin, is what makes recovery work at all.** §4.5 says
-   * "any consumer holding a pin can verify a later recovery-based migration against the recovery
-   * keys present at that pinned `(seq, hash)`" — but a pin is a `(seq, hash)` and the recovery
-   * key is in the *bytes*. A consumer that stored only pins would have to fetch the pinned
-   * version from its derived URL to read the key, and the case recovery exists for is precisely
-   * the one where that fetch fails: the domain is gone. So the bytes are kept when they can be,
-   * which is while the predecessor is still readable, and there is no second chance.
+   * **A pin alone cannot do it, which is why anything is retained here at all.** §4.5's
+   * co-signature resolves against the recovery keys committed at the pinned `(seq, hash)` — but
+   * a pin is a `(seq, hash)` and the keys are in the *bytes*. A consumer holding only pins would
+   * have to fetch that version from its derived URL to read them, and the case recovery exists
+   * for is precisely the one where that fetch fails: the domain is gone. So it is recorded while
+   * the predecessor is still readable, and there is no second chance.
+   *
+   * **What is recorded is a recovery pin, not the document.** §4.5 asks for `(url, seq, hash)`
+   * plus the keys and the feed URLs, and that is all anything consumes: the recovery keys for
+   * the co-signature, the *signing* keys because a migrated back catalog is signed by the
+   * predecessor and §3.4 forbids re-signing it, and the feed URLs for §7.5's exception. The rest
+   * of an identity document — profile, endpoints, extension fields, up to §13.4's 100 KB — is
+   * dead weight held forever for every identity this consumer has ever read, and a hub polling a
+   * few thousand members would carry hundreds of megabytes to answer a question a few kilobytes
+   * answers. The reduction keeps the shape of an identity document precisely so every verifier
+   * downstream takes it unchanged.
    */
   noteIdentity(document) {
     const identity = normalizeIdentityUrl(document.url);
@@ -197,7 +224,9 @@ export class MigrationStore {
     // §4.5's "not a free choice": the *most recent* version verified, never an older ancestor
     // still retained. Reading recovery state out of one would undo every revocation published
     // since, so a key retired and replaced years ago would still verify.
-    if (!held.document || (document.seq ?? 0) >= (held.document.seq ?? 0)) held.document = document;
+    if (!held.document || (document.seq ?? 0) >= (held.document.seq ?? 0)) {
+      held.document = recoveryPin(document);
+    }
     this.chains.set(identity, held);
     return held;
   }
@@ -238,6 +267,29 @@ export class MigrationStore {
     if (predecessorDocument) this.noteIdentity(predecessorDocument);
     this.noteIdentity(successorDocument);
     return verdict;
+  }
+
+  /**
+   * §3.4's "out-of-band confirmation", which the specification requires and which nothing here
+   * could otherwise supply. Two recovery-based migrations claiming one predecessor verify
+   * identically, so `record` voids both and keeps voiding them — correct, and a dead end
+   * without a way for a human who has *checked* to say which one is real.
+   *
+   * Named for the decision rather than for the data structure, as `PinStore.rePin` is: this is
+   * a person asserting something the protocol cannot, and a consumer should have to mean it.
+   */
+  settle(predecessor, successor) {
+    const from = normalizeIdentityUrl(predecessor);
+    const to = normalizeIdentityUrl(successor);
+    const claims = this.contested.get(from);
+    if (!claims) throw new MigrationError(`${from} has no contested migration to settle`);
+    if (!claims.some((c) => c.successor === to)) {
+      throw new MigrationError(`${to} is not one of the competing claims on ${from}`);
+    }
+    this.contested.delete(from);
+    this.forward.set(from, { ...claims.find((c) => c.successor === to), settled: this.now() });
+    this.backward.set(to, from);
+    return this.forward.get(from);
   }
 
   isContested(identity) {

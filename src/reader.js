@@ -618,7 +618,77 @@ export function createReader({
   }
 
   /**
-   * The whole Level 1 pipeline over one identity's primary feed.
+   * One `feeds` entry: its manifest chain, its feed, and the reconciliation between them.
+   *
+   * The order inside is the whole point — manifest before feed, because the manifest is what an
+   * item is judged against, what supplies §4.4's first-observation time, and (since §7.6) the
+   * list of exact revisions a reader may ask for by name.
+   */
+  async function readOneFeed(identity, entry) {
+    const manifest = await readManifest(entry.manifest, {
+      identityDocument: identity.document,
+      feedUrl: entry.url,
+    });
+    const feed = await readFeed(entry.url, {
+      identityDocument: identity.document,
+      firstSeenHere: manifest.firstSeenHere,
+      owner: identity.identity,
+      manifest: manifest.manifest,
+      // §7.1: a feed MAY carry items from multiple authors — a family board — since every item
+      // is independently signed and attributed by its own single-entry `authors`. Without a
+      // resolver every such item is unverifiable, which reads as a defect in an ordinary
+      // arrangement the specification explicitly permits. One fetch per distinct author,
+      // memoized for the read, of that author's own fixed-path document (§13.9).
+      resolveIdentity: memoizeByAuthor((author) => readIdentity(author, { verifyMigration: false })),
+    });
+
+    // §9.3's withholding verdict is scoped to bytes this consumer actually tried to obtain, and
+    // there are exactly two ways to have tried. Following `next_url` to its end is one, and
+    // `partial` says whether that happened. Asking for a specific revision at its §7.6 URL is
+    // the other, and it is the one that works against a publisher serving a window: `probe`
+    // returns only ids whose own URL declined to yield them, on an origin that demonstrably
+    // serves item URLs at all.
+    const reconciled = reconcileFeed(manifest.manifest, feed.canonical.map((c) => c.item), {
+      now: now(),
+      ceiling: lagCeiling,
+      url: entry.url,
+      partial: feed.partial,
+      unobtainable: feed.probe?.unobtainable ?? new Set(),
+    });
+    const byState = (state) => reconciled.states.filter((s) => s.state === state);
+
+    return {
+      entry,
+      manifest,
+      feed,
+      reconciled,
+      byState,
+      items: {
+        live: byState('live'),
+        deleted: byState('deleted'),
+        pending: byState('pending'),
+        withheld: byState('withheld'),
+        absent: byState('absent'),
+        copies: feed.copies,
+      },
+      findings: [
+        ...reconciled.violations.map((v) => ({ kind: 'invariant', invariant: v.invariant, message: v.message })),
+        ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
+        ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
+        // §7.4: the signature covers the reference, never the bytes. An attachment with no
+        // `_sha256` is unverified content (§10.5) inside an otherwise-verified item, which is
+        // the one finding a client cannot derive from the item's own verdict.
+        ...feed.unhashedAttachments.map((a) => ({
+          kind: 'unhashed_attachment',
+          id: a.id,
+          message: `${a.id}: attachment ${a.url ?? '(no url)'} carries no _sha256, so its bytes are unverified (§7.4)`,
+        })),
+      ],
+    };
+  }
+
+  /**
+   * The whole Level 1 pipeline over one identity.
    *
    * Order matters and is the reason this function exists: identity chain first, because the
    * manifest's signing key is resolved in it; manifest before items, because the manifest is
@@ -661,46 +731,36 @@ export function createReader({
       });
     }
 
-    const manifest = await readManifest(entry.manifest, {
-      identityDocument: identity.document,
-      feedUrl: entry.url,
-    });
-    const feed = await readFeed(entry.url, {
-      identityDocument: identity.document,
-      firstSeenHere: manifest.firstSeenHere,
-      owner: identity.identity,
-      // The manifest is read first because a manifest's signing key resolves in the pinned
-      // identity chain — and it arrives here for a second reason: it is the list of exact
-      // revisions §7.6 lets this reader ask for by name.
-      manifest: manifest.manifest,
-      // §7.1: a feed MAY carry items from multiple authors — a family board — since every item
-      // is independently signed and attributed by its own single-entry `authors`. Without a
-      // resolver every such item is unverifiable, which reads as a defect in an ordinary
-      // arrangement the specification explicitly permits. One fetch per distinct author,
-      // memoized for the read, of that author's own fixed-path document (§13.9).
-      resolveIdentity: memoizeByAuthor((author) => readIdentity(author, { verifyMigration: false })),
-    });
+    // §3.2.1: "a consumer wanting the whole catalog reads every entry." Reading only the
+    // `primary` one makes a publisher that took §9.2's advice — rotate to a new feed and leave
+    // the old listed as `rel: "archive"` — invisible from the moment they rotate, which is the
+    // wrong reward for following the one growth strategy the spec recommends. Each entry is its
+    // own feed with its own manifest chain and its own pin (§3.2.1: "one manifest never commits
+    // two feeds"), so this is the same pipeline run N times, not a new one.
+    //
+    // The named `rel` entry stays the headline result, because a caller that asked for one
+    // identity is usually asking "what is this person publishing now".
+    const others = entries.filter((f) => f && f !== entry && typeof f.url === 'string');
+    const primary = await readOneFeed(identity, entry);
+    const rest = [];
+    for (const other of others) {
+      try {
+        rest.push(await readOneFeed(identity, other));
+      } catch (e) {
+        // One unreadable archive does not make an identity unreadable. The finding says which.
+        rest.push({ entry: other, error: e });
+      }
+    }
 
-    // §9.3's withholding verdict is scoped to bytes this consumer actually tried to obtain, and
-    // there are exactly two ways to have tried. Following `next_url` to its end is one, and
-    // `partial` says whether that happened. Asking for a specific revision at its §7.6 URL is
-    // the other, and it is the one that works against a publisher serving a window: `probe`
-    // returns only ids whose own URL declined to yield them, on an origin that demonstrably
-    // serves item URLs at all.
-    const reconciled = reconcileFeed(manifest.manifest, feed.canonical.map((c) => c.item), {
-      now: now(),
-      ceiling: lagCeiling,
-      url: entry.url,
-      partial: feed.partial,
-      unobtainable: feed.probe?.unobtainable ?? new Set(),
-    });
-
-    const byState = (state) => reconciled.states.filter((s) => s.state === state);
+    const { manifest, feed, reconciled, byState } = primary;
     return {
       identity,
       manifest,
       feed,
       entry,
+      // Every entry in `feeds`, the headline one first, each with its own manifest, pin, and
+      // item states. A caller wanting the whole catalog reads this rather than `items`.
+      feeds: [primary, ...rest],
       items: {
         live: byState('live'),
         deleted: byState('deleted'),
@@ -710,17 +770,10 @@ export function createReader({
         copies: feed.copies,
       },
       findings: [
-        ...reconciled.violations.map((v) => ({ kind: 'invariant', invariant: v.invariant, message: v.message })),
-        ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
-        ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
-        // §7.4: the signature covers the reference, never the bytes. An attachment with no
-        // `_sha256` is unverified content (§10.5) inside an otherwise-verified item, which is
-        // the one finding a client cannot derive from the item's own verdict.
-        ...feed.unhashedAttachments.map((a) => ({
-          kind: 'unhashed_attachment',
-          id: a.id,
-          message: `${a.id}: attachment ${a.url ?? '(no url)'} carries no _sha256, so its bytes are unverified (§7.4)`,
-        })),
+        ...primary.findings,
+        ...rest.flatMap((r) => (r.error
+          ? [{ kind: 'unreadable_feed', message: `${r.entry.url} (rel ${r.entry.rel ?? 'primary'}): ${r.error.message}` }]
+          : r.findings)),
         ...(identity.cors ? [] : [{ kind: 'conformance', message: `${identity.url} is served without Access-Control-Allow-Origin: * (§3.3)` }]),
         // A migration claim that did not verify is a finding rather than a failure: §3.4 says a
         // consumer with no prior pin of the old identity can only treat one as unverified, and

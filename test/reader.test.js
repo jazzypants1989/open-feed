@@ -600,3 +600,64 @@ test('a next_url pointing off-origin is not followed', async (t) => {
   assert.equal(result.feed.partial, true, 'declining to follow leaves the read partial');
   assert.equal(result.items.withheld.length, 0);
 });
+
+test('every feeds entry is read, so a rotated archive does not vanish', async (t) => {
+  // §3.2.1: "a consumer wanting the whole catalog reads every entry", and §9.2 makes rotation —
+  // open a new feed, mark the old one `rel: "archive"`, leave it listed — the recommended way to
+  // bound a manifest's growth. A reader that follows only `primary` makes the back catalog
+  // invisible from the moment a publisher takes that advice, which is the wrong reward for it.
+  const site = await newSite(t);
+  const signer = makeSigner('key-1');
+
+  const archive = new Publisher({
+    identity: site.url,
+    feedUrl: `${site.url}archive.json`,
+    manifestUrl: `${site.url}archive-manifest.json`,
+    signer, profile: { name: 'Mom' }, now: () => T0,
+  });
+  archive.publishItem({ id: 'urn:uuid:old-1', content_text: 'the early years' }, { at: T0 });
+  archive.publishItem({ id: 'urn:uuid:old-2', content_text: 'more early years' }, { at: T0 + 60 });
+  archive.advanceManifest({ updated: T0 + 120 });
+
+  const p = familyPublisher(site.url, signer);
+  p.advanceIdentity({
+    feeds: [
+      { url: p.feedUrl, manifest: p.manifestUrl, rel: 'primary' },
+      { url: archive.feedUrl, manifest: archive.manifestUrl, rel: 'archive' },
+    ],
+  }, { updated: T0 + 4 * DAY });
+
+  site.serve(archive);   // its own openfeed.json is overwritten by the next line
+  site.serve(p);
+
+  const result = await reader(consumer(t)).read(site.url);
+
+  assert.equal(result.feeds.length, 2);
+  assert.equal(result.entry.rel, 'primary', 'the named rel is still the headline result');
+  assert.equal(result.items.live.length, 6, 'and `items` still means the primary feed');
+
+  const back = result.feeds.find((f) => f.entry.rel === 'archive');
+  assert.equal(back.items.live.length, 2);
+  assert.equal(back.manifest.pin.seq, 1, 'the archive chain gets its own pin, not the primary\'s');
+  assert.notEqual(back.manifest.url, result.manifest.url);
+  assert.deepEqual(result.findings, [], 'reading two feeds finds nothing wrong with either');
+});
+
+test('an unreadable archive is a finding about that feed, not a dead identity', async (t) => {
+  const site = await newSite(t);
+  const signer = makeSigner('key-1');
+  const p = familyPublisher(site.url, signer);
+  p.advanceIdentity({
+    feeds: [
+      { url: p.feedUrl, manifest: p.manifestUrl, rel: 'primary' },
+      { url: `${site.url}gone.json`, manifest: `${site.url}gone-manifest.json`, rel: 'archive' },
+    ],
+  }, { updated: T0 + 4 * DAY });
+  site.serve(p);
+
+  const result = await reader(consumer(t)).read(site.url);
+  assert.equal(result.items.live.length, 6, 'the primary feed reads normally');
+  const finding = result.findings.find((f) => f.kind === 'unreadable_feed');
+  assert.ok(finding, JSON.stringify(result.findings));
+  assert.match(finding.message, /gone\.json/);
+});

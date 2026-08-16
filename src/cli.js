@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-import { createReader, ObservationStore, PinStore } from '../src/index.js';
+import { createReader, ObservationStore, PinStore, MigrationStore } from '../src/index.js';
 
 const USAGE = `Usage: openfeed verify <identity-url> [--pins FILE] [--json]
 
@@ -39,20 +39,32 @@ export function parseArgs(argv) {
   return args;
 }
 
-/** The pin store and the first-observation record live in one file; they are one memory. */
+/**
+ * The pin store, the first-observation record, and the migration store live in one file; they
+ * are one memory.
+ *
+ * The third is not optional bookkeeping. §4.5 makes retaining the predecessor's recovery pin a
+ * MUST for any consumer that intends to honor a recovery-based migration, and it can only be
+ * recorded while the predecessor is still readable — which is before the move, with no second
+ * chance. A command that collected it during a run and dropped it at exit would satisfy the
+ * rule for the length of one process and fail it exactly when it matters.
+ */
 export function loadState(file) {
-  if (!file || !fs.existsSync(file)) return { pins: new PinStore(), observations: new ObservationStore() };
+  if (!file || !fs.existsSync(file)) {
+    return { pins: new PinStore(), observations: new ObservationStore(), migrations: new MigrationStore() };
+  }
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   return {
     pins: PinStore.fromJSON(raw.pins),
     observations: ObservationStore.fromJSON(raw.observations),
+    migrations: MigrationStore.fromJSON(raw.migrations),
   };
 }
 
-export function saveState(file, { pins, observations }) {
+export function saveState(file, { pins, observations, migrations }) {
   if (!file) return;
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify({ pins, observations }, null, 2)}\n`);
+  fs.writeFileSync(file, `${JSON.stringify({ pins, observations, migrations }, null, 2)}\n`);
 }
 
 export function report(result, { pinFile }) {

@@ -77,6 +77,7 @@ export {
 } from './manifest.js';
 export {
   MigrationStore,
+  recoveryPin,
   verifyMigration,
   MigrationError,
   CompetingMigrations,
