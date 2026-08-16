@@ -39,6 +39,8 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 | `tmp/export-prototype.js` | §14 produced and restored with no network and no bundle-specific verifier; what decomposition costs; and why a successor's bundle needs the predecessor's chain |
 | `tmp/inbox-prototype.js` | §10.2's ordering made observable — outbound fetches counted and placed, §10.3's write-before-verify denial run both ways, and dedup across a migration |
 | `tmp/enctags-prototype.js` | §15.2's envelope measured three ways. The cost driver was the per-recipient ephemeral, not the missing tag; shared ephemeral and blinded tags only work together |
+| `tmp/canonicality-prototype.js` | §6.3's wire rule three ways. Verdict: keep "MUST everywhere" — §14 nests documents as JSON *values*, so hashing served bytes cannot reproduce them, and exempting the tip forks §5.4 rather than relaxing it, making an honest publisher read as equivocating |
+| `tmp/itemurls-prototype.js` | Derived item URLs, id-addressed vs hash-addressed vs walking `next_url`. Verdict: hash-addressed (§7.6) — id-addressing needs the percent-encoding normalizer §3.1 refuses to write, and the do-nothing fix is a multi-megabyte poll |
 
 ## The threat model that drives the design
 
