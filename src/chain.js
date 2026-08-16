@@ -6,7 +6,7 @@
 // which keeps `src/fetch.js` the only place an outbound request happens and lets the whole
 // chain be exercised against an in-memory store.
 
-import { documentHash } from './hash.js';
+import { documentHash, timingSafeEqualString } from './hash.js';
 import {
   verifyDocument,
   parseDetachedSig,
@@ -648,7 +648,7 @@ export async function walkToPin({
       );
     }
     const hash = documentHash(predecessor);
-    if (hash !== current.prev) {
+    if (!timingSafeEqualString(hash, current.prev)) {
       throw new ChainError(
         `${url} seq ${current.seq} names prev ${current.prev}, but seq ${predecessor.seq} hashes to ${hash}`,
         { url, seq: predecessor.seq },
@@ -663,7 +663,7 @@ export async function walkToPin({
   }
 
   const reachedHash = documentHash(current);
-  if (reachedHash !== pin.hash) {
+  if (!timingSafeEqualString(reachedHash, pin.hash)) {
     // Unlike the zero-hop case above, this version came from its **derived** URL, which only
     // the publisher serves and which §5.4 requires to be byte-identical forever. So a mismatch
     // here is the retained history having been rewritten, and no tiebreak fetch is needed.
@@ -716,7 +716,7 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
   if (above.seq !== anchor.seq + 1) {
     throw new ChainError(`${derivedVersionUrl(url, anchor.seq + 1)} is seq ${above.seq}`, { url, seq: above.seq });
   }
-  if (above.prev !== anchor.hash) {
+  if (!timingSafeEqualString(above.prev, anchor.hash)) {
     throw new ChainError(
       `${url} seq ${current.seq} anchors seq ${anchor.seq} at ${anchor.hash}, but seq ${above.seq} names prev ${above.prev}`,
       { url, seq: anchor.seq },
@@ -732,7 +732,7 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
     throw new ChainError(`${derivedVersionUrl(url, anchor.seq)} is seq ${landed.seq}`, { url, seq: landed.seq });
   }
   const hash = documentHash(landed);
-  if (hash !== anchor.hash) {
+  if (!timingSafeEqualString(hash, anchor.hash)) {
     throw new ChainError(
       `${url} anchors seq ${anchor.seq} at ${anchor.hash}, but that version hashes to ${hash}`,
       { url, seq: anchor.seq },

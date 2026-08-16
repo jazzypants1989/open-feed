@@ -1,204 +1,102 @@
-# Handoff — after `60d36f0`
+# Handoff — after `49f4f7f`
 
-Delete this file when it has been consumed. It is a review of two commits and a list of what
-is still open; none of it belongs in `CLAUDE.md` or the spec.
+Delete this file when it has been consumed. It is a list of what is still open; none of it
+belongs in `CLAUDE.md` or the spec.
 
-Both commits are on `main`, matching this repo's pattern. `npm test` → 156 pass.
-`node tmp/regen.js` → all checks pass.
+`npm test` → 202 pass. `node tmp/regen.js` → all checks pass. All eleven `tmp/` prototypes exit 0.
 
-- `b9f0703` — your four in-flight prototypes (migration, export, inbox, enctags) and the spec
-  text their findings forced. Committed separately and first so it kept its own message; I
-  split my two spec hunks and two `CLAUDE.md` line edits out of the working tree to do it.
-- `60d36f0` — the `__proto__` defect, the wire-canonicality rule, and `src/migration.js`.
-
----
-
-## 1. Skeptical review of `60d36f0`
-
-### 1.1 The `__proto__` fix: I settled a design question I should have asked
-
-Two answers were available and I took the second without putting the first to you.
-
-**Treat `__proto__` as an ordinary member.** This is what `JSON.parse` does, what every
-non-JavaScript implementation does by default, and therefore what a Python or Go verifier will
-do whether or not the spec says so. It is the *more* interoperable answer. Its cost lands
-entirely on JavaScript implementations, and it is not one check: the parser must build with
-`Object.create(null)` or `defineProperty`, **and every copy loop anywhere in the stack** must
-preserve the member. `{...doc}` is safe; `for (const k of keys) out[k] = v` is not. That trap
-is exactly the one this repo just stepped on, and a third-party implementer will step on it
-again with no test to catch them.
-
-**Reject the member name.** One check, implementable identically in any language, fails closed,
-and requires no care anywhere else — which is why I took it. Its cost is that it is a genuine
-protocol wart: a restriction on JSON that no neighbouring protocol has, and a Python publisher
-emitting `__proto__` in an extension field now produces a document a conforming verifier must
-refuse. It converts a *silent* disagreement into a *loud* one, which is better, but only
-because the spec now says so.
-
-I also let test ergonomics push me: `Object.create(null)` broke `assert.deepStrictEqual` in two
-existing tests, because that assertion compares prototypes. That is a bad reason to shape a
-protocol and I should not have weighed it. The argument that stands on its own is the copy-loop
-trap — but it is a close call and it is yours. **Question 1 below.**
-
-One thing I did check: `__proto__` is the only member name with this behaviour. It is the only
-accessor on `Object.prototype`; `constructor`, `toString` and the rest are plain data
-properties, so `out.constructor = v` creates an own property normally. There is no second name
-to reserve.
-
-### 1.2 The wire-canonicality rule is a much bigger hammer than its diff suggests
-
-`assertCanonicalBytes` is nine lines, and it raises the conformance bar for every publisher in
-the protocol. Before it, §5.4 required *retained* versions byte-identical and nobody checked;
-the **tip** was under no byte-level constraint at all. Now `openfeed.json` and `manifest.json`
-must be byte-exact RFC 8785 on the wire or they are unreadable — not cosmetically
-non-conforming, unreadable. A static-site generator writing `JSON.stringify(obj, null, 2)`, a
-proxy that pretty-prints, a host that appends a trailing newline: each is now a hard failure.
-
-I still think it is right, because without it the pin commits a normalization of what you were
-served rather than what you were served, and every remaining parser divergence lives in that
-gap. But there is a middle setting I did not consider before implementing: **MUST for retained
-versions** (where §5.4 already demands byte-identity, so nothing new is being asked) and
-**SHOULD-with-a-finding for the tip**. That keeps the strict guarantee where a chain is walked
-and degrades to a conformance warning at first contact. It is weaker, and I am not sure it is
-weaker in a way that matters. **Question 2.**
-
-Two smaller things about it:
-
-- **It doubles canonicalization work on a walk.** Every chained document is now canonicalized
-  once by `assertCanonicalBytes` and again by `documentHash`. Against §13.4's budget — up to
-  1000 versions of a manifest at up to 1 MB — that is real. It is also free to fix: once the
-  body is *proven* canonical, `documentHash` is just `b64u(sha256(fetched.bytes))`, and the
-  fetch layer already has those bytes. I did not wire that through because it means threading
-  bytes into `walkToPin`, which currently takes parsed documents only. Worth doing.
-- **`accept-encoding: identity` was already set**, so HTTP compression does not interact with
-  this. Good, but it is now load-bearing rather than a nicety, and nothing says so.
-
-### 1.3 `src/migration.js`: the state I chose to keep is larger than the state that is needed
-
-`MigrationStore.noteIdentity` retains the **whole identity document** per identity, and I
-argued for it in the spec (§4.5 now makes it a MUST). The argument is sound — a pin is a
-`(seq, hash)` and the recovery key is in the bytes, so a pin-only consumer cannot verify a
-recovery migration once the domain is gone. But the conclusion is too broad. What §4.5 actually
-needs from the predecessor is:
-
-- the **recovery keys** committed at the verified version (~130 bytes per key), and
-- the predecessor's **feed URLs**, for §7.5's exception — which I already store separately.
-
-Everything else in a 100 KB identity document is dead weight, held forever, for every identity
-a consumer has ever read. A hub polling a few thousand external members would hold hundreds of
-megabytes to answer a question a few kilobytes answers. The right shape is a *recovery pin* —
-`(url, seq, hash, recoveryKeys[], feedUrls[])` — and both the spec sentence and the module
-should say that instead. This is the clearest improvement available on what I built, and it
-also narrows the spec MUST from "retain the identity document" to something a minimal consumer
-will actually do. **Question 3.**
-
-### 1.4 Rough edges I know about and left
-
-- **`reconcileMigration` can throw about a different identity than the one you asked for.**
-  Reading a successor triggers a read of the predecessor, which walks the predecessor's chain.
-  I catch `ReaderError` and `FetchError` there but deliberately not `EquivocationError` — an
-  equivocating predecessor *should* surface — so `read(successor)` can reject with an error
-  naming the predecessor's URL. Correct, and confusing. It wants a wrapper that says which
-  identity the finding is about.
-- **There is no way to settle a contested migration.** Once two claims collide, `record` throws
-  for *both* successors forever, which is exactly §3.4's "MUST NOT follow either without
-  out-of-band confirmation" — but there is no API for the confirmation. `PinStore` has `rePin`
-  for the analogous situation; `MigrationStore` needs `settle(predecessor, successor)`.
-- **`read()` now follows migrations by default**, so `read(A)` can return B's content. I added
-  `result.followed` to say so, but it is a surprising default for a function that took one URL.
-  Defensible (it is what §3.4 asks of a consumer) and worth a second look.
-- **`memoizeByAuthor` is per-read, not per-reader.** A thousand-item family board costs one
-  fetch per distinct author per poll. There is no positive identity-document cache anywhere in
-  `src/`, though §12 asks for one (≤1 h). Separate gap, listed below.
-- **`retiredChainUrls()` rebuilds a Set on every `walkAndPin`.** Trivial today, sloppy anyway.
-
-### 1.5 On the spec text I wrote
-
-The `__proto__` bullet in §6.3 is longer and more implementation-specific than the two bullets
-beside it — the duplicate-member rule gets one sentence, mine gets five. The JavaScript
-mechanics may be justification-next-to-a-MUST (which `CLAUDE.md` says stays) or may be
-archaeology in disguise. I lean toward trimming it to the rule plus one sentence on why it
-fails *open*, and letting `src/canonical.js`'s comment carry the mechanism.
-
-And I did not touch **§12**. The canonical-bytes rule is a consumer MUST that is not a signature
-check, so "verify signatures (§6)" does not obviously carry it. It should be named in Level 1's
-list or it will be missed by anyone reading §12 as the conformance checklist.
+The previous handoff's four questions are closed. Q1 (`__proto__`) you settled: the rejection
+stays. Q2 (wire canonicality) went to `tmp/canonicality-prototype.js` and came back "MUST
+everywhere", for a reason neither the question nor the answer had — §14 nests chained documents as
+JSON *values*, so hashing served bytes cannot reproduce them, and the middle setting forks §5.4
+rather than relaxing it. Q3 (the recovery pin) is implemented. Q4 (build order) is done: the
+withholding defect, `src/inbox.js`, `src/export.js`, and `src/enc.js`, in that order.
 
 ---
 
-## 2. Two alternatives worth putting on the table
+## 1. Open, in the order I would take them
 
-**A. Let the successor's genesis manifest commit the predecessor's final state.**
-§9.3 invariant 5 requires every id live in the predecessor's last manifest to appear in the
-successor's — but only "the last manifest *the consumer observed*", so it is checkable by
-someone who was already watching and by nobody else. If the successor's genesis manifest
-carried `predecessor_manifest: {url, seq, hash}`, invariant 5 would become checkable **from the
-successor's bytes alone**: fetch that retained version from its derived URL, confirm the hash,
-compare the id sets. It does not fix first-contact TOFU (a stranger still cannot verify the
-recovery key), but it converts "you had to be there" into "you can go and look", which is the
-same move §5.4's derived URLs already make for chain history. One optional field, no new
-construction.
+**1. §16 emission and heeding.** `admissibleItemPins`, `PinStore.observationsFor`, and
+`reconcilePeerPin` all exist and are tested; nothing on the read or write path emits `_pins` or
+looks at them on an arriving item. §16.1 says emission is a SHOULD for a publisher that already
+tracks a recipient's chains, and calls a compare rule nobody feeds "evidence collected and thrown
+away" — which is what this is. `Publisher` would need to know which chains it tracks (it tracks
+none today, so this probably wants the reader and publisher composed in a way nothing yet does),
+and the read path would need to run `reconcilePeerPin` over `item._pins` and surface `check`
+verdicts. The scoping rule is already implemented and already tested, so the risky half is done.
 
-**B. Derived item URLs** — still the open wire proposal from the review, and it is now more
-attractive than it was, because §1.2's canonicality rule cannot cover items and derived URLs
-would give a consumer a way to *request* an individual item's bytes and compare them. It is
-also the only credible fix for the withholding defect below.
+**2. §8 beyond the inbox.** `src/inbox.js` splits `_rel` targets and judges relevance, and that is
+all the `_rel` handling in the repository. There is no thread walk, no `root` resolution on the
+read side, and no §13.12 depth cap — "`_rel` `reply` graphs from malicious parties may contain
+cycles; cap walk depth". A client is the natural home for it, but the cap is a security rule and
+belongs somewhere a client can borrow it from.
 
----
+**3. `reconcileMigration` still throws about a different identity than the one asked for.**
+Reading a successor triggers a read of the predecessor, which walks the predecessor's chain.
+`EquivocationError` is deliberately not caught there — an equivocating predecessor *should*
+surface — so `read(successor)` can reject with an error naming the predecessor's URL. Correct, and
+confusing. It wants a wrapper that says which identity the finding is about.
 
-## 3. Still open, in the order I would take them
+**4. §3.1's percent-encoding rule still has no single answer.** `normalizeIdentityUrl` delegates
+to WHATWG `URL`, which never decodes but *does* re-encode raw characters (`/a^b/` → `/a%5Eb/`); a
+different URL library encodes a different set, and one identity becomes two.
+`tmp/itemurls-prototype.js` Q2 is new evidence about how bad the disagreement is — five sampled id
+forms, five different results across three ordinary encoders — and the spec now leans on that
+argument in §7.6. It does not fix §3.1, which is about identity URLs rather than item ids.
 
-Nothing here is started.
+**5. `updated` is Unix seconds and must strictly increase**, so publish-then-tombstone inside one
+second is refused by `Publisher.#assertDated`. Real at a hub batching with tombstone preemption,
+and `rotateKey` now emits three versions in a row (§9.1's revoked-tip rule), which makes the
+window tighter rather than looser.
 
-1. **The withholding false-positive is still live.** `reader.js` passes
-   `partial: feed.nextUrl !== null`, so an ordinary publisher serving a 50-item window with
-   10,000 committed items has every older item reported as **withheld**. The migration work
-   fixed a *different* cause of false withholding and left this one. §9.3 scopes the verdict to
-   bytes a consumer actually tried to obtain, and absence of `next_url` is not knowledge that
-   you made a complete pass — so today no conformant consumer can honestly assert withholding
-   from a feed read at all, which makes the state nearly dead on the pull path.
-2. **`src/inbox.js`** — §10.2's normatively-ordered pipeline, dedup on the id half so it
-   survives a migration, the write-before-verify guard, §10.4's responses.
-3. **§15 encryption in `src/` + Appendix B vectors** — an OPTIONAL layer marked "never
-   independently reviewed", with no reference implementation and no vectors, that
-   `DISTRIBUTION-MODEL.md` treats as a launch dependency.
-4. **`src/export.js`** — §14 produced and restored, including the predecessor-chain requirement
-   and the archive container.
-5. **Derived item URLs prototype** — `tmp/`, measured like skiplinks and deltamanifest were.
-
-Smaller, from the review, none addressed:
-
-- **Multi-feed reads.** `read()` takes one `feeds` entry; §3.2.1 says a consumer wanting the
-  whole catalog reads every one, so a rotated archive feed is invisible to the reference reader.
-- **No positive identity-document cache** (§12 asks for ≤1 h).
-- **Identity-chain length is an unbounded denial.** Skip links are forbidden there for a sound
-  reason and §13.4 caps the walk at 1000 versions, so a custodian holding a root key can advance
-  the chain past the cap between polls and make the identity permanently unverifiable to every
-  pinned consumer. Delegated custody removes the capability; nothing says so.
-- **§14 never states that bundle completeness is unverifiable** for `delivered`, `received`, and
-  `unpublished` — the unmanifested half, which is exactly what a hostile operator would degrade.
-- **§3.1's percent-encoding rule has no single answer.** `normalizeIdentityUrl` delegates to
-  WHATWG `URL`, which never decodes but *does* re-encode raw characters (`/a^b/` → `/a%5Eb/`).
-  A different URL library encodes a different set, and one identity becomes two.
-- **`updated` is Unix seconds and must strictly increase**, so publish-then-tombstone inside one
-  second is refused by `Publisher`. Real at a hub batching with tombstone preemption.
-- **§15.2's `_tag` is 8 bytes** and the spec does not say what a reader does when a tag matches
-  but the unwrap fails.
+**6. Appendix C has no code at all** — no `_unverified` handling on the read path, no
+`external_url` non-dereference rule, no backfeed shape. Arguably correct: it governs gateways
+rather than this verifier. But `_unverified` is a §10.5 display MUST that `renderable` reports and
+nothing enforces.
 
 ---
 
-## 4. Questions
+## 2. Things I changed that you may want to look at twice
 
-1. **`__proto__`: keep the rejection, or make it an ordinary member?** (§1.1) Rejection is one
-   language-independent check that fails closed; ordinary-member is more interoperable and puts
-   a permanent copy-loop trap in front of every JavaScript implementer.
-2. **Wire-canonicality: MUST everywhere, or MUST for retained versions and SHOULD for the tip?**
-   (§1.2) The stricter form is what I shipped; the looser form keeps first contact tolerant of
-   ordinary infrastructure.
-3. **Shrink the retained predecessor state to a recovery pin?** (§1.3) `(url, seq, hash,
-   recoveryKeys, feedUrls)` instead of the whole identity document, in both the module and the
-   §4.5 MUST.
-4. **Build order.** I proposed inbox → §15 → export → derived item URLs, with the withholding
-   defect fixed first because it is a live false accusation in shipped code. Say if you want a
-   different order, or want the withholding fix to wait for the derived-item-URL prototype
-   rather than getting an interim consumer-side tightening.
+**`Publisher.rotateKey` now advances the manifest.** §9.1's revoked-tip rule made a rotation that
+does not re-sign its manifest into a chain nobody can advance, and the first thing the rule caught
+was a test fixture in exactly that state. Doing it inside `rotateKey` is the difference between a
+rotation and one that strands every reader silently — the publisher's own files stay on disk and
+stay internally consistent — but it is a behaviour change in a method whose name does not mention
+manifests.
+
+**`read()` now returns `feeds`, and reads every entry.** The named `rel` is still the headline
+result and `items` still means that feed, so nothing that existed broke. But a reader pointed at an
+identity with a rotated archive now makes several times as many requests as it used to, and there
+is no way to ask for one feed. If that is wrong, the option belongs on `createReader`.
+
+**§5.5 fork resolution now runs automatically** and re-pins onto a branch carrying a valid recovery
+co-signature. §5.5 says SHOULD prefer, so this is what the text asks for, and it is reported as a
+finding rather than done silently. It is still the one place this reader makes a consequential
+choice on its own rather than surfacing and stopping.
+
+**The withholding verdict is now close to unreachable without §7.6.** That is deliberate and §9.3
+says so, but it means a reader pointed at a conformant publisher that does not serve item URLs will
+never assert withholding from a feed read — which is the honest outcome and also a quieter verifier
+than the one you had.
+
+---
+
+## 3. Questions
+
+1. **Is §7.6 the right shape?** It is new wire surface in a specification whose value is how little
+   of it there is. The argument for it is that §9.3's withholding verdict is otherwise unreachable
+   on the pull path — measured at 7.6 MB per poll for a ten-year family journal, with 1018 false
+   accusations from a single page if a reader skips it. The argument against is that it is a fourth
+   URL convention, and that a verdict nobody can afford to assert might simply be a verdict the
+   protocol should not have made a MUST.
+
+2. **Should `verifyBundle` read the predecessor's chain automatically?** It does, and without it a
+   member's own bundle reads their byte-verbatim back catalog as copies and reports every item as
+   withheld. The reasoning is that §3.4's restriction exists to stop fetch amplification and there
+   is no network inside a file — but it does mean a bundle can talk a restorer into verifying a
+   migration that a live reader would have refused to verify.
+
+3. **Where does the §15 review come from?** The layer has an implementation and vectors now, and
+   still says "never independently reviewed" — which is still true and is the one claim in the
+   specification that no amount of work in this repository can retire.

@@ -135,9 +135,12 @@ Open Feed defines four conformance levels (§12):
 | `/{user}/manifest.json`       | Signed, chained commitment to the feed's contents           |
 | `/{user}/openfeed/{seq}.json` | Retained prior identity-document versions (once `seq > 1`, §5.4) |
 | `/{user}/manifest/{seq}.json` | Retained prior manifest versions (once its `seq > 1`)  |
+| `/{user}/feed/items/{hash}.json` | Each committed revision on its own (optional, §7.6)      |
 | `/{user}/export`              | Your complete signed archive, on demand (Level 3, §14)      |
 
 Every public document is served with `Access-Control-Allow-Origin: *` so browser readers work without a proxy.
+
+The item URLs are optional and worth explaining, because their value is not obvious from the path. A manifest names the exact bytes of every item it commits, so a reader can always tell that something *should* be there — but with only a paginated feed to ask, it can never honestly tell the difference between "the host is hiding this" and "that is on a page I did not fetch". Serving each revision at a URL named by the hash the manifest already commits gives it a way to ask for one thing. The fetch is self-verifying, since the URL *is* the content hash, and a superseded revision stays reachable, which nothing else here offers. See §7.6.
 
 **Level 3 adds (requires a server):**
 

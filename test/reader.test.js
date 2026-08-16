@@ -788,3 +788,49 @@ test('a fork with no co-signature on either branch stays frozen', async (t) => {
   assert.equal(me.pins.isFrozen(`${site.url}openfeed.json`), true);
   assert.equal(me.pins.pin(`${site.url}openfeed.json`).seq, 2, 'the pin is retained, not advanced');
 });
+
+test('an identity document is cached across reads, and the cache expires', async (t) => {
+  // §12 Level 1 SHOULD, and who pays is the reason it is not tuning. A family board (§7.1)
+  // carries items from several authors and every one needs that author's own document to
+  // resolve a key, so without a cache spanning reads one poll of a shared board is one fetch per
+  // distinct author, at every author's origin, forever. The ceiling is what keeps it a cache
+  // rather than a second pin: a revocation published afterwards has to become visible.
+  const site = await newSite(t);
+  const board = await newSite(t);
+  const signer = makeSigner('key-1');
+  const guest = makeSigner('guest-1');
+
+  const owner = familyPublisher(site.url, signer, { days: 1 });
+  const contributor = new Publisher({
+    identity: board.url, signer: guest, profile: { name: 'Gran' }, now: () => T0,
+  });
+  contributor.publishItem({ id: 'urn:uuid:gran-1', content_text: 'from Gran' }, { at: T0 });
+  contributor.advanceManifest({ updated: T0 + 60 });
+  board.serve(contributor);
+
+  // A copy of Gran's item on Mom's board: verified as authored, and resolving its key needs
+  // Gran's document (§7.1, §6.6).
+  const copy = [...contributor.items.values()][0];
+  site.serve(owner);
+  site.replace('feed.json', { ...owner.feed, items: [...owner.feed.items, copy] });
+
+  const me = consumer(t);
+  const clock = { at: T0 + DAY };
+  const r = () => createReader({
+    fetcher: me.fetcher, pins: me.pins, observations: new ObservationStore({ now: () => clock.at }),
+    now: () => clock.at,
+  });
+  const shared = r();
+
+  const before = board.requested.length;
+  await shared.read(site.url);
+  const afterFirst = board.requested.length;
+  assert.ok(afterFirst > before, 'the first read resolves the foreign author');
+
+  await shared.read(site.url);
+  assert.equal(board.requested.length, afterFirst, 'the second asks that origin for nothing');
+
+  clock.at = T0 + DAY + 3601;
+  await shared.read(site.url);
+  assert.ok(board.requested.length > afterFirst, 'and past the ceiling it asks again');
+});

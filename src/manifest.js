@@ -7,7 +7,7 @@
 //
 // Nothing here opens a socket or fetches anything. It is given documents and returns verdicts.
 
-import { documentHash } from './hash.js';
+import { documentHash, timingSafeEqualString } from './hash.js';
 import { effectiveSigningTime, normalizeIdentityUrl, VerifyError } from './jws.js';
 
 export class ManifestError extends Error {
@@ -307,7 +307,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
 
     // Versions match, so invariant 4 governs: the manifest names an exact revision.
     const hash = documentHash(item);
-    if (hash !== committed.hash) {
+    if (!timingSafeEqualString(hash, committed.hash)) {
       violate(
         `${id} version ${version} hashes to ${hash}, but seq ${manifest.seq} commits ${committed.hash}`,
         { invariant: 4, id },

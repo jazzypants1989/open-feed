@@ -184,7 +184,17 @@ export function createReader({
   // can commit ten thousand items the reader is not holding, and probing all of them is a
   // fetch storm to answer a question nobody asked.
   maxItemProbes = 16,
+  // §12 Level 1 SHOULD: cache identity documents for at most an hour. It reads like tuning and
+  // is not, because of who pays. A family board (§7.1) carries items from several authors and
+  // every one of them needs that author's own document to resolve a key — so without a cache
+  // spanning reads, one poll of a thousand-item board is one fetch per distinct author, at every
+  // author's origin, forever. The ceiling is what keeps it a cache rather than a second pin:
+  // revocation has to become visible, and an hour is the bound §12 names.
+  identityCacheSeconds = 3600,
 } = {}) {
+  // author -> { document, at }. Deliberately not a pin store: this holds no verdict, and every
+  // document taken from it has already been walked and pinned by the code that put it here.
+  const identityCache = new Map();
   /**
    * §13.4's history budget: "the greater of 10 MB and 20× the current version's size", decoded.
    * It scales with the document because a fixed budget does not survive its own ceiling — a
@@ -731,7 +741,7 @@ export function createReader({
       // resolver every such item is unverifiable, which reads as a defect in an ordinary
       // arrangement the specification explicitly permits. One fetch per distinct author,
       // memoized for the read, of that author's own fixed-path document (§13.9).
-      resolveIdentity: memoizeByAuthor((author) => readIdentity(author, { verifyMigration: false })),
+      resolveIdentity: cachedIdentity,
     });
 
     // §9.3's withholding verdict is scoped to bytes this consumer actually tried to obtain, and
@@ -777,6 +787,22 @@ export function createReader({
         })),
       ],
     };
+  }
+
+  /**
+   * §12's positive identity-document cache, shared across reads rather than scoped to one.
+   *
+   * The entry is discarded once it is older than the ceiling, so a revocation published after it
+   * was stored becomes visible within the hour §12 allows. A caller wanting none passes
+   * `identityCacheSeconds: 0`.
+   */
+  async function cachedIdentity(author) {
+    const key = normalizeIdentityUrl(author);
+    const held = identityCache.get(key);
+    if (held && now() - held.at < identityCacheSeconds) return held.result;
+    const result = await readIdentity(key, { verifyMigration: false });
+    identityCache.set(key, { result, at: now() });
+    return result;
   }
 
   /**
@@ -890,21 +916,6 @@ export function createReader({
   return { readIdentity, readManifest, readFeed, read, pins, observations, migrations, fetcher };
 }
 
-/**
- * One resolution per distinct author per read, failures included.
- *
- * A feed's item list is attacker-influenced wherever the feed is somebody else's — a board any
- * family member may post to, a bridge — so an author name repeated across a thousand items must
- * cost one fetch, not a thousand. Negative results are memoized for the same reason: a feed
- * naming an unreachable author repeatedly is the cheap version of the same attack.
- */
-function memoizeByAuthor(resolve) {
-  const held = new Map();
-  return (author) => {
-    if (!held.has(author)) held.set(author, resolve(author));
-    return held.get(author);
-  };
-}
 
 /**
  * §7.5's comparison for feed URLs. Feeds are not identities — no trailing slash is appended,
