@@ -85,6 +85,17 @@ export {
 export { Publisher, PublishError } from './publish.js';
 export { createReader, ObservationStore, normalizeUrlForCompare, ReaderError } from './reader.js';
 export {
+  buildBundle,
+  containerEntries,
+  completeness,
+  degraded,
+  restoreFetcher,
+  verifyBundle,
+  ExportError,
+  BUNDLE_VERSION,
+  BUNDLE_ENTRY,
+} from './export.js';
+export {
   createInbox,
   DedupStore,
   splitTarget,
