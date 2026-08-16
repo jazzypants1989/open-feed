@@ -234,15 +234,17 @@ say(`
       It takes ECDH from N x K down to K, but it forces the loop inside out: with one
       ephemeral a reader must iterate keys OUTSIDE and slots INSIDE, so every wrong key now
       costs a full sweep of N unwraps. At N=1024, K=10 that is ~9,200 AES unwraps and B lands
-      at 134 ms for a recipient in slot 1 — where scheme A, whose slot-outer/key-inner order
-      finds an early slot immediately, takes 0.41 ms. B is better in the expensive operation
+      in the hundreds of milliseconds for a recipient in slot 1 — where scheme A, whose
+      slot-outer/key-inner order finds an early slot immediately, stays under a millisecond.
+      (Exact figures are in the table above, from THIS run — they drift with hardware, which
+      is why this prose no longer quotes them.) B is better in the expensive operation
       and worse in the cheap one, and at family scale (N=30) it wins while at N=1024 it loses.
 
     C (share the ephemeral AND tag the slots) is the one that holds everywhere. The tag makes
       the inner sweep a byte comparison instead of an unwrap, so the loop order stops
-      mattering: K ECDH plus at most N x K comparisons, flat. Every case measured lands at
-      0.05-0.35 ms regardless of N, including the case §15.5.7 calls the common one — a
-      NON-RECIPIENT, who under A pays 435 ms per item and never exits early.
+      mattering: K ECDH plus at most N x K comparisons, flat. Every case measured stays under
+      a millisecond regardless of N, including the case §15.5.7 calls the common one — a
+      NON-RECIPIENT, who under A pays hundreds of milliseconds per item and never exits early.
 
     Tags cannot be adopted without the shared ephemeral either: with per-recipient ephemerals
     a reader must do the ECDH before it can compute any tag, so tagging alone would save only

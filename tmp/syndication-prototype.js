@@ -193,6 +193,17 @@ NOTES
   signed artifacts and makes routing a feed scan; receipts also outlive retraction as
   permanent published statements of where copies went (a disclosure shape B can prune
   only by feed rotation, and shape A genuinely deletes).
+
+VERDICT — shape B, UNCHAINED (what README's _syndication convention adopted). The B measured
+above is chained (seq/prev, retained versions), and its two headline costs — the retained
+doc history in the table and "a new chained document type to pin and walk" — are costs of
+the CHAINING, which bought nothing: the map carries no authority anyone verifies against,
+so there is nothing for a pin to protect, and chaining a document nobody verifies only
+makes its disclosure permanent (§5.4) when deletability is the property wanted. Dropping
+the chain keeps B's wins (one fetch to route, survives the §7.3 tombstone allowlist,
+deletable outright) and deletes both measured costs. Note for readers of the table: the
+adopted shape is therefore CHEAPER than the B column shows; only A and C were rejected on
+their measured numbers.
 `);
 const sane = shapes.A.retractFromPublic===false && shapes.B.retractFromPublic && shapes.C.retractFromPublic
   && shapes.A.copyRecognitionFromBytes && !shapes.B.copyRecognitionFromBytes;

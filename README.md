@@ -36,7 +36,7 @@ and the manifest proves the feed you got is complete and current.
 - Built on four standards and nothing else: HTTPS, JSON Feed 1.1, JOSE (JWK/JWS), and JSON canonicalization (RFC 8785).
 - One signed object model, one signature construction, one verifier.
 - The manifest proves **presence**: your host can't make a post disappear without leaving a signed, attributable trace. This is the thing Nostr relays can't do.
-- Small enough to implement in a weekend. Publishing works on free static hosting (Netlify, GitHub Pages, Cloudflare).
+- Publishing (Level 2) is small enough to implement in a weekend — every artifact is a file, signed at build time — and works on free static hosting (Netlify, GitHub Pages, Cloudflare). Verifying (Level 1) is the deeper half: pinning, chain walking, and the manifest invariants are real work, which is why a dependency-free reference implementation ships in `src/`.
 - Optional `@user@domain` identifiers via WebFinger.
 
 > This README is the friendly companion to the [specification](open-feed-spec.md). The spec **defines**; this document **explains**. Where they differ, the spec wins. Section references (like §9) point into the spec.
@@ -470,7 +470,7 @@ The part that turns this from a domain-loss feature into an **exit** is who gene
 
 ### Key rotation and compromise
 
-Rotation (§4.3): publish a new chain version adding the new key, start signing with it, optionally set `revoked_at` on the old key. Keep rotated-out keys listed ≥30 days so old content still verifies; a key stays listed in any chain version it signed.
+Rotation (§4.3): publish a new chain version adding the new key, start signing with it, optionally set `revoked_at` on the old key. A rotated-out key stays listed for as long as anything it signed is still served — and since retention is permanent (§5.4), that is in practice forever: revocation ends a key's authority, delisting would end the verifiability of everything it ever signed. A key always stays listed in any chain version it signed.
 
 Listing more than one *active* signing key is ordinary, and it is how you survive a lost device: any listed key can advance the chain, so you sign the next version from your other device and revoke the lost one there (§4.3). Nothing escalates to the recovery key, and you don't have to move.
 
