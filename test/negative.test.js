@@ -170,11 +170,11 @@ test('header deviations are rejected', () => {
     return { ...item, _sig: `${nh}..${s}` };
   };
 
-  assert.throws(() => verifyDocument(rewrite({ alg: 'HS256' }), { identityDocument: identity }), throwsVerify(/unrecognized alg/));
-  assert.throws(() => verifyDocument(rewrite({ alg: 'none' }), { identityDocument: identity }), throwsVerify(/unrecognized alg/));
-  assert.throws(() => verifyDocument(rewrite({ b64: true }), { identityDocument: identity }), throwsVerify(/b64 must be false/));
-  assert.throws(() => verifyDocument(rewrite({ crit: [] }), { identityDocument: identity }), throwsVerify(/unsupported crit/));
-  assert.throws(() => verifyDocument(rewrite({ crit: ['b64', 'x'] }), { identityDocument: identity }), throwsVerify(/unsupported crit/));
+  assert.throws(() => verifyDocument(rewrite({ alg: 'HS256' }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unrecognized alg/));
+  assert.throws(() => verifyDocument(rewrite({ alg: 'none' }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unrecognized alg/));
+  assert.throws(() => verifyDocument(rewrite({ b64: true }), { identityDocument: identity, kind: 'item' }), throwsVerify(/b64 must be false/));
+  assert.throws(() => verifyDocument(rewrite({ crit: [] }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unsupported crit/));
+  assert.throws(() => verifyDocument(rewrite({ crit: ['b64', 'x'] }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unsupported crit/));
 });
 
 test('the protected header is held to I-JSON too', () => {
@@ -188,11 +188,11 @@ test('the protected header is held to I-JSON too', () => {
 
   const dup = `{"alg":"EdDSA","b64":false,"crit":["b64"],"kid":"${ID}#other","kid":"${KID}"}`;
   assert.equal(JSON.parse(dup).kid, KID, 'JSON.parse would have taken the last one');
-  assert.throws(() => verifyDocument(raw(dup), { identityDocument: identity }), throwsVerify(/not valid I-JSON/));
+  assert.throws(() => verifyDocument(raw(dup), { identityDocument: identity, kind: 'item' }), throwsVerify(/not valid I-JSON/));
 
-  assert.throws(() => verifyDocument(raw('null'), { identityDocument: identity }), throwsVerify(/not a JSON object/));
-  assert.throws(() => verifyDocument(raw('["EdDSA"]'), { identityDocument: identity }), throwsVerify(/not a JSON object/));
-  assert.throws(() => verifyDocument(raw('{"alg":'), { identityDocument: identity }), throwsVerify(/not valid I-JSON/));
+  assert.throws(() => verifyDocument(raw('null'), { identityDocument: identity, kind: 'item' }), throwsVerify(/not a JSON object/));
+  assert.throws(() => verifyDocument(raw('["EdDSA"]'), { identityDocument: identity, kind: 'item' }), throwsVerify(/not a JSON object/));
+  assert.throws(() => verifyDocument(raw('{"alg":'), { identityDocument: identity, kind: 'item' }), throwsVerify(/not valid I-JSON/));
 });
 
 test('a rewritten header does not verify even when well-formed', () => {
@@ -204,18 +204,18 @@ test('a rewritten header does not verify even when well-formed', () => {
   header.kid = ID + '#other-key';
   const nh = Buffer.from(JSON.stringify(header), 'utf8').toString('base64url');
   assert.throws(
-    () => verifyDocument({ ...item, _sig: `${nh}..${s}` }, { identityDocument: identity }),
+    () => verifyDocument({ ...item, _sig: `${nh}..${s}` }, { identityDocument: identity, kind: 'item' }),
     throwsVerify(/lists no key/),
   );
 });
 
 test('malformed signatures are rejected', () => {
   const item = signedItem();
-  assert.throws(() => verifyDocument({ ...item, _sig: 'not-a-jws' }, { identityDocument: identity }), throwsVerify(/detached JWS/));
+  assert.throws(() => verifyDocument({ ...item, _sig: 'not-a-jws' }, { identityDocument: identity, kind: 'item' }), throwsVerify(/detached JWS/));
   // An attached (non-detached) JWS has a payload in the middle segment.
   const [h, , s] = item._sig.split('.');
-  assert.throws(() => verifyDocument({ ...item, _sig: `${h}.cGF5bG9hZA.${s}` }, { identityDocument: identity }), throwsVerify(/detached JWS/));
-  assert.throws(() => verifyDocument({ ...item, _sig: undefined }, { identityDocument: identity }), throwsVerify(/has no _sig/));
+  assert.throws(() => verifyDocument({ ...item, _sig: `${h}.cGF5bG9hZA.${s}` }, { identityDocument: identity, kind: 'item' }), throwsVerify(/detached JWS/));
+  assert.throws(() => verifyDocument({ ...item, _sig: undefined }, { identityDocument: identity, kind: 'item' }), throwsVerify(/has no _sig/));
 });
 
 // ---- author binding (spec §6.6) ----
@@ -224,25 +224,25 @@ test('author binding failures are rejected', () => {
   // Republishing someone's signed item under a different name.
   const item = signedItem();
   const stolen = { ...item, authors: [{ url: 'https://eve.example/' }] };
-  assert.throws(() => verifyDocument(stolen, { identityDocument: identity }), throwsVerify(/author binding failed/));
+  assert.throws(() => verifyDocument(stolen, { identityDocument: identity, kind: 'item' }), throwsVerify(/author binding failed/));
 
   // Multi-entry authors: exactly one entry, or there is no binding.
-  assert.throws(() => claimedAuthor({ authors: [{ url: ID }, { url: 'https://eve.example/' }] }), /exactly one entry/);
-  assert.throws(() => claimedAuthor({ authors: [] }), /exactly one entry/);
-  assert.throws(() => claimedAuthor({}), /no author binding/);
+  assert.throws(() => claimedAuthor({ authors: [{ url: ID }, { url: 'https://eve.example/' }] }, { kind: 'item' }), /exactly one entry/);
+  assert.throws(() => claimedAuthor({ authors: [] }, { kind: 'item' }), /exactly one entry/);
+  assert.throws(() => claimedAuthor({}, { kind: 'document' }), /no author binding/);
 });
 
 test('an item permalink is not an author binding', () => {
   // JSON Feed items carry their own `url`; it must never be mistaken for the author.
   const item = signedItem({ url: 'https://test.example/2025/01/15/' });
-  assert.equal(claimedAuthor(item), ID);
-  assert.ok(verifyDocument(item, { identityDocument: identity }));
+  assert.equal(claimedAuthor(item, { kind: 'item' }), ID);
+  assert.ok(verifyDocument(item, { identityDocument: identity, kind: 'item' }));
 });
 
 test('the identity document must be the one the kid names', () => {
   const item = signedItem();
   const wrong = { ...identity, url: 'https://other.example/' };
-  assert.throws(() => verifyDocument(item, { identityDocument: wrong }), throwsVerify(/wrong identity document/));
+  assert.throws(() => verifyDocument(item, { identityDocument: wrong, kind: 'item' }), throwsVerify(/wrong identity document/));
 });
 
 // ---- payload integrity ----
@@ -258,7 +258,7 @@ test('tampering with any signed field breaks the signature', () => {
     { _rel: [{ type: 'like', to: 'https://x.example/feed.json#y' }] }, // adding a field
   ]) {
     assert.throws(
-      () => verifyDocument({ ...item, ...patch }, { identityDocument: identity }),
+      () => verifyDocument({ ...item, ...patch }, { identityDocument: identity, kind: 'item' }),
       throwsVerify(/does not verify/),
       `tampering with ${Object.keys(patch)[0]} was not caught`,
     );
@@ -269,9 +269,9 @@ test('unknown extension fields are covered by the signature', () => {
   // Spec §7.2: unknown `_` fields MUST survive re-serialization because signatures
   // depend on it. Dropping one must therefore break verification.
   const item = signedItem({ _ai_assisted: true });
-  assert.ok(verifyDocument(item, { identityDocument: identity }));
+  assert.ok(verifyDocument(item, { identityDocument: identity, kind: 'item' }));
   const { _ai_assisted, ...stripped } = item;
-  assert.throws(() => verifyDocument(stripped, { identityDocument: identity }), throwsVerify(/does not verify/));
+  assert.throws(() => verifyDocument(stripped, { identityDocument: identity, kind: 'item' }), throwsVerify(/does not verify/));
 });
 
 // ---- key state (spec §4.4, §6.5) ----
@@ -279,12 +279,12 @@ test('unknown extension fields are covered by the signature', () => {
 test('a key revoked before the signing time is rejected', () => {
   const item = signedItem(); // signed 2025-01-15T12:00:00Z = 1736942400
   const revoked = { ...identity, keys: [{ ...identity.keys[0], revoked_at: 1736942399 }] };
-  assert.throws(() => verifyDocument(item, { identityDocument: revoked }), throwsVerify(/revoked/));
+  assert.throws(() => verifyDocument(item, { identityDocument: revoked, kind: 'item' }), throwsVerify(/revoked/));
 
   // Equal is still valid — normal rotation revokes the continuity key in the version it
   // signs (spec §5.2), so an off-by-one here would break every rotation.
   const atSigningTime = { ...identity, keys: [{ ...identity.keys[0], revoked_at: 1736942400 }] };
-  assert.ok(verifyDocument(item, { identityDocument: atSigningTime }));
+  assert.ok(verifyDocument(item, { identityDocument: atSigningTime, kind: 'item' }));
 });
 
 test('receipt time overrides self-reported time for revocation', () => {
@@ -296,9 +296,9 @@ test('receipt time overrides self-reported time for revocation', () => {
   // itself a partial backdating defence — it bounds how far a thief can reach back.
   const backdated = signedItem({ date_published: '2025-01-20T00:00:00Z' }); // 1737331200
   const revoked = { ...identity, keys: [{ ...identity.keys[0], revoked_at: 1739577600 }] };
-  assert.ok(verifyDocument(backdated, { identityDocument: revoked }), 'self-reported time slips past');
+  assert.ok(verifyDocument(backdated, { identityDocument: revoked, kind: 'item' }), 'self-reported time slips past');
   assert.throws(
-    () => verifyDocument(backdated, { identityDocument: revoked, signedAt: 1739700000 }),
+    () => verifyDocument(backdated, { identityDocument: revoked, signedAt: 1739700000, kind: 'item' }),
     throwsVerify(/revoked/),
     'receipt time must catch it',
   );
@@ -306,13 +306,13 @@ test('receipt time overrides self-reported time for revocation', () => {
 
 test('backdating before the key existed is rejected', () => {
   const backdated = signedItem({ date_published: '2020-01-01T00:00:00Z' });
-  assert.throws(() => verifyDocument(backdated, { identityDocument: identity }), throwsVerify(/issued at/));
+  assert.throws(() => verifyDocument(backdated, { identityDocument: identity, kind: 'item' }), throwsVerify(/issued at/));
 });
 
 test('a key issued after the signing time is rejected', () => {
   const item = signedItem();
   const future = { ...identity, keys: [{ ...identity.keys[0], iat: 1900000000 }] };
-  assert.throws(() => verifyDocument(item, { identityDocument: future }), throwsVerify(/issued at/));
+  assert.throws(() => verifyDocument(item, { identityDocument: future, kind: 'item' }), throwsVerify(/issued at/));
 });
 
 test('non-Ed25519 keys cannot be pressed into service', () => {
@@ -324,12 +324,14 @@ test('non-Ed25519 keys cannot be pressed into service', () => {
   assert.throws(
     () => verifyDocument(item, {
       identityDocument: { ...identity, keys: [{ kid: 'test-key-1', kty: 'OKP', crv: 'X25519', x: k1.x, use: 'enc' }] },
+      kind: 'item',
     }),
     throwsVerify(/unrecognized use/),
   );
   assert.throws(
     () => verifyDocument(item, {
       identityDocument: { ...identity, keys: [{ kid: 'test-key-1', kty: 'EC', crv: 'P-256', x: k1.x }] },
+      kind: 'item',
     }),
     throwsVerify(/not an Ed25519 signing key/),
   );
@@ -337,7 +339,7 @@ test('non-Ed25519 keys cannot be pressed into service', () => {
 
 test('a key absent from the identity document is rejected', () => {
   const item = signedItem();
-  assert.throws(() => verifyDocument(item, { identityDocument: { ...identity, keys: [] } }), throwsVerify(/lists no key/));
+  assert.throws(() => verifyDocument(item, { identityDocument: { ...identity, keys: [] }, kind: 'item' }), throwsVerify(/lists no key/));
 });
 
 // ---- §6.6: the carrier is chosen by document kind, not by field presence ----
@@ -345,8 +347,8 @@ test('a key absent from the identity document is rejected', () => {
 test('an authors field on a chained document does not displace its url binding', () => {
   // §6.6: "For manifests and identity documents the carrier is the `url` field. For items it
   // is the item-level `authors` array." §3.2 says unknown fields are preserved and *ignored*,
-  // and ignoring one must not mean letting it stand in for the binding the document has. A
-  // caller that knows the kind says so; the fallback only guesses for callers that do not.
+  // and ignoring one must not mean letting it stand in for the binding the document has. The
+  // kind comes from the verification context, always — there is no field-presence fallback.
   const manifest = {
     url: ID,
     feed_url: 'https://test.example/feed.json',
@@ -359,15 +361,16 @@ test('an authors field on a chained document does not displace its url binding',
   manifest._sig = sign(manifest, k1.priv, KID);
 
   assert.equal(claimedAuthor(manifest, { kind: 'document' }), ID);
-  assert.equal(claimedAuthor(manifest), 'https://impostor.example/', 'the guess is what the kind overrides');
+  assert.throws(() => claimedAuthor(manifest), /must say what kind/);
 
   // Told the kind, the manifest verifies against its own `url`.
   assert.ok(verifyDocument(manifest, { identityDocument: identity, kind: 'document' }));
-  // Left to guess, author binding fails — safely, but for the wrong reason, and a document
-  // whose `authors` happened to name its own identity would have skipped the check entirely.
+  // There is no guessing path. A verifier that does not say what it is verifying is refused
+  // outright: any inference reads the binding out of a field the signer chose freely, and a
+  // document whose `authors` happened to name its own identity would have slipped through it.
   assert.throws(
     () => verifyDocument(manifest, { identityDocument: identity }),
-    throwsVerify(/author binding failed/),
+    throwsVerify(/must say what kind/),
   );
 
   // An item is unaffected: its permalink `url` still carries no authority.
@@ -490,11 +493,11 @@ function memberItem(signer, kid) {
 
 test('a delegated key signs items; recovery and unrecognized-use keys cannot', () => {
   // Positive control: the delegated key is a real signing key for content.
-  assert.doesNotThrow(() => verifyDocument(memberItem(kDel, 'hub-key-1'), { identityDocument: memberIdentity }));
+  assert.doesNotThrow(() => verifyDocument(memberItem(kDel, 'hub-key-1'), { identityDocument: memberIdentity, kind: 'item' }));
 
   // A recovery key never signs content or manifests (§4.5).
   assert.throws(
-    () => verifyDocument(memberItem(kRec, 'recovery-1'), { identityDocument: memberIdentity }),
+    () => verifyDocument(memberItem(kRec, 'recovery-1'), { identityDocument: memberIdentity, kind: 'item' }),
     throwsVerify(/recovery key/),
   );
 
@@ -506,7 +509,7 @@ test('a delegated key signs items; recovery and unrecognized-use keys cannot', (
     updated: 1736899200,
   };
   assert.throws(
-    () => verifyDocument(memberItem(kDel, 'hub-key-1'), { identityDocument: extIdentity }),
+    () => verifyDocument(memberItem(kDel, 'hub-key-1'), { identityDocument: extIdentity, kind: 'item' }),
     throwsVerify(/unrecognized use/),
   );
 });

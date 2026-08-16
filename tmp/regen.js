@@ -404,11 +404,14 @@ const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3, [MEMBER]: idMembe
   [ENC_AUTHOR]: idEncAuthor, [ENC_READER]: idEncReader };
 
 function verifies(doc){
-  const author = claimedAuthor(doc);
+  // §6.6: the carrier is selected from context, never sniffed — here from the vectors' own
+  // construction: every chained document carries an integer `seq`, no item does.
+  const kind = Number.isInteger(doc.seq) ? 'document' : 'item';
+  const author = claimedAuthor(doc, { kind });
   const identityDocument = CURRENT[author];
   if (!identityDocument) { console.log('    no identity document published for ' + author); return false; }
   try {
-    verifyDocument(doc, { identityDocument });
+    verifyDocument(doc, { identityDocument, kind });
     return true;
   } catch (e) {
     console.log('    ' + e.message);

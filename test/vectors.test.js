@@ -89,12 +89,15 @@ test('every signed vector verifies against its author\'s current identity docume
   // the spec alone, which defeats the point of shipping test vectors at all.
   let verified = 0;
   for (const { doc } of signed) {
-    const author = claimedAuthor(doc);
+    // §6.6: the carrier is selected by document kind, supplied from context — here the
+    // vectors' own construction: every chained document carries an integer `seq`, no item does.
+    const kind = Number.isInteger(doc.seq) ? 'document' : 'item';
+    const author = claimedAuthor(doc, { kind });
     const identityDocument = currentByUrl.get(author);
     assert.ok(identityDocument, `no identity document published for ${author}`);
     // Not a throw-guard: verifyDocument does author binding, key resolution, iat,
     // revocation, and the Ed25519 check, and throws with a reason on any failure.
-    const info = verifyDocument(doc, { identityDocument });
+    const info = verifyDocument(doc, { identityDocument, kind });
     assert.equal(info.author, author);
     verified++;
   }
@@ -106,7 +109,7 @@ test('every vector was signed inside its key\'s validity window', () => {
   // defect: a reply vector signed nine hours after B.5 revoked the key that signed it. A
   // sound Ed25519 signature is not enough — §4.4 bounds it at both ends.
   for (const { doc } of signed) {
-    const identityDocument = currentByUrl.get(claimedAuthor(doc));
+    const identityDocument = currentByUrl.get(claimedAuthor(doc, { kind: Number.isInteger(doc.seq) ? 'document' : 'item' }));
     const { keyId } = parseKid(parseDetachedSig(doc._sig).header.kid);
     const key = findKey(identityDocument, keyId);
     const when = effectiveSigningTime(doc);

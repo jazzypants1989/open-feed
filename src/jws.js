@@ -16,24 +16,62 @@ export const SIGNATURE_FIELDS = ['_sig', '_recovery_sig'];
 
 // ---- identity URLs (spec §3.1) ----
 
-/** Normalize an identity URL. Applied whenever identity URLs are stored or compared. */
+/**
+ * Normalize an identity URL. Applied whenever identity URLs are stored or compared.
+ *
+ * §3.1 states normalization as string operations because a general-purpose URL parser cannot
+ * implement its path rule: WHATWG `URL` re-encodes characters it considers encodable
+ * (`/a^b/` → `/a%5Eb/`) and removes dot-segments, each library re-encodes a different set,
+ * and an identity round-tripped through two of them becomes two identities. So the parser is
+ * used for the half it is genuinely good at — host lowercasing, A-label form, default-port
+ * removal — and the path is taken from the input string as published, byte-for-byte.
+ */
 export function normalizeIdentityUrl(input) {
+  const s = String(input);
   let u;
   try {
-    u = new URL(String(input));
+    u = new URL(s);
   } catch {
     throw new VerifyError(`not a URL: ${input}`);
   }
   if (u.protocol !== 'https:') throw new VerifyError(`identity URL must be https: ${input}`);
-  // `new URL` already lowercases the host and drops the default :443 for https.
-  u.hash = '';
-  u.search = '';
-  // An identity is a place, not a credential. Left in, userinfo makes one identity two —
-  // and `identityDocumentUrl` would put it on the wire as basic auth.
-  u.username = '';
-  u.password = '';
-  if (!u.pathname.endsWith('/')) u.pathname += '/'; // path stays case-sensitive
-  return u.toString();
+  // The path as published. Everything from the first `/` after the authority to the first
+  // `?` or `#` — query and fragment stripped, userinfo stripped by never being copied,
+  // percent-encoding and dot-segments left exactly as written (§3.1).
+  let path = '/';
+  const schemeEnd = s.indexOf('//');
+  if (schemeEnd !== -1) {
+    const afterAuthority = s.slice(schemeEnd + 2);
+    const pathStart = afterAuthority.search(/[/?#]/);
+    if (pathStart !== -1 && afterAuthority[pathStart] === '/') {
+      const rest = afterAuthority.slice(pathStart);
+      const pathEnd = rest.search(/[?#]/);
+      path = pathEnd === -1 ? rest : rest.slice(0, pathEnd);
+    }
+  } else {
+    // A non-canonical spelling (`https:example.com/…`). The parser's reading is the only one
+    // available; producers are obliged to publish the canonical form (§3.1).
+    path = u.pathname;
+  }
+  if (!path.endsWith('/')) path += '/'; // path stays case-sensitive
+  // `u.hostname` is lowercased and punycoded; `u.port` is '' for the default :443.
+  return `https://${u.hostname}${u.port ? `:${u.port}` : ''}${path}`;
+}
+
+/**
+ * §7.5's comparison for feed and manifest URLs. These are not identities — no trailing slash
+ * is appended, because they name files — so this is §3.1's normalization minus the path rules:
+ * scheme and host folded, default port and fragment dropped, path and query left alone. One
+ * comparator, used by the reader and the inbox both, because two normalizers that must agree
+ * on hosts and disagree on paths is exactly the divergence §3.1 warns about.
+ */
+export function normalizeUrlForCompare(raw) {
+  const url = new URL(raw);
+  url.hash = '';
+  if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
+    url.port = '';
+  }
+  return url.href;
 }
 
 /**
@@ -139,16 +177,18 @@ export function sign(doc, privateKey, kid) {
  * item-level `authors` array, which MUST hold exactly one entry; for manifests and identity
  * documents it is `url`.
  *
- * §6.6 selects the carrier by **document kind**, so callers that know the kind say so. The
- * fallback for callers that do not is presence of `authors`, which is right for an item — a
- * JSON Feed item may also carry a `url`, its permalink, which carries no authority — but is
- * wrong for a chained document that happens to carry an `authors` extension field: §3.2 says
- * unknown fields are preserved and *ignored*, and ignoring one must not mean letting it
- * displace the binding the document actually has.
+ * §6.6 selects the carrier by **document kind**, which is a fact of the verification context
+ * and never of the bytes, so the caller MUST say which it is verifying. There is deliberately
+ * no field-presence fallback: §3.2 obliges a chained document to carry unknown members intact,
+ * so an `authors` extension member on an identity document is conformant data — and a verifier
+ * that sniffed for it would read its author binding out of a field the signer chose freely,
+ * which is the confusion §6.2's fixed header exists to prevent about keys.
  */
 export function claimedAuthor(doc, { kind } = {}) {
-  const carrier = kind ?? ('authors' in doc ? 'item' : 'document');
-  if (carrier === 'item') {
+  if (kind !== 'item' && kind !== 'document') {
+    throw new VerifyError(`caller must say what kind of document this is — 'item' or 'document' (§6.6), got ${kind}`);
+  }
+  if (kind === 'item') {
     const authors = doc.authors;
     if (!Array.isArray(authors) || authors.length !== 1) {
       throw new VerifyError(`item authors must hold exactly one entry, found ${Array.isArray(authors) ? authors.length : typeof authors}`);
@@ -208,8 +248,14 @@ export function findKey(identityDocument, keyId) {
  * `signedAt` overrides the effective signing time for revocation purposes — receipt time
  * for inbox items, manifest first-observation time on the pull path (spec §4.4), neither
  * of which a key thief can backdate.
+ *
+ * `timeChecks: false` skips the `iat` and `revoked_at` comparisons while still verifying the
+ * signature, the header, and the author binding. It exists for one caller: §9.1 makes the
+ * `_sig` check on a prev-hop manifest version OPTIONAL and says those versions MUST remain
+ * valid whatever later happened to their key — a backdated `revoked_at` must not make retained
+ * history unwalkable, or revoking a key retroactively unpublishes everything it ever committed.
  */
-export function verifyDocument(doc, { identityDocument, sigField = '_sig', signedAt, kind } = {}) {
+export function verifyDocument(doc, { identityDocument, sigField = '_sig', signedAt, kind, timeChecks = true } = {}) {
   const sig = doc[sigField];
   if (typeof sig !== 'string') throw new VerifyError(`document has no ${sigField}`);
 
@@ -233,14 +279,16 @@ export function verifyDocument(doc, { identityDocument, sigField = '_sig', signe
   if (!jwk) throw new VerifyError('no identity document supplied to resolve the key');
 
   const when = signedAt ?? effectiveSigningTime(doc);
-  if (typeof jwk.iat === 'number' && jwk.iat > when) {
-    throw new VerifyError(`key ${keyId} was issued at ${jwk.iat}, after the signing time ${when}`);
-  }
-  // Spec §4.4: reject signatures whose effective signing time is *after* revoked_at;
-  // before, they remain valid. Equality is valid, which is what makes §5.2's normal
-  // rotation work — the continuity key is often revoked in the very version it signs.
-  if (typeof jwk.revoked_at === 'number' && when > jwk.revoked_at) {
-    throw new VerifyError(`key ${keyId} was revoked at ${jwk.revoked_at}, before the signing time ${when}`);
+  if (timeChecks) {
+    if (typeof jwk.iat === 'number' && jwk.iat > when) {
+      throw new VerifyError(`key ${keyId} was issued at ${jwk.iat}, after the signing time ${when}`);
+    }
+    // Spec §4.4: reject signatures whose effective signing time is *after* revoked_at;
+    // before, they remain valid. Equality is valid, which is what makes §5.2's normal
+    // rotation work — the continuity key is often revoked in the very version it signs.
+    if (typeof jwk.revoked_at === 'number' && when > jwk.revoked_at) {
+      throw new VerifyError(`key ${keyId} was revoked at ${jwk.revoked_at}, before the signing time ${when}`);
+    }
   }
 
   const publicKey = publicKeyFromJwk(jwk);

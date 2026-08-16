@@ -191,6 +191,15 @@ export class Publisher {
     }
     const previous = this.items.get(id);
     if (previous?._deleted) throw new PublishError(`${id} is tombstoned; a new item needs a fresh id (§8.2)`);
+    // §7.3: only `tombstone()` marks deletion, because a tombstone is an allowlist and this is
+    // not. Let `_deleted` ride in on the spread and the result is a signed "tombstone" carrying
+    // a title, tags, or any content field — exactly what the allowlist exists to rule out.
+    // Signature fields are computed, never supplied.
+    for (const reserved of ['_deleted', '_sig', '_recovery_sig']) {
+      if (reserved in fields) {
+        throw new PublishError(`${id} supplies ${reserved}, which publishItem never accepts (§7.3, §6.4)`);
+      }
+    }
 
     const when = at ?? this.now();
     const version = (previous?._version ?? 0) + 1;

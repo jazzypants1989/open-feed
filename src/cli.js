@@ -137,7 +137,12 @@ export async function run({
   }
 
   const state = loadState(args.pins);
-  const reader = readerFor({ pins: state.pins, observations: state.observations });
+  // All three stores, not two. The migration store is the one whose omission is silent: the
+  // reader would build a fresh one, record the §4.5 recovery pin into it during the run, and
+  // `saveState` would then write the *loaded* store back — untouched, forever. That satisfies
+  // §4.5 for the length of one process and fails it exactly when it matters, which is the
+  // failure mode the comment on `loadState` exists to rule out.
+  const reader = readerFor({ pins: state.pins, observations: state.observations, migrations: state.migrations });
 
   try {
     const result = await reader.read(args.target);

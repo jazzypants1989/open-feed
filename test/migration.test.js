@@ -384,14 +384,19 @@ test('without the migration record, a carried back catalog reads as withheld', a
   oldSite.serve(hub);
 
   // A consumer that never read the predecessor holds no record of its feeds, so §7.5's
-  // exception cannot fire: the items are copies, the manifest commits ids the feed never
-  // yielded, and the verdict is withholding. That verdict is *correct for what this consumer
-  // knows* — which is exactly why the fix is a record kept before the move rather than a
-  // looser test at read time.
+  // exception cannot fire: the items are copies, and the manifest commits ids no *canonical*
+  // item answers to. What that reads as is `absent` — §9.3 scopes withholding to bytes the
+  // consumer actually tried for and was refused, and these bytes were served, just as copies —
+  // so the stranger sees a back catalog it cannot credit rather than one it accuses the host
+  // of hiding. The migration record is still the only thing that turns those copies into the
+  // live back catalog, which is why it is kept before the move rather than loosened at read
+  // time.
   const stranger = consumer(t);
   const result = await reader(stranger, { migrations: new MigrationStore() }).read(newSite_.url);
   assert.equal(result.items.copies.length, 3);
-  assert.equal(result.items.withheld.length, 3, 'the false accusation, held in place deliberately');
+  assert.equal(result.items.withheld.length, 0, 'served-as-copies is not withholding');
+  assert.equal(result.items.absent.length, 3, 'and uncredited is not live either');
+  assert.equal(result.items.live.length, 0);
 
   // And with the record — one prior read of the predecessor — the same bytes read correctly.
   // Reading the OLD url now follows the move rather than reading a feed that is no longer this

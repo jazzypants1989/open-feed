@@ -146,7 +146,7 @@ export function completeness(bundle) {
 export function containerEntries(bundle, blobs = new Map()) {
   const entries = new Map();
   const document = { ...bundle };
-  const manifestOfBlobs = [];
+  let externalized = 0;
   for (const attachment of bundle.attachments ?? []) {
     const hash = attachment?._sha256;
     const bytes = blobs.get(hash);
@@ -156,9 +156,19 @@ export function containerEntries(bundle, blobs = new Map()) {
       throw new ExportError(`attachment bytes do not hash to ${hash}: the container would lie about itself`);
     }
     entries.set(hash, bytes);
-    manifestOfBlobs.push({ url: attachment.url, _sha256: hash });
+    externalized++;
   }
-  document.attachments = manifestOfBlobs.length ? manifestOfBlobs : bundle.attachments;
+  // The JSON entry sheds only inlined `bytes` whose blob now rides as a container file, and
+  // keeps every other member of every attachment entry — and where the bundle is signed (§14
+  // MAY), it is not touched at all: a container that rewrites a signed document has invalidated
+  // the one signature that says who assembled it.
+  if (externalized && typeof bundle._sig !== 'string') {
+    document.attachments = (bundle.attachments ?? []).map((a) => {
+      if (typeof a?.bytes !== 'string' || !entries.has(a?._sha256)) return a;
+      const { bytes: _inlined, ...rest } = a;
+      return rest;
+    });
+  }
   entries.set(BUNDLE_ENTRY, canonicalBytes(document));
   return entries;
 }

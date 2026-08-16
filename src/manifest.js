@@ -224,13 +224,16 @@ export function assertHistoryInvariants(versions, { url, contiguous = true } = {
  * - `pending` — manifest lag (§9.3 invariant 3). The feed carries content newer than the
  *   manifest commits. Not a violation, and not evidence of anything either: uncommitted
  *   content is content a host can serve to one reader and not another without forking.
- * - `withheld` — the manifest commits an exact revision the feed never yields. No invariant is
- *   broken and nothing is forged; the consumer knows the bytes exist and cannot obtain them.
- *   That is the manifest doing its job, and it MUST be surfaced as withholding rather than
- *   held as perpetually-pending, which is the shape the same evidence takes if nobody names it.
- * - `absent` — committed, not on **this page**, and the caller said it was reading one (§7.4).
- *   The same evidence as `withheld` with the one honest explanation still open, so it is a
- *   separate state rather than a softer word for the same thing.
+ * - `withheld` — the manifest commits an exact revision the consumer **asked for and was
+ *   refused**: a §7.6 item URL that did not yield it, on an origin that demonstrably serves
+ *   item URLs. No invariant is broken and nothing is forged; the consumer knows the bytes
+ *   exist and cannot obtain them. That is the manifest doing its job, and it MUST be surfaced
+ *   as withholding rather than held as perpetually-pending. §9.3 scopes it to bytes actually
+ *   tried for, which a feed read alone never establishes — a page with no `next_url` may be a
+ *   complete catalog or a recency window, and the two are indistinguishable from the bytes.
+ * - `absent` — committed, and not in the pages this consumer holds (§7.4). The same evidence
+ *   as `withheld` with an honest explanation still open, so it is a separate state rather
+ *   than a softer word for the same thing, and it accuses nobody.
  * - `violation` — §9.3. Treated like chain equivocation.
  */
 export const ITEM_STATES = ['live', 'deleted', 'pending', 'withheld', 'absent', 'violation'];
@@ -243,17 +246,17 @@ export const ITEM_STATES = ['live', 'deleted', 'pending', 'withheld', 'absent', 
  * `ceiling` defaults to the RECOMMENDED `LAG_CEILING_SECONDS` and is the consumer's own
  * absolute deadline on the pending state (§9.3 invariant 3).
  *
- * `partial` says the caller is holding **one page** rather than the whole feed (§7.4). It is
- * the difference between the two readings of "the manifest commits this and the feed did not
- * yield it": withholding, or the next page. A caller that has followed `next_url` to the end
- * passes `false` and gets the withholding verdict §9.3 requires it to surface; one reading a
- * single page passes `true` and gets `absent`, which asserts nothing.
+ * `partial` says the caller stopped before following `next_url` to its end (§7.4). It only
+ * colors the `absent` reason: even a caller that read every page to the end holds no evidence
+ * of withholding, because a feed with no further pages may be a complete catalog or a recency
+ * window and the two are indistinguishable from the bytes — §7.4's "at least the 50 most
+ * recent items" makes the window the ordinary conformant shape.
  *
- * `unobtainable` is the third and strongest reading, and the one §9.3 actually asks for: ids
- * the caller **requested** at their §7.6 derived URL and did not get. Those are withheld
- * whatever `partial` says, because pagination cannot explain a `404` on a URL that names one
- * item. A caller with no §7.6 available passes nothing and falls back to the two readings
- * above — which is why §9.3 says the verdict is close to unreachable without it.
+ * `unobtainable` is the reading §9.3 actually asks for, and the only one that asserts
+ * withholding here: ids the caller **requested** at their §7.6 derived URL and did not get.
+ * Pagination cannot explain a `404` on a URL that names one item. A caller with no §7.6
+ * available passes nothing and gets `absent` throughout — which is why §9.3 says the verdict
+ * is close to unreachable on the pull path without it.
  */
 export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS, url, partial = false, unobtainable = new Set() } = {}) {
   assertManifestShape(manifest, url ?? manifest.url);
@@ -321,24 +324,29 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
     record(id, gone ? 'deleted' : 'live', { version, hash });
   }
 
-  // Anything the manifest commits that the feed did not yield, in the three readings §9.3
-  // keeps apart. `unobtainable` is the strongest evidence and the only one that needs no
-  // argument: the caller asked for those exact bytes at their §7.6 URL and did not get them.
-  // Otherwise pagination is the honest explanation, so a caller reading one page gets `absent`
-  // — a state that accuses nobody — while one that followed §7.4's `next_url` to the end holds
-  // the whole feed and gets the withholding verdict §9.3 says MUST be surfaced.
+  // Anything the manifest commits that the feed did not yield. §9.3 scopes withholding to
+  // "bytes the consumer actually tried to obtain", and from a feed read alone that bar is
+  // never met: a feed with no `next_url` may be a complete catalog or a recency window, the
+  // two are indistinguishable from the bytes, and §7.4's "SHOULD carry at least the 50 most
+  // recent items" makes the window the ordinary conformant shape. So `unobtainable` — ids the
+  // caller **requested** at their §7.6 URL and did not get, on an origin that demonstrably
+  // serves item URLs — is the only reading here that asserts withholding, and everything else
+  // is `absent`, the state that accuses nobody. This is what §9.3 means by the verdict being
+  // "close to unreachable on the pull path unless the publisher offers §7.6": a caller that
+  // *knows* it holds the complete catalog is making a judgement this function cannot, and may
+  // make it downstream of the `absent` state.
   for (const id of Object.keys(manifest.items)) {
     if (!seen.has(id)) {
       const e = entryOf(manifest.items, id);
       const probed = unobtainable.has(id);
-      record(id, probed || !partial ? 'withheld' : 'absent', {
+      record(id, probed ? 'withheld' : 'absent', {
         version: e.version,
         hash: e.hash,
         reason: probed
           ? 'committed by the manifest, and its §7.6 item URL did not yield it'
           : partial
             ? 'committed by the manifest, not on this page (§7.4)'
-            : 'committed by the manifest, not yielded by the feed',
+            : 'committed by the manifest, not yielded by the pages read (§7.4: a window and a complete catalog are indistinguishable)',
       });
     }
   }

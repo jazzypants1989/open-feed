@@ -221,12 +221,18 @@ test('withholding is surfaced as withholding, not as content that never existed'
   site.replace('feed.json', { ...feed, items: feed.items.filter((i) => i.id !== 'urn:uuid:day-2') });
 
   const served = await me.fetcher.fetchDocument(`${site.url}feed.json`, { kind: 'feed' });
+  // §9.3 scopes withholding to bytes the consumer actually tried for, so the accusation needs
+  // the failed §7.6 probe (`unobtainable`); the same absence without one is `absent`, the
+  // state that accuses nobody.
   const { byId, violations } = reconcileFeed(manifest.tip, served.doc.items, {
     now: T0 + 6 * DAY,
+    unobtainable: new Set(['urn:uuid:day-2']),
   });
   assert.equal(byId.get('urn:uuid:day-2').state, 'withheld');
   assert.equal(byId.get('urn:uuid:day-2').hash, documentHash(p.items.get('urn:uuid:day-2')));
   assert.deepEqual(violations, [], 'withholding is not an invariant violation');
+  const untried = reconcileFeed(manifest.tip, served.doc.items, { now: T0 + 6 * DAY });
+  assert.equal(untried.byId.get('urn:uuid:day-2').state, 'absent');
 });
 
 test('a swapped item body is caught by the manifest, not by its signature', async (t) => {

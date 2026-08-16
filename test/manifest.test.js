@@ -190,9 +190,11 @@ test('lag, withholding, and violation are three states, not three names for one'
     live,                                            // agrees, hash included
     item({ id: 'stale', version: 1 }),               // feed behind the manifest: violation
     item({ id: 'ahead', at: T0 + DAY + 60 }),        // feed ahead, no advance since: lag
-    // 'withheld' is committed and simply not yielded.
+    // 'withheld' is committed, not yielded, and — the part that makes it *withheld* rather
+    // than merely absent — was requested at its §7.6 URL and refused (`unobtainable`).
   ];
-  const { byId, violations } = reconcileFeed(m, served, { now: T0 + DAY + 120, ceiling: 2 * DAY });
+  const tried = { now: T0 + DAY + 120, ceiling: 2 * DAY, unobtainable: new Set(['withheld']) };
+  const { byId, violations } = reconcileFeed(m, served, tried);
 
   assert.equal(byId.get('live').state, 'live');
   assert.equal(byId.get('withheld').state, 'withheld');
@@ -200,6 +202,13 @@ test('lag, withholding, and violation are three states, not three names for one'
   assert.equal(byId.get('stale').state, 'violation');
   assert.equal(violations.length, 1);
   assert.equal(violations[0].invariant, 3);
+
+  // Without the probe the same absence is `absent`, whatever `partial` says: §9.3 scopes
+  // withholding to bytes the consumer actually tried to obtain, and a feed read alone never
+  // establishes that — a page with no next_url may be a complete catalog or a recency window,
+  // and the two are indistinguishable from the bytes.
+  const untried = reconcileFeed(m, served, { now: T0 + DAY + 120, ceiling: 2 * DAY });
+  assert.equal(untried.byId.get('withheld').state, 'absent');
 
   // Withholding is not an invariant violation. Nothing is forged: the consumer knows an exact
   // revision exists, knows its hash, and cannot obtain the bytes.

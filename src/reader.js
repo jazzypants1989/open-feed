@@ -40,8 +40,8 @@ import {
   reconcileFeed,
   LAG_CEILING_SECONDS,
 } from './manifest.js';
-import { verifyDocument, normalizeIdentityUrl, VerifyError } from './jws.js';
-import { documentHash } from './hash.js';
+import { verifyDocument, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
+import { sha256, b64u, documentHash } from './hash.js';
 import { MigrationStore, CompetingMigrations } from './migration.js';
 
 export class ReaderError extends Error {
@@ -93,7 +93,16 @@ export class ObservationStore {
    * every item ever signed by a since-revoked key — using a timestamp it invented itself.
    */
   recordManifest(author, manifest) {
-    const ids = [...Object.keys(manifest.items ?? {}), ...Object.keys(manifest.deleted ?? {})];
+    return this.recordIds(author, [...Object.keys(manifest.items ?? {}), ...Object.keys(manifest.deleted ?? {})]);
+  }
+
+  /**
+   * Record ids under an author and report which were **new**. The generic half of
+   * `recordManifest`, and the one a multi-author board needs: a manifest is keyed by the feed
+   * *owner*, but §4.4's record is keyed by the item *author*, and a contributor's items can
+   * only be recorded once an item has been read and its author is known.
+   */
+  recordIds(author, ids) {
     const at = this.now();
     const fresh = new Set();
     for (const id of ids) {
@@ -123,6 +132,16 @@ export class ObservationStore {
    * retaining a whole 1 MB manifest per feed forever, to answer a question about ids, is the
    * same trade §4.5's recovery pin declines.
    */
+  /**
+   * What `recordFeedManifest` would replace, without replacing it. The invariant-5 check MUST
+   * run against this *before* the record is overwritten: write first and a violation that
+   * throws is forgotten by its own detection — the next run compares the new chain against
+   * itself and passes.
+   */
+  priorFeedManifest(feedUrl) {
+    return this.feedManifests.get(feedUrl) ?? null;
+  }
+
   recordFeedManifest(feedUrl, manifestUrl, manifest) {
     const previous = this.feedManifests.get(feedUrl) ?? null;
     this.feedManifests.set(feedUrl, {
@@ -191,6 +210,14 @@ export function createReader({
   // author's origin, forever. The ceiling is what keeps it a cache rather than a second pin:
   // revocation has to become visible, and an hour is the bound §12 names.
   identityCacheSeconds = 3600,
+  // §13.4's fan-out caps. The per-document caps bound what one fetch can cost; these bound what
+  // one *document* can make a consumer fetch. A conformant 100 KB identity document can list
+  // hundreds of feeds, and a single feed page can name a distinct author per item — each
+  // costing an identity fetch, a chain walk, and a permanent pin. Without these, one hostile
+  // document converts one read into thousands of fetches at attacker-chosen origins.
+  maxFeedEntries = 20,
+  maxAuthorResolutions = 50,
+  identityCacheEntries = 256,
 } = {}) {
   // author -> { document, at }. Deliberately not a pin store: this holds no verdict, and every
   // document taken from it has already been walked and pinned by the code that put it here.
@@ -253,11 +280,15 @@ export function createReader({
     return verifyRecoverySignature(tip, { pinnedAncestor: ancestor }).valid === true;
   }
 
-  /** `fetchVersion(url, seq)` over §5.4's derived URLs, charged against one walk's budget. */
+  /**
+   * `fetchVersion(url, seq)` over §5.4's derived URLs, charged against one walk's budget.
+   * Returns `{ doc, bytes }` so the walk hashes the served bytes — already proven canonical by
+   * the fetch layer (§6.3) — instead of re-canonicalizing every version it visits.
+   */
   const versionFetcher = (kind, budget) => async (url, seq) => {
     const at = derivedVersionUrl(url, seq);
-    const { doc } = await fetcher.fetchDocument(at, { kind, budget });
-    return doc;
+    const { doc, bytes } = await fetcher.fetchDocument(at, { kind, budget });
+    return { doc, bytes };
   };
 
   /**
@@ -267,7 +298,7 @@ export function createReader({
    * accept no further version, keep rendering what was already verified. An equivocation
    * impeaches a chain's future, not the bytes already checked against it.
    */
-  async function walkAndPin({ url, tip, kind, policy, bytes, validate }) {
+  async function walkAndPin({ url, tip, kind, policy, tipBytes, validate }) {
     // §3.4: a verified migration **retires** the predecessor's chains. The pin is kept as
     // history — it is what a peer's older pin is checked against (§5.3.1, §16.1) and what a
     // recovery co-signature resolves in (§4.5) — but it stops advancing, and publication state
@@ -286,12 +317,13 @@ export function createReader({
         url, seq: pins.frozen.get(url).seq, held: pins.frozen.get(url).held, seen: pins.frozen.get(url).seen,
       });
     }
-    const budget = budgetFor(bytes);
+    const budget = budgetFor(tipBytes.length);
     let walk;
     try {
       walk = await walkToPin({
         url,
         tip,
+        tipBytes,
         pin: pins.pin(url),
         fetchVersion: versionFetcher(kind, budget),
         policy,
@@ -336,7 +368,7 @@ export function createReader({
       tip: fetched.doc,
       kind: 'identity',
       policy: identityChainPolicy,
-      bytes: fetched.bytes.length,
+      tipBytes: fetched.bytes,
     });
     // Recorded only after the walk: the chains this identity owns and the version itself are
     // what §7.5's exception and §4.5's co-signature resolve against later, so an unverified
@@ -462,7 +494,7 @@ export function createReader({
       tip: manifest,
       kind: 'manifest',
       policy: manifestChainPolicy(identityDocument, { now }),
-      bytes: fetched.bytes.length,
+      tipBytes: fetched.bytes,
       validate: (walk) =>
         assertHistoryInvariants(walk.versions, { url: manifestUrl, contiguous: walk.contiguous }),
     });
@@ -552,6 +584,10 @@ export function createReader({
     const copies = [];
     const rejected = [];
     const unhashedAttachments = [];
+    // §13.4's fan-out cap: distinct author identities resolved for one feed read. Each
+    // resolution is a fetch at an author-chosen origin, a chain walk, and a permanent pin, so
+    // a hostile feed naming a fresh author per item converts one poll into an unbounded sweep.
+    const resolvedAuthors = new Set();
 
     for (const item of allItems) {
       const author = String(item?.authors?.[0]?.url ?? '');
@@ -571,6 +607,12 @@ export function createReader({
           rejected.push({ item, reason: `authored by ${author}, whose identity document was not resolved` });
           continue;
         } else {
+          const key = normalizeIdentityUrl(author);
+          if (!resolvedAuthors.has(key) && resolvedAuthors.size >= maxAuthorResolutions) {
+            rejected.push({ item, reason: `authored by ${author}, past this read's cap of ${maxAuthorResolutions} distinct authors (§13.4)` });
+            continue;
+          }
+          resolvedAuthors.add(key);
           try {
             authorDocument = (await resolveIdentity(author)).document;
           } catch (e) {
@@ -595,9 +637,21 @@ export function createReader({
       // governs. And only ids this consumer observed on an *earlier* pass: an id first recorded
       // moments ago in this same read is a consumer with no history, which §4.4 sends back to
       // the self-reported check.
-      const observed = via === 'own' && !firstSeenHere.has(item?.id)
-        ? observations.firstObserved(authorDocument.url, item?.id)
-        : null;
+      //
+      // The record is keyed on `(author, id)` and the manifest-time recording is keyed on the
+      // feed *owner*, so on a multi-author board (§7.1) a contributor's items are recorded
+      // here, at read time, when the author is first known — otherwise the lookup below misses
+      // on every contributor forever and §4.4 silently degrades to the self-reported check.
+      let observed = null;
+      if (via === 'own' && typeof item?.id === 'string' && !firstSeenHere.has(item.id)) {
+        const authorUrl = authorDocument.url;
+        if (normalizeIdentityUrl(authorUrl) !== normalizeIdentityUrl(identityDocument.url)) {
+          const fresh = observations.recordIds(authorUrl, [item.id]);
+          observed = fresh.has(item.id) ? null : observations.firstObserved(authorUrl, item.id);
+        } else {
+          observed = observations.firstObserved(authorUrl, item.id);
+        }
+      }
 
       try {
         const info = verifyDocument(item, {
@@ -675,8 +729,13 @@ export function createReader({
     let url;
     try { url = derivedItemUrl(feedUrl, hash); } catch { return null; }
     try {
-      const got = await fetcher.fetchDocument(url, { kind: 'json' });
-      return documentHash(got.doc) === hash ? got.doc : null;
+      // §7.6: "The body MUST be byte-identical to the bytes the manifest commits", and this is
+      // the one place an item has a byte range of its own. `requireCanonical` enforces the
+      // arrival half, and the hash is computed over the served bytes — comparing a
+      // re-canonicalization instead is exactly the weaker check §7.6 says this replaces, since
+      // it would silently pass a body this parser reads differently than the publisher wrote.
+      const got = await fetcher.fetchDocument(url, { kind: 'json', requireCanonical: true });
+      return b64u(sha256(got.bytes)) === hash ? got.doc : null;
     } catch {
       return null;
     }
@@ -723,14 +782,18 @@ export function createReader({
     // manifest URL is a new chain, so it gets a fresh pin and a fresh trust-on-first-observation
     // — every check inside `readManifest` passes, and a publisher that renamed the file to shed
     // content produces no fork, no tombstone, and nothing for a pinned consumer to notice. The
-    // only evidence is what this consumer observed under the *old* URL.
-    const previous = observations.recordFeedManifest(entry.url, entry.manifest, manifest.manifest);
+    // only evidence is what this consumer observed under the *old* URL — which is why the check
+    // runs **before** the record is overwritten: a violation throws, and a store already
+    // updated would compare the new chain against itself on the next run and pass, the exact
+    // report-then-destroy-the-evidence failure `walkAndPin` refuses for pins.
+    const previous = observations.priorFeedManifest(entry.url);
     if (previous && previous.manifestUrl !== entry.manifest) {
       assertRelocationCarriesForward(previous.manifest, manifest.manifest, {
         fromUrl: previous.manifestUrl,
         toUrl: entry.manifest,
       });
     }
+    observations.recordFeedManifest(entry.url, entry.manifest, manifest.manifest);
     const feed = await readFeed(entry.url, {
       identityDocument: identity.document,
       firstSeenHere: manifest.firstSeenHere,
@@ -801,7 +864,14 @@ export function createReader({
     const held = identityCache.get(key);
     if (held && now() - held.at < identityCacheSeconds) return held.result;
     const result = await readIdentity(key, { verifyMigration: false });
+    // Bounded (§13.4): the keys arrive from other people's feeds, so an unbounded map is a
+    // memory lever a hostile feed pulls one author at a time. Insertion-order eviction is
+    // enough — an evicted entry costs one refetch, exactly as expiry does.
+    identityCache.delete(key);
     identityCache.set(key, { result, at: now() });
+    while (identityCache.size > identityCacheEntries) {
+      identityCache.delete(identityCache.keys().next().value);
+    }
     return result;
   }
 
@@ -858,7 +928,12 @@ export function createReader({
     //
     // The named `rel` entry stays the headline result, because a caller that asked for one
     // identity is usually asking "what is this person publishing now".
-    const others = entries.filter((f) => f && f !== entry && typeof f.url === 'string');
+    const listed = entries.filter((f) => f && f !== entry && typeof f.url === 'string');
+    // §13.4's fan-out cap: `feeds` entries processed per read. Each entry is a manifest chain
+    // walk plus a feed read, so a document listing hundreds converts one read into an
+    // unbounded sweep. Entries past the cap are reported, not silently dropped.
+    const others = listed.slice(0, Math.max(0, maxFeedEntries - 1));
+    const skippedEntries = listed.slice(others.length);
     const primary = await readOneFeed(identity, entry);
     const rest = [];
     for (const other of others) {
@@ -892,7 +967,13 @@ export function createReader({
         ...rest.flatMap((r) => (r.error
           ? [{ kind: 'unreadable_feed', message: `${r.entry.url} (rel ${r.entry.rel ?? 'primary'}): ${r.error.message}` }]
           : r.findings)),
-        ...forkResolutions.map((f) => ({
+        ...skippedEntries.map((f) => ({
+          kind: 'unread_feed',
+          message: `${f.url} (rel ${f.rel ?? 'primary'}) was not read: past this read's cap of ${maxFeedEntries} feeds entries (§13.4)`,
+        })),
+        // Drained, not copied: a long-lived reader must not re-report every fork it has ever
+        // resolved against every identity it reads afterwards.
+        ...forkResolutions.splice(0).map((f) => ({
           kind: 'fork_resolved',
           message: `${f.url} forked at seq ${f.seq}; §5.5 preferred the branch carrying a valid recovery co-signature`,
         })),
@@ -917,16 +998,7 @@ export function createReader({
 }
 
 
-/**
- * §7.5's comparison for feed URLs. Feeds are not identities — no trailing slash is appended,
- * because a feed URL names a file — so this is §3.1's normalization minus the path rules:
- * scheme and host folded, default port and fragment dropped, path and query left alone.
- */
-export function normalizeUrlForCompare(raw) {
-  const url = new URL(raw);
-  url.hash = '';
-  if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
-    url.port = '';
-  }
-  return url.href;
-}
+// §7.5's comparison for feed and manifest URLs lives in jws.js beside §3.1's identity
+// normalizer — one comparator for the reader and the inbox both. Re-exported here because this
+// module is where its callers historically found it.
+export { normalizeUrlForCompare } from './jws.js';

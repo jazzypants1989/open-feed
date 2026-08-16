@@ -242,8 +242,10 @@ test('probing is inert against a publisher that offers no item URLs', async (t) 
   // The control probe, and the reason it is not optional. A publisher that simply does not
   // implement §7.6 answers 404 to every derived item URL, so probing without a control would
   // report its whole back catalog as withheld — the same false accusation by a new route. So
-  // the reader asks for one revision the feed *did* yield first, and stays silent when that
-  // fails.
+  // the reader asks for one revision the feed *did* yield first, and when that fails it stays
+  // silent entirely: the committed-but-unserved item is `absent`, the state that accuses
+  // nobody, because a feed with no further pages may be a complete catalog or a recency
+  // window and §9.3 scopes withholding to bytes actually tried for.
   const site = await newSite(t);
   const p = familyPublisher(site.url, makeSigner());
   site.serve(new Proxy(p, { get: (t_, k) => (k === 'itemUrls' ? false : t_[k]) }));
@@ -253,8 +255,9 @@ test('probing is inert against a publisher that offers no item URLs', async (t) 
 
   const result = await reader(me).read(site.url);
   assert.equal(result.feed.probe.offered, false, 'the control probe found no §7.6 support');
-  assert.deepEqual(result.items.withheld.map((s) => s.id), ['urn:uuid:day-4']);
-  assert.match(result.items.withheld[0].reason, /not yielded by the feed/);
+  assert.deepEqual(result.items.withheld, [], 'no probe, no accusation');
+  assert.deepEqual(result.items.absent.map((s) => s.id), ['urn:uuid:day-4']);
+  assert.match(result.items.absent[0].reason, /not yielded by the pages read/);
 });
 
 test('an item uncommitted past the consumer ceiling stops being lag', async (t) => {

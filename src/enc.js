@@ -32,7 +32,7 @@
 import crypto from 'node:crypto';
 
 import { canonicalBytes, parseIJSON } from './canonical.js';
-import { b64u, sha256 } from './hash.js';
+import { b64u, sha256, timingSafeEqualString } from './hash.js';
 import { normalizeIdentityUrl } from './jws.js';
 
 export class EncError extends Error {
@@ -48,6 +48,10 @@ export const ENC = 'A256GCM';
 export const TAG_LABEL = 'openfeed-slot-tag';
 const TAG_BYTES = 8;
 const KW_IV = Buffer.from('A6A6A6A6A6A6A6A6', 'hex');   // RFC 3394's default
+// A bound on slots per envelope, opened or sealed. §15.5.7 is right that cost per slot is
+// flat, but a bound is not about asymptotics: it is what stops one malformed or hostile
+// envelope from being a million-entry loop a caller never chose.
+export const MAX_RECIPIENT_SLOTS = 4096;
 
 /**
  * §15.1: a recipient's encryption key, resolved from **that recipient's own identity document**
@@ -62,12 +66,19 @@ const KW_IV = Buffer.from('A6A6A6A6A6A6A6A6', 'hex');   // RFC 3394's default
  * A declared `audience` (§15.2.2) names identities and is never a source of keys, which is why
  * this takes a document rather than a list.
  */
-export function encryptionKeyFor(identityDocument, { kid } = {}) {
+export function encryptionKeyFor(identityDocument, { kid, now = Math.floor(Date.now() / 1000) } = {}) {
   const keys = Array.isArray(identityDocument?.keys) ? identityDocument.keys : [];
-  const usable = keys.filter((k) => k?.use === 'enc' && k?.crv === 'X25519' && k?.kty === 'OKP' && typeof k.x === 'string');
-  const found = kid ? usable.find((k) => k.kid === kid) : usable.at(-1);
+  // §15.1: for an encryption key `revoked_at` is an instruction to encryptors — senders MUST
+  // NOT wrap *new* content to it — and §15.1 also makes encryption keys cumulative, so the
+  // array reliably contains retired ones. Filtered here rather than left to the caller,
+  // because "pick one from the array" was exactly how a revoked key kept getting selected.
+  const usable = keys.filter((k) => k?.use === 'enc' && k?.crv === 'X25519' && k?.kty === 'OKP' && typeof k.x === 'string'
+    && !(typeof k.revoked_at === 'number' && k.revoked_at <= now));
+  // Newest `iat` wins; entries without one sort oldest, and array order breaks ties.
+  const newest = [...usable].sort((a, b) => (a.iat ?? 0) - (b.iat ?? 0)).at(-1);
+  const found = kid ? usable.find((k) => k.kid === kid) : newest;
   if (!found) {
-    throw new EncError(`${identityDocument?.url ?? 'identity'} publishes no X25519 key with use "enc" (§15.1)`);
+    throw new EncError(`${identityDocument?.url ?? 'identity'} publishes no unrevoked X25519 key with use "enc" (§15.1)`);
   }
   return found;
 }
@@ -126,6 +137,9 @@ export function seal({ item, content, recipients, audience, ephemeral, cek, iv }
   const author = item?.authors?.[0]?.url;
   if (typeof author !== 'string') throw new EncError('the carrier item has no author binding (§6.6)');
   if (!Array.isArray(recipients) || recipients.length === 0) throw new EncError('seal needs at least one recipient');
+  if (recipients.length > MAX_RECIPIENT_SLOTS) {
+    throw new EncError(`seal was handed ${recipients.length} recipients; refusing past ${MAX_RECIPIENT_SLOTS}`);
+  }
 
   const plaintext = {
     id: item.id,
@@ -195,6 +209,12 @@ export function open(item, { privateKeys = [] } = {}) {
   const epk = publicFromJwk(header.epk);
 
   const slots = Array.isArray(envelope.recipients) ? envelope.recipients : [];
+  // A hostile envelope's slot count is otherwise bounded only by the document caps upstream of
+  // this call, and a library function has no way to know its caller enforced them. Far above
+  // any real audience, far below a grind.
+  if (slots.length > MAX_RECIPIENT_SLOTS) {
+    throw new EncError(`envelope carries ${slots.length} recipient slots; refusing past ${MAX_RECIPIENT_SLOTS}`);
+  }
   for (const key of privateKeys) {
     const z = crypto.diffieHellman({ privateKey: key, publicKey: epk });
     const mine = slotTag(z);
@@ -203,7 +223,9 @@ export function open(item, { privateKeys = [] } = {}) {
       // One key agreement per key the reader holds, then byte comparisons — so work does not
       // grow with the audience, and the case that would otherwise be worst (a non-recipient,
       // which on a world-readable encrypted feed is anyone at all) is the cheapest (§15.5.7).
-      if (slot?.header?._tag !== mine) continue;
+      // Constant-time (§13.7): the tag derives from the shared secret, and this module keeps
+      // the same comparison discipline `chain.js` and `manifest.js` apply to hashes.
+      if (!timingSafeEqualString(String(slot?.header?._tag ?? ''), mine)) continue;
       if (slot.header.kid !== undefined) throw new EncError('a per-recipient header MUST NOT carry kid (§15.2)');
       let contentKey;
       try {

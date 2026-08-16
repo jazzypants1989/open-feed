@@ -6,7 +6,7 @@
 // which keeps `src/fetch.js` the only place an outbound request happens and lets the whole
 // chain be exercised against an in-memory store.
 
-import { documentHash, timingSafeEqualString } from './hash.js';
+import { sha256, b64u, documentHash, timingSafeEqualString } from './hash.js';
 import {
   verifyDocument,
   parseDetachedSig,
@@ -135,6 +135,11 @@ export class PinStore {
     // timestamping rests on.
     this.observations = new Map();
     this.frozen = new Map();        // url -> { seq, held, seen, reason }
+    // url -> [{ at, observations }]. Observations set aside by a deliberate re-pin (§5.3.1).
+    // They are no longer live — the consumer chose a branch — but they are the evidence that a
+    // divergence existed, and §5.3.1's whole complaint is about verifiers that build evidence
+    // and throw it away.
+    this.superseded = new Map();
   }
 
   pin(url) {
@@ -246,14 +251,28 @@ export class PinStore {
 
   /**
    * The deliberate act §5.3.1 leaves to the consumer. Named `rePin` rather than `unfreeze`
-   * because it is a decision about trust, and it discards the observations that disagreed —
-   * keeping them would refreeze the chain on the next fetch.
+   * because it is a decision about trust. The observations that disagreed are set aside rather
+   * than deleted — a re-pin chooses a branch, it does not un-happen the divergence, and those
+   * entries are what a later audit (or a peer's §16.1 pin of the abandoned branch) is judged
+   * against. They stop being *live* because leaving them live would refreeze the chain on the
+   * next fetch of the branch the consumer just chose.
    */
   rePin(url, seq, hash) {
     this.frozen.delete(url);
+    const held = this.observations.get(url);
+    if (held?.size) {
+      const list = this.superseded.get(url) ?? [];
+      list.push({ at: this.now(), observations: Object.fromEntries(held) });
+      this.superseded.set(url, list);
+    }
     this.observations.delete(url);
     this.pins.delete(url);
     return this.advance(url, seq, hash);
+  }
+
+  /** Evidence set aside by past re-pins of this chain, oldest first. */
+  supersededObservationsFor(url) {
+    return this.superseded.get(url) ?? [];
   }
 
   /**
@@ -274,6 +293,7 @@ export class PinStore {
         [...this.observations].map(([url, seqs]) => [url, Object.fromEntries(seqs)]),
       ),
       frozen: Object.fromEntries(this.frozen),
+      superseded: Object.fromEntries(this.superseded),
     };
   }
 
@@ -285,6 +305,7 @@ export class PinStore {
       store.observations.set(url, new Map(Object.entries(seqs).map(([seq, v]) => [Number(seq), v])));
     }
     for (const [url, f] of Object.entries(raw.frozen ?? {})) store.frozen.set(url, f);
+    for (const [url, list] of Object.entries(raw.superseded ?? {})) store.superseded.set(url, list);
     return store;
   }
 }
@@ -428,7 +449,13 @@ export function manifestChainPolicy(identityDocument, { now = () => Math.floor(D
       if (normalizeIdentityUrl(doc.url) !== identity) {
         throw new ChainError(`manifest at seq ${doc.seq} claims ${doc.url}, not ${identity}`, { seq: doc.seq });
       }
-      const info = verifyDocument(doc, { identityDocument, kind: 'document' });
+      // §9.1: a version reached by a `prev` hop or a skip landing MUST remain valid whatever
+      // later happened to its signing key — its bytes are hash-committed by a tip a live key
+      // signed. So historical versions get the signature and binding checks without the
+      // `iat`/`revoked_at` comparisons: a publisher that backdates `revoked_at` to before a
+      // compromise must not thereby make its own retained history unwalkable, which would
+      // retroactively unpublish everything the rotated key ever committed.
+      const info = verifyDocument(doc, { identityDocument, kind: 'document', timeChecks: tip });
 
       // §9.1: the tip's signing key MUST NOT be revoked, whatever its `updated` says.
       //
@@ -518,8 +545,25 @@ function assertUpdatedAdvances(successor, predecessor, url) {
  * request. An identity document is its own key source (§5.3 step 1), so a serving-path
  * attacker holding no key at all can mint one, list it, and self-sign a tip.
  */
+/**
+ * Normalize what a `fetchVersion` callback returned. It MAY return the parsed document alone,
+ * or `{ doc, bytes }` where `bytes` is the served body — which the fetch layer has already
+ * proven to be the document's own canonicalization (§6.3's arrival rule). Where the bytes are
+ * present the hash is computed over them directly; re-canonicalizing the parse produces the
+ * same value at roughly twice the hashing cost of a long walk, which against §13.4's 1000
+ * versions per update is the difference `tmp/canonicality-prototype.js` measured at ~50%.
+ */
+async function fetchOneVersion(fetchVersion, url, seq) {
+  const got = await fetchVersion(url, seq);
+  if (got != null && Buffer.isBuffer(got.bytes)) {
+    return { doc: got.doc, hash: b64u(sha256(got.bytes)) };
+  }
+  const doc = got != null && typeof got === 'object' && 'doc' in got && 'bytes' in got ? got.doc : got;
+  return { doc, hash: documentHash(doc) };
+}
+
 async function classifyConflictAtPin({ url, tip, pin, fetchVersion, policy }) {
-  const retained = await fetchVersion(url, pin.seq);
+  const { doc: retained, hash } = await fetchOneVersion(fetchVersion, url, pin.seq);
   assertVersionShape(retained, derivedVersionUrl(url, pin.seq));
   if (retained.seq !== pin.seq) {
     throw new ChainError(
@@ -527,7 +571,6 @@ async function classifyConflictAtPin({ url, tip, pin, fetchVersion, policy }) {
       { url, seq: retained.seq },
     );
   }
-  const hash = documentHash(retained);
   if (hash === pin.hash) {
     throw new ChainError(
       `${url} served a version at seq ${pin.seq} that the publisher's own retained copy contradicts: ` +
@@ -571,6 +614,9 @@ export async function walkToPin({
   pins = null,
   maxVersions = MAX_VERSIONS_PER_UPDATE,
   useSkipLinks = true,
+  // The tip's served body where the caller has it — proven canonical by the fetch layer
+  // (§6.3) — so its hash is computed over the bytes rather than a re-canonicalization.
+  tipBytes = null,
 }) {
   assertVersionShape(tip, url);
   // The only call that names itself the tip. Every other version on this walk arrives
@@ -578,7 +624,7 @@ export async function walkToPin({
   // validity of a signing key (§9.1's revoked-tip rule) must not apply that to history.
   policy.verifySignature(tip, { tip: true });
 
-  const tipHash = documentHash(tip);
+  const tipHash = Buffer.isBuffer(tipBytes) ? b64u(sha256(tipBytes)) : documentHash(tip);
   // Buffered, not committed. See the note above: nothing here is evidence until the walk
   // anchors at the pin, so the store is written once at the end rather than as we go.
   const pending = [];
@@ -615,6 +661,7 @@ export async function walkToPin({
 
   const versions = [tip];
   let current = tip;
+  let currentHash = tipHash;
   let hops = 0;
   let contiguous = true;
 
@@ -636,10 +683,11 @@ export async function walkToPin({
       versions.push(...landing.versions);
       contiguous = false;
       current = landing.landed;
+      currentHash = landing.landedHash;
       continue;
     }
 
-    const predecessor = await fetchVersion(url, current.seq - 1);
+    const { doc: predecessor, hash } = await fetchOneVersion(fetchVersion, url, current.seq - 1);
     assertVersionShape(predecessor, derivedVersionUrl(url, current.seq - 1));
     if (predecessor.seq !== current.seq - 1) {
       throw new ChainError(
@@ -647,7 +695,6 @@ export async function walkToPin({
         { url, seq: predecessor.seq },
       );
     }
-    const hash = documentHash(predecessor);
     if (!timingSafeEqualString(hash, current.prev)) {
       throw new ChainError(
         `${url} seq ${current.seq} names prev ${current.prev}, but seq ${predecessor.seq} hashes to ${hash}`,
@@ -660,9 +707,10 @@ export async function walkToPin({
     record(predecessor, hash);
     versions.push(predecessor);
     current = predecessor;
+    currentHash = hash;
   }
 
-  const reachedHash = documentHash(current);
+  const reachedHash = currentHash;
   if (!timingSafeEqualString(reachedHash, pin.hash)) {
     // Unlike the zero-hop case above, this version came from its **derived** URL, which only
     // the publisher serves and which §5.4 requires to be byte-identical forever. So a mismatch
@@ -711,7 +759,7 @@ function chooseSkipAnchor(current, pinSeq) {
 async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, record }) {
   const versions = [];
 
-  const above = await fetchVersion(url, anchor.seq + 1);
+  const { doc: above, hash: aboveHash } = await fetchOneVersion(fetchVersion, url, anchor.seq + 1);
   assertVersionShape(above, derivedVersionUrl(url, anchor.seq + 1));
   if (above.seq !== anchor.seq + 1) {
     throw new ChainError(`${derivedVersionUrl(url, anchor.seq + 1)} is seq ${above.seq}`, { url, seq: above.seq });
@@ -723,15 +771,14 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
     );
   }
   policy.verifySignature(above);
-  record(above, documentHash(above));
+  record(above, aboveHash);
   versions.push(above);
 
-  const landed = await fetchVersion(url, anchor.seq);
+  const { doc: landed, hash } = await fetchOneVersion(fetchVersion, url, anchor.seq);
   assertVersionShape(landed, derivedVersionUrl(url, anchor.seq));
   if (landed.seq !== anchor.seq) {
     throw new ChainError(`${derivedVersionUrl(url, anchor.seq)} is seq ${landed.seq}`, { url, seq: landed.seq });
   }
-  const hash = documentHash(landed);
   if (!timingSafeEqualString(hash, anchor.hash)) {
     throw new ChainError(
       `${url} anchors seq ${anchor.seq} at ${anchor.hash}, but that version hashes to ${hash}`,
@@ -745,7 +792,7 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
   record(landed, hash);
   versions.push(landed);
 
-  return { versions, landed };
+  return { versions, landed, landedHash: hash };
 }
 
 // ---- §5.5 fork resolution ----
