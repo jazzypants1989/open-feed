@@ -85,6 +85,20 @@ export {
 export { Publisher, PublishError } from './publish.js';
 export { createReader, ObservationStore, normalizeUrlForCompare, ReaderError } from './reader.js';
 export {
+  encryptionKeyFor,
+  slotTag,
+  seal,
+  open as openEnvelope,
+  assertCarrierBinding,
+  declaredAudience,
+  sealAttachment,
+  openAttachment,
+  EncError,
+  ALG as ENC_ALG,
+  ENC as ENC_ENC,
+  TAG_LABEL as ENC_TAG_LABEL,
+} from './enc.js';
+export {
   buildBundle,
   containerEntries,
   completeness,

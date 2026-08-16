@@ -25,6 +25,10 @@ import {
   verifyDocument,
   claimedAuthor,
   buildHeader,
+  seal,
+  openEnvelope,
+  encryptionKeyFor,
+  declaredAudience,
 } from '../src/index.js';
 
 // ---- deterministic test keys ----
@@ -36,6 +40,16 @@ function keyFromLabel(label){
   const raw = spki.subarray(spki.length-32);
   return {priv, x:b64u(raw)};
 }
+// X25519, the same way and for the same reason: §15's vectors are worthless if a reader
+// cannot reproduce them, and an ephemeral chosen at random cannot be published.
+function encKeyFromLabel(label){
+  const seed = crypto.createHash('sha256').update('open-feed-v0.6 enc '+label).digest();
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b656e04220420','hex'), seed]);
+  const privateKey = crypto.createPrivateKey({key:pkcs8, format:'der', type:'pkcs8'});
+  const publicKey = crypto.createPublicKey(privateKey);
+  return {privateKey, publicKey, x: publicKey.export({format:'jwk'}).x};
+}
+
 const k1 = keyFromLabel('test-key-1');
 const kR = keyFromLabel('recovery-1');
 const k2 = keyFromLabel('test-key-2');
@@ -309,11 +323,85 @@ console.log(' ', canonicalize(delManifest));
 console.log();
 embed('B.9 delegated manifest bytes', canonicalize(delManifest), 'spec');
 
+// ---- B.10 encrypted content (§15, OPTIONAL) ----
+// The layer's whole claim about the core is that it does not touch it, so this is an ordinary
+// signed item — one construction, §6.6 author binding, `content_text: ""` as §7.2's marker —
+// whose content happens to be opaque. Every input that would otherwise be random is derived
+// from a label, because a vector nobody can reproduce is decoration.
+const ENC_AUTHOR = 'https://enc-author.example/';
+const ENC_READER = 'https://enc-reader.example/';
+const kEncAuthor = keyFromLabel('enc-author-1');
+const kEncReader = keyFromLabel('enc-reader-1');
+const encReaderKey = encKeyFromLabel('enc-reader-1');
+const encEphemeral = encKeyFromLabel('ephemeral-1');
+
+// The recipient's identity document. §15.1: a sender resolves the encryption key from *this*
+// document and MUST NOT accept one supplied by any third party, which is the check that stops
+// an intermediary substituting a key it controls.
+const idEncReader = {
+  keys:[
+    {crv:'Ed25519', iat:1736899200, kid:'enc-reader-1', kty:'OKP', x:kEncReader.x},
+    {crv:'X25519', iat:1736899200, kid:'enc-1', kty:'OKP', use:'enc', x:encReaderKey.x}
+  ],
+  name:'Encrypted Reader', seq:1, updated:1739577600, url:ENC_READER
+};
+idEncReader._sig = sign(idEncReader, kEncReader.priv, ENC_READER + '#enc-reader-1');
+console.log('== B.10 recipient identity document, publishing an X25519 key (§15.1) ==');
+console.log(' ', canonicalize(idEncReader));
+console.log();
+embed('B.10 enc reader identity bytes', canonicalize(idEncReader), 'spec');
+
+const idEncAuthor = {
+  feeds:[{url:'https://enc-author.example/feed.json', manifest:'https://enc-author.example/manifest.json', rel:'primary'}],
+  keys:[{crv:'Ed25519', iat:1736899200, kid:'enc-author-1', kty:'OKP', x:kEncAuthor.x}],
+  name:'Encrypting Author', seq:1, updated:1739577600, url:ENC_AUTHOR
+};
+idEncAuthor._sig = sign(idEncAuthor, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1');
+console.log('== B.10 author identity document ==');
+console.log(' ', canonicalize(idEncAuthor));
+console.log();
+embed('B.10 enc author identity bytes', canonicalize(idEncAuthor), 'spec');
+
+const ENC_ITEM_ID = 'urn:uuid:9d1f0a2b-3c4d-4e5f-8091-a2b3c4d5e6f7';
+const encCarrier = {
+  _feed_url:'https://enc-author.example/feed.json', _version:1,
+  authors:[{url:ENC_AUTHOR}],
+  content_text:'',
+  date_published:'2025-02-20T12:00:00Z',
+  id: ENC_ITEM_ID
+};
+const encItem = { ...encCarrier };
+encItem._enc = seal({
+  item: encCarrier,
+  content: { content_text: 'Sealed to one reader.' },
+  recipients: [idEncReader],
+  audience: [ENC_READER],
+  ephemeral: encEphemeral,
+  cek: crypto.createHash('sha256').update('open-feed-v0.6 cek-1').digest(),
+  iv: crypto.createHash('sha256').update('open-feed-v0.6 iv-1').digest().subarray(0,12),
+});
+encItem._sig = sign(encItem, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1');
+console.log('== B.10 encrypted item (full published canonical bytes) ==');
+console.log(' ', canonicalize(encItem));
+console.log();
+embed('B.10 encrypted item bytes', canonicalize(encItem), 'spec');
+
+const encManifest = {
+  url: ENC_AUTHOR, feed_url:'https://enc-author.example/feed.json', seq:1, updated:1740045600,
+  items:{ [ENC_ITEM_ID]:[1, documentHash(encItem)] }
+};
+encManifest._sig = sign(encManifest, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1');
+console.log('== B.10 manifest committing the ciphertext (§15: the core commits opaque bytes) ==');
+console.log(' ', canonicalize(encManifest));
+console.log();
+embed('B.10 enc manifest bytes', canonicalize(encManifest), 'spec');
+
 // ---- self-verify everything, the way a verifier does ----
 // Each vector resolves its key out of its author's CURRENT identity document — the tip of
 // that identity's chain — so revocation, `iat`, and author binding are all in scope, not
 // just the raw Ed25519 check.
-const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3, [MEMBER]: idMember };
+const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3, [MEMBER]: idMember,
+  [ENC_AUTHOR]: idEncAuthor, [ENC_READER]: idEncReader };
 
 function verifies(doc){
   const author = claimedAuthor(doc);
@@ -358,6 +446,24 @@ const checks = [
   ['B.9 del item',    verifies(delItem)],
   ['B.9 del manifest', verifies(delManifest)
                         && delManifest.items[DEL_ITEM_ID][1]===documentHash(delItem)],
+  // §15's claim about the core, checked rather than asserted: the *unchanged* verifier accepts
+  // the carrier, and an ordinary manifest commits its exact published bytes.
+  ['B.10 enc reader id', verifies(idEncReader)
+                        && encryptionKeyFor(idEncReader).kid === 'enc-1'],
+  ['B.10 enc author id', verifies(idEncAuthor)],
+  ['B.10 enc item',   verifies(encItem) && encItem.content_text === ''],
+  ['B.10 enc manifest', verifies(encManifest)
+                        && encManifest.items[ENC_ITEM_ID][1]===documentHash(encItem)],
+  // The envelope opens for its one recipient, the carrier binding (§15.2.1) holds, the declared
+  // audience (§15.2.2) is inside the sealed bytes, and no per-recipient header names a `kid`.
+  ['B.10 opens',      (() => {
+    const opened = openEnvelope(encItem, { privateKeys: [encReaderKey.privateKey] });
+    return opened.content_text === 'Sealed to one reader.'
+      && opened.id === ENC_ITEM_ID
+      && declaredAudience(opened).join() === ENC_READER
+      && encItem._enc.recipients.every((r) => r.header.kid === undefined)
+      && !canonicalize(encItem._enc).includes('enc-reader.example');
+  })()],
 ];
 
 console.log('SELF-VERIFY (against each author\'s current identity document):');

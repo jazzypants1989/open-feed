@@ -1044,7 +1044,39 @@ The manifest committing it, also delegated-signed:
 
 These are the positive half of §4.6 — the delegated key resolving where it may sign. The other half is a must-fail case (a delegated key signing an identity-document version), which Appendix B, being positive-only, cannot carry; the reference repository's negative corpus does.
 
-**Validation recipe.** Verify all twelve `_sig` values (B.2, B.2b, B.3, B.3b, B.4, B.5 against `test-key-1`; B.7 against `reader-key-1`; B.6 and B.8 against the key each publishes; B.9's identity document against `member-root-1` and its item and manifest against the delegated `hub-key-1`). Resolve every one of those keys the way §6.5 step 5 does — out of the signer's **current** identity document, B.5 for `test.example` — so `iat` and `revoked_at` are in scope and not just the Ed25519 check; every vector here is intended to verify under that rule, and one that verifies only against a genesis document is a defect. Recompute B.3's full-bytes hash and confirm it equals B.3b's `prev` (manifest chaining); recompute B.4's full-bytes hash and confirm it equals B.5's `prev` (identity chaining). Recompute the full-published-bytes hashes of B.2 and B.2b and confirm each equals the `hash` half of its `items` entry in B.3b (content commitment, §9). Confirm B.7's `_pins` hashes equal the B.4 and B.3 hashes, and that B.7 carries no `_feed_url` (delivered-only, §16.1). `tmp/regen.js` performs all of these.
+### B.10. Encrypted Item (§15, OPTIONAL)
+
+The OPTIONAL layer's whole claim about the core is that it does not touch it, and these vectors are how that is checked rather than asserted: every one of them verifies under the **unchanged** §6 construction, with §6.6 author binding and `content_text: ""` as §7.2's marker for no displayable content, and the manifest below commits the ciphertext's exact published bytes with no knowledge that `_enc` exists. Two identities, both standalone so nothing chained above moves.
+
+Every input that would otherwise be random — the X25519 keys, the ephemeral, the content key, the IV — is derived from a label by `tmp/regen.js`, because a vector nobody can reproduce is decoration. They are **testing-only** and not for any real identity.
+
+The recipient, publishing an X25519 encryption key beside its signing key (§15.1). A sender resolves the key from *this* document and MUST NOT accept one supplied by any third party:
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vZW5jLXJlYWRlci5leGFtcGxlLyNlbmMtcmVhZGVyLTEifQ..fTYEcr9d-v2pVR-jBw81J_a6J3joO1hoeAcJBUw5lnEv0rKtDQik4g7_SxxnB-ksrw8bbSGK43Lbre2G4aCPBQ","keys":[{"crv":"Ed25519","iat":1736899200,"kid":"enc-reader-1","kty":"OKP","x":"d4UqMWYUhR3ChHe_UI-uUu-FjNXsf45H3D5eo-1lQJw"},{"crv":"X25519","iat":1736899200,"kid":"enc-1","kty":"OKP","use":"enc","x":"Im26GUlY5viKEkosbKnJN4Al3iLaRpVGdrzc8EohRnU"}],"name":"Encrypted Reader","seq":1,"updated":1739577600,"url":"https://enc-reader.example/"}
+```
+
+The author:
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vZW5jLWF1dGhvci5leGFtcGxlLyNlbmMtYXV0aG9yLTEifQ..IZBROCElECzztPp4gAh1O2vWu87oKf6IF_OdTz_FVIhCEdY4yIzP6wPuWgJmJeIE_PEIMD940B1m-wPeR3otCg","feeds":[{"manifest":"https://enc-author.example/manifest.json","rel":"primary","url":"https://enc-author.example/feed.json"}],"keys":[{"crv":"Ed25519","iat":1736899200,"kid":"enc-author-1","kty":"OKP","x":"lKVAO4KqkLgxfDzaAZKbrsv4Ys5iAn7t3TNXCRhfJiE"}],"name":"Encrypting Author","seq":1,"updated":1739577600,"url":"https://enc-author.example/"}
+```
+
+The encrypted item. Note what is visible: `id`, `authors`, `_feed_url`, `_version`, `date_published`, and the empty `content_text` — §11.4's list, cleartext by construction. The envelope carries one shared `epk` in its protected header and one per-recipient slot found by a blinded `_tag`, with **no `kid`** anywhere (§15.2), so nothing on the wire names who this was sealed to:
+
+```
+{"_enc":{"ciphertext":"op-vnovlF-CNddqjV7P3THJ8jbwWirwb2PNrrg6-kZqDpiHOr_GWvQdd7XNuzXGQSJWn30Tq0dHUu7HEtWaLtp_FPOWIMAn1ReWoxLAm2Q1vq35ZYZSheGk8TF13bytBa4AC1XbnApXG34TPwoS3XY259rjfVF3hVpZU-uyGoUSpHBV97naA_RAoGhxsrA6zJUgMy7DHtY8IJsG7F2nrhnqKA98P_tOctfHqlvj5TXQZA4T6A8vmRHXaNTF7iGTEpkTUGStHdIX1NT51Grg5pK0xqOwYp1EpOHVHLSaF5gGpgqKvYx1CxmkxSrTl","iv":"y3OdrJtVqDbrtB_6","protected":"eyJlbmMiOiJBMjU2R0NNIiwiZXBrIjp7ImNydiI6IlgyNTUxOSIsImt0eSI6Ik9LUCIsIngiOiJKNXhUa2tXT2hWRzhhMDdIVFVnTmpqMFZIT3d4VmJoQ1ZaR2ltaEFPVkNrIn19","recipients":[{"encrypted_key":"ErVKhOnQAAUyjrwnDn-FQ67UfmOrYyOBppu5KsO12jJdDy2fEu73hw","header":{"_tag":"YdnZTn3_PPw","alg":"ECDH-ES+A256KW"}}],"tag":"dyz8UKirZdTzzFdCF6L8Rw"},"_feed_url":"https://enc-author.example/feed.json","_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vZW5jLWF1dGhvci5leGFtcGxlLyNlbmMtYXV0aG9yLTEifQ..S-ZMjbpJvrAPSPrxsw-qN72osrVvFXVVlVNSoYwRM9y1G6pD5Y0rzdLakM3hyMFiZ1uu2Qr_GeMhrK3hRJ3QDw","_version":1,"authors":[{"url":"https://enc-author.example/"}],"content_text":"","date_published":"2025-02-20T12:00:00Z","id":"urn:uuid:9d1f0a2b-3c4d-4e5f-8091-a2b3c4d5e6f7"}
+```
+
+The manifest committing it, an ordinary §9 manifest signed by an ordinary key:
+
+```
+{"_sig":"eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vZW5jLWF1dGhvci5leGFtcGxlLyNlbmMtYXV0aG9yLTEifQ..XAvaaeKrWQ1bmVBQFHLaAnI0T1tZhbOcW_vOYyDJun1mWD-63zbYsFi8Rhb4NRvgY-_XzcBZz-9JIjdOk2c2CQ","feed_url":"https://enc-author.example/feed.json","items":{"urn:uuid:9d1f0a2b-3c4d-4e5f-8091-a2b3c4d5e6f7":[1,"j5am54cnxrpDND-BTn-GhuNTnqM6hakSsTMxSMCEBAI"]},"seq":1,"updated":1740045600,"url":"https://enc-author.example/"}
+```
+
+**Validation recipe.** Verify all four `_sig` values against each author's identity document above. Confirm the manifest entry's hash equals the encrypted item's full published bytes. Derive the recipient's shared secret from its X25519 private half and the `epk` in the protected header, compute `SHA-256("openfeed-slot-tag" || Z)` and confirm its first 8 bytes base64url-encode to the slot's `_tag`, unwrap the content key with `ECDH-ES+A256KW`, and decrypt with `A256GCM` over the base64url protected header as additional authenticated data. The sealed plaintext MUST name this item's `id`, `authors[0].url`, and `_feed_url` (§15.2.1's carrier binding), and carries `audience: ["https://enc-reader.example/"]` (§15.2.2) — which appears nowhere outside the sealed bytes.
+
+**Validation recipe.** Verify all sixteen `_sig` values (B.2, B.2b, B.3, B.3b, B.4, B.5 against `test-key-1`; B.7 against `reader-key-1`; B.6 and B.8 against the key each publishes; B.9's identity document against `member-root-1` and its item and manifest against the delegated `hub-key-1`; B.10's four against the two keys it publishes). Resolve every one of those keys the way §6.5 step 5 does — out of the signer's **current** identity document, B.5 for `test.example` — so `iat` and `revoked_at` are in scope and not just the Ed25519 check; every vector here is intended to verify under that rule, and one that verifies only against a genesis document is a defect. Recompute B.3's full-bytes hash and confirm it equals B.3b's `prev` (manifest chaining); recompute B.4's full-bytes hash and confirm it equals B.5's `prev` (identity chaining). Recompute the full-published-bytes hashes of B.2 and B.2b and confirm each equals the `hash` half of its `items` entry in B.3b (content commitment, §9). Confirm B.7's `_pins` hashes equal the B.4 and B.3 hashes, and that B.7 carries no `_feed_url` (delivered-only, §16.1). `tmp/regen.js` performs all of these.
 
 ## Appendix C: Interoperability and Gateways
 
