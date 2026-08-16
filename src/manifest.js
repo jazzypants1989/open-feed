@@ -248,8 +248,14 @@ export const ITEM_STATES = ['live', 'deleted', 'pending', 'withheld', 'absent', 
  * yield it": withholding, or the next page. A caller that has followed `next_url` to the end
  * passes `false` and gets the withholding verdict §9.3 requires it to surface; one reading a
  * single page passes `true` and gets `absent`, which asserts nothing.
+ *
+ * `unobtainable` is the third and strongest reading, and the one §9.3 actually asks for: ids
+ * the caller **requested** at their §7.6 derived URL and did not get. Those are withheld
+ * whatever `partial` says, because pagination cannot explain a `404` on a URL that names one
+ * item. A caller with no §7.6 available passes nothing and falls back to the two readings
+ * above — which is why §9.3 says the verdict is close to unreachable without it.
  */
-export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS, url, partial = false } = {}) {
+export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS, url, partial = false, unobtainable = new Set() } = {}) {
   assertManifestShape(manifest, url ?? manifest.url);
 
   const states = new Map();
@@ -315,19 +321,24 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
     record(id, gone ? 'deleted' : 'live', { version, hash });
   }
 
-  // Anything the manifest commits that the feed did not yield. Pagination is the honest
-  // reason, so a caller reading one page gets `absent` — a state that accuses nobody — while a
-  // caller that has followed §7.4's `next_url` to the end holds the whole feed, and then this
-  // is the withholding state §9.3 says MUST be surfaced rather than held as perpetually-pending.
+  // Anything the manifest commits that the feed did not yield, in the three readings §9.3
+  // keeps apart. `unobtainable` is the strongest evidence and the only one that needs no
+  // argument: the caller asked for those exact bytes at their §7.6 URL and did not get them.
+  // Otherwise pagination is the honest explanation, so a caller reading one page gets `absent`
+  // — a state that accuses nobody — while one that followed §7.4's `next_url` to the end holds
+  // the whole feed and gets the withholding verdict §9.3 says MUST be surfaced.
   for (const id of Object.keys(manifest.items)) {
     if (!seen.has(id)) {
       const e = entryOf(manifest.items, id);
-      record(id, partial ? 'absent' : 'withheld', {
+      const probed = unobtainable.has(id);
+      record(id, probed || !partial ? 'withheld' : 'absent', {
         version: e.version,
         hash: e.hash,
-        reason: partial
-          ? 'committed by the manifest, not on this page (§7.4)'
-          : 'committed by the manifest, not yielded by the feed',
+        reason: probed
+          ? 'committed by the manifest, and its §7.6 item URL did not yield it'
+          : partial
+            ? 'committed by the manifest, not on this page (§7.4)'
+            : 'committed by the manifest, not yielded by the feed',
       });
     }
   }

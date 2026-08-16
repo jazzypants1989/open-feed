@@ -298,3 +298,39 @@ test('a manifest is bound to the identity and feed that named it', () => {
     (e) => e instanceof ManifestError && /commits/.test(e.message),
   );
 });
+
+// ---- §9.2: there is no partial advance ----
+
+test('a tombstone-only advance turns the morning\'s honest posts into invariant-3 violations', () => {
+  // §9.2 says advance immediately for a tombstone. §9.3 invariant 3 says an item uncommitted by
+  // an advance whose `updated` has passed its signing time has been *passed over* — a violation,
+  // not lag. Compose them naively and a daily-cadence publisher that advances at 2pm carrying
+  // only the tombstone accuses itself, at every consumer, by obeying the text. §9.2 now says
+  // every version commits the whole live set, and this holds the failure it rules out in place.
+  const morning = [item({ id: 'a', at: T0 }), item({ id: 'b', at: T0 + 60 })];
+  const doomed = item({ id: 'c', at: T0 - DAY });
+  const yesterday = manifest({ seq: 4, updated: T0 - 3600, items: [doomed] });
+  const stone = item({ id: 'c', version: 2, at: T0 + 7200, deleted: true });
+
+  // The partial advance: the tombstone lands, this morning's two posts do not.
+  const partial = manifest({ seq: 5, updated: T0 + 7200, items: [], deleted: [stone] });
+  const bad = reconcileFeed(partial, [...morning, stone], { now: T0 + 7200, url: FEED });
+  assert.equal(bad.violations.length, 2, 'both honest posts are reported as passed over');
+  for (const v of bad.violations) {
+    assert.equal(v.invariant, 3);
+    assert.match(v.message, /the manifest advanced at/);
+  }
+
+  // The sweeping advance: same seq, same `updated`, same tombstone, plus the live set.
+  const swept = manifest({ seq: 5, updated: T0 + 7200, items: morning, deleted: [stone] });
+  const good = reconcileFeed(swept, [...morning, stone], { now: T0 + 7200, url: FEED });
+  assert.deepEqual(good.violations, [], 'committing the live set costs nothing and accuses nobody');
+  assert.deepEqual(
+    good.states.map((s) => s.state).sort(),
+    ['deleted', 'live', 'live'],
+  );
+
+  // And the two are the same chain hop, so nothing else in §9.3 tells them apart.
+  assert.doesNotThrow(() => assertInvariantsAcrossHop(yesterday, partial, { url: MANIFEST }));
+  assert.doesNotThrow(() => assertInvariantsAcrossHop(yesterday, swept, { url: MANIFEST }));
+});

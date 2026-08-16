@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { DAY, T0, newSite, consumer, makeSigner } from './helpers/site.js';
 import { run } from '../src/cli.js';
-import { Publisher, createReader, ObservationStore, sign } from '../src/index.js';
+import { Publisher, createReader, ObservationStore, sign, documentHash } from '../src/index.js';
 
 /** Collects what the command wrote, so a test can read it back. */
 function capture() {
@@ -126,9 +126,12 @@ test('a rewritten history is caught on the second run and exits 2, and stays cau
 test('withholding is a finding, not an error: exit 1 with the item named', async (t) => {
   const site = await newSite(t);
   const p = site.serve(publisher(site.url, makeSigner()));
-  // The manifest commits it; the feed does not yield it. Nothing is forged and no invariant is
-  // broken — the manifest is doing its job, and §9.3 requires that be surfaced.
-  site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i.id !== 'urn:uuid:day-1') });
+  // The manifest commits it; nothing yields it — not the feed page, and not its §7.6 item URL,
+  // which is the surface §9.3 says a consumer must actually have tried before it may accuse
+  // anyone. Nothing is forged and no invariant is broken: the manifest is doing its job.
+  const gone = p.feed.items.find((i) => i.id === 'urn:uuid:day-1');
+  site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i !== gone) });
+  site.remove(`feed/items/${documentHash(gone)}.json`);
 
   const { code, out } = await cli(t, ['verify', site.url]);
   assert.equal(code, 1);

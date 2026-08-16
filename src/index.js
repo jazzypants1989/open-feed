@@ -49,6 +49,7 @@ export {
 } from './fetch.js';
 export {
   derivedVersionUrl,
+  derivedItemUrl,
   skipAnchors,
   PinStore,
   admissibleItemPins,

@@ -198,17 +198,58 @@ test('an item the manifest commits but the feed never yields is withholding, not
   const p = site.serve(familyPublisher(site.url, makeSigner()));
   const me = consumer(t);
 
-  // Drop one item from the served feed while the manifest keeps committing it. No invariant is
-  // broken and nothing is forged: the consumer knows an exact revision exists, knows its hash,
-  // and cannot get the bytes. §9.3 requires that be named rather than held as perpetually-pending.
-  const feed = { ...p.feed, items: p.feed.items.filter((i) => i.id !== 'urn:uuid:day-4') };
-  site.replace('feed.json', feed);
+  // Drop one item from every surface that could yield it — the feed page and its §7.6 item URL —
+  // while the manifest keeps committing it. No invariant is broken and nothing is forged: the
+  // consumer knows an exact revision exists, knows its hash, and cannot get the bytes. §9.3
+  // requires that be named rather than held as perpetually-pending.
+  const gone = p.feed.items.find((i) => i.id === 'urn:uuid:day-4');
+  site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i !== gone) });
+  site.remove(`feed/items/${documentHash(gone)}.json`);
 
   const result = await reader(me).read(site.url);
   assert.equal(result.items.withheld.length, 1);
   assert.equal(result.items.withheld[0].id, 'urn:uuid:day-4');
+  assert.match(result.items.withheld[0].reason, /item URL did not yield it/);
   assert.equal(result.items.live.length, 5);
   assert.equal(result.findings.filter((f) => f.kind === 'withheld').length, 1);
+});
+
+test('an item missing from the page but served at its §7.6 URL is obtained, not accused', async (t) => {
+  // The false accusation §7.6 exists to retire. A publisher serving a window — or paginating
+  // past this reader's page bound — commits more than any one page yields, and before §7.6 the
+  // only honest verdict available was "I did not try", because there was nothing to try. Now
+  // there is: the reader asks for the exact revision the manifest names, gets it, verifies it
+  // like any page item, and reports it live.
+  const site = await newSite(t);
+  const p = site.serve(familyPublisher(site.url, makeSigner()));
+  const me = consumer(t);
+
+  site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i.id !== 'urn:uuid:day-4') });
+
+  const result = await reader(me).read(site.url);
+  assert.deepEqual(result.items.withheld, [], 'obtainable is not withheld');
+  assert.equal(result.items.live.length, 6, 'the probed revision joins the live set');
+  assert.ok(result.items.live.some((s) => s.id === 'urn:uuid:day-4'));
+  assert.deepEqual(result.findings, []);
+});
+
+test('probing is inert against a publisher that offers no item URLs', async (t) => {
+  // The control probe, and the reason it is not optional. A publisher that simply does not
+  // implement §7.6 answers 404 to every derived item URL, so probing without a control would
+  // report its whole back catalog as withheld — the same false accusation by a new route. So
+  // the reader asks for one revision the feed *did* yield first, and stays silent when that
+  // fails.
+  const site = await newSite(t);
+  const p = familyPublisher(site.url, makeSigner());
+  site.serve(new Proxy(p, { get: (t_, k) => (k === 'itemUrls' ? false : t_[k]) }));
+  const me = consumer(t);
+
+  site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i.id !== 'urn:uuid:day-4') });
+
+  const result = await reader(me).read(site.url);
+  assert.equal(result.feed.probe.offered, false, 'the control probe found no §7.6 support');
+  assert.deepEqual(result.items.withheld.map((s) => s.id), ['urn:uuid:day-4']);
+  assert.match(result.items.withheld[0].reason, /not yielded by the feed/);
 });
 
 test('an item uncommitted past the consumer ceiling stops being lag', async (t) => {
@@ -459,4 +500,103 @@ test('a chained document served non-canonically is refused', async (t) => {
   site.replaceRaw('feed.json', feed + '\n');
   const result = await reader(consumer(t)).read(site.url);
   assert.equal(result.items.live.length, 6, 'the feed is read normally');
+});
+
+test('an attachment with no _sha256 is unverified content inside a verified item', async (t) => {
+  // §7.4. The signature covers the *reference*, never the bytes it points at, so an attachment
+  // without a hash sits outside the envelope: the item verifies, the manifest commits it, the
+  // chain checks out, and whoever serves the photo can swap it undetectably. §13.2's "full
+  // integrity against a serving-path compromise" holds only for what the signature covers, and
+  // for a media-first deployment this is the largest gap available.
+  const site = await newSite(t);
+  const signer = makeSigner('key-1');
+  const p = new Publisher({ identity: site.url, signer, profile: { name: 'Mom' }, now: () => T0 });
+
+  // A publisher cannot reach this state through the reference implementation, which refuses.
+  assert.throws(
+    () => p.publishItem({
+      id: 'urn:uuid:refused',
+      content_text: 'cookies',
+      attachments: [{ url: `${site.url}cookies.jpg`, mime_type: 'image/jpeg' }],
+    }, { at: T0 }),
+    /_sha256/,
+  );
+
+  // So build the item honestly, then strip the hash the way a non-conforming publisher would:
+  // after signing, the manifest commits these exact bytes, so nothing downstream objects.
+  p.publishItem({
+    id: 'urn:uuid:photo',
+    content_text: 'cookies',
+    attachments: [{ url: `${site.url}cookies.jpg`, mime_type: 'image/jpeg', _sha256: 'x'.repeat(43) }],
+  }, { at: T0 });
+  const hashless = p.publishItem({
+    id: 'urn:uuid:hashless',
+    content_text: 'more cookies',
+    attachments: [{ url: `${site.url}more.jpg`, mime_type: 'image/jpeg', _sha256: 'y'.repeat(43) }],
+  }, { at: T0 + 60 });
+  delete hashless.attachments[0]._sha256;
+  hashless._sig = sign(hashless, signer.privateKey, `${site.url}#key-1`);
+  p.items.set('urn:uuid:hashless', hashless);
+  p.advanceManifest({ updated: T0 + 3600 });
+  site.serve(p);
+
+  const result = await reader(consumer(t), { now: () => T0 + DAY }).read(site.url);
+
+  assert.equal(result.items.live.length, 2, 'both items verify and both are committed');
+  assert.deepEqual(result.findings.filter((f) => f.kind === 'invariant'), []);
+
+  const flagged = result.findings.filter((f) => f.kind === 'unhashed_attachment');
+  assert.equal(flagged.length, 1, 'exactly the one whose bytes nothing commits');
+  assert.equal(flagged[0].id, 'urn:uuid:hashless');
+  assert.match(flagged[0].message, /more\.jpg/);
+});
+
+test('pagination is followed to the end, and stopping early is partial rather than an accusation', async (t) => {
+  // §7.4. Before this the reader read one page and took the absence of `next_url` as proof it
+  // had seen everything — which it is only if the publisher never paginated. §13.4 budgets
+  // nothing for the walk, so it is bounded, and hitting the bound sets `partial`: a reader that
+  // has not seen the whole feed asserts nothing about what is missing from it.
+  const site = await newSite(t);
+  const p = site.serve(familyPublisher(site.url, makeSigner()));
+
+  // Re-serve the same six committed items as three pages of two.
+  const all = p.feed.items;
+  const page = (n, items, next) => site.replace(n === 0 ? 'feed.json' : `feed/p${n}.json`, {
+    version: 'https://jsonfeed.org/version/1.1',
+    title: 'Mom',
+    feed_url: `${site.url}feed.json`,
+    items,
+    ...(next ? { next_url: next } : {}),
+  });
+  page(0, all.slice(0, 2), `${site.url}feed/p1.json`);
+  page(1, all.slice(2, 4), `${site.url}feed/p2.json`);
+  page(2, all.slice(4, 6), null);
+
+  const whole = await reader(consumer(t)).read(site.url);
+  assert.equal(whole.feed.pages.length, 3, 'all three pages were followed');
+  assert.equal(whole.feed.partial, false);
+  assert.equal(whole.items.live.length, 6);
+  assert.deepEqual(whole.findings, []);
+
+  // Bounded at one page: five items are on pages this reader never fetched. It says so by
+  // saying nothing — no withholding, because it did not try.
+  const clipped = await reader(consumer(t), { maxPages: 1, maxItemProbes: 0 }).read(site.url);
+  assert.equal(clipped.feed.partial, true);
+  assert.equal(clipped.items.live.length, 2);
+  assert.equal(clipped.items.withheld.length, 0, 'a partial read accuses nobody');
+  assert.equal(clipped.items.absent.length, 4);
+});
+
+test('a next_url pointing off-origin is not followed', async (t) => {
+  // `next_url` is unsigned like everything else at feed level (§7.5), so whoever controls the
+  // serving path writes it. Following one off-origin is a stranger choosing a verifier's next
+  // fetch (§13.9), and a feed's own pages are never anywhere else.
+  const site = await newSite(t);
+  const p = site.serve(familyPublisher(site.url, makeSigner()));
+  site.replace('feed.json', { ...p.feed, next_url: 'https://elsewhere.example/feed.json' });
+
+  const result = await reader(consumer(t), { maxItemProbes: 0 }).read(site.url);
+  assert.equal(result.feed.pages.length, 1);
+  assert.equal(result.feed.partial, true, 'declining to follow leaves the read partial');
+  assert.equal(result.items.withheld.length, 0);
 });

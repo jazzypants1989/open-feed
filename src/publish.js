@@ -13,7 +13,7 @@
 import { canonicalBytes } from './canonical.js';
 import { documentHash } from './hash.js';
 import { sign, normalizeIdentityUrl } from './jws.js';
-import { derivedVersionUrl, skipAnchors } from './chain.js';
+import { derivedVersionUrl, derivedItemUrl, skipAnchors } from './chain.js';
 import { assertManifestShape } from './manifest.js';
 
 export class PublishError extends Error {
@@ -50,6 +50,7 @@ export class Publisher {
     recoveryKeys = [],
     now = () => Math.floor(Date.now() / 1000),
     skipLinks = true,
+    itemUrls = true,
   }) {
     this.identity = normalizeIdentityUrl(identity);
     this.feedUrl = feedUrl ?? `${this.identity}feed.json`;
@@ -69,6 +70,7 @@ export class Publisher {
     this.signer = signer;
     this.now = now;
     this.skipLinks = skipLinks;
+    this.itemUrls = itemUrls;
 
     this.identityVersions = [];
     this.manifestVersions = [];
@@ -162,9 +164,17 @@ export class Publisher {
     const at = updated !== undefined ? updated + 1 : this.now();
     const previousKid = this.signer.kid;
     this.signer = newSigner;
-    return this.advanceIdentity({
+    const rotated = this.advanceIdentity({
       keys: this.identityDocument.keys.map((k) => (k.kid === previousKid ? { ...k, revoked_at: at } : k)),
     }, { updated: at });
+
+    // §9.1: a manifest tip signed by a revoked key is rejected whatever its `updated` says, so
+    // revoking a key that has signed manifests is two artifacts and not one. Doing it here is
+    // the difference between a rotation and a rotation that strands every reader: the identity
+    // chain would advance, the old manifest tip would stop verifying, and the publisher would
+    // have no signal at all — its own files are still on disk and still internally consistent.
+    if (this.manifest) this.advanceManifest({ updated: at + 1 });
+    return rotated;
   }
 
   // ---- §7: items ----
@@ -199,6 +209,21 @@ export class Publisher {
     item._feed_url = this.feedUrl;
     if (item.content_text === undefined && item.content_html === undefined) {
       throw new PublishError(`${id} carries neither content_text nor content_html (§7.2)`);
+    }
+    // §7.4: `_sha256` on an attachment entry is a MUST, and refusing here is the only place a
+    // publisher finds out. A consumer's remedy is to mark the bytes unverified (§10.5), which
+    // is a downgrade the author never asked for and cannot see — the item still verifies, the
+    // photo under it is simply outside the envelope, and whoever serves those bytes can swap
+    // them undetectably.
+    if (item.attachments !== undefined) {
+      if (!Array.isArray(item.attachments)) {
+        throw new PublishError(`${id} has an attachments member that is not an array (§7.4)`);
+      }
+      for (const [i, a] of item.attachments.entries()) {
+        if (typeof a?._sha256 !== 'string' || a._sha256.length === 0) {
+          throw new PublishError(`${id} attachment ${i} (${a?.url ?? 'no url'}) has no _sha256 (§7.4)`);
+        }
+      }
     }
     const signed = this.#signDocument(item);
     this.items.set(id, signed);
@@ -308,6 +333,16 @@ export class Publisher {
       out.set(this.manifestUrl, this.manifest);
       for (const version of this.manifestVersions) {
         out.set(derivedVersionUrl(this.manifestUrl, version.seq), version);
+      }
+    }
+    // §7.6, OPTIONAL: each committed revision at its own derived URL. Same shape as the
+    // retention above and the same reason it needs no discipline — the file's name is the hash
+    // of its bytes, so it cannot drift from what the manifest commits without ceasing to be
+    // the file the manifest names. What it buys a reader is the ability to ask for one item,
+    // which is what makes §9.3's withholding verdict assertable at all.
+    if (this.itemUrls) {
+      for (const item of this.items.values()) {
+        out.set(derivedItemUrl(this.feedUrl, documentHash(item)), item);
       }
     }
     return out;

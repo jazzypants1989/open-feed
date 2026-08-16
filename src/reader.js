@@ -27,6 +27,7 @@ import {
   PinStore,
   walkToPin,
   derivedVersionUrl,
+  derivedItemUrl,
   identityChainPolicy,
   manifestChainPolicy,
   EquivocationError,
@@ -38,6 +39,7 @@ import {
   LAG_CEILING_SECONDS,
 } from './manifest.js';
 import { verifyDocument, normalizeIdentityUrl, VerifyError } from './jws.js';
+import { documentHash } from './hash.js';
 import { MigrationStore, CompetingMigrations } from './migration.js';
 
 export class ReaderError extends Error {
@@ -132,6 +134,15 @@ export function createReader({
   now = () => Math.floor(Date.now() / 1000),
   lagCeiling = LAG_CEILING_SECONDS,
   useSkipLinks = true,
+  // §7.4: follow `next_url`. Bounded, because §13.4 budgets nothing for pagination and an
+  // unbounded follow is a publisher-controlled fetch loop. Stopping early is not a failure —
+  // it makes the read `partial`, which is the state that accuses nobody.
+  maxPages = 10,
+  // §7.6: how many committed-but-not-served ids to probe at their derived item URLs before
+  // giving up. Zero disables probing entirely. The cap matters because a windowing publisher
+  // can commit ten thousand items the reader is not holding, and probing all of them is a
+  // fetch storm to answer a question nobody asked.
+  maxItemProbes = 16,
 } = {}) {
   /**
    * §13.4's history budget: "the greater of 10 MB and 20× the current version's size", decoded.
@@ -361,7 +372,7 @@ export function createReader({
       url: manifestUrl,
       tip: manifest,
       kind: 'manifest',
-      policy: manifestChainPolicy(identityDocument),
+      policy: manifestChainPolicy(identityDocument, { now }),
       bytes: fetched.bytes.length,
       validate: (walk) =>
         assertHistoryInvariants(walk.versions, { url: manifestUrl, contiguous: walk.contiguous }),
@@ -390,12 +401,49 @@ export function createReader({
    * consumer that threw one away would be discarding the ingredient that lets a follower serve
    * a cached feed when its origin is down.
    */
-  async function readFeed(feedUrl, { identityDocument, resolveIdentity, firstSeenHere = new Set(), owner }) {
+  async function readFeed(feedUrl, { identityDocument, resolveIdentity, firstSeenHere = new Set(), owner, manifest = null }) {
     const fetched = await laddered(feedUrl, () => fetcher.fetchDocument(feedUrl, { kind: 'feed' }));
     const feed = fetched.doc;
     if (!Array.isArray(feed?.items)) {
       throw new ReaderError(`${feedUrl} is not a JSON Feed: no items array`, { url: feedUrl, code: 'not_a_feed' });
     }
+
+    // §7.4's `next_url`, followed under a bound. Two rules make this safe to do at all.
+    //
+    // Same origin, because `next_url` is unsigned like everything else at feed level (§7.5) —
+    // whoever controls the serving path writes it, so an off-origin one is a stranger asking a
+    // verifier to fetch a URL of their choosing (§13.9), and it is never needed: a feed's pages
+    // are its publisher's own files.
+    //
+    // And bounded, because §13.4 budgets nothing here and an unbounded follow is a fetch loop
+    // the publisher controls. Stopping early sets `partial`, which is the honest outcome — a
+    // reader that has not seen the whole feed asserts nothing about what is missing from it.
+    const pages = [feed];
+    const visited = new Set([feedUrl]);
+    let cursor = feed;
+    let partial = false;
+    while (typeof cursor.next_url === 'string') {
+      if (pages.length >= maxPages) { partial = true; break; }
+      let next;
+      try {
+        next = new URL(cursor.next_url, feedUrl).href;
+      } catch { partial = true; break; }
+      if (new URL(next).origin !== new URL(feedUrl).origin || visited.has(next)) { partial = true; break; }
+      visited.add(next);
+      const page = await laddered(next, () => fetcher.fetchDocument(next, { kind: 'feed' }));
+      if (!Array.isArray(page.doc?.items)) { partial = true; break; }
+      pages.push(page.doc);
+      cursor = page.doc;
+    }
+    const allItems = pages.flatMap((p) => p.items);
+
+    // §7.6: ask for the exact revisions the manifest commits and no page yielded. Probing is a
+    // way of *reading more of the feed*, one item at a time, so anything it obtains joins the
+    // list below and is verified exactly like a page item — the URL guarantees the bytes, never
+    // the authorship, and §6.5 is still the only thing that says who wrote them.
+    const probe = manifest ? await probeItems(feedUrl, manifest, new Set(allItems.map((i) => i?.id))) : null;
+    if (probe) allItems.push(...probe.obtained);
+
     const canonicalUrl = normalizeUrlForCompare(feedUrl);
     // §7.5's exception: "One mismatch is not a copy." Where an item's signed `_feed_url` names
     // a feed of a **predecessor** identity of the one owning this feed, and the consumer has
@@ -414,8 +462,9 @@ export function createReader({
     const canonical = [];
     const copies = [];
     const rejected = [];
+    const unhashedAttachments = [];
 
-    for (const item of feed.items) {
+    for (const item of allItems) {
       const author = String(item?.authors?.[0]?.url ?? '');
       let authorDocument = identityDocument;
       if (author && normalizeIdentityUrl(author) !== normalizeIdentityUrl(identityDocument.url)) {
@@ -468,13 +517,104 @@ export function createReader({
           ...(observed !== null ? { signedAt: observed } : {}),
         });
         (via ? canonical : copies).push({ item, info, via, revocationCheckedAt: observed ?? info.signedAt });
+        unhashedAttachments.push(...unhashed(item));
       } catch (e) {
         if (!(e instanceof VerifyError)) throw e;
         rejected.push({ item, reason: e.message });
       }
     }
 
-    return { url: feedUrl, feed, cors: fetched.cors, canonical, copies, rejected, nextUrl: feed.next_url ?? null };
+    return {
+      url: feedUrl,
+      feed,
+      pages,
+      cors: fetched.cors,
+      canonical,
+      copies,
+      rejected,
+      unhashedAttachments,
+      partial,
+      probe,
+      nextUrl: cursor.next_url ?? null,
+    };
+  }
+
+  /**
+   * §7.6: ask for the exact revisions the manifest commits and the feed did not yield.
+   *
+   * The control probe is what makes this usable without a capability flag, and without it the
+   * whole mechanism inverts. A publisher that simply does not implement §7.6 answers `404` to
+   * every derived item URL, so probing would report its entire back catalog as withheld — the
+   * same false accusation, arrived at by a new route. So: probe one revision the feed **did**
+   * yield first. If that fails, this publisher offers no item URLs and nothing here is
+   * evidence of anything; if it succeeds, a `404` on another item is the publisher declining to
+   * serve bytes it commits, at a URL whose whole content is that one item.
+   *
+   * A returned body is checked against the hash that named it before it counts as obtained.
+   * That check needs no signature, no manifest lookup, and no identity: the URL *is* the hash.
+   */
+  async function probeItems(feedUrl, manifest, servedIds) {
+    const idle = { unobtainable: new Set(), obtained: [], offered: false, probed: 0, missing: 0 };
+    if (maxItemProbes <= 0) return idle;
+
+    const missing = Object.keys(manifest.items).filter((id) => !servedIds.has(id));
+    if (missing.length === 0) return idle;
+
+    const control = Object.keys(manifest.items).find((id) => servedIds.has(id));
+    if (!control || !await fetchItem(feedUrl, manifest.items[control])) return idle;
+
+    const unobtainable = new Set();
+    const obtained = [];
+    for (const id of missing.slice(0, maxItemProbes)) {
+      const got = await fetchItem(feedUrl, manifest.items[id]);
+      if (got) obtained.push(got);
+      else unobtainable.add(id);
+    }
+    return { unobtainable, obtained, offered: true, probed: Math.min(missing.length, maxItemProbes), missing: missing.length };
+  }
+
+  /**
+   * One item at its §7.6 URL, or `null`.
+   *
+   * The returned body is checked against the hash that named it before it counts as obtained,
+   * and that check needs no signature, no manifest lookup, and no identity document: the URL
+   * *is* the hash. What it does not establish is authorship, which is why the caller puts the
+   * result through the same §6.5 pass as anything read out of a page.
+   */
+  async function fetchItem(feedUrl, entry) {
+    const hash = Array.isArray(entry) ? entry[1] : entry?.hash;
+    let url;
+    try { url = derivedItemUrl(feedUrl, hash); } catch { return null; }
+    try {
+      const got = await fetcher.fetchDocument(url, { kind: 'json' });
+      return documentHash(got.doc) === hash ? got.doc : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * §7.4: every attachment entry MUST carry `_sha256`, and a consumer MUST treat one lacking it
+   * as unverified content (§10.5) rather than as part of the signed record.
+   *
+   * This is the whole of the check, and it is worth being clear about why so little buys so
+   * much. An attachment's *metadata* — the URL, the type, the alt text — is inside the signed
+   * bytes; the bytes it points at are not. So for a media-first deployment an attachment
+   * without `_sha256` is the largest integrity gap available: whoever controls those bytes,
+   * the host included, swaps the photo under a signed item and no signature notices. §13.2
+   * claims full integrity against a serving-path compromise, and that claim holds only for
+   * what the signature covers.
+   *
+   * Fetching the bytes to *confirm* a hash is a separate and much more expensive act — §13.4
+   * budgets nothing for it — so it is not done here. Classifying costs one field lookup and is
+   * what tells a client which attachments it may present as part of the record.
+   */
+  function unhashed(item) {
+    const attachments = item?.attachments;
+    if (!Array.isArray(attachments)) return [];
+    return attachments
+      .filter((a) => typeof a?._sha256 !== 'string' || a._sha256.length === 0)
+      .map((a) => ({ id: item.id, url: typeof a?.url === 'string' ? a.url : null }));
   }
 
   /**
@@ -529,6 +669,10 @@ export function createReader({
       identityDocument: identity.document,
       firstSeenHere: manifest.firstSeenHere,
       owner: identity.identity,
+      // The manifest is read first because a manifest's signing key resolves in the pinned
+      // identity chain — and it arrives here for a second reason: it is the list of exact
+      // revisions §7.6 lets this reader ask for by name.
+      manifest: manifest.manifest,
       // §7.1: a feed MAY carry items from multiple authors — a family board — since every item
       // is independently signed and attributed by its own single-entry `authors`. Without a
       // resolver every such item is unverifiable, which reads as a defect in an ordinary
@@ -537,14 +681,18 @@ export function createReader({
       resolveIdentity: memoizeByAuthor((author) => readIdentity(author, { verifyMigration: false })),
     });
 
-    // The feed is read to the end or it is not read at all, as far as §9.3's withholding
-    // verdict goes: `partial` is the difference between "the host is hiding this" and "this is
-    // on the next page", and asserting the first from one page would be a false accusation.
+    // §9.3's withholding verdict is scoped to bytes this consumer actually tried to obtain, and
+    // there are exactly two ways to have tried. Following `next_url` to its end is one, and
+    // `partial` says whether that happened. Asking for a specific revision at its §7.6 URL is
+    // the other, and it is the one that works against a publisher serving a window: `probe`
+    // returns only ids whose own URL declined to yield them, on an origin that demonstrably
+    // serves item URLs at all.
     const reconciled = reconcileFeed(manifest.manifest, feed.canonical.map((c) => c.item), {
       now: now(),
       ceiling: lagCeiling,
       url: entry.url,
-      partial: feed.nextUrl !== null,
+      partial: feed.partial,
+      unobtainable: feed.probe?.unobtainable ?? new Set(),
     });
 
     const byState = (state) => reconciled.states.filter((s) => s.state === state);
@@ -565,6 +713,14 @@ export function createReader({
         ...reconciled.violations.map((v) => ({ kind: 'invariant', invariant: v.invariant, message: v.message })),
         ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
         ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
+        // §7.4: the signature covers the reference, never the bytes. An attachment with no
+        // `_sha256` is unverified content (§10.5) inside an otherwise-verified item, which is
+        // the one finding a client cannot derive from the item's own verdict.
+        ...feed.unhashedAttachments.map((a) => ({
+          kind: 'unhashed_attachment',
+          id: a.id,
+          message: `${a.id}: attachment ${a.url ?? '(no url)'} carries no _sha256, so its bytes are unverified (§7.4)`,
+        })),
         ...(identity.cors ? [] : [{ kind: 'conformance', message: `${identity.url} is served without Access-Control-Allow-Origin: * (§3.3)` }]),
         // A migration claim that did not verify is a finding rather than a failure: §3.4 says a
         // consumer with no prior pin of the old identity can only treat one as unverified, and

@@ -65,6 +65,29 @@ export function derivedVersionUrl(documentUrl, seq) {
   return `${url.slice(0, -'.json'.length)}/${seq}.json`;
 }
 
+/**
+ * §7.6: "strip a trailing `.json` if it has one, and append `/items/{hash}.json`."
+ *
+ * The same move as above, for items instead of chain versions, and addressed by the §5.1 hash
+ * its manifest entry already names rather than by its `id`. Addressing by id is the obvious
+ * encoding and needs a percent-encoding rule for item ids, which §3.1 declines to specify
+ * because "a normalizer is not implementable identically twice" — and an id may be a tag URI,
+ * a UUID URN, or a URL, so ordinary encoders disagree about where its path segment even ends.
+ * Getting that wrong yields a `404`, which is indistinguishable from the withholding this URL
+ * exists to make assertable. A base64url hash needs no rule: it is URL-safe by construction.
+ *
+ * Unlike a chained document's URL, a feed's is under no `.json` constraint (§3.2.1), so the
+ * suffix is stripped only if present.
+ */
+export function derivedItemUrl(feedUrl, hash) {
+  const url = String(feedUrl);
+  if (!/^[A-Za-z0-9_-]+$/.test(String(hash))) {
+    throw new ChainError(`an item hash must be base64url: ${hash}`, { url });
+  }
+  const base = url.endsWith('.json') ? url.slice(0, -'.json'.length) : url.replace(/\/$/, '');
+  return `${base}/items/${hash}.json`;
+}
+
 // ---- §9.1.1 skip links ----
 
 /**
@@ -396,16 +419,43 @@ export const identityChainPolicy = {
  * statement by a key the consumer has already verified. An identity document has no such
  * external anchor, which is why `identityChainPolicy` refuses skip links outright.
  */
-export function manifestChainPolicy(identityDocument) {
+export function manifestChainPolicy(identityDocument, { now = () => Math.floor(Date.now() / 1000) } = {}) {
   const identity = normalizeIdentityUrl(identityDocument.url);
   return {
     kind: 'manifest',
     allowSkipLinks: true,
-    verifySignature(doc) {
+    verifySignature(doc, { tip = false } = {}) {
       if (normalizeIdentityUrl(doc.url) !== identity) {
         throw new ChainError(`manifest at seq ${doc.seq} claims ${doc.url}, not ${identity}`, { seq: doc.seq });
       }
-      return verifyDocument(doc, { identityDocument, kind: 'document' });
+      const info = verifyDocument(doc, { identityDocument, kind: 'document' });
+
+      // §9.1: the tip's signing key MUST NOT be revoked, whatever its `updated` says.
+      //
+      // This is the one revocation check the identity chain does not need. There, §5.2 step 3
+      // judges a continuity key against the *previous version's* state, so a revoked key
+      // cannot sign the next version at all — structural, and no clock is involved. A manifest
+      // resolves its signer through §6.5 instead, against its own self-reported `updated`,
+      // which is obliged only to exceed its predecessor's. So without this, whoever holds a
+      // revoked key extends the content chain indefinitely by picking timestamps just below
+      // the revocation, and every other check still passes. That is precisely the capability
+      // §4.6 and §12 promise a member recovers when they revoke a delegation.
+      //
+      // Only the tip. A version reached by a `prev` hop is hash-committed by a tip a live key
+      // signed, and rejecting it would retroactively unpublish everything a rotated key ever
+      // committed — §4.3's rotation is supposed to leave the archive standing.
+      //
+      // Judged against the consumer's own clock rather than "has a `revoked_at` at all",
+      // because a publisher MAY schedule a revocation ahead of time and its manifests stay
+      // good until then. That is §4.4's receipt-time discipline applied one level up: an
+      // attacker can backdate `updated` and cannot backdate when this consumer fetched.
+      if (tip && typeof info.key.revoked_at === 'number' && info.key.revoked_at <= now()) {
+        throw new ChainError(
+          `manifest tip at seq ${doc.seq} is signed by ${info.keyId}, revoked at ${info.key.revoked_at} (§9.1)`,
+          { seq: doc.seq },
+        );
+      }
+      return info;
     },
     verifyContinuity() {},
   };
@@ -523,7 +573,10 @@ export async function walkToPin({
   useSkipLinks = true,
 }) {
   assertVersionShape(tip, url);
-  policy.verifySignature(tip);
+  // The only call that names itself the tip. Every other version on this walk arrives
+  // hash-committed by something already verified, and a policy that checks the *current*
+  // validity of a signing key (§9.1's revoked-tip rule) must not apply that to history.
+  policy.verifySignature(tip, { tip: true });
 
   const tipHash = documentHash(tip);
   // Buffered, not committed. See the note above: nothing here is evidence until the walk

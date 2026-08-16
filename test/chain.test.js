@@ -699,3 +699,92 @@ test('a skip map keyed by anything but a canonical seq is ignored, not misread',
     fetchVersion: store.fetchVersion, policy: manifestChainPolicy(fx.chain.at(1)),
   }).then((r) => assert.equal(r.hops, 11, 'a non-canonical key must not be read as an anchor'));
 });
+
+// ---- §9.1: the revoked-tip rule ----
+
+test('a manifest tip signed by a revoked key is rejected, and its history is not', async () => {
+  // The asymmetry this rule exists for. On the identity chain revocation is structural: §5.2
+  // step 3 judges a continuity key against the *previous* version, so a revoked key cannot
+  // sign the next one at all. A manifest resolves its signer through §6.5, against its own
+  // self-reported `updated` — so a revoked key extends the content chain forever by choosing
+  // timestamps just below the revocation, which is exactly the capability §4.6 promises a
+  // member gets back when they revoke a delegation.
+  const store = new DocumentStore();
+  const identity = 'https://owner.example/';
+  const hub = makeKey('hub-1', { use: 'delegated' });
+  hub.identity = identity;
+  const root = makeKey('root-1');
+  root.identity = identity;
+
+  const REVOKED_AT = 1736899200 + 10 * 86400;
+  const idChain = new ChainBuilder({ url: `${identity}openfeed.json`, store });
+  idChain.publish({ fields: { url: identity, keys: [root.jwk, hub.jwk] }, signer: root });
+  idChain.publish({
+    fields: {
+      url: identity,
+      keys: [root.jwk, { ...hub.jwk, revoked_at: REVOKED_AT }],
+    },
+    signer: root,
+  });
+  const current = idChain.at(2);
+
+  // Three honest manifest versions, all signed by the hub before the revocation.
+  const m = manifestFixture({ store, signer: hub, versions: 3 });
+  // A fourth, minted after the revocation with a backdated `updated` — the whole attack. Its
+  // `updated` is below REVOKED_AT, so §6.5's comparison passes and nothing else objects.
+  const backdated = m.chain.publish({
+    fields: { url: identity, feed_url: m.feedUrl, items: {} },
+    signer: hub,
+    updated: REVOKED_AT - 1,
+  });
+  assert.ok(backdated.updated < REVOKED_AT, 'the forgery is inside §6.5\'s window by construction');
+
+  const now = () => REVOKED_AT + 86400;
+  await assert.rejects(
+    () => walkToPin({
+      url: m.manifestUrl, tip: backdated, pin: pinOf(m.chain.at(1)),
+      fetchVersion: store.fetchVersion, policy: manifestChainPolicy(current, { now }),
+    }),
+    (e) => e instanceof ChainError && /revoked at/.test(e.message),
+    'the tip is refused however its own clock reads',
+  );
+
+  // The same versions, reached as history below a tip a live key signed, MUST still verify:
+  // rejecting them would retroactively unpublish everything a rotated key ever committed.
+  const live = m.chain.publish({
+    fields: { url: identity, feed_url: m.feedUrl, items: {} },
+    signer: root,
+    updated: now() + 1,
+  });
+  const walked = await walkToPin({
+    url: m.manifestUrl, tip: live, pin: pinOf(m.chain.at(1)),
+    fetchVersion: store.fetchVersion, policy: manifestChainPolicy(current, { now }),
+  });
+  assert.equal(walked.hops, 4, 'every version the revoked key signed is still walked through');
+});
+
+test('a revocation scheduled in the future does not refuse today\'s manifest tip', async () => {
+  // Judged against the consumer's own clock, not "carries a revoked_at at all": a publisher
+  // MAY schedule a revocation, and its manifests stay good until it lands. This is §4.4's
+  // receipt-time discipline — an attacker can backdate `updated` and cannot backdate the
+  // moment this consumer fetched.
+  const store = new DocumentStore();
+  const identity = 'https://owner.example/';
+  const signer = makeKey('key-1');
+  signer.identity = identity;
+  const LATER = 1736899200 + 400 * 86400;
+
+  const idChain = new ChainBuilder({ url: `${identity}openfeed.json`, store });
+  idChain.publish({
+    fields: { url: identity, keys: [{ ...signer.jwk, revoked_at: LATER }] },
+    signer,
+  });
+
+  const m = manifestFixture({ store, signer, versions: 2 });
+  const walked = await walkToPin({
+    url: m.manifestUrl, tip: m.chain.at(2), pin: pinOf(m.chain.at(1)),
+    fetchVersion: store.fetchVersion,
+    policy: manifestChainPolicy(idChain.at(1), { now: () => LATER - 86400 }),
+  });
+  assert.equal(walked.hops, 1);
+});
