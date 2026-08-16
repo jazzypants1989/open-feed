@@ -788,3 +788,53 @@ test('a revocation scheduled in the future does not refuse today\'s manifest tip
   });
   assert.equal(walked.hops, 1);
 });
+
+// ---- §5.5 fork resolution, from the reader's side ----
+
+test('§5.5 resolution runs before a divergence is called unresolved compromise', async () => {
+  // §5.3.1: "Run §5.5 resolution before treating a divergence as unresolved compromise." After
+  // key theft both branches carry valid continuity signatures, so detection says *that* a chain
+  // forked and never *which* branch is honest. The one thing a thief of an online key cannot
+  // produce is a co-signature by an offline recovery key committed in a pinned ancestor.
+  const store = new DocumentStore();
+  const fx = identityFixture({ versions: 2, store, recoveryKeys: 1 });
+  const recovery = fx.recovery[0];
+
+  // The consumer pinned seq 2 — the branch it happened to fetch, which after a theft may be
+  // either one. Nothing at this point distinguishes them.
+  const pins = new PinStore({ now: () => 1736899200 });
+  pins.advance(fx.url, 2, documentHash(fx.chain.at(2)));
+
+  // The other branch: a competing seq 2 with different bytes, and a seq 3 above it carrying the
+  // recovery co-signature. Built as a fresh chain so seq 2's hash genuinely differs.
+  const rival = new ChainBuilder({ url: fx.url, store: new DocumentStore() });
+  const body = { url: fx.identity, name: 'Owner (recovered)', keys: fx.keys.map((k) => ({ ...k })) };
+  rival.publish({ fields: { ...body, name: 'Owner' }, signer: fx.primary });
+  rival.publish({ fields: body, signer: fx.primary });
+  const tip = rival.publish({ fields: body, signer: fx.primary });
+
+  const headerB64 = Buffer.from(
+    JSON.stringify({ alg: 'EdDSA', b64: false, crit: ['b64'], kid: `${fx.identity}#${recovery.kid}` }),
+    'utf8',
+  ).toString('base64url');
+  const { signingPayload, signingInput } = await import('../src/index.js');
+  const crypto = await import('node:crypto');
+  tip._recovery_sig = `${headerB64}..${Buffer.from(
+    crypto.default.sign(null, signingInput(headerB64, signingPayload(tip)), recovery.privateKey),
+  ).toString('base64url')}`;
+
+  // Without a committed recovery key to check against, the divergence stands: §5.5's premise is
+  // that the key was committed *before* the theft, and a consumer holding no ancestor has no way
+  // to know that. Freezing is the correct outcome, not a limitation to work around.
+  assert.equal(verifyRecoverySignature(tip, { pinnedAncestor: fx.chain.at(1) }).valid, true);
+  assert.equal(
+    verifyRecoverySignature(tip, { pinnedAncestor: { url: fx.identity, seq: 1, keys: [] } }).valid,
+    false,
+    'no committed recovery key means no resolution',
+  );
+
+  // And the branch a thief could build — same shape, no co-signature — is not preferred.
+  const forged = { ...tip };
+  delete forged._recovery_sig;
+  assert.equal(verifyRecoverySignature(forged, { pinnedAncestor: fx.chain.at(1) }).valid, false);
+});

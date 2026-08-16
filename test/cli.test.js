@@ -86,7 +86,9 @@ test('--pins persists both chains, so the second run is not first contact', asyn
   const saved = JSON.parse(fs.readFileSync(pinFile, 'utf8'));
   assert.equal(saved.pins.pins[`${site.url}openfeed.json`].seq, 1);
   assert.equal(saved.pins.pins[`${site.url}manifest.json`].seq, 3);
-  assert.ok(Object.keys(saved.observations).length >= 3, 'and §4.4’s first-observation record');
+  assert.ok(Object.keys(saved.observations.firstSeen).length >= 3, 'and §4.4’s first-observation record');
+  assert.ok(saved.observations.feedManifests[`${site.url}feed.json`], 'and §9.3 invariant 5’s');
+  assert.ok(saved.migrations, 'and §4.5’s retained predecessor state, which only exists before a move');
 
   const second = await cli(t, ['verify', site.url, '--pins', pinFile]);
   assert.equal(second.code, 0);

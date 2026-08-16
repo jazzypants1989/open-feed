@@ -11,6 +11,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 import { DAY, T0, newSite, consumer, makeSigner } from './helpers/site.js';
 
@@ -26,6 +27,10 @@ import {
   EquivocationError,
   InvariantViolation,
   PinStore,
+  MigrationStore,
+  buildHeader,
+  signingInput,
+  signingPayload,
 } from '../src/index.js';
 
 /** Six days of posting, one edit, two identity-chain versions. */
@@ -660,4 +665,126 @@ test('an unreadable archive is a finding about that feed, not a dead identity', 
   const finding = result.findings.find((f) => f.kind === 'unreadable_feed');
   assert.ok(finding, JSON.stringify(result.findings));
   assert.match(finding.message, /gone\.json/);
+});
+
+test('renaming a manifest URL cannot shed content', async (t) => {
+  // §9.3 invariant 5, and the reason it has to be checked at the reader rather than inside the
+  // manifest layer: §5.3.1 is keyed on a document URL, so a *new* manifest URL is a new chain
+  // with a fresh pin and a fresh trust-on-first-observation. Every check inside the walk passes.
+  // A publisher that renamed the file to drop an item produces no fork, no tombstone, and
+  // nothing a pinned consumer could notice — the only evidence is what this consumer saw under
+  // the old URL, which is why the observation is persisted.
+  const site = await newSite(t);
+  const signer = makeSigner('key-1');
+  const p = site.serve(familyPublisher(site.url, signer));
+
+  const me = consumer(t);
+  const observations = new ObservationStore({ now: () => T0 + 6 * DAY });
+  const first = await reader(me, { observations }).read(site.url);
+  assert.equal(first.items.live.length, 6);
+
+  // Rename the manifest, and let the new chain quietly forget day 2.
+  const relocated = new Publisher({
+    identity: site.url,
+    feedUrl: `${site.url}feed.json`,
+    manifestUrl: `${site.url}manifest-v2.json`,
+    title: 'Mom', signer, profile: { name: 'Mom' }, now: () => T0,
+  });
+  for (let day = 0; day < 6; day++) {
+    if (day === 2) continue;
+    relocated.publishItem({ id: `urn:uuid:day-${day}`, content_text: `day ${day}` }, { at: T0 + day * DAY });
+  }
+  relocated.advanceManifest({ updated: T0 + 7 * DAY });
+  site.serve(relocated);
+  p.advanceIdentity({
+    feeds: [{ url: p.feedUrl, manifest: `${site.url}manifest-v2.json`, rel: 'primary' }],
+  }, { updated: T0 + 7 * DAY });
+  site.serve(p);
+
+  await assert.rejects(
+    () => reader(me, { observations, now: () => T0 + 8 * DAY }).read(site.url),
+    (e) => e instanceof InvariantViolation && e.invariant === 5 && /urn:uuid:day-2/.test(e.message),
+    'the id live under the old URL and absent from the new chain is the violation',
+  );
+});
+
+test('a forked identity chain is resolved by the recovery co-signature, not frozen', async (t) => {
+  // §5.3.1 says run §5.5 before calling a divergence unresolved compromise, and §5.5 says prefer
+  // the branch carrying a valid recovery co-signature. After key theft both branches carry valid
+  // continuity signatures — detection reports *that* a chain forked and never *which* branch is
+  // honest — and the one artifact a thief of an online key cannot produce is a co-signature by an
+  // offline recovery key committed in a pinned ancestor.
+  const site = await newSite(t);
+  const signer = makeSigner('key-1');
+  const recovery = makeSigner('recovery-1');
+  recovery.jwk.use = 'recovery';
+
+  const build = (name, versions) => {
+    const p = new Publisher({
+      identity: site.url, signer, profile: { name }, recoveryKeys: [recovery.jwk], now: () => T0,
+    });
+    p.publishItem({ id: 'urn:uuid:a', content_text: 'hello' }, { at: T0 });
+    p.advanceManifest({ updated: T0 + 60 });
+    for (let i = 2; i <= versions; i++) p.advanceIdentity({ bio: `v${i}` }, { updated: T0 + i * DAY });
+    return p;
+  };
+
+  const me = consumer(t);
+  const migrations = new MigrationStore({ now: () => T0 + DAY });
+  site.serve(build('Mom', 2));
+  const first = await reader(me, { migrations, now: () => T0 + 3 * DAY }).read(site.url);
+  assert.equal(first.identity.pin.seq, 2);
+
+  // The other branch. Different bytes at seq 2 — a genuine fork, not a continuation — and a
+  // seq 3 above it that the recovery key co-signs. §6.3 strips both signature fields before
+  // canonicalizing, so adding the co-signature leaves `_sig` valid over identical bytes.
+  const rival = build('Mom (recovered)', 3);
+  const tip = rival.identityVersions.at(-1);
+  const headerB64 = Buffer.from(
+    JSON.stringify(buildHeader(`${site.url}#recovery-1`)), 'utf8',
+  ).toString('base64url');
+  tip._recovery_sig = `${headerB64}..${Buffer.from(
+    crypto.sign(null, signingInput(headerB64, signingPayload(tip)), recovery.privateKey),
+  ).toString('base64url')}`;
+  site.serve(rival);
+
+  const resolved = await reader(me, { migrations, now: () => T0 + 5 * DAY }).read(site.url);
+  assert.equal(resolved.identity.pin.seq, 3, 'the co-signed branch is preferred and re-pinned');
+  assert.equal(me.pins.isFrozen(`${site.url}openfeed.json`), false);
+  const finding = resolved.findings.find((f) => f.kind === 'fork_resolved');
+  assert.ok(finding, JSON.stringify(resolved.findings));
+  assert.match(finding.message, /recovery co-signature/);
+});
+
+test('a fork with no co-signature on either branch stays frozen', async (t) => {
+  // §5.5: "a fork where neither branch carries one — or both do — is unresolvable and SHOULD be
+  // flagged for manual review." The resolution path must not become a way to accept any second
+  // branch that shows up.
+  const site = await newSite(t);
+  const signer = makeSigner('key-1');
+  const recovery = makeSigner('recovery-1');
+  recovery.jwk.use = 'recovery';
+
+  const build = (name, versions) => {
+    const p = new Publisher({
+      identity: site.url, signer, profile: { name }, recoveryKeys: [recovery.jwk], now: () => T0,
+    });
+    p.publishItem({ id: 'urn:uuid:a', content_text: 'hello' }, { at: T0 });
+    p.advanceManifest({ updated: T0 + 60 });
+    for (let i = 2; i <= versions; i++) p.advanceIdentity({ bio: `v${i}` }, { updated: T0 + i * DAY });
+    return p;
+  };
+
+  const me = consumer(t);
+  const migrations = new MigrationStore({ now: () => T0 + DAY });
+  site.serve(build('Mom', 2));
+  await reader(me, { migrations, now: () => T0 + 3 * DAY }).read(site.url);
+
+  site.serve(build('Thief', 3));   // no co-signature anywhere on this branch
+  await assert.rejects(
+    () => reader(me, { migrations, now: () => T0 + 5 * DAY }).read(site.url),
+    EquivocationError,
+  );
+  assert.equal(me.pins.isFrozen(`${site.url}openfeed.json`), true);
+  assert.equal(me.pins.pin(`${site.url}openfeed.json`).seq, 2, 'the pin is retained, not advanced');
 });

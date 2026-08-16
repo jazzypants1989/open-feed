@@ -30,11 +30,13 @@ import {
   derivedItemUrl,
   identityChainPolicy,
   manifestChainPolicy,
+  verifyRecoverySignature,
   EquivocationError,
 } from './chain.js';
 import {
   assertManifestBinding,
   assertHistoryInvariants,
+  assertRelocationCarriesForward,
   reconcileFeed,
   LAG_CEILING_SECONDS,
 } from './manifest.js';
@@ -73,7 +75,8 @@ export class ReaderError extends Error {
 export class ObservationStore {
   constructor({ now = () => Math.floor(Date.now() / 1000) } = {}) {
     this.now = now;
-    this.firstSeen = new Map(); // `${author}\n${id}` -> unix seconds
+    this.firstSeen = new Map();      // `${author}\n${id}` -> unix seconds
+    this.feedManifests = new Map();  // feed url -> { manifestUrl, manifest } (§9.3 invariant 5)
   }
 
   static #key(author, id) {
@@ -107,13 +110,51 @@ export class ObservationStore {
     return this.firstSeen.get(ObservationStore.#key(author, id)) ?? null;
   }
 
+  /**
+   * §9.3 invariant 5: which manifest chain a feed was last committed by, and what it committed.
+   *
+   * "§5.3.1 is keyed on a document URL, so a *new* manifest URL is a new chain and a fresh
+   * trust-on-first-observation — which would let a publisher discard content by renaming a
+   * file." The invariant is checkable only against what a consumer *observed* before the
+   * rename, so this is the observation, and a consumer that keeps none has nothing to carry
+   * across and treats the new chain as ordinary first contact.
+   *
+   * Reduced to what the check reads — the `items` map and the shape fields around it — because
+   * retaining a whole 1 MB manifest per feed forever, to answer a question about ids, is the
+   * same trade §4.5's recovery pin declines.
+   */
+  recordFeedManifest(feedUrl, manifestUrl, manifest) {
+    const previous = this.feedManifests.get(feedUrl) ?? null;
+    this.feedManifests.set(feedUrl, {
+      manifestUrl,
+      manifest: {
+        url: manifest.url,
+        feed_url: manifest.feed_url,
+        seq: manifest.seq,
+        updated: manifest.updated,
+        items: { ...manifest.items },
+      },
+    });
+    return previous;
+  }
+
   toJSON() {
-    return Object.fromEntries(this.firstSeen);
+    return {
+      version: 1,
+      firstSeen: Object.fromEntries(this.firstSeen),
+      feedManifests: Object.fromEntries(this.feedManifests),
+    };
   }
 
   static fromJSON(raw, options) {
     const store = new ObservationStore(options);
-    for (const [k, v] of Object.entries(raw ?? {})) store.firstSeen.set(k, v);
+    if (!raw) return store;
+    // Version 0 was a bare `{key: seconds}` map with no envelope. Read either, because a pin
+    // file is exactly the state §12 makes conformance depend on, and silently starting over
+    // looks identical to a verifier that is working.
+    const legacy = raw.version === undefined;
+    for (const [k, v] of Object.entries((legacy ? raw : raw.firstSeen) ?? {})) store.firstSeen.set(k, v);
+    for (const [k, v] of Object.entries(raw.feedManifests ?? {})) store.feedManifests.set(k, v);
     return store;
   }
 }
@@ -177,6 +218,31 @@ export function createReader({
     }
   }
 
+  // Forks this read resolved by §5.5, reported as findings. Not silent: preferring a branch is
+  // a consequential act even when the specification asks for it.
+  const forkResolutions = [];
+
+  /**
+   * §5.5: does the offered branch carry a valid recovery co-signature?
+   *
+   * Only the identity chain can answer yes — a manifest holds no keys, carries no
+   * `_recovery_sig`, and its signer is resolved in an identity chain that was pinned before it
+   * was read, so a manifest divergence is never the post-theft fork §5.5 adjudicates.
+   *
+   * The co-signature resolves in a **pinned ancestor** and never in the document making the
+   * claim, which is the self-blessing §4.2 rules out. That is the retained recovery pin (§4.5),
+   * and a consumer holding none cannot run this at all — which is the honest outcome, since
+   * without one it has no committed recovery key to check against and §5.5's whole premise is
+   * that the key was committed before the theft.
+   */
+  function resolveDivergence(url, tip) {
+    if (typeof tip?._recovery_sig !== 'string' || typeof tip?.url !== 'string') return false;
+    if (url !== identityDocumentUrl(tip.url)) return false;
+    const ancestor = migrations.pinnedAncestorFor(tip.url);
+    if (!ancestor) return false;
+    return verifyRecoverySignature(tip, { pinnedAncestor: ancestor }).valid === true;
+  }
+
   /** `fetchVersion(url, seq)` over §5.4's derived URLs, charged against one walk's budget. */
   const versionFetcher = (kind, budget) => async (url, seq) => {
     const at = derivedVersionUrl(url, seq);
@@ -211,15 +277,28 @@ export function createReader({
       });
     }
     const budget = budgetFor(bytes);
-    const walk = await walkToPin({
-      url,
-      tip,
-      pin: pins.pin(url),
-      fetchVersion: versionFetcher(kind, budget),
-      policy,
-      pins,
-      useSkipLinks,
-    });
+    let walk;
+    try {
+      walk = await walkToPin({
+        url,
+        tip,
+        pin: pins.pin(url),
+        fetchVersion: versionFetcher(kind, budget),
+        policy,
+        pins,
+        useSkipLinks,
+      });
+    } catch (e) {
+      // §5.3.1: "Run §5.5 resolution before treating a divergence as unresolved compromise."
+      // A fork is what key theft looks like from outside — both branches carry valid continuity
+      // signatures, so detection says *that* a chain forked and never *which* branch is honest.
+      // §5.5 answers it with the one thing a thief of an online key cannot produce: a
+      // co-signature by an offline recovery key committed in a pinned ancestor.
+      if (!(e instanceof EquivocationError) || !resolveDivergence(url, tip)) throw e;
+      pins.rePin(url, tip.seq, documentHash(tip));
+      forkResolutions.push({ url, seq: tip.seq });
+      walk = { versions: [tip], hops: 0, tofu: false, contiguous: true, hash: documentHash(tip) };
+    }
     // Everything the caller checks about the *contents* of the walked range runs here, before
     // the pin moves. §9.3 says an invariant violation is treated like chain equivocation, and
     // advancing through one would discard the only thing the next read could compare against —
@@ -629,6 +708,19 @@ export function createReader({
       identityDocument: identity.document,
       feedUrl: entry.url,
     });
+
+    // §9.3 invariant 5, and it has to be checked *here* because nothing else can see it. A new
+    // manifest URL is a new chain, so it gets a fresh pin and a fresh trust-on-first-observation
+    // — every check inside `readManifest` passes, and a publisher that renamed the file to shed
+    // content produces no fork, no tombstone, and nothing for a pinned consumer to notice. The
+    // only evidence is what this consumer observed under the *old* URL.
+    const previous = observations.recordFeedManifest(entry.url, entry.manifest, manifest.manifest);
+    if (previous && previous.manifestUrl !== entry.manifest) {
+      assertRelocationCarriesForward(previous.manifest, manifest.manifest, {
+        fromUrl: previous.manifestUrl,
+        toUrl: entry.manifest,
+      });
+    }
     const feed = await readFeed(entry.url, {
       identityDocument: identity.document,
       firstSeenHere: manifest.firstSeenHere,
@@ -774,6 +866,10 @@ export function createReader({
         ...rest.flatMap((r) => (r.error
           ? [{ kind: 'unreadable_feed', message: `${r.entry.url} (rel ${r.entry.rel ?? 'primary'}): ${r.error.message}` }]
           : r.findings)),
+        ...forkResolutions.map((f) => ({
+          kind: 'fork_resolved',
+          message: `${f.url} forked at seq ${f.seq}; §5.5 preferred the branch carrying a valid recovery co-signature`,
+        })),
         ...(identity.cors ? [] : [{ kind: 'conformance', message: `${identity.url} is served without Access-Control-Allow-Origin: * (§3.3)` }]),
         // A migration claim that did not verify is a finding rather than a failure: §3.4 says a
         // consumer with no prior pin of the old identity can only treat one as unverified, and
