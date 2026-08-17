@@ -6,6 +6,27 @@ every finding, with its current status. `HANDOFF.md` is the short list of what t
 
 Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 
+> **Session update (2026-08-17, fifth pass — the docs).** S2.11 is **DONE**: README and
+> DISTRIBUTION-MODEL now match the spec, including every `_openfeed` name. What a later pass most
+> needs from this one:
+>
+> - **DISTRIBUTION-MODEL's interaction arrangement was reversed**, not merely re-worded. It had
+>   audience replies delivered-only; §15.4 publishes them encrypted and delivers only content-free
+>   reactions. The outbound-send steps, the republication gate's worked example, and the AI-context
+>   rule all rested on the old shape.
+> - **The `{audience}` tier was being offered by access control** in Phases 1–2 (REST API +
+>   database, withheld from the feed, described as temporary). §15 forbids that outright — it is
+>   §11.1's fifth cell. The document now has no audience tier until the layer ships; moving §15
+>   into Phase 1 is the named alternative and is the owner's scheduling call.
+> - **A defect fell out of the baseline check, not the docs**: B.2's standalone `_sig` was the
+>   pre-`typ` value, and `regen.js`'s presence cross-check could not see it because the *correct*
+>   signature appears two lines below inside B.2's full-bytes vector. The staleness check now
+>   covers detached-JWS literals and scans fenced blocks, not just backticked prose. **If you add a
+>   vector shape that is quoted twice, check the staleness rule reaches it** — this is the second
+>   time that class of stale literal has survived a passing run.
+> - **Still OPEN:** Stage 3, Stage 4 (minus its `_`-field item), Stage 5, the remainder of S2.9,
+>   the `ObservationStore`/`MigrationStore` growth item, and owner decision 4.
+>
 > **Session update (2026-08-17, fourth pass — the wire change).** Three commits: 1.8's fix,
 > `_openfeed`, and `typ`. What a later pass most needs from this one:
 >
@@ -427,7 +448,7 @@ Named with what breaks. All still open; none were touched.
   cleanest open question in the repo); §5.5 fork resolution running automatically and re-pinning
   onto a recovery-co-signed branch — which is exactly the branch a custodian who took the recovery
   card produces; RFC 7797 support across real JOSE libraries.
-- **OPEN — DISTRIBUTION-MODEL concrete errors:** the key-custody table says the delegated key
+- **DONE (fifth pass) — DISTRIBUTION-MODEL concrete errors**, all of the below: the key-custody table says the delegated key
   signs tombstones and eleven lines later the prose says use the root key; the canonical
   `openfeed.json` example carries neither the `delegated` nor the `enc` key its own custody model
   requires at genesis; the `rel: "archive"` rotation direction is inverted vs §9.2/§3.2.1; the
@@ -435,7 +456,7 @@ Named with what breaks. All still open; none were touched.
   every listed feed; Phases 1–2 ship the `{audience}` tier — the product — only in the REST API
   and the database, contradicting "never a divergent source of truth"; Phase 3 is eight features
   any two of which are a quarter. **All of it also predates Stage 2** — see `HANDOFF.md`.
-- **OPEN — README overclaims:** "your host can't make a post disappear without leaving a signed,
+- **DONE (fifth pass) — README overclaims:** "your host can't make a post disappear without leaving a signed,
   attributable trace" and "Content completeness (**solved**)" were stronger than §9.3 + §7.6
   delivered. §3.2.1's `items` flag makes the first *true* for a declaring publisher; README has
   not been updated to say which publisher it is talking about.
@@ -544,7 +565,11 @@ wording; CLAUDE.md's table header still calls §15 an "OPTIONAL layer". §14 (sp
 a trimmed `received` slot "verifies as nothing at all" — now overbroad in the safe direction,
 §10.6 being a partial trim-detector.
 
-**S2.11 Doc drift, enumerated (supersedes the vaguer Stage 5 bullets). OPEN.** README: :455
+**S2.11 Doc drift, enumerated (supersedes the vaguer Stage 5 bullets). DONE** — every line below,
+plus the whole `_openfeed` rename, plus the Stage 5 bullets on README overclaims and
+DISTRIBUTION-MODEL's concrete errors. Two went further than "update the citation": §15.4's
+reversal and the `{audience}`-by-access-control contradiction. The enumeration is left as written
+because it is the finding; the line numbers are pre-fix. Original text follows. README: :455
 verification recipe says signature field*s* removed (breaks on every co-signed doc under new
 §6.3); :99/:517 "§15 optional"; :73 "§16 optional"; :418/:601 recovery-by-polling with no §10.6
 carve-out; :758 cleartext delivery to plural recipients vs §11.2; :38/:575 completeness claims
