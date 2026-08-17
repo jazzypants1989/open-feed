@@ -1,19 +1,26 @@
-# Handoff — after the Stage-1 spec/code reconciliation
+# Handoff — after the wire change
 
 Delete this file when it has been consumed. It is a list of what is still open plus the traps;
 none of it belongs in `CLAUDE.md` or the spec. `tmp/review-findings.md` is the durable register.
 
-**Baseline:** `npm test` → **253 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
-`npm run prototypes` → see `tmp/prototype-results.json` (gitignored; read it before paying for a
-rerun, the full suite costs ~5 min). Working tree clean.
+**Baseline:** `npm test` → **255 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
+`npm run prototypes` → **all 17 hold**; see `tmp/prototype-results.json` (gitignored; read it
+before paying for a rerun, the full suite costs ~5 min). Working tree clean.
 
-## The owner's five decisions — SETTLED, do not relitigate
+## The owner's decisions — SETTLED, do not relitigate
 
-1. **Group messages → the delivered column is an audience of one, by rule.** DONE (previous pass).
-2. **Timestamps → milliseconds.** NOT DONE. Wire change; do it with decision 3 and regenerate
-   vectors once. See "Open, 1" below — it has grown a third component since it was written.
-3. **`_`-field rename → a single namespacing object (`_openfeed: {...}` or similar).** NOT DONE.
-   Wire change; pairs with decision 2.
+1. **Group messages → the delivered column is an audience of one, by rule.** DONE.
+2. **Timestamps → milliseconds. WITHDRAWN**, by the owner, on the ground below. Superseded by
+   `(updated, seq)` with `updated` non-decreasing, which is DONE and closes 1.8. **The reason is
+   load-bearing and is why this must not come back:** `iat` on a JWK is not an Open Feed
+   invention borrowing a JWT convention — it is a *registered* JOSE parameter (IANA "JSON Web
+   Key Parameters"; change controller OpenID Foundation; OpenID Federation 1.0 §8.7.2), defined
+   as RFC 7519's `iat`, a NumericDate, **in seconds**. Milliseconds there is a registered public
+   parameter carrying the wrong unit, which no library that knows the name would catch. Scoping
+   the move to Open Feed's own fields is worse in a different way: it puts the unit seam exactly
+   on §6.5's revocation comparison and §16.1's `observed` check. One unit protocol-wide.
+3. **`_`-field rename → a single namespacing object.** DONE — `_openfeed`, items and attachments
+   only, `_sig` staying at top level in every kind. See `d5ddc03` for the scope argument.
 4. **§15 review → three foundation-model adversarial reviews** (human cryptographer later, at
    public launch). The owner uses OpenCode Go; the key is in `.env` (gitignored) as
    `OPENCODE_KEY`. Requested models: **GLM-5.3, Kimi K3, Qwen3.8 Max**. NOT DONE — this is the
@@ -24,118 +31,107 @@ rerun, the full suite costs ~5 min). Working tree clean.
 
 ## What this pass was
 
-Handoff item 1 (the Stage 1 spec corrections paired with landed code) plus everything else in
-Stage 1 and the rest of Stage 0's backlog. Seven commits on `8703ea4`. `git log` has the
-reasoning per change; each one lands with a test that fails without it.
+The batched wire change, the previous handoff's item 1, in three commits on `55afd48`:
+`updated` stops being an ordinal (1.8), `_openfeed` (decision 3), and `typ` (1.17's last
+clause). Vectors were regenerated twice — once per wire commit — which is a script run and was
+never the thing worth batching; the *decision* was. `git log` has the reasoning per change; each
+lands with a test verified to fail without it.
 
 ## Status
 
-**Stage 0 (`src/` defects): CLOSED.** 0.1–0.10 all DONE with revert-checked tests. 0.11's list is
-DONE except the store-growth item — see "Open, 3". One 0.11 entry (`export.js` dropping
-`requireCanonical` on restore) was **not a defect**; the reason is in `d746c7f`'s message and in
-the register.
+**Stage 0 (`src/` defects): CLOSED**, except the store-growth item — see "Open, 2".
 
-**Stage 1 (spec corrections): CLOSED.** 1.1–1.18 all landed. 1.8 (whole-second `updated` as a
-publishing lock) is the exception and is **subsumed by decision 2** — milliseconds is its fix, so
-do not treat it as separately open.
+**Stage 1 (spec corrections): CLOSED.** 1.1–1.18 all landed. 1.8 is closed by decision 2's
+replacement, not by decision 2. 1.17's `typ` clause is landed.
 
-**Stage 2: DONE** (previous pass). **S2.1–S2.8 DONE**; S2.9 (§12 checklists + Appendix B
-coverage) and S2.11 (doc drift) remain and are items 3 and 4 below. S2.10's nits are partly
-absorbed.
+**Stage 2: DONE.** S2.9 (§12 checklists + Appendix B coverage) is partly absorbed — Level 1 now
+carries the `typ` check — and the rest is "Open, 3".
 
 **Stage 3 (surface-area cuts), Stage 4 (publication readiness), Stage 5 (prototype gates):**
-untouched, except that Stage 4's `_`-field namespace item is now decision 3.
+untouched, except Stage 4's `_`-field namespace item, which is decision 3 and is done.
 
 ## Open, in the order I would take it
 
-**1. Decisions 2 + 3, plus `typ`, as one wire change.** Then `node tmp/regen.js` regenerates
-every vector against the final wire. Three components, deliberately batched so the vectors are
-regenerated once:
+**1. Docs (S2.11), now unblocked — the wire has stopped moving.** README and
+DISTRIBUTION-MODEL are stale against Stage 2 and three passes since, **and this pass added a
+lot**: they use `_version`, `_feed_url`, `_rel`, `_enc`, `_pins`, `_sha256` throughout and every
+one of those moved into `_openfeed`. The register's S2.11 entry enumerates the pre-existing
+contradictions with line numbers; on top of those, the spec has since gained a URL-comparison
+rule (§3.1), caching (§3.3.1), an RFC 3339 profile (§7.2), a graded §9.3 response, a keyword on
+§13.4's caps, `typ` (§6.2, §6.5 step 3, Appendix A's second table), and `_openfeed` (§7.2).
+README's verification recipe at :455 is wrong twice over now.
 
-- **Milliseconds** (decision 2, closes 1.8). Scope it explicitly before starting: the argument in
-  1.8 is about `updated` on chained documents — three tombstones in one second, or an NTP step
-  back, and `#assertDated` refuses to advance either chain. JOSE's `iat`/`revoked_at` are seconds
-  by convention and §4.1 says so. **Decide and write down whether those move too.** My reading:
-  move everything numeric to milliseconds and restate §4.1's convention, because two numeric time
-  units in one document is the kind of thing a second implementer gets wrong silently — but that
-  is a judgement, not a settled decision. `parseTimestamp` (new this pass, `jws.js`) returns
-  seconds today and is the single place the content-side conversion lives.
-- **`_openfeed: {...}`** (decision 3). The hazard is §6.3: `_sig` is stripped from the payload at
-  the **top level only**, and that rule is load-bearing (a recursive strip is the §14 attack
-  written up in §6.3). If `_sig` moves inside `_openfeed`, decide what "top-level" now means and
-  whether an emptied `_openfeed` stays as `{}` — the answer changes the signing construction, so
-  it needs to be written into §6.3 rather than left to `canonical.js`.
-- **`typ` in the JWS protected header** (register 1.17's last item, the only one I did not land).
-  Identity/manifest/item type confusion is closed today only *accidentally*, by shape checks that
-  happen to disagree. §6.2's "all four fields" becomes five, `buildHeader` takes the kind, and
-  §6.6's "the verifier takes the kind from context" gains a second, cheaper enforcement. It is
-  one line of construction and it must not be done on its own — it regenerates every vector.
-
-**2. Docs (S2.11).** README and DISTRIBUTION-MODEL are stale against Stage 2, the previous pass,
-*and* this one. The register's S2.11 entry enumerates the pre-existing contradictions with line
-numbers; **this pass added more**, because the spec moved: §3.1 gained a URL-comparison rule,
-§3.3.1 is new (caching), §7.2 pins RFC 3339, §9.3's response is now graded, and §13.4's caps
-carry a keyword. Do this after the wire has settled — don't edit the human docs before the shape
-they describe is final.
-
-**3. The store-growth item, the last thing open from Stage 0.** `MigrationStore` and
+**2. The store-growth item, the last thing open from Stage 0.** `MigrationStore` and
 `ObservationStore` still grow without bound, though §13.4 sanctions eviction. `PinStore` already
 has `compact`/`MAX_OBSERVATIONS_PER_CHAIN` and is fine. `ObservationStore` is the one that
-matters: it holds a record per `(author, id, _version)` forever, so a hub polling a few thousand
-members accumulates one entry per revision of every item it has ever seen. Note the constraint
-before writing an evictor — §4.4's value is *older* observations, so evicting the oldest inverts
-the mechanism. Evict by identity (the whole of a chain nothing else references), never by age.
+matters: it holds a record per `(author, id, _openfeed.version)` forever, so a hub polling a few
+thousand members accumulates one entry per revision of every item it has ever seen. Note the
+constraint before writing an evictor — §4.4's value is *older* observations, so evicting the
+oldest inverts the mechanism. Evict by identity (the whole of a chain nothing else references),
+never by age.
 
-**4. §12 conformance checklists (S2.9).** No freshness item at any level; Level 1 missing §7.6's
-consumer MUST and §13.17. **This grew this pass**: Level 1 should now also carry §7.2's RFC 3339
-profile, §3.1's URL-comparison rule, §7.4's pagination bounds, and §13.4's "enforce *a* bound".
-One editing pass, cheap, and it does not touch the wire — it could be done before item 1.
+**3. §12 conformance checklists (S2.9), the remainder.** No freshness item at any level; Level 1
+missing §7.6's consumer MUST and §13.17, and it should also carry §7.2's RFC 3339 profile,
+§3.1's URL-comparison rule, §7.4's pagination bounds, and §13.4's "enforce *a* bound". Appendix
+B still carries no vector with `items: true`, `_next_update`, or `_openfeed.delivery`. One
+editing pass, cheap, and it does not touch the wire.
 
-**5. Prototype gate hardening (register Stage 5).** `enctags`, `inbox`, `deltamanifest` still lack
-assertion gates on their substantive claims. `enctags` also never exercises `src/enc.js` and
-quotes spec sections that no longer exist.
+**4. Prototype gate hardening (register Stage 5).** `enctags`, `inbox`, `deltamanifest` still
+lack assertion gates on their substantive claims. `enctags` also never exercises `src/enc.js`
+and quotes spec sections that no longer exist.
 
-**6. Decision 4** — the three-model adversarial review, last, over the finished state.
+**5. Decision 4** — the three-model adversarial review, last, over the finished state.
 
 ## Things that will bite you
 
-- **`npm run prototypes` takes ~5 minutes and several prototypes read `src/` and the spec
-  mid-run.** Never edit those while a run is in flight — a half-landed edit reads as a prototype
-  failure. Read `tmp/prototype-results.json` instead of rerunning.
-- **`node tmp/regen.js` after anything touching canonicalization, signing, document shape, or
-  vectors** — CLAUDE.md rule 4, not optional.
-- **`policy.verifySignature(doc, { url })` — the chain URL is now required by
-  `identityChainPolicy`** and it throws without one. That is deliberate (a policy whose check is
-  skipped when a caller forgets an argument is a check nobody notices the absence of), but it
-  means any new direct caller must pass it. `walkToPin` threads it everywhere.
-- **`identityDocumentUrl` moved to `jws.js`** (re-exported from `fetch.js`, so every importer
-  still works). It is there so `chain.js` can name §3.2's path convention without importing the
-  module that opens sockets.
+Everything below the rule was already true; the items above it are new this pass.
+
+- **`sign()` and `buildHeader()` require an explicit `kind`** — `'identity'`, `'manifest'` or
+  `'item'` — and have no default. That is deliberate: a default is a guess about what is being
+  signed, made in the one place that is supposed to be asserting it. `verifyDocument` requires
+  one too and checks it against the header's `typ`.
+- **The `kind` vocabulary is three values now, not two.** `'document'` is gone; it used to mean
+  "identity document or manifest". Anything still passing it throws.
+- **`_openfeed` must be *merged*, never replaced.** `{ ...item, _openfeed: { version: 2 } }`
+  silently drops `feed_url`, `rel` and everything else, and the result is a validly-signed item
+  that means something different. This caused several test failures during the move and one
+  prototype bug that had been mutating its own fixture through a shared object reference
+  (`delete { ...reply }._pins` reaches the original). `publish.js`'s `withOpenFeed` is the helper.
+- **`tmp/regen.js` now has an Appendix B staleness check, and it earns its keep.** The old
+  cross-check only asked "does this string appear somewhere", which a hash quoted in prose
+  satisfies via the manifest vector that commits it — four stale prose hashes passed that way.
+  If you change a vector, trust the new check over the old one.
+- **`_sig` stays at top level in all three document kinds**, `_openfeed` notwithstanding, and
+  §6.3's strip rule is defined on that. Do not "finish the job" by moving it: §7.2 states the
+  exception and the reason, and moving it forks §6.3 by document kind.
+- **`policy.verifySignature(doc, { url })` — the chain URL is required by `identityChainPolicy`**
+  and it throws without one. Any new direct caller must pass it. `walkToPin` threads it.
+- **`identityDocumentUrl` lives in `jws.js`** (re-exported from `fetch.js`), so `chain.js` can
+  name §3.2's path convention without importing the module that opens sockets.
 - **`parseTimestamp` (`jws.js`) is the only content-timestamp parser.** Do not reach for
   `Date.parse` — it accepts `2025-02-30` and rolls it forward, accepts `24:00:00`, and falls back
   to an implementation-defined reading where `Jan 15 2025` is **local** time.
-- **Invariant 3's passed-over test now requires the item's signer to own the manifest.** Do not
+- **Invariant 3's passed-over test requires the item's signer to own the manifest.** Do not
   "simplify" that scope away: unscoped it convicts a board owner on a timestamp a contributor
   chose, and there is a test named for exactly that.
 - **`reconcileFeed` violations carry `retryable`**, and `reader.js` maps those to a
-  `feed_behind_manifest` finding rather than `invariant` (so exit 1, not 2). §9.3's response is
-  graded now; a feed behind its manifest is two non-atomic reads, not an attack.
+  `feed_behind_manifest` finding rather than `invariant` (so exit 1, not 2).
 - **`fetchDocument` refuses cross-origin redirects for every `kind` except `'json'`.** `'json'` is
   the unclassified default and keeps the permissive behaviour.
 - **`_sig` covers `_recovery_sig` (§6.3), so order matters: co-sign first, then sign.** Prefer
   `advanceIdentity(changes, { recoverySigner })`, which co-signs atomically. `coSignIdentity`
   retrofits onto the tip and is only safe before the tip's bytes are first served.
-- **The delivered column is an audience of one.** `_delivery` lives only at top level, is ignored
-  (and MUST NOT appear) on published items, and `Publisher.retractDelivered` tombstones a
-  delivered item.
-- **`ObservationStore` keys `(author, id, _version)`.** The revocation check *bounds* the
+- **The delivered column is an audience of one.** `_openfeed.delivery` lives only at top level of
+  that object, is ignored (and MUST NOT appear) on published items, and
+  `Publisher.retractDelivered` tombstones a delivered item.
+- **`ObservationStore` keys `(author, id, _openfeed.version)`.** The revocation check *bounds* the
   self-reported time (`Math.max`), never replaces it; don't "simplify" it back to `??`.
 - **`effectiveSigningTime` and `claimedAuthor` both require an explicit `{ kind }`** — no
-  field-sniffing, because an item can carry a numeric `updated` as conformant unknown data.
+  field-sniffing, because an item can carry a numeric `updated` as conformant unknown data. That
+  is now also what `typ` enforces on the wire.
 - **`createInbox`'s `ownsItem` is owner-authored only**; "previously accepted here" is
   `DedupStore.knows`, wired automatically. Pointing `ownsItem` at a whole item store reopens the
-  fetch oracle (0.5). A **blocked** author now writes neither store — that is what stops their ids
-  becoming routing tokens.
+  fetch oracle (0.5). A **blocked** author writes neither store.
 - **A two-feed identity needs no `Publisher` change.** `advanceIdentity({ feeds: [...current, e] })`
   merges over the tip, and a second `Publisher` on the same identity supplies the feed and manifest
   files — serve everything it emits *except* `openfeed*`. `test/cli.test.js`'s archive-equivocation
@@ -147,9 +143,9 @@ quotes spec sections that no longer exist.
 ## Questions still unanswered
 
 1. **§3.1's percent-encoding** — the one place two conforming implementations can split one
-   identity into two chains. No prototype; longest-standing open question. Note that §3.1 now
-   states a *second* comparator beside it (for feeds and manifests), which shares the same
-   hazard and inherits the same open question.
+   identity into two chains. No prototype; longest-standing open question. §3.1 now states a
+   *second* comparator beside it (for feeds and manifests), which shares the same hazard and
+   inherits the same open question.
 2. **Where the §15 review comes from** — decision 4 is the interim answer; it does not retire the
    "never independently reviewed" caveat.
 3. **Adoption asymmetry** — decision 5 reframes it, does not close it. Product question.

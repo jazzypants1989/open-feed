@@ -6,6 +6,27 @@ every finding, with its current status. `HANDOFF.md` is the short list of what t
 
 Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 
+> **Session update (2026-08-17, fourth pass — the wire change).** Three commits: 1.8's fix,
+> `_openfeed`, and `typ`. What a later pass most needs from this one:
+>
+> - **Owner decision 2 (milliseconds) is WITHDRAWN**, by the owner, and 1.8 is closed by the
+>   *other* fix the register named — `(updated, seq)` ordering with `updated` non-decreasing and
+>   clamped at the producer. The reason is a fact about JOSE the earlier passes had wrong: `iat`
+>   on a JWK is a **registered** JOSE parameter (IANA "JSON Web Key Parameters", change
+>   controller OpenID Foundation, OpenID Federation 1.0 §8.7.2) defined as RFC 7519's `iat`, a
+>   NumericDate in seconds. So milliseconds was never "departing from a convention" — it was
+>   emitting a registered parameter with the wrong unit. Do not re-propose it.
+> - **Decision 3 landed as `_openfeed`**, scoped to JSON Feed objects (items, attachments) and
+>   leaving `_sig` at top level in all three document kinds. §7.2 carries the exception and its
+>   reason; `d5ddc03` carries the argument against the two alternatives.
+> - **1.17's last clause (`typ`) landed**, and with it the `kind` vocabulary went from two values
+>   to three. `'document'` no longer exists.
+> - **`tmp/regen.js` gained a staleness check** after the old cross-check was found to be
+>   satisfiable by a stale prose hash sitting beside a fresh vector. It found four.
+> - **Still OPEN:** Stage 3, Stage 4 (minus its `_`-field item), Stage 5, the remainder of S2.9,
+>   S2.11 (doc drift, which grew again — every `_` field name in README and DISTRIBUTION-MODEL is
+>   now wrong), the `ObservationStore`/`MigrationStore` growth item, and owner decision 4.
+>
 > **Session update (2026-08-17, third pass).** The authoritative status is the top of
 > `HANDOFF.md`; where this register and the handoff disagree, the handoff is newer. Entries below
 > are left as written — they are the *findings*, and rewriting them in place destroys the record
