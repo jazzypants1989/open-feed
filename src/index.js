@@ -15,6 +15,7 @@ export {
   sign,
   claimedAuthor,
   effectiveSigningTime,
+  parseTimestamp,
   findKey,
   verifyDocument,
   VerifyError,

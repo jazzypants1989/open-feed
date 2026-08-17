@@ -140,6 +140,25 @@ test('a pin that cannot be connected to the tip is unverifiable, never silently 
   await assert.rejects(() => walk(fx, undefined, pinOf(fx.chain.at(1))), /404/);
 });
 
+test('seq is contiguous: a version that skips a number is not a chain (§5.3 step 3)', async () => {
+  // "Strictly increasing" alone does not carry this, which is why §5.3 step 3 now says it. A
+  // publisher emitting `seq: 1` then `seq: 5` reads as conformant under the weaker rule and is
+  // unreadable by any walk: the walk descends by `prev` and has no other way to name the next
+  // version to fetch, §5.4's derived URLs are indexed by `seq`, and §9.1.1's anchors are
+  // arithmetic on it. Served at a *derived* URL, the gap is not even a 404 — it is a version
+  // answering to a seq that is not its own.
+  const fx = identityFixture({ versions: 2 });
+  const jumped = { ...fx.chain.at(2), seq: 5 };
+  jumped._sig = sign(jumped, fx.primary.privateKey, `${fx.identity}#key-1`);
+  fx.store.byUrl.set(fx.url, jumped);
+  fx.store.byUrl.set(derivedVersionUrl(fx.url, 4), fx.chain.at(2));
+
+  await assert.rejects(
+    () => walk(fx, jumped, pinOf(fx.chain.at(1))),
+    (e) => e instanceof ChainError && /is seq 2, not 4/.test(e.message),
+  );
+});
+
 test('the versions walked per update are capped', async () => {
   // §5.4 / §13.4: RECOMMENDED 1000. Set low here so the test is about the cap, not the clock.
   const fx = identityFixture({ versions: 8 });

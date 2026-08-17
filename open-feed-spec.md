@@ -80,6 +80,8 @@ Producers MUST publish identity URLs whose paths contain no dot-segments and car
 
 The identity URL SHOULD serve a human-readable page. Nothing in this protocol reads it; machines read the identity document.
 
+**Every other URL this specification compares is normalized by the same rules minus the last two.** Feed URLs, manifest URLs, the `to` of a `_rel` entry's feed half, and the URLs a pin is keyed on are compared after: `https` required; host lowercased and expressed as its A-label, default port removed; userinfo stripped; **fragment stripped, query kept**; path carried through byte-for-byte as published, with no trailing slash appended. Two rules drop out and both drops matter. The trailing slash is the one that reads as nonsense on a file — `feed.json/` names nothing — and appending it would make the canonical/copy test (§7.5) compare a URL nobody serves. The query is kept because a feed may legitimately live behind one, while an identity is a place and its query is noise. Everything else is unchanged, and deliberately so: this is one comparator, not a second normalizer, because two of them that must agree about hosts and disagree about paths is exactly the divergence §3.1's own rule is written to avoid. Where either side fails to normalize — it is not a URL, or not `https` — the comparison is unequal and the item is a copy (§7.5), never an error and never a match.
+
 ### 3.2. Identity Document
 
 The identity document lives at the fixed path `{identity_url}openfeed.json` — the normalized identity URL, which ends in `/`, plus the literal filename. So `https://pence.family/~mom/` → `https://pence.family/~mom/openfeed.json`.
@@ -186,7 +188,7 @@ Keys are JWK objects (RFC 7517) in the identity document's `keys` array:
 
 A **signing key** is any key referenced by the `kid` of a `_sig` (§6.2). The `crv` and `use` constraints above bind signing keys only; extensions MAY define keys with other `crv`/`use` values in the same array, as §15 does. Implementations MUST ignore keys with unrecognized `kty`/`crv`/`use`, so future algorithms and extension key types slot in additively. Algorithm confusion is already closed by §6.2, which requires verifiers to reject any signature whose referenced key's `crv` is not `Ed25519`, so a non-signing key can never be pressed into service as a signing key. But a key the core ignores is a key the core does not **audit**: its presence in a signed, chained document is transparent — adding it advances the chain (§5) — while no core verifier ascribes it meaning, so an extension defining such a key MUST state who checks it and what revoking it means.
 
-Timestamp convention: key and chain fields use Unix seconds (JOSE); content fields use ISO 8601 strings (JSON Feed).
+Timestamp convention: key and chain fields use Unix seconds (JOSE); content fields use RFC 3339 strings, profiled in §7.2 (JSON Feed).
 
 ### 4.2. Key Identifiers
 
@@ -268,6 +270,8 @@ A consumer that has verified an identity document at `(seq: N, hash: H)` MUST st
 1. Verify the new document's `_sig`; the signing key named by its `kid` MUST be listed in the document itself.
 2. Walk `prev` links back to `(N, H)`, fetching intermediate versions from their derived URLs (§5.4). These MAY be fetched in parallel, since the consumer knows both endpoints of the range and the URLs are computable; a manifest MAY additionally offer skip links that shorten the walk to O(log) fetches (§9.1.1). At each hop, verify that version's `_sig`, confirm its bytes hash to the value its successor's `prev` names, confirm its signing key was valid in *its* predecessor — hash linkage alone is insufficient, since a fabricated intermediate could introduce an attacker's key — and confirm its `url` names **this** chain's identity. That last check is not implied by the others and closes what they leave open: continuity matches a key by its `kid`, which names no identity, and §6.6 resolves a version's author binding against that version's *own* `url`, so a holder of a listed key can publish, into its own chain, a version claiming to be somebody else's identity — same key material, valid signature, correct `prev` — and every other check on this walk passes on the forgery's own terms. A chain is one identity's history.
 3. Reject if `seq` decreased, if any `prev` mismatches, or if the compare rule below fails.
+
+**`seq` is contiguous: version *N*'s `prev` names version *N−1* and nothing else.** Producers increment by exactly one (§5.2 step 2) and this is the consumer's half, stated because "strictly increasing" alone does not carry it and a publisher emitting `seq: 1` then `seq: 5` would otherwise be conformant while being unreadable by any walk. Three things depend on contiguity rather than on ordering: the walk descends by `prev` and has no other way to name the next version to fetch, §5.4's derived URLs are indexed by `seq` so a gap is a URL that must `404`, and §9.1.1's anchors are computed as arithmetic on `seq` and land on nothing where the arithmetic and the chain disagree.
 
 First contact is TOFU: accept and pin. Tampering is detectable from the second observation onward, or immediately for any two consumers comparing. A consumer that cannot connect its pin to the current document — missing retained versions — MUST treat the chain as unverifiable rather than silently re-pin. The consumer separately pins the **manifest** at its own `(seq, hash)` and walks it by the identical procedure (§9.1): the two chains are two applications of one mechanism, pin on first observation, walk `prev` to the pin on every later fetch, treat any divergence as an attack.
 
@@ -397,13 +401,15 @@ Every item MUST include:
 | Field | Description |
 |-------|-------------|
 | `id` | Globally unique, permanent (UUID URN or tag URI RECOMMENDED). MUST NOT contain `#` — ids appear as URI fragments in relation references (§8) |
-| `date_published` | ISO 8601 |
+| `date_published` | RFC 3339 `date-time` (profile below) |
 | `authors` | Single-entry author binding (§6.6) |
 | `_feed_url` | The containing feed's URL. MUST for feed-served items; omitted only for inbox-only items |
 | `_version` | Integer, starts at 1 |
 | `_sig` | Detached JWS (§6) |
 
-plus at least one of `content_text` / `content_html`. A content-less relation item — a `like` or `repost` (§8) — satisfies this with `content_text: ""`, exactly as a tombstone does (§7.3): JSON Feed 1.1 requires a content field to be present, so "NONE" in §8's relation table means no *displayable* content, not an absent field. Consumers MUST preserve unknown **members**, `_`-prefixed or not — the same rule §3.2 states for the identity document and §8 and §16.1 state for open entries. Signatures depend on it, and the prefix is a collision convention (§3.2, a SHOULD) rather than a verification input: a field that skips the prefix, or one a later JSON Feed revision adds, sits inside the signed bytes exactly as a prefixed one does.
+**Content timestamps are RFC 3339, not "ISO 8601".** `date_published` and `date_modified` MUST be an RFC 3339 `date-time` whose offset is `Z` or a numeric `±HH:MM`, and producers SHOULD use `Z`; fractional seconds are permitted and are significant to no comparison here. Naming the larger standard would admit `24:00`, comma decimal separators, ordinal and week dates, and a bare `+01` offset, which the date parsers actually in use read differently or refuse outright. This is not display data: it is the effective signing time §6.5 resolves revocation against, the evidence §9.3 invariant 3 weighs, and the value §10.2 bounds at the inbox — so two verifiers reading one string differently disagree about whether a signature is valid. A consumer MUST reject a timestamp outside the profile rather than fall back to a lenient parse. The common fallbacks are implementation-defined by their own specifications, and at least one widespread one reads an unrecognized string as **local** time, which makes an item's signing time a function of where its reader is sitting.
+
+Every item MUST also carry at least one of `content_text` / `content_html`. A content-less relation item — a `like` or `repost` (§8) — satisfies this with `content_text: ""`, exactly as a tombstone does (§7.3): JSON Feed 1.1 requires a content field to be present, so "NONE" in §8's relation table means no *displayable* content, not an absent field. Consumers MUST preserve unknown **members**, `_`-prefixed or not — the same rule §3.2 states for the identity document and §8 and §16.1 state for open entries. Signatures depend on it, and the prefix is a collision convention (§3.2, a SHOULD) rather than a verification input: a field that skips the prefix, or one a later JSON Feed revision adds, sits inside the signed bytes exactly as a prefixed one does.
 
 ### 7.3. Versioning and Tombstones
 

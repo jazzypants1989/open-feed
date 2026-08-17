@@ -72,15 +72,21 @@ export function identityDocumentUrl(identityUrl) {
 }
 
 /**
- * §7.5's comparison for feed and manifest URLs. These are not identities — no trailing slash
- * is appended, because they name files — so this is §3.1's normalization minus the path rules:
- * scheme and host folded, default port and fragment dropped, path and query left alone. One
- * comparator, used by the reader and the inbox both, because two normalizers that must agree
- * on hosts and disagree on paths is exactly the divergence §3.1 warns about.
+ * §3.1's comparison for every URL that is not an identity: feeds, manifests, the feed half of a
+ * `_rel` target, and the URLs a pin is keyed on. §3.1's normalization minus its last two rules —
+ * no trailing slash, because these name files and `feed.json/` names nothing; query kept, because
+ * a feed may legitimately live behind one. One comparator, used by the reader and the inbox both,
+ * because two normalizers that must agree on hosts and disagree on paths is exactly the
+ * divergence §3.1 warns about.
+ *
+ * Userinfo is stripped for §3.1's reason, which is not identity-specific: a credential in a URL
+ * makes one feed two, and both halves of the comparison are attacker-influenced.
  */
 export function normalizeUrlForCompare(raw) {
   const url = new URL(raw);
   url.hash = '';
+  url.username = '';
+  url.password = '';
   if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
     url.port = '';
   }
@@ -284,10 +290,47 @@ export function claimedAuthor(doc, { kind } = {}) {
   throw new VerifyError('document carries no author binding');
 }
 
+// §7.2's time profile: RFC 3339 `date-time`, with `Z` or a numeric offset and no other form.
+// Fractional seconds are permitted and discarded — this protocol's comparisons are in seconds.
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/;
+
+const daysInMonth = (y, m) =>
+  [31, (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+
+/**
+ * Parse a content timestamp to Unix seconds under §7.2's profile, rejecting everything else.
+ *
+ * Written out rather than delegated to `Date.parse`, which is the wrong tool at a security
+ * boundary in three separate ways — and this value drives revocation (§6.5), §9.3 invariant 3,
+ * and §10.2's window, so a disagreement between two verifiers is a disagreement about whether
+ * a signature is valid. `Date.parse` accepts `2025-02-30` and rolls it forward to March 2;
+ * accepts `24:00:00` and rolls it to the next day, which ISO 8601 permits and RFC 3339 does
+ * not; and, for anything outside the format the ECMAScript specification pins, falls back to
+ * an **implementation-defined** reading — `Jan 15 2025` parses as *local* time, so two honest
+ * consumers in two timezones compute different effective signing times for one item.
+ *
+ * A leap second (`:60`) is accepted and rolls into the following minute, which is the ordinary
+ * reading and the only one available without a leap-second table.
+ */
+export function parseTimestamp(stamp) {
+  if (typeof stamp !== 'string') throw new VerifyError('timestamp must be a string (§7.2)');
+  const m = RFC3339.exec(stamp);
+  if (!m) throw new VerifyError(`not an RFC 3339 date-time with Z or a numeric offset: ${stamp}`);
+  const [, y, mo, d, h, mi, s, sign, oh, om] = m;
+  const [year, month, day, hour, minute, second] = [y, mo, d, h, mi, s].map(Number);
+  if (month < 1 || month > 12) throw new VerifyError(`month out of range: ${stamp}`);
+  if (day < 1 || day > daysInMonth(year, month)) throw new VerifyError(`day out of range: ${stamp}`);
+  // Hour 24 is ISO 8601's end-of-day and is not RFC 3339; second 60 is RFC 3339's leap second.
+  if (hour > 23 || minute > 59 || second > 60) throw new VerifyError(`time out of range: ${stamp}`);
+  const offset = sign ? (sign === '-' ? -1 : 1) * (Number(oh) * 60 + Number(om)) : 0;
+  if (Number(oh ?? 0) > 23 || Number(om ?? 0) > 59) throw new VerifyError(`offset out of range: ${stamp}`);
+  return Math.floor(Date.UTC(year, month - 1, day, hour, minute, second) / 1000) - offset * 60;
+}
+
 /**
  * Effective signing time in Unix seconds (spec §6.5 step 6): `updated` for manifests and
  * identity documents, `date_modified` else `date_published` for items. Chain fields are
- * Unix seconds (JOSE), content fields ISO 8601 (JSON Feed).
+ * Unix seconds (JOSE), content fields RFC 3339 (§7.2).
  *
  * §6.5 selects the carrier by **document kind**, and the caller MUST say which — the same rule,
  * for the same reason, as `claimedAuthor` above. There is deliberately no field-presence
@@ -306,9 +349,7 @@ export function effectiveSigningTime(doc, { kind } = {}) {
   }
   const stamp = doc.date_modified ?? doc.date_published;
   if (typeof stamp !== 'string') throw new VerifyError('item carries no effective signing time');
-  const ms = Date.parse(stamp);
-  if (Number.isNaN(ms)) throw new VerifyError(`unparseable timestamp: ${stamp}`);
-  return Math.floor(ms / 1000);
+  return parseTimestamp(stamp);
 }
 
 // The `use` tokens a `_sig` may resolve against. `recovery` is recognized but is not a

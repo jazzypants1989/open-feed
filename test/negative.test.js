@@ -14,6 +14,8 @@ import {
   sign,
   verifyDocument,
   claimedAuthor,
+  effectiveSigningTime,
+  parseTimestamp,
   ObservationStore,
   VerifyError,
 } from '../src/index.js';
@@ -399,6 +401,36 @@ test('the identity document must be the one the kid names', () => {
   const item = signedItem();
   const wrong = { ...identity, url: 'https://other.example/' };
   assert.throws(() => verifyDocument(item, { identityDocument: wrong, kind: 'item' }), throwsVerify(/wrong identity document/));
+});
+
+test('content timestamps are RFC 3339, and the lenient readings of them are refused (§7.2)', () => {
+  // This value is the effective signing time §6.5 resolves revocation against, so two verifiers
+  // reading one string differently disagree about whether a signature is valid. The stock
+  // `Date.parse` is wrong in three separate ways, and each of these is one of them.
+  assert.equal(parseTimestamp('2025-01-15T12:00:00Z'), 1736942400);
+  assert.equal(parseTimestamp('2025-01-15T13:00:00+01:00'), 1736942400, 'a numeric offset is in the profile');
+  assert.equal(parseTimestamp('2025-01-15T12:00:00.500Z'), 1736942400, 'fractional seconds are permitted, and inert');
+
+  for (const [stamp, why] of [
+    ['2025-02-30T00:00:00Z', 'a day that does not exist rolls forward to March 2 under Date.parse'],
+    ['2025-01-15T24:00:00Z', 'hour 24 is ISO 8601’s end-of-day and is not RFC 3339'],
+    ['2025-01-15 12:00:00Z', 'a space separator is not the RFC 3339 form'],
+    ['2025-01-15T12:00:00+01', 'a bare-hour offset is ISO 8601, not RFC 3339'],
+    ['2025-01-15T12:00:00,5Z', 'a comma decimal is ISO 8601, not RFC 3339'],
+    ['2025-W03-1T12:00:00Z', 'week dates are ISO 8601, not RFC 3339'],
+    ['2025-01-15', 'a date alone names no time of day'],
+    ['Jan 15 2025', 'the implementation-defined fallback — and this one reads as LOCAL time'],
+    ['2025-13-01T00:00:00Z', 'month out of range'],
+  ]) {
+    assert.throws(() => parseTimestamp(stamp), VerifyError, `${stamp}: ${why}`);
+  }
+
+  // And the item path uses it, so a non-conformant stamp is refused where it matters rather
+  // than only in the helper.
+  assert.throws(
+    () => effectiveSigningTime({ date_published: 'Jan 15 2025' }, { kind: 'item' }),
+    (e) => e instanceof VerifyError && /RFC 3339/.test(e.message),
+  );
 });
 
 // ---- payload integrity ----

@@ -495,6 +495,17 @@ test('feed URLs compare without the identity rules that do not apply to them', (
     normalizeUrlForCompare('https://mom.example/feed.json'),
     normalizeUrlForCompare('https://mom.example/feed.json/'),
   );
+  // Userinfo is stripped for §3.1's reason, which was never identity-specific: a credential in
+  // a URL makes one feed two, and both halves of this comparison are attacker-influenced.
+  assert.equal(
+    normalizeUrlForCompare('https://bob:pw@mom.example/feed.json'),
+    normalizeUrlForCompare('https://mom.example/feed.json'),
+  );
+  // And the query is kept, which is the other rule §3.1 applies to identities and this does not.
+  assert.notEqual(
+    normalizeUrlForCompare('https://mom.example/feed.json?page=2'),
+    normalizeUrlForCompare('https://mom.example/feed.json'),
+  );
 });
 
 test('an identity listing no feeds is unreadable rather than empty', async (t) => {
