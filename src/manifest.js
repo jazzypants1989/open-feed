@@ -43,6 +43,39 @@ export class InvariantViolation extends ManifestError {
  */
 export const LAG_CEILING_SECONDS = 7 * 24 * 3600;
 
+/**
+ * §9.1.2. Is this chain stale — has its publisher missed the deadline it undertook to meet?
+ *
+ * The one attack on a chain that produces no other verdict is doing nothing to it. Every check
+ * in this module and in `chain.js` compares a version against its predecessor or against a pin,
+ * so all of them pass on a host serving the last honest version forever, and "this host stopped
+ * publishing you" reads exactly like "you had nothing to say".
+ *
+ * The deadline is `min(declared, updated + ceiling)` and the asymmetry is the whole design. A
+ * publisher may promise to be *faster* than the consumer's ceiling and be held to it; it may not
+ * promise to be slower. That is what separates this from the derived bound §9.3 refuses — a
+ * bound read off observed cadence catches only a publisher deviating from its rhythm, never one
+ * that simply declares a slow one, and a declaration the consumer caps cannot be used that way.
+ * A first-contact consumer gets the ceiling, so it has a deadline on its first read.
+ *
+ * Returns `null` when fresh. Note what the verdict is NOT: staleness is unverified, never
+ * equivocation. The caller holds its pin without advancing it and goes on rendering what it
+ * already verified — an honest publisher on holiday trips this, and must not be convicted by it.
+ */
+export function freshness(manifest, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS } = {}) {
+  if (!manifest || typeof manifest.updated !== 'number') return null;
+  const declared = typeof manifest._next_update === 'number' ? manifest._next_update : Infinity;
+  const deadline = Math.min(declared, manifest.updated + ceiling);
+  if (now <= deadline) return null;
+  return {
+    url: manifest.feed_url,
+    seq: manifest.seq,
+    deadline,
+    declared: Number.isFinite(declared) ? declared : null,
+    overdueSeconds: now - deadline,
+  };
+}
+
 // ---- shape ----
 
 /**
@@ -73,6 +106,14 @@ export function assertManifestShape(doc, url) {
   }
   if (!Number.isInteger(doc.seq) || doc.seq < 1) throw new ManifestError(`${url} has no usable seq`, { url });
   if (typeof doc.updated !== 'number') throw new ManifestError(`${url} has no usable updated`, { url, seq: doc.seq });
+  // §9.1.2: a freshness deadline that does not postdate the version it rides on is either a
+  // typo or a publisher declaring itself perpetually stale. Refusing the shape beats computing
+  // a verdict from it — the field's whole value is that a reader can act on it.
+  if (doc._next_update !== undefined) {
+    if (!Number.isInteger(doc._next_update) || doc._next_update <= doc.updated) {
+      throw new ManifestError(`${url} has a _next_update that does not postdate updated`, { url, seq: doc.seq });
+    }
+  }
   if (doc.items === undefined || doc.items === null || typeof doc.items !== 'object' || Array.isArray(doc.items)) {
     throw new ManifestError(`${url} has no items map`, { url, seq: doc.seq });
   }

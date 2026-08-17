@@ -1053,3 +1053,58 @@ test('a peer pin can fire §5.3.1 on evidence the consumer collected itself', as
   // which is what makes the detection worth anything.
   await assert.rejects(() => reader(me, { now: () => T0 + 7 * DAY }).read(site.url), /frozen/);
 });
+
+// ---- §9.1.2: the freeze, over a socket ----
+
+test('a host that stops advancing a chain is reported stale, and it takes two reads to matter', async (t) => {
+  // The attack with no verdict until now. Every check the reader runs compares a document
+  // against its predecessor or against a pin, so a host serving the last honest version forever
+  // passes all of them — and the family sees exactly what they saw the week Mom stopped being
+  // able to post. Two reads, because one proves nothing: the same bytes are fresh on the first
+  // and stale on the second, and the only thing that changed is the clock.
+  const site = await newSite(t);
+  const signer = makeSigner();
+  site.serve(familyPublisher(site.url, signer));
+  const me = consumer(t);
+
+  const fresh = await reader(me, { now: () => T0 + 6 * DAY }).read(site.url);
+  assert.deepEqual(fresh.findings.filter((f) => f.kind === 'stale'), [], 'a chain advanced this week is fresh');
+
+  // Nothing about the site changes. Nobody signs anything. Only the clock moves.
+  const observations = new ObservationStore({ now: () => T0 });
+  const later = await reader(me, { now: () => T0 + 90 * DAY, observations }).read(site.url);
+  const stale = later.findings.filter((f) => f.kind === 'stale');
+  assert.equal(stale.length, 1, 'ninety days of a host answering every request with the same bytes');
+  assert.match(stale[0].message, /undertook to advance by .*ceiling.* and has not; 7[0-9] day\(s\) overdue/);
+
+  // Stale is unverified, never equivocation: the pin still stands, the chain is not frozen, and
+  // everything already verified still reads. An honest publisher on holiday trips this.
+  assert.equal(me.pins.isFrozen(`${site.url}manifest.json`), false);
+  assert.equal(later.items.live.length, fresh.items.live.length);
+  assert.equal(later.findings.filter((f) => f.kind === 'invariant').length, 0);
+});
+
+test('a declared cadence is a promise the publisher is held to, well inside the ceiling', async (t) => {
+  const site = await newSite(t);
+  const signer = makeSigner();
+  const p = new Publisher({
+    identity: site.url, feedUrl: `${site.url}feed.json`, manifestUrl: `${site.url}manifest.json`,
+    title: 'Mom', signer, profile: { name: 'Mom' }, now: () => T0,
+    nextUpdate: DAY, // "I advance this every day"
+  });
+  p.publishItem({ id: 'urn:uuid:one', content_text: 'hello' }, { at: T0 });
+  p.advanceManifest({ updated: T0 + 3600 });
+  site.serve(p);
+  const me = consumer(t);
+
+  const ok = await reader(me, { now: () => T0 + 3600 * 2 }).read(site.url);
+  assert.deepEqual(ok.findings.filter((f) => f.kind === 'stale'), []);
+
+  // Two days later — still four days inside the consumer's own 7-day ceiling, and stale anyway,
+  // because this publisher said daily. That is the whole asymmetry: a declaration tightens.
+  const observations = new ObservationStore({ now: () => T0 });
+  const missed = await reader(me, { now: () => T0 + 2 * DAY, observations }).read(site.url);
+  const stale = missed.findings.filter((f) => f.kind === 'stale');
+  assert.equal(stale.length, 1);
+  assert.match(stale[0].message, /\(declared\)/);
+});

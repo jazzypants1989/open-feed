@@ -51,6 +51,9 @@ export class Publisher {
     now = () => Math.floor(Date.now() / 1000),
     skipLinks = true,
     itemUrls = true,
+    // §9.1.2's freshness cadence, in seconds, or `null` for a publisher that declares none.
+    // A number here is a promise every reader can hold this identity to, so it is opt-in.
+    nextUpdate = null,
   }) {
     this.identity = normalizeIdentityUrl(identity);
     this.feedUrl = feedUrl ?? `${this.identity}feed.json`;
@@ -71,6 +74,7 @@ export class Publisher {
     this.now = now;
     this.skipLinks = skipLinks;
     this.itemUrls = itemUrls;
+    this.nextUpdate = nextUpdate;
 
     this.identityVersions = [];
     this.manifestVersions = [];
@@ -357,7 +361,7 @@ export class Publisher {
    * are rebuilt from the full live set every time, so an id can only leave `items` by acquiring
    * a tombstone, which puts it in `deleted`.
    */
-  advanceManifest({ updated } = {}) {
+  advanceManifest({ updated, nextUpdate = this.nextUpdate } = {}) {
     const previous = this.manifest;
     const live = {};
     const deleted = {};
@@ -373,6 +377,12 @@ export class Publisher {
       updated: this.#assertDated(updated ?? this.now(), previous, 'manifest'),
       items: live,
     };
+    // §9.1.2: the freshness deadline. `nextUpdate` is a *cadence in seconds* rather than an
+    // absolute time, because that is the thing a publisher actually knows about itself and the
+    // absolute form has to be recomputed correctly on every advance or it silently declares the
+    // chain perpetually overdue. Off unless asked for: a publisher that cannot keep a rhythm
+    // should not declare one, and §9.1.2 makes the field a MAY for that reason.
+    if (nextUpdate) doc._next_update = doc.updated + nextUpdate;
     if (Object.keys(deleted).length) doc.deleted = deleted;
     if (previous) doc.prev = documentHash(previous);
     if (this.skipLinks) {

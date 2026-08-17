@@ -13,6 +13,7 @@ import {
   ManifestError,
   InvariantViolation,
   LAG_CEILING_SECONDS,
+  freshness,
   documentHash,
   sign,
 } from '../src/index.js';
@@ -342,4 +343,48 @@ test('a tombstone-only advance turns the morning\'s honest posts into invariant-
   // And the two are the same chain hop, so nothing else in §9.3 tells them apart.
   assert.doesNotThrow(() => assertInvariantsAcrossHop(yesterday, partial, { url: MANIFEST }));
   assert.doesNotThrow(() => assertInvariantsAcrossHop(yesterday, swept, { url: MANIFEST }));
+});
+
+// ---- §9.1.2: freshness, and the attack of doing nothing ----
+
+test('a chain that simply stops advancing becomes stale, and only then', () => {
+  // The one mutation of a chain that produced no verdict at all. Every other check in this
+  // module compares a version against its predecessor or a pin, so all of them pass on a host
+  // serving the last honest version forever — and "this host stopped publishing you" reads
+  // exactly like "you had nothing to say".
+  const m = manifest({ seq: 4, updated: T0, items: [item({ id: 'a', at: T0 })] });
+
+  assert.equal(freshness(m, { now: T0 + DAY }), null, 'inside the ceiling, fresh');
+  assert.equal(freshness(m, { now: T0 + 7 * DAY }), null, 'at the ceiling, still fresh');
+  const late = freshness(m, { now: T0 + 30 * DAY });
+  assert.ok(late, 'past the ceiling, stale');
+  assert.equal(late.seq, 4);
+  assert.equal(late.declared, null, 'no declaration: the deadline is this reader\'s own ceiling');
+  assert.equal(late.overdueSeconds, 23 * DAY);
+});
+
+test('a declaration can only tighten a consumer\'s ceiling, never loosen it', () => {
+  // This is what separates a *declared* bound from the *derived* one §9.3 refuses. A derived
+  // bound "catches only a publisher deviating from its rhythm, never one that simply declares a
+  // slow one" — so the declaration is capped, and a greedy one buys its publisher nothing.
+  const tight = manifest({ seq: 1, updated: T0, items: [], _next_update: T0 + DAY });
+  assert.equal(freshness(tight, { now: T0 + 12 * 3600 }), null, 'inside the declared day');
+  const missed = freshness(tight, { now: T0 + 2 * DAY });
+  assert.ok(missed, 'a publisher promising daily is held to daily, well inside the 7-day ceiling');
+  assert.equal(missed.declared, T0 + DAY);
+
+  const greedy = manifest({ seq: 1, updated: T0, items: [], _next_update: T0 + 3650 * DAY });
+  assert.equal(freshness(greedy, { now: T0 + 6 * DAY }), null);
+  assert.ok(freshness(greedy, { now: T0 + 8 * DAY }), 'a ten-year promise is stale in seven days');
+});
+
+test('a _next_update that does not postdate its own version is refused as a shape', () => {
+  // Not computed-around: the field's whole value is that a reader can act on it, and one that
+  // declares the chain overdue at the moment of publication is a typo or a lie.
+  for (const bad of [T0, T0 - 1, 'soon', 1.5]) {
+    assert.throws(
+      () => assertManifestShape({ ...manifest({ seq: 1, updated: T0, items: [] }), _next_update: bad }, MANIFEST),
+      /_next_update/,
+    );
+  }
 });

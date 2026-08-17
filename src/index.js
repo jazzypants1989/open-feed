@@ -78,6 +78,7 @@ export {
   InvariantViolation,
   ITEM_STATES,
   LAG_CEILING_SECONDS,
+  freshness,
 } from './manifest.js';
 export {
   MigrationStore,

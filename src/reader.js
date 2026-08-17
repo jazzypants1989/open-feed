@@ -40,6 +40,7 @@ import {
   reconcileFeed,
   entryOf,
   LAG_CEILING_SECONDS,
+  freshness,
 } from './manifest.js';
 import { verifyDocument, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
 import { sha256, b64u, documentHash } from './hash.js';
@@ -846,12 +847,17 @@ export function createReader({
       unobtainable: feed.probe?.unobtainable ?? new Set(),
     });
     const byState = (state) => reconciled.states.filter((s) => s.state === state);
+    // §9.1.2, and it is deliberately computed here rather than inside `readManifest`: a chain
+    // that has stopped advancing is not a fact about the walk, which succeeds, but about the
+    // clock — so it is recomputed on every read against `now()` and never cached with the pin.
+    const stale = freshness(manifest.manifest, { now: now(), ceiling: lagCeiling });
 
     return {
       entry,
       manifest,
       feed,
       reconciled,
+      stale,
       byState,
       items: {
         live: byState('live'),
@@ -863,6 +869,15 @@ export function createReader({
       },
       findings: [
         ...reconciled.violations.map((v) => ({ kind: 'invariant', invariant: v.invariant, message: v.message })),
+        // §9.1.2. A separate kind from `invariant` on purpose: staleness is unverified, not
+        // equivocation, and collapsing the two would have an honest publisher's holiday read
+        // like an attack. It is listed first among the non-violations because it colors every
+        // verdict below it — a chain nobody has advanced in months is one whose `live` set is a
+        // statement about the past.
+        ...(stale ? [{
+          kind: 'stale',
+          message: `${stale.url}: manifest seq ${stale.seq} undertook to advance by ${stale.deadline}${stale.declared ? ' (declared)' : ' (this reader\'s ceiling)'} and has not; ${Math.floor(stale.overdueSeconds / 86400)} day(s) overdue`,
+        }] : []),
         ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
         ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
         // §7.4: the signature covers the reference, never the bytes. An attachment with no

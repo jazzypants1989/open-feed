@@ -1,17 +1,22 @@
 // Freshness: what does a conforming consumer say about a host that simply STOPS?
 //
+// STATUS: ADOPTED. §9.1.2 and §13 item 17 now carry this verdict, and `src/manifest.js`'s
+// `freshness()` implements it. The counterfactual below is therefore measured rather than
+// remembered — `lagCeiling: Infinity` switches the rule off, which is what the protocol looked
+// like before this landed, and the same scene is run with it on. A prototype whose premise has
+// been fixed either becomes a regression test or becomes a story; this is the first.
+//
 // Every attack the two chains detect is a *mutation*. Drop an item and §9.3 invariant 1 fires;
 // roll back and `seq` decreases; rewrite and a hash mismatches; equivocate and §5.3.1 compares.
 // There is one mutation left, and it is the null one: serve the last honest version forever.
 //
-// Nothing in the specification obliges a chained document to keep advancing. A grep of all
-// 1131 lines finds no `expires`, no `next_update`, no staleness bound on a chain — §3.2.1's
-// only claim about the subject runs the other way ("Content freshness is proven by the
-// manifest's own signature and chain"). So a host that freezes a member's manifest and serves
-// a consistent frozen feed passes every invariant, every pin check, and every signature, and
-// the reader produces no verdict at all. To the reader it is indistinguishable from the member
-// having nothing to say — which, for §13.2's hostile custodian, is precisely the impression
-// they want to give the member's family.
+// Before §9.1.2, nothing in the specification obliged a chained document to keep advancing: no
+// `expires`, no `next_update`, no staleness bound anywhere, and §3.2.1's only claim on the
+// subject ran the other way ("Content freshness is proven by the manifest's own signature and
+// chain"). So a host that froze a member's manifest and served a consistent frozen feed passed
+// every invariant, every pin check, and every signature, and the reader produced no verdict at
+// all. To the reader it was indistinguishable from the member having nothing to say — which,
+// for §13.2's hostile custodian, is precisely the impression they want to give the family.
 //
 // This is TUF's freeze/slowdown attack. It is well known, it is cheap, and the specification
 // does not name it.
@@ -101,14 +106,21 @@ function familyHub(origin = 'https://mom.example/', { days = 6, signer = makeSig
   return p;
 }
 
-/** Read once, at `at`, against `documents`, reusing a consumer's stores across reads. */
-async function readAt(me, documents, at) {
+/**
+ * Read once, at `at`, against `documents`, reusing a consumer's stores across reads.
+ *
+ * `rule: false` sets the consumer's ceiling to Infinity, which switches §9.1.2 off and is
+ * exactly the reader this protocol had before that section existed. Every counterfactual below
+ * is run rather than recalled.
+ */
+async function readAt(me, documents, at, { rule = true } = {}) {
   const reader = createReader({
     fetcher: host(documents),
     pins: me.pins,
     observations: me.observations,
     migrations: me.migrations,
     now: () => at,
+    ...(rule ? {} : { lagCeiling: Infinity }),
   });
   return reader.read(me.origin);
 }
@@ -143,16 +155,21 @@ const family = consumer(ORIGIN);
 const first = await readAt(family, frozen, T0 + 6 * DAY);
 say(`  day 6   : ${first.items.live.length} live items, ${first.findings.length} findings, manifest seq ${first.manifest.manifest.seq}`);
 
-const later = await readAt(family, frozen, T0 + 96 * DAY);
-const freezeFindings = later.findings;
-say(`  day 96  : ${later.items.live.length} live items, ${freezeFindings.length} findings, manifest seq ${later.manifest.manifest.seq}`);
-if (freezeFindings.length) for (const f of freezeFindings) say(`            ${f.kind}: ${f.message}`);
+// The protocol as it stood before §9.1.2: every other check, and no freshness rule.
+const without = await readAt(consumer(ORIGIN), frozen, T0 + 96 * DAY, { rule: false });
+say(`  day 96, rule OFF : ${without.items.live.length} live items, ${without.findings.length} findings, manifest seq ${without.manifest.manifest.seq}`);
 say();
-say('  Ninety days of silence from a host that is answering every request. The reader');
-say('  reports what it reported on day six. There is no verdict for this, because there is');
-say('  no rule for it.');
-check('Q1 the freeze produces no finding today', freezeFindings.length === 0,
-  freezeFindings.length ? `${freezeFindings.length} unexpected findings` : 'silent, as the attack requires');
+say('  Ninety days of silence from a host that is answering every request, and the reader');
+say('  reports what it reported on day six. Every signature verifies, every invariant holds,');
+say('  the pin matches. There was no verdict for this because there was no rule for it.');
+check('Q1 without §9.1.2 the freeze produces no finding at all', without.findings.length === 0,
+  without.findings.length ? `${without.findings.length} unexpected findings` : 'silent, as the attack requires');
+
+const later = await readAt(family, frozen, T0 + 96 * DAY);
+const freezeFindings = later.findings.filter((f) => f.kind === 'stale');
+say(`  day 96, rule ON  : ${freezeFindings.length} stale finding(s)`);
+for (const f of freezeFindings) say(`            ${f.kind}: ${f.message}`);
+check('Q1 with §9.1.2 the same scene is reported', freezeFindings.length === 1);
 
 // ==========================================================================================
 say();
@@ -168,7 +185,7 @@ const feedDoc = dropped.get(`${ORIGIN}feed.json`);
 const gone = feedDoc.items[0];
 dropped.set(`${ORIGIN}feed.json`, { ...feedDoc, items: feedDoc.items.slice(1) });
 for (const [url, doc] of dropped) if (doc === gone) dropped.delete(url);
-const droppedRead = await readAt(consumer(ORIGIN), dropped, T0 + 6 * DAY);
+const droppedRead = await readAt(consumer(ORIGIN), dropped, T0 + 6 * DAY, { rule: false });
 const dropVerdict = droppedRead.items.withheld.length + droppedRead.findings.filter((f) => f.kind === 'withheld' || f.kind === 'invariant').length;
 say(`  drop an item  : ${dropVerdict} withheld/invariant verdicts  -> ${dropVerdict ? 'CAUGHT' : 'silent'}`);
 
@@ -182,13 +199,13 @@ try {
   rollVerdict = `CAUGHT (${e.constructor.name})`;
 }
 say(`  roll back     : ${rollVerdict}`);
-say(`  freeze        : ${freezeFindings.length} verdicts  -> ${freezeFindings.length ? 'CAUGHT' : 'silent'}`);
+say(`  freeze        : ${without.findings.length} verdicts  -> ${without.findings.length ? 'CAUGHT' : 'silent'}`);
 say();
-say('  Every mutation has a verdict. The null mutation does not. That asymmetry is the');
-say('  finding: the chains detect *changes to the past* and say nothing about *absence of a');
-say('  future*, and a host that wants to isolate someone needs only the second.');
-check('Q2 mutations are caught and the freeze is not',
-  dropVerdict > 0 && rollVerdict !== 'silent' && freezeFindings.length === 0);
+say('  Every mutation had a verdict. The null mutation did not. That asymmetry is the finding:');
+say('  the chains detect *changes to the past* and said nothing about *absence of a future*,');
+say('  and a host that wants to isolate someone needs only the second.');
+check('Q2 mutations were caught and the freeze was not',
+  dropVerdict > 0 && rollVerdict !== 'silent' && without.findings.length === 0);
 
 // ==========================================================================================
 say();
@@ -203,8 +220,10 @@ const tight = createReader({
   observations: new ObservationStore({ now: () => T0 }), now: () => T0 + 96 * DAY, lagCeiling: DAY,
 });
 const tightRead = await tight.read(ORIGIN);
-say(`  lagCeiling = 1 day, read 90 days into the freeze: ${tightRead.items.pending.length} pending, ${tightRead.findings.length} findings`);
-check('Q3 the lag ceiling does not reach a freeze', tightRead.findings.length === 0 && tightRead.items.pending.length === 0);
+const pendingVerdicts = tightRead.items.pending.length + tightRead.findings.filter((f) => f.kind !== 'stale').length;
+say(`  lagCeiling = 1 day, read 90 days into the freeze: ${tightRead.items.pending.length} pending, ${pendingVerdicts} non-freshness findings`);
+say(`  (the ${tightRead.findings.filter((f) => f.kind === 'stale').length} finding it does produce is §9.1.2's, which is this file's own verdict and not invariant 3's)`);
+check('Q3 the lag ceiling does not reach a freeze', pendingVerdicts === 0);
 
 // ==========================================================================================
 say();
@@ -312,9 +331,9 @@ check('Q6 a key custodian evades the bound by advancing an empty manifest',
 say();
 say('Cost');
 const withField = canonicalBytes(tipManifest).length;
-const without = canonicalBytes(declaring.manifest).length;
-say(`  manifest with \`_next_update\`: ${withField} bytes; without: ${without} bytes; delta ${withField - without}`);
-say(`  Retained forever, per version. Against §13.4's 1 MB manifest ceiling that is ${((withField - without) / 1_000_000 * 100).toFixed(4)}%.`);
+const bare = canonicalBytes(declaring.manifest).length;
+say(`  manifest with \`_next_update\`: ${withField} bytes; without: ${bare} bytes; delta ${withField - bare}`);
+say(`  Retained forever, per version. Against §13.4's 1 MB manifest ceiling that is ${((withField - bare) / 1_000_000 * 100).toFixed(4)}%.`);
 
 // ---- gate ---------------------------------------------------------------------------------
 say();
@@ -342,7 +361,7 @@ say(`
     * It does not inherit §9.3's objection to a *derived* bound, because the declaration can
       only tighten the consumer's ceiling and never loosen it (Q5) — and it hands a
       first-contact consumer a deadline, which §9.3 notes a derived bound cannot.
-    * It costs ${withField - without} bytes per manifest version.
+    * It costs ${withField - bare} bytes per manifest version.
 
   What it does NOT buy, to be stated beside the rule rather than discovered later:
 
