@@ -289,17 +289,29 @@ export async function verifyBundle(bundle, options = {}) {
   }
   const reader = createReader({ fetcher: restoreFetcher(bundle), ...options });
 
-  // Read the predecessor's chain *first* where the bundle carries one, and this is the payoff
-  // of §14's requirement rather than a convenience. On the live web a consumer with no prior pin
-  // of the old identity can only treat a recovery-based migration as unverified (§3.4), and a
-  // reader that chased a stranger's `predecessor:` claim would turn every identity read into a
-  // fetch-amplification oracle (§13.9) — so the restriction is right there and wrong here. There
-  // is no network: the predecessor's retained versions are inside the file, put there because
-  // §14 requires them, and reading them establishes exactly the pin the co-signature resolves
-  // against. Without this a successor's own bundle reads its byte-verbatim back catalog as
-  // copies and then reports every item of it as withheld — the accusation §3.4 exists to avoid.
+  // Read the predecessor's chain *first* where the bundle carries one. On the live web a reader
+  // that chased a stranger's `predecessor:` claim would turn every identity read into a
+  // fetch-amplification oracle (§13.9) — that half of the restriction is about the network and
+  // is genuinely wrong here, since the retained versions are inside the file. Without this read
+  // a successor's own bundle reads its byte-verbatim back catalog as copies and then reports
+  // every item of it as withheld — the accusation §3.4 exists to avoid.
+  //
+  // What the read MUST NOT do is launder authority. §3.4 is explicit that a consumer with no
+  // prior pin of the predecessor can only treat a recovery-based migration as unverified, and
+  // that sentence is about *authority*, not network availability: a walk over history the
+  // bundle itself supplied establishes a pin whose every byte the bundle's author chose,
+  // including the recovery key the co-signature then resolves against. Fabricate a predecessor
+  // history around your own recovery key, name the victim's URL in `predecessor`, co-sign, and
+  // a verifier that trusted its own bundle-fed pin would return `verified: true, via:
+  // 'recovery'` for an identity you never were. So: the migration verdict stands only where the
+  // caller brought a pin of the predecessor from *outside* the bundle; otherwise the read still
+  // happens — the back catalog stays readable, attributed to its signers — and the verdict is
+  // downgraded to unverified with `predecessorTofu` saying exactly why.
   const predecessor = bundle.identity?.current?.predecessor;
+  let predecessorTofu = false;
   if (typeof predecessor === 'string') {
+    const pinUrl = `${normalizeIdentityUrl(predecessor)}openfeed.json`;
+    predecessorTofu = !options.pins?.pin?.(pinUrl);
     try {
       await reader.readIdentity(predecessor, { verifyMigration: false });
     } catch {
@@ -309,5 +321,14 @@ export async function verifyBundle(bundle, options = {}) {
   }
 
   const result = await reader.read(bundle.url);
-  return { ...result, completeness: completeness(bundle) };
+  const migration = result.migration?.verified && predecessorTofu
+    ? {
+      ...result.migration,
+      verified: false,
+      predecessorTofu: true,
+      reason: `the predecessor history anchoring this migration came from inside the bundle itself; `
+        + `a consumer with no prior pin of ${predecessor} can only treat it as unverified (§3.4)`,
+    }
+    : result.migration;
+  return { ...result, migration, predecessorTofu, completeness: completeness(bundle) };
 }

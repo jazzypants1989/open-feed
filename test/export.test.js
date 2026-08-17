@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import { DAY, T0, makeSigner } from './helpers/site.js';
 import {
   Publisher,
+  PinStore,
   buildBundle,
   containerEntries,
   completeness,
@@ -258,6 +259,9 @@ test('exit: migrate by recovery co-signature, export, restore, with the host ref
     exportedAt: T0 + 11 * DAY,
   });
 
+  // Cold restore, no prior pin of the hub: everything reads, the back catalog is credited,
+  // and the migration verdict is exactly as strong as §3.4 allows it to be — unverified,
+  // because the only history anchoring it came from inside the file being judged.
   const restored = await verifyBundle(bundle, { now: () => T0 + 12 * DAY, maxItemProbes: 4 });
   assert.equal(restored.identity.identity, 'https://mom.example/');
   assert.equal(restored.items.live.length, 3, 'the back catalog arrived byte-verbatim');
@@ -265,10 +269,65 @@ test('exit: migrate by recovery co-signature, export, restore, with the host ref
     restored.items.live.map((s) => s.id).sort(),
     ['urn:uuid:day-0', 'urn:uuid:day-1', 'urn:uuid:day-2'],
   );
+  assert.equal(restored.predecessorTofu, true);
+  assert.notEqual(restored.migration?.verified, true, 'no outside pin, no verified migration');
+
+  // A consumer who had pinned the hub before the exit — Gran, or the member's own second
+  // device — brings the outside anchor, and the same bundle demonstrates the migration.
+  const pins = new PinStore({ now: () => T0 + 9 * DAY });
+  pins.advance(`${HUB}openfeed.json`, hub.identityDocument.seq, documentHash(hub.identityDocument));
+  const witnessed = await verifyBundle(bundle, { now: () => T0 + 12 * DAY, maxItemProbes: 4, pins });
+  assert.equal(witnessed.predecessorTofu, false);
+  assert.equal(witnessed.migration?.verified, true);
+  assert.equal(witnessed.migration?.via, 'recovery');
 
   // The carried items still name the *old* feed in their signed bytes, which is §3.4's whole
   // point: nothing was re-signed, so every hash any consumer or peer pinned survives.
   const carried = [...away.items.values()][0];
   assert.equal(carried._feed_url, 'https://mom.hub.example/feed.json');
   assert.equal(documentHash(carried), documentHash([...hub.items.values()][0]));
+});
+
+test('a bundle cannot vouch for its own predecessor (§3.4)', async () => {
+  // The attack the previous test's cold path is guarding: fabricate a predecessor history at
+  // the victim's URL around YOUR recovery key, name it in `predecessor`, co-sign, and carry a
+  // "back catalog". Every byte is self-consistent, because every byte is yours. A verifier
+  // that walked that history and treated the result as a pin would then resolve the
+  // co-signature against the key the same file supplied — `verified: true, via: 'recovery'`
+  // for an identity the attacker never was, on the bundle's own say-so.
+  const evesRecovery = makeSigner('eve-recovery-1');
+  evesRecovery.jwk.use = 'recovery';
+  const fabricated = published(HUB, { signer: makeSigner('eve-hub-1'), recovery: evesRecovery });
+  const eve = new Publisher({
+    identity: 'https://eve.example/',
+    signer: makeSigner('eve-1'),
+    profile: { name: 'Mom', predecessor: HUB },
+    recoveryKeys: [evesRecovery.jwk],
+    now: () => T0 + 10 * DAY,
+  });
+  for (const item of fabricated.items.values()) eve.items.set(item.id, item);
+  eve.advanceManifest({ updated: T0 + 10 * DAY + 60 });
+  eve.coSignIdentity(evesRecovery, { kidIdentity: HUB });
+
+  const bundle = buildBundle({
+    identity: eve.identityDocument,
+    identityHistory: eve.identityVersions,
+    predecessorHistory: fabricated.identityVersions,
+    feeds: [{ feed: eve.feed, manifest: eve.manifest, manifestHistory: eve.manifestVersions }],
+    exportedAt: T0 + 11 * DAY,
+  });
+
+  // Cold: the claim is labeled as what it is — the bundle's own word.
+  const cold = await verifyBundle(bundle, { now: () => T0 + 12 * DAY });
+  assert.equal(cold.predecessorTofu, true);
+  assert.notEqual(cold.migration?.verified, true);
+  assert.match(cold.migration?.reason ?? '', /inside the bundle/);
+
+  // Warm: a consumer who really followed Mom's hub holds a pin the fabricated history cannot
+  // reproduce, so the walk fails against it and the migration stays unverified.
+  const realHub = published(HUB, { signer: makeSigner('key-1') });
+  const pins = new PinStore({ now: () => T0 + 5 * DAY });
+  pins.advance(`${HUB}openfeed.json`, realHub.identityDocument.seq, documentHash(realHub.identityDocument));
+  const warm = await verifyBundle(bundle, { now: () => T0 + 12 * DAY, pins });
+  assert.notEqual(warm.migration?.verified, true, 'a real pin exposes the fabrication');
 });
