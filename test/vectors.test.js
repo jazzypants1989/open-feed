@@ -112,7 +112,7 @@ test('every vector was signed inside its key\'s validity window', () => {
     const identityDocument = currentByUrl.get(claimedAuthor(doc, { kind: Number.isInteger(doc.seq) ? 'document' : 'item' }));
     const { keyId } = parseKid(parseDetachedSig(doc._sig).header.kid);
     const key = findKey(identityDocument, keyId);
-    const when = effectiveSigningTime(doc);
+    const when = effectiveSigningTime(doc, { kind: Number.isInteger(doc.seq) ? 'document' : 'item' });
     assert.ok(key.iat <= when, `${keyId} signed at ${when}, before its iat ${key.iat}`);
     if (typeof key.revoked_at === 'number') {
       // Equality is valid: §5.2's normal rotation revokes the continuity key in the very

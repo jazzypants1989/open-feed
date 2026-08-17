@@ -14,6 +14,7 @@ import {
   sign,
   verifyDocument,
   claimedAuthor,
+  ObservationStore,
   VerifyError,
 } from '../src/index.js';
 
@@ -442,9 +443,9 @@ test('a key revoked before the signing time is rejected', () => {
   assert.ok(verifyDocument(item, { identityDocument: atSigningTime, kind: 'item' }));
 });
 
-test('receipt time overrides self-reported time for revocation', () => {
+test('receipt time bounds self-reported time for revocation', () => {
   // Spec §4.4: a thief can backdate date_published but cannot backdate when a receiver
-  // took delivery, so inbox items check revocation against receipt time.
+  // took delivery, so inbox items check revocation against the later of the two.
   //
   // The backdate has to land between the key's iat and its revoked_at to be interesting.
   // Backdating past the iat is already caught by §6.5 step 6 (next test), so `iat` is
@@ -457,6 +458,60 @@ test('receipt time overrides self-reported time for revocation', () => {
     throwsVerify(/revoked/),
     'receipt time must catch it',
   );
+});
+
+test('an item smuggling a numeric `updated` cannot choose its own revocation clock (§6.5, §7.2)', () => {
+  // §6.5 step 6 selects the time carrier by document *kind*; §7.2 obliges consumers to
+  // preserve unknown members, so an item carrying `"updated": <number>` is conformant data.
+  // A verifier that sniffed fields instead of taking the kind would read the revocation clock
+  // out of a field the signer chose freely: a holder of a key revoked at T signs an item
+  // dated after T plus `updated: T - 1`, and the sniffer reads T - 1 and passes it.
+  // `claimedAuthor` was hardened against exactly this shape (the `authors` analogue below);
+  // this is its sibling.
+  const R = 1739577600;
+  const smuggled = signedItem({ date_published: '2025-03-01T00:00:00Z', updated: R - 1 }); // published 1740787200 > R
+  const revoked = { ...identity, keys: [{ ...identity.keys[0], revoked_at: R }] };
+  assert.throws(
+    () => verifyDocument(smuggled, { identityDocument: revoked, kind: 'item' }),
+    throwsVerify(/revoked/),
+    'the smuggled updated must not be read as the signing time',
+  );
+  // And the field is otherwise harmless: with an unrevoked key the same item verifies, its
+  // extension member intact under the signature.
+  assert.ok(verifyDocument(smuggled, { identityDocument: identity, kind: 'item' }));
+});
+
+test('an old observation of an id cannot stand in for a fresh revision (§4.4)', () => {
+  // The inversion §4.4 now names: keyed on (author, id) and *substituted* for the claim, a
+  // stale observation of revision 1 answers for revision 4, and the record makes revocation
+  // weaker for every revision after the first. Keyed on (author, id, _version) and used as a
+  // bound, revision 4's observation is the moment a manifest first committed those exact
+  // bytes — after the revocation — and the thief's backdated claim buys nothing.
+  const R = 1739577600;                          // the key dies here
+  const OBSERVED_V1 = 1736899200;                // v1 seen long before, honestly
+  const store = new ObservationStore({ now: () => OBSERVED_V1 });
+  store.recordIds(ID, [['urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6', 1]]);
+  store.now = () => R + 86400;                   // the polling loop meets v4 a day after revocation
+  store.recordIds(ID, [['urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6', 4]]);
+
+  const perRevision = store.firstObserved(ID, 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6', 4);
+  assert.equal(perRevision, R + 86400, 'v4 is observed when v4 first appeared, not when v1 did');
+  assert.equal(store.firstObserved(ID, 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6', 1), OBSERVED_V1);
+
+  // The thief's revision: backdated inside the key's validity window, signed with the stolen key.
+  const theft = signedItem({ _version: 4, date_published: '2025-01-20T00:00:00Z' });
+  const revoked = { ...identity, keys: [{ ...identity.keys[0], revoked_at: R }] };
+  assert.throws(
+    () => verifyDocument(theft, { identityDocument: revoked, kind: 'item', signedAt: perRevision }),
+    throwsVerify(/revoked/),
+    'bounded by v4\'s own observation, the backdated claim is rejected',
+  );
+  // While the genuinely old revision, observed before the revocation, still verifies.
+  const honest = signedItem({ date_published: '2025-01-14T00:00:00Z' });
+  assert.ok(verifyDocument(honest, {
+    identityDocument: revoked, kind: 'item',
+    signedAt: store.firstObserved(ID, 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6', 1),
+  }));
 });
 
 test('backdating before the key existed is rejected', () => {

@@ -77,48 +77,80 @@ export class ReaderError extends Error {
 export class ObservationStore {
   constructor({ now = () => Math.floor(Date.now() / 1000) } = {}) {
     this.now = now;
-    this.firstSeen = new Map();      // `${author}\n${id}` -> unix seconds
+    this.firstSeen = new Map();      // `${author}\n${id}\n${version}` -> unix seconds (§4.4, §7.5's tuple)
+    this.idsSeen = new Map();        // `${author}\n${id}` -> unix seconds of the earliest revision
     this.feedManifests = new Map();  // feed url -> { manifestUrl, manifest } (§9.3 invariant 5)
   }
 
-  static #key(author, id) {
+  static #key(author, id, version) {
+    return `${normalizeIdentityUrl(author)}\n${id}\n${version}`;
+  }
+
+  static #idKey(author, id) {
     return `${normalizeIdentityUrl(author)}\n${id}`;
   }
 
   /**
-   * Record every id a verified manifest commits, and report which ones were **new**.
+   * Record every `(id, version)` a verified manifest commits, and report which **ids** were
+   * new to this store entirely.
    *
-   * First observation wins; a later commitment of the same id does not move it. The returned
-   * set is what keeps the check honest on first contact: an id recorded a moment ago has no
-   * observation *history*, and §4.4 is explicit that a consumer without history falls back to
-   * the self-reported check. Skip that and a consumer meeting a feed for the first time rejects
-   * every item ever signed by a since-revoked key — using a timestamp it invented itself.
+   * The record is per **revision** — `(author, id, _version)`, the tuple §7.5 says names one
+   * exact signed revision — because §4.4 uses it as a *bound*: keyed on the id alone, a stale
+   * observation of revision 1 would stand in for a fresh revision 4's claim, and the record
+   * would make revocation weaker for every revision after the first, which is the audit finding
+   * this keying closes. First observation of a revision wins; a later commitment does not move
+   * it. The returned set is what keeps the check honest on first contact: an *id* recorded a
+   * moment ago has no observation history, and §4.4 is explicit that a consumer without history
+   * falls back to the self-reported check. Skip that and a consumer meeting a feed for the
+   * first time rejects every item ever signed by a since-revoked key — using a timestamp it
+   * invented itself.
    */
   recordManifest(author, manifest) {
-    return this.recordIds(author, [...Object.keys(manifest.items ?? {}), ...Object.keys(manifest.deleted ?? {})]);
+    const entries = [];
+    for (const map of [manifest.items ?? {}, manifest.deleted ?? {}]) {
+      for (const [id, e] of Object.entries(map)) {
+        entries.push([id, Array.isArray(e) && Number.isInteger(e[0]) ? e[0] : 1]);
+      }
+    }
+    return this.recordIds(author, entries);
   }
 
   /**
-   * Record ids under an author and report which were **new**. The generic half of
-   * `recordManifest`, and the one a multi-author board needs: a manifest is keyed by the feed
-   * *owner*, but §4.4's record is keyed by the item *author*, and a contributor's items can
-   * only be recorded once an item has been read and its author is known.
+   * Record `[id, version]` pairs under an author and report which **ids** were new. The
+   * generic half of `recordManifest`, and the one a multi-author board needs: a manifest is
+   * keyed by the feed *owner*, but §4.4's record is keyed by the item *author*, and a
+   * contributor's items can only be recorded once an item has been read and its author known.
    */
-  recordIds(author, ids) {
+  recordIds(author, entries) {
     const at = this.now();
     const fresh = new Set();
-    for (const id of ids) {
-      const key = ObservationStore.#key(author, id);
-      if (this.firstSeen.has(key)) continue;
-      this.firstSeen.set(key, at);
-      fresh.add(id);
+    for (const entry of entries) {
+      const [id, version] = Array.isArray(entry) ? entry : [entry, 1];
+      const idKey = ObservationStore.#idKey(author, id);
+      if (!this.idsSeen.has(idKey)) {
+        this.idsSeen.set(idKey, at);
+        fresh.add(id);
+      }
+      const key = ObservationStore.#key(author, id, version);
+      if (!this.firstSeen.has(key)) this.firstSeen.set(key, at);
     }
     return fresh;
   }
 
-  /** `null` where there is no history — the caller falls back to the self-reported time. */
-  firstObserved(author, id) {
-    return this.firstSeen.get(ObservationStore.#key(author, id)) ?? null;
+  /**
+   * When this exact revision was first observed, or `null` — the caller falls back to the
+   * self-reported time. A revision this store has never seen returns `null` even where older
+   * revisions of its id are on record: the bound has to be about *these bytes*, and the
+   * caller's history gate (did any earlier pass record this id?) is a separate question,
+   * answered by `hasHistory`.
+   */
+  firstObserved(author, id, version = 1) {
+    return this.firstSeen.get(ObservationStore.#key(author, id, version)) ?? null;
+  }
+
+  /** Has any revision of `(author, id)` ever been recorded here? */
+  hasHistory(author, id) {
+    return this.idsSeen.has(ObservationStore.#idKey(author, id));
   }
 
   /**
@@ -161,8 +193,9 @@ export class ObservationStore {
 
   toJSON() {
     return {
-      version: 1,
+      version: 2,
       firstSeen: Object.fromEntries(this.firstSeen),
+      idsSeen: Object.fromEntries(this.idsSeen),
       feedManifests: Object.fromEntries(this.feedManifests),
     };
   }
@@ -170,11 +203,23 @@ export class ObservationStore {
   static fromJSON(raw, options) {
     const store = new ObservationStore(options);
     if (!raw) return store;
-    // Version 0 was a bare `{key: seconds}` map with no envelope. Read either, because a pin
-    // file is exactly the state §12 makes conformance depend on, and silently starting over
-    // looks identical to a verifier that is working.
+    // Version 0 was a bare `{key: seconds}` map with no envelope; version 1 keyed firstSeen on
+    // `(author, id)` with no idsSeen. Read all of them, because a pin file is exactly the state
+    // §12 makes conformance depend on, and silently starting over looks identical to a verifier
+    // that is working. A v1 record's two-part keys never match a v3-part lookup, which fails in
+    // the safe direction — no history means the self-reported check, not a false rejection —
+    // and its id-level history is recoverable, so `idsSeen` is rebuilt from whatever keys exist.
     const legacy = raw.version === undefined;
     for (const [k, v] of Object.entries((legacy ? raw : raw.firstSeen) ?? {})) store.firstSeen.set(k, v);
+    for (const [k, v] of Object.entries(raw.idsSeen ?? {})) store.idsSeen.set(k, v);
+    if (!raw.idsSeen) {
+      for (const [k, v] of store.firstSeen) {
+        const parts = k.split('\n');
+        const idKey = parts.length >= 3 ? parts.slice(0, -1).join('\n') : k;
+        const prior = store.idsSeen.get(idKey);
+        if (prior === undefined || v < prior) store.idsSeen.set(idKey, v);
+      }
+    }
     for (const [k, v] of Object.entries(raw.feedManifests ?? {})) store.feedManifests.set(k, v);
     return store;
   }
@@ -642,18 +687,24 @@ export function createReader({
       // and is canonical but scoped differently below; `null` is a copy.
       const via = declared === canonicalUrl ? 'own' : (declared && inherited.has(declared) ? 'predecessor' : null);
 
-      // §4.4: check revocation against first-observation time, under two scoping rules that
-      // are the whole value of the record. Only items canonical by the **ordinary** `_feed_url`
+      // §4.4: the first-observation time **bounds** the self-reported one — verifyDocument runs
+      // the revocation check against the later of the two — under two scoping rules that are
+      // the whole value of the record. Only items canonical by the **ordinary** `_feed_url`
       // test — one canonical here by §7.5's predecessor exception arrived byte-verbatim from a
       // migration, so its signing necessarily predates that event and the self-reported check
       // governs. And only ids this consumer observed on an *earlier* pass: an id first recorded
       // moments ago in this same read is a consumer with no history, which §4.4 sends back to
       // the self-reported check.
       //
-      // The record is keyed on `(author, id)` and the manifest-time recording is keyed on the
-      // feed *owner*, so on a multi-author board (§7.1) a contributor's items are recorded
-      // here, at read time, when the author is first known — otherwise the lookup below misses
-      // on every contributor forever and §4.4 silently degrades to the self-reported check.
+      // The record is per **revision** — `(author, id, _version)`, §7.5's tuple — because an
+      // id-level record used as a substitute is §4.4's own inversion: a thief of a revoked key
+      // publishes `_version: 4` of an id first observed years ago, the stale observation stands
+      // in for the fresh claim, and revocation gets *weaker* with every revision. Per revision,
+      // v4's observation is the moment a manifest first committed those exact bytes — after the
+      // revocation — and the item is rejected. Manifest-time recording is keyed on the feed
+      // *owner*, so on a multi-author board (§7.1) a contributor's items are recorded here, at
+      // read time, when the author is first known — and the owner-keyed record answers for a
+      // contributor's revision the author-keyed store has not caught up to yet.
       //
       // **The lookup happens now; the write waits for the signature** — §10.3's discipline,
       // here for the same reason and against a cheaper attack. Until `verifyDocument` returns,
@@ -664,6 +715,7 @@ export function createReader({
       // published yet restores the backdating §4.4 exists to prevent. The forgery is rejected
       // either way, which is what makes the damage invisible: nothing is logged, and the store
       // is the only thing that changed. §13.9's sentence, about a different store.
+      const version = Number.isInteger(item?._version) ? item._version : 1;
       let observed = null;
       let recordUnder = null;
       if (via === 'own' && typeof item?.id === 'string' && !firstSeenHere.has(item.id)) {
@@ -673,10 +725,10 @@ export function createReader({
         if (normalizeIdentityUrl(authorUrl) !== normalizeIdentityUrl(identityDocument.url)) {
           recordUnder = authorUrl;
         }
-        // Either way the lookup is a read. `null` means no history, which §4.4 sends back to
-        // the self-reported check — including for an id being recorded for the first time
-        // below, since a record created a moment ago is not history.
-        observed = observations.firstObserved(authorUrl, item.id);
+        // Either way the lookup is a read. `null` means no record of this exact revision,
+        // which §4.4 sends back to the self-reported check.
+        observed = observations.firstObserved(authorUrl, item.id, version)
+          ?? observations.firstObserved(identityDocument.url, item.id, version);
       }
 
       try {
@@ -685,7 +737,7 @@ export function createReader({
           kind: 'item',
           ...(observed !== null ? { signedAt: observed } : {}),
         });
-        if (recordUnder) observations.recordIds(recordUnder, [item.id]);
+        if (recordUnder) observations.recordIds(recordUnder, [[item.id, version]]);
         (via ? canonical : copies).push({ item, info, via, revocationCheckedAt: observed ?? info.signedAt });
         unhashedAttachments.push(...unhashed(item));
       } catch (e) {

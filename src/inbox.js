@@ -450,7 +450,7 @@ export function createInbox({
    * that should exist between them.
    */
   function effectiveSigningSeconds(item) {
-    try { return effectiveSigningTime(item); } catch { return null; }
+    try { return effectiveSigningTime(item, { kind: 'item' }); } catch { return null; }
   }
 
   /**

@@ -456,7 +456,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
 function describeLag(item, manifest, { now, ceiling }) {
   let signedAt;
   try {
-    signedAt = effectiveSigningTime(item);
+    signedAt = effectiveSigningTime(item, { kind: 'item' });
   } catch (e) {
     if (e instanceof VerifyError) return 'the item carries no usable timestamp';
     throw e;

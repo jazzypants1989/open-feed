@@ -275,11 +275,24 @@ export function claimedAuthor(doc, { kind } = {}) {
  * Effective signing time in Unix seconds (spec §6.5 step 6): `updated` for manifests and
  * identity documents, `date_modified` else `date_published` for items. Chain fields are
  * Unix seconds (JOSE), content fields ISO 8601 (JSON Feed).
+ *
+ * §6.5 selects the carrier by **document kind**, and the caller MUST say which — the same rule,
+ * for the same reason, as `claimedAuthor` above. There is deliberately no field-presence
+ * sniffing: §7.2 obliges consumers to preserve unknown members, so an *item* carrying a numeric
+ * `updated` is conformant data — and a verifier that read the time out of it would hand the
+ * revocation clock to the signer. A holder of a key revoked at `T` signs an item dated after
+ * `T` plus `"updated": T - 1`, and the sniffing verifier reads `T - 1` and passes it.
  */
-export function effectiveSigningTime(doc) {
-  if (typeof doc.updated === 'number') return doc.updated;
+export function effectiveSigningTime(doc, { kind } = {}) {
+  if (kind !== 'item' && kind !== 'document') {
+    throw new VerifyError(`caller must say what kind of document this is — 'item' or 'document' (§6.5), got ${kind}`);
+  }
+  if (kind === 'document') {
+    if (typeof doc.updated !== 'number') throw new VerifyError('chained document carries no updated');
+    return doc.updated;
+  }
   const stamp = doc.date_modified ?? doc.date_published;
-  if (typeof stamp !== 'string') throw new VerifyError('document carries no effective signing time');
+  if (typeof stamp !== 'string') throw new VerifyError('item carries no effective signing time');
   const ms = Date.parse(stamp);
   if (Number.isNaN(ms)) throw new VerifyError(`unparseable timestamp: ${stamp}`);
   return Math.floor(ms / 1000);
@@ -316,9 +329,12 @@ export function findKey(identityDocument, keyId) {
  * the already-resolved identity document, so the chain layer stays separable and this
  * stays usable offline against an export bundle.
  *
- * `signedAt` overrides the effective signing time for revocation purposes — receipt time
- * for inbox items, manifest first-observation time on the pull path (spec §4.4), neither
- * of which a key thief can backdate.
+ * `signedAt` **bounds** the effective signing time for revocation purposes — receipt time
+ * for inbox items, per-revision first-observation time on the pull path (spec §4.4), neither
+ * of which a key thief can backdate. The check runs against the *later* of the bound and the
+ * self-reported claim: substituting the bound for the claim is the inversion §4.4 warns
+ * about, where an old observation of an id stands in for a fresh revision's claim and the
+ * record makes revocation weaker instead of stronger.
  *
  * `timeChecks: false` skips the `iat` and `revoked_at` comparisons while still verifying the
  * signature, the header, and the author binding. It exists for one caller: §9.1 makes the
@@ -349,7 +365,8 @@ export function verifyDocument(doc, { identityDocument, sigField = '_sig', signe
   const jwk = identityDocument ? findKey(identityDocument, keyId) : null;
   if (!jwk) throw new VerifyError('no identity document supplied to resolve the key');
 
-  const when = signedAt ?? effectiveSigningTime(doc);
+  const claimed = effectiveSigningTime(doc, { kind });
+  const when = typeof signedAt === 'number' ? Math.max(signedAt, claimed) : claimed;
   if (timeChecks) {
     if (typeof jwk.iat === 'number' && jwk.iat > when) {
       throw new VerifyError(`key ${keyId} was issued at ${jwk.iat}, after the signing time ${when}`);
