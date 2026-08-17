@@ -271,7 +271,7 @@ There is **one hashing rule in this protocol**, used everywhere a document names
 4. Retain the previous version, served byte-identically at its derived URL (§5.4)
 5. **Record the `(seq, hash)` of the version just produced**, and make that record available to the identity's owner. §13.2's transparency claim assumes an auditor, and an identity cannot audit its own chain without a record of what it actually published — where a host holds a signing key, the member's own or a delegated one signing manifests on their behalf (§4.6), this is the owner's only means of noticing a version they did not ask for. It is a weak check alone; the durable one is comparison by other people (§5.3.1, §16).
 
-The continuity key is often revoked *in the very version it signs*; that is normal rotation, and validity is judged against the previous version's state. The continuity key MUST remain listed in the version it signs, or that version cannot be verified from its own bytes; it MAY be dropped later. Genesis (`seq: 1`) has no predecessor and is signed by a non-revoked key it contains, under the same exclusions — never a recovery or delegated key (§4.5, §4.6).
+The continuity key is often revoked *in the very version it signs*; that is normal rotation, and validity is judged against the previous version's state. It stays listed under §4.3's rule, which reaches further than this one does: retention is permanent (§5.4), so the version it signed is served forever and the key can never be dropped. Genesis (`seq: 1`) has no predecessor and is signed by a non-revoked key it contains, under the same exclusions — never a recovery or delegated key (§4.5, §4.6).
 
 ### 5.3. Consumer Enforcement (Pinning)
 
