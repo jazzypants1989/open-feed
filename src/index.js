@@ -117,6 +117,7 @@ export {
 export {
   createInbox,
   DedupStore,
+  DeliveryStore,
   splitTarget,
   renderable,
   publishable,

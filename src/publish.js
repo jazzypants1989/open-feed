@@ -81,6 +81,8 @@ export class Publisher {
     this.itemUrls = itemUrls;
     this.nextUpdate = nextUpdate;
     this.pinStore = pins;
+    // §10.6: recipient identity URL -> { seq, hash } of the last item delivered to them.
+    this.deliveries = new Map();
 
     this.identityVersions = [];
     this.manifestVersions = [];
@@ -306,7 +308,7 @@ export class Publisher {
    * one is the author promoting a delivered item to a published one at a new `_version` (§7.5),
    * which is `publishItem`'s job and needs to look like a decision.
    */
-  deliverItem(fields, { at, recipients = [], pins = null } = {}) {
+  deliverItem(fields, { at, to = null, recipients = [], pins = null } = {}) {
     const id = fields.id;
     if (typeof id !== 'string' || id.includes('#')) {
       throw new PublishError(`an item id must be a string without '#' (§7.2): ${id}`);
@@ -332,7 +334,50 @@ export class Publisher {
     if (item.content_text === undefined && item.content_html === undefined) {
       throw new PublishError(`${id} carries neither content_text nor content_html (§7.2)`);
     }
-    return this.#signDocument(this.#withPins(item, { recipients, pins, _pins: fields._pins }));
+    const signed = this.#signDocument(
+      this.#withDelivery(this.#withPins(item, { recipients, pins, _pins: fields._pins }), to),
+    );
+    // Advance the stream only once the bytes exist, because what the *next* delivery commits to
+    // is this item's full published bytes (§5.1) — signature included, like every other hash in
+    // this protocol.
+    if (to && signed._delivery) {
+      this.deliveries.set(normalizeIdentityUrl(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
+    }
+    return signed;
+  }
+
+  /**
+   * §10.6's delivery chain: a counter and the hash of the previous item this sender delivered to
+   * this recipient, both inside the signed bytes.
+   *
+   * The state lives here because only the sender has it. A delivered item is committed by
+   * nothing — no feed, no manifest, no §7.6 URL — so a receiving host can drop one and leave no
+   * trace anywhere, and under §13.2's hostile-custodian tier that host is the adversary. The
+   * counter makes a *selective* drop visible to its victim; the hash is what makes the victim's
+   * observation checkable by a third party, since the carrier item is the sender's signature over
+   * the exact bytes of something the recipient does not hold.
+   *
+   * `to` is the recipient's identity URL, and it is a separate argument from `recipients` (which
+   * is §16.1's pin scoping) because they answer different questions: pins may be drawn for
+   * several parties an item is *about*, while a delivery stream is one pair. An item delivered to
+   * more than one inbox is §15.2's wrapped case, where §10.6 puts the entry in the per-recipient
+   * JWE header instead — a top-level array naming each recipient would tell every recipient's
+   * host who else was written to, which is the disclosure §11.4 exists to avoid.
+   *
+   * No `to`, no field: §10.6 is a SHOULD and a sender that does not track streams emits nothing
+   * rather than a counter that restarts at 1 and means nothing.
+   */
+  #withDelivery(item, to) {
+    if (!to) return item;
+    const key = normalizeIdentityUrl(to);
+    const last = this.deliveries.get(key) ?? null;
+    const entry = { seq: (last?.seq ?? 0) + 1 };
+    if (last) entry.prev = last.hash;
+    const withEntry = { ...item, _delivery: entry };
+    // The hash committed to the *next* delivery is of the signed item, which does not exist
+    // until the caller signs it — so the stream is advanced by `deliverItem` after signing,
+    // never here. Returning the unsigned shape keeps this function honest about that.
+    return withEntry;
   }
 
   /**

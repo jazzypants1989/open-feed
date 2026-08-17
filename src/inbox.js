@@ -28,6 +28,7 @@ import {
 } from './jws.js';
 import { SIZE_CAPS, createFetcher, FetchError } from './fetch.js';
 import { admissibleItemPins } from './chain.js';
+import { documentHash, timingSafeEqualString } from './hash.js';
 
 /** §10.4's table, as the only place a status and a code are paired. */
 export const RESPONSES = {
@@ -60,6 +61,87 @@ export const RESPONSES = {
  * migration; otherwise they are two items, and the collision is worth surfacing because it is
  * either a uniqueness failure or an attempt.
  */
+/**
+ * §10.6: the per-`(sender, recipient)` delivery chain, from the receiving side.
+ *
+ * A published item is committed by a manifest, so a consumer can learn that something it never
+ * saw exists. A delivered item is committed by nothing — no feed, no manifest, no §7.6 URL, and
+ * §14 says the `delivered` and `received` slots carry no completeness proof. So the receiving
+ * host can drop any delivery and the only signal anywhere is the sender's retry timeout, and
+ * under §13.2's hostile-custodian tier that host is the adversary.
+ *
+ * A counter catches the **selective** drop, which is the shape isolation actually takes: one
+ * message, or one person, suppressed while the stream keeps flowing. The `prev` hash is what
+ * makes the catch worth anything to somebody else — item 4 carries the *sender's signature* over
+ * the exact bytes of an item this receiver does not hold, which is checkable by anyone with the
+ * sender's identity document and survives into §14's bundle. A bare counter yields "I am missing
+ * one", indistinguishable from a recipient who deleted it themselves.
+ *
+ * The pair key is the author, subject to predecessor equivalence exactly as `DedupStore`'s is
+ * (§3.4) — a migration is not a new stream — so this takes the same `equivalent` predicate and
+ * for the same reason.
+ *
+ * What it cannot do is in §10.6 beside the rule: a host dropping an entire *suffix* leaves
+ * silence, and silence from a sender is not evidence. This does not make delivery reliable.
+ */
+export class DeliveryStore {
+  constructor({ equivalent = (a, b) => normalizeIdentityUrl(a) === normalizeIdentityUrl(b) } = {}) {
+    this.bySender = new Map(); // normalized author -> { seq, hash }
+    this.equivalent = equivalent;
+  }
+
+  #holder(author) {
+    const me = normalizeIdentityUrl(author);
+    if (this.bySender.has(me)) return me;
+    for (const held of this.bySender.keys()) if (this.equivalent(held, me)) return held;
+    return null;
+  }
+
+  /**
+   * What this delivery says about the ones before it. Read-only, and safe to run before
+   * verification because it writes nothing — §10.3's write-before-verify rule governs the
+   * companion `record` below for the same reason it governs the dedup store.
+   *
+   * `null` means nothing to report: no `_delivery` (the field is a SHOULD), or a first delivery
+   * from this sender, or an unbroken continuation.
+   */
+  check(author, item) {
+    const d = item?._delivery;
+    if (!d || !Number.isInteger(d.seq) || d.seq < 1) return null;
+    const holder = this.#holder(author);
+    if (holder === null) return null; // first contact: nothing to be continuous with
+    const last = this.bySender.get(holder);
+    if (d.seq <= last.seq) {
+      return { kind: 'delivery_replay', expected: last.seq + 1, got: d.seq, missingHash: null };
+    }
+    if (d.seq > last.seq + 1) {
+      return {
+        kind: 'delivery_gap', expected: last.seq + 1, got: d.seq,
+        // The hash the sender named is the bytes of the item immediately before this one. Where
+        // more than one is missing it names only the last of them, which is still a signed claim
+        // about bytes this receiver does not hold.
+        missingHash: typeof d.prev === 'string' ? d.prev : null,
+      };
+    }
+    if (typeof d.prev === 'string' && !timingSafeEqualString(d.prev, last.hash)) {
+      return { kind: 'delivery_broken_link', expected: last.seq + 1, got: d.seq, missingHash: d.prev };
+    }
+    return null;
+  }
+
+  /** Only after verification succeeds (§10.3's rule, same reasoning). */
+  record(author, item) {
+    const d = item?._delivery;
+    if (!d || !Number.isInteger(d.seq)) return null;
+    const holder = this.#holder(author) ?? normalizeIdentityUrl(author);
+    const last = this.bySender.get(holder);
+    if (last && d.seq <= last.seq) return last;      // a replay never moves the stream
+    const next = { seq: d.seq, hash: documentHash(item) };
+    this.bySender.set(holder, next);
+    return next;
+  }
+}
+
 export class DedupStore {
   constructor({ equivalent = (a, b) => normalizeIdentityUrl(a) === normalizeIdentityUrl(b) } = {}) {
     this.byId = new Map();   // id -> Map<normalized author, version>
@@ -203,6 +285,10 @@ export function createInbox({
   // the caller's cue to run the reader's `resolvePeerPin`, whose fetch is scoped to chains
   // this receiver already tracks.
   pins = null,
+  // §10.6's delivery chain, receiving side. Optional like the pin store above and for the same
+  // reason: a deployment that keeps no per-sender state cannot report a gap, and reporting one
+  // is a service to the recipient rather than a conformance check on the sender.
+  deliveries = null,
   // The chained-document URLs the owner publishes — identity document plus each feed's
   // manifest — which is what a *published* item's pins may name (§16.1's publication rule).
   // Defaults to the identity document alone; a deployment that knows its manifest URLs passes
@@ -422,14 +508,24 @@ export function createInbox({
     // delivery with exactly one of them populated.
     if (!limit({ sourceIp: null, author: normalizedAuthor })) return out('rate_limited');
 
+    // §10.6, read before the write below and computed here so an accepted delivery carries the
+    // verdict about its predecessors. Reading a store is free and unauthenticated-safe; writing
+    // one is not (§10.3).
+    const deliveryChain = deliveries ? deliveries.check(normalizedAuthor, item) : null;
+
     // ---- 9: OPTIONAL target existence, after step 7 and never before ----
     if (confirmTarget) {
       const targets = (item._rel ?? []).map((r) => splitTarget(r?.to).id).filter(Boolean);
       if (targets.length && !targets.some((id) => holdsItem(id))) return out('target_not_found');
     }
 
-    // ---- accepted: only now is the store written (§10.3) ----
+    // ---- accepted: only now is any store written (§10.3) ----
     dedup.write(normalizedAuthor, item.id, item._version);
+    // §10.6. The verdict was computed before verification because reading is free and this
+    // pipeline reads the dedup store there too; the *write* waits, for §10.3's reason exactly —
+    // the author is attacker-controlled until step 7, and a forged delivery that advanced this
+    // stream would let anyone break a real sender's chain for this receiver permanently.
+    if (deliveries) deliveries.record(normalizedAuthor, item);
 
     // §16.1, heeded after verification like everything else that trusts the item's contents.
     // Scoping first (`admissibleItemPins` — a published item's third-party entries are ignored
@@ -463,6 +559,11 @@ export function createInbox({
       // §11.1.1: an item with no `_feed_url` was delivered, not published. The receiver holds it
       // as a custodian, and this flag is the one field every public projection must consult.
       delivered: item._feed_url === undefined,
+      // §10.6: a gap or a broken link in this sender's delivery stream. A finding and never a
+      // rejection — the item in hand is genuine, and what it reports is about the ones that
+      // never arrived. The receiver is the party being harmed and the only one positioned to
+      // notice, which is why the verdict lands here rather than anywhere the sender can see it.
+      deliveryChain,
       peerPins,
       fetches,
       fetchesBeforeVerify,

@@ -1,5 +1,10 @@
 // The delivered column has no integrity guarantee, and it is where the product's traffic is.
 //
+// STATUS: ADOPTED. §10.6 carries the rule, §15.4 and §8 carry the split it goes with, and
+// `Publisher.deliverItem({ to })` and `DeliveryStore` implement both ends. Q1's counterfactual
+// is measured by delivering with no `to` — the sender this protocol had before §10.6 — rather
+// than remembered, and Q2/Q3 now drive the shipped store instead of a model beside it.
+//
 // §1 principle 3: "The feed is the source of truth; the inbox is a push cache. Nothing exists
 // only in transit, with one stated exception (§11.1)." Then §8 makes a `like` delivered by
 // default and §15.4 makes *every* interaction on encrypted content delivered — so on a family
@@ -39,6 +44,7 @@ import {
   canonicalBytes,
   verifyDocument,
   normalizeIdentityUrl,
+  DeliveryStore,
 } from '../src/index.js';
 
 const DAY = 86400;
@@ -71,52 +77,32 @@ const check = (label, ok, detail = '') => {
 };
 
 /**
- * A sender that keeps one counter and one last-hash per recipient, and a recipient that
- * verifies the linkage. `mode` selects what the entry carries, so Q2 and Q3 differ in the
- * mechanism and in nothing else.
+ * `mode` selects what the sender emits, so Q1, Q2 and Q3 differ in the mechanism and in nothing
+ * else. `chain` is the shipped path — `deliverItem({ to })`; `none` is the sender this protocol
+ * had before §10.6; `counter` is the intermediate this file exists to reject, modelled here
+ * because it is the one shape `src/` deliberately does not offer.
  */
 function sender(publisher, { mode }) {
-  const streams = new Map(); // recipient -> { seq, prev }
+  const streams = new Map();
   return function deliver(fields, to, { at = T0 } = {}) {
+    if (mode === 'chain') return publisher.deliverItem(fields, { at, to });
+    if (mode === 'none') return publisher.deliverItem(fields, { at });
     const key = normalizeIdentityUrl(to);
-    const state = streams.get(key) ?? { seq: 0, prev: null };
-    const next = { seq: state.seq + 1 };
-    if (mode === 'chain' && state.prev) next.prev = state.prev;
-    const item = publisher.deliverItem(
-      { ...fields, ...(mode === 'none' ? {} : { _delivery: next }) },
-      { at },
-    );
-    streams.set(key, { seq: next.seq, prev: documentHash(item) });
-    return item;
+    const seq = (streams.get(key) ?? 0) + 1;
+    streams.set(key, seq);
+    return publisher.deliverItem({ ...fields, _delivery: { seq } }, { at });
   };
 }
 
 /** What a recipient can say about the stream it holds, in order of arrival. */
-function audit(held, { mode }) {
+function audit(held, author, { mode }) {
+  if (mode === 'none') return [];
+  const store = new DeliveryStore();
   const findings = [];
-  if (mode === 'none') return findings;
-  let expected = 1;
-  let previous = null;
   for (const item of held) {
-    const d = item._delivery;
-    if (d.seq !== expected) {
-      findings.push({ kind: 'gap', message: `expected delivery ${expected} from ${item.authors[0].url}, got ${d.seq}: ${d.seq - expected} item(s) never arrived` });
-    }
-    if (mode === 'chain' && previous) {
-      const named = d.prev ?? null;
-      const holding = documentHash(previous);
-      if (named !== holding) {
-        findings.push({
-          kind: 'broken_link',
-          // The recipient does not merely suspect a gap: it holds the sender's *signature* over
-          // a statement naming bytes it does not have.
-          message: `delivery ${d.seq} names ${named} as its predecessor and this receiver holds ${holding}; the sender signed an item with hash ${named} that never arrived`,
-          missingHash: named,
-        });
-      }
-    }
-    expected = d.seq + 1;
-    previous = item;
+    const f = store.check(author, item);
+    if (f) findings.push(f);
+    store.record(author, item);
   }
   return findings;
 }
@@ -134,12 +120,12 @@ for (let i = 1; i <= 5; i++) {
 const heldPlain = sent.filter((_, i) => i !== 2);
 say(`  Dad delivers 5 notes. Mom's hub drops the third. Mom holds ${heldPlain.length}.`);
 say(`  Every held item verifies: ${heldPlain.every((i) => { try { return !!verifyDocument(i, { identityDocument: dadDoc, kind: 'item' }); } catch { return false; } })}`);
-say(`  Findings available to Mom: ${audit(heldPlain, { mode: 'none' }).length}`);
+say(`  Findings available to Mom: ${audit(heldPlain, DAD, { mode: 'none' }).length}`);
 say();
 say('  Nothing. The four items she holds are perfectly signed, and there is no artifact');
 say('  anywhere — hers, Dad\'s, or the manifest\'s — in which the fifth would have appeared.');
 say('  She cannot tell a hub that dropped a note from a father who did not write one.');
-check('Q1 a dropped delivery leaves no evidence today', audit(heldPlain, { mode: 'none' }).length === 0);
+check('Q1 a dropped delivery leaves no evidence today', audit(heldPlain, DAD, { mode: 'none' }).length === 0);
 
 // ==========================================================================================
 say();
@@ -152,8 +138,8 @@ const sentB = [];
 for (let i = 1; i <= 5; i++) {
   sentB.push(counted({ id: `urn:uuid:b-${i}`, content_text: `note ${i}` }, MOM, { at: T0 + i * 3600 }));
 }
-const middleDrop = audit(sentB.filter((_, i) => i !== 2), { mode: 'counter' });
-const suffixDrop = audit(sentB.slice(0, 2), { mode: 'counter' });
+const middleDrop = audit(sentB.filter((_, i) => i !== 2), DAD, { mode: 'counter' });
+const suffixDrop = audit(sentB.slice(0, 2), DAD, { mode: 'counter' });
 say(`  hub drops the middle one (3 of 5) : ${middleDrop.length} finding(s) — ${middleDrop[0]?.kind ?? 'none'}`);
 say(`  hub drops the tail (3, 4 and 5)   : ${suffixDrop.length} finding(s)`);
 say();
@@ -161,7 +147,7 @@ say('  The selective drop is caught, which is the attack that matters: suppressi
 say('  message, or one person, inside a stream that otherwise keeps flowing. The suffix drop');
 say('  is not caught and cannot be — silence from a sender is indistinguishable from a sender');
 say('  who stopped writing, which is the freeze attack again, one layer down.');
-check('Q2 a counter catches the selective drop', middleDrop.length === 1 && middleDrop[0].kind === 'gap');
+check('Q2 a counter catches the selective drop', middleDrop.length === 1 && middleDrop[0].kind === 'delivery_gap');
 check('Q2 a counter does not catch a suffix drop', suffixDrop.length === 0);
 
 // ==========================================================================================
@@ -176,13 +162,13 @@ for (let i = 1; i <= 5; i++) {
   sentC.push(chained({ id: `urn:uuid:c-${i}`, content_text: `note ${i}` }, MOM, { at: T0 + i * 3600 }));
 }
 const heldC = sentC.filter((_, i) => i !== 2);
-const chainFindings = audit(heldC, { mode: 'chain' });
+const chainFindings = audit(heldC, DAD, { mode: 'chain' });
 say(`  hub drops the middle one: ${chainFindings.length} finding(s)`);
 for (const f of chainFindings) say(`    ${f.kind}: ${f.message}`);
 say();
 
 // The claim: what Mom holds is not a suspicion, it is a signed artifact naming bytes she lacks.
-const link = chainFindings.find((f) => f.kind === 'broken_link');
+const link = chainFindings.find((f) => f.kind === 'delivery_gap' || f.kind === 'delivery_broken_link');
 const carrier = heldC.find((i) => i._delivery.prev === link?.missingHash);
 const carrierVerifies = (() => {
   try { return !!verifyDocument(carrier, { identityDocument: dadDoc, kind: 'item' }); } catch { return false; }

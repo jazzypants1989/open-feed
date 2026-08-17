@@ -13,6 +13,8 @@ import { DAY, T0, newSite, consumer, makeSigner } from './helpers/site.js';
 import {
   createInbox,
   DedupStore,
+  DeliveryStore,
+  documentHash,
   splitTarget,
   renderable,
   publishable,
@@ -627,4 +629,79 @@ test('a publisher holding pins emits them by construction, not by remembering to
     { recipients: [momDocument] },
   );
   assert.equal(bare._pins, undefined);
+});
+
+// ---- §10.6: delivery continuity ----
+
+test('a dropped delivery is visible to its victim, and names the bytes it is missing', async (t) => {
+  // The delivered column is committed by nothing: no feed, no manifest, no §7.6 URL, and §14
+  // says the `delivered` and `received` slots carry no completeness proof. So the receiving host
+  // can drop any delivery and the only signal anywhere is the sender's retry timeout — and under
+  // §13.2's hostile-custodian tier that host is the adversary.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+
+  const sent = [];
+  for (let i = 1; i <= 4; i++) {
+    sent.push(sender.deliverItem(
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { at: T0 - 500 + i, to: MOM },
+    ));
+  }
+  assert.deepEqual(sent.map((i) => i._delivery.seq), [1, 2, 3, 4]);
+  assert.equal(sent[1]._delivery.prev, documentHash(sent[0]), 'each names the previous by its full published bytes');
+  assert.equal(sent[0]._delivery.prev, undefined, 'the first names nothing');
+
+  const deliveries = new DeliveryStore();
+  const inbox = inboxFor(t, site, { deliveries });
+
+  // Mom's hub delivers the first two, drops the third, delivers the fourth.
+  const verdicts = [];
+  for (const item of [sent[0], sent[1], sent[3]]) {
+    const got = await inbox.deliver(canonicalBytes(item));
+    assert.equal(got.status, 202);
+    verdicts.push(got.deliveryChain);
+  }
+  assert.deepEqual(verdicts.slice(0, 2), [null, null], 'an unbroken stream reports nothing');
+
+  const gap = verdicts[2];
+  assert.equal(gap.kind, 'delivery_gap');
+  assert.equal(gap.expected, 3);
+  assert.equal(gap.got, 4);
+  // The whole reason the hash is there rather than a bare counter: Mom does not merely suspect a
+  // gap, she holds Gran's *signature* over the exact bytes of an item she was never given —
+  // checkable by anyone with Gran's identity document, and durable into her export bundle.
+  assert.equal(gap.missingHash, documentHash(sent[2]));
+  assert.ok(!sent.slice(0, 2).some((i) => documentHash(i) === gap.missingHash));
+});
+
+test('the delivery stream is not advanced by an unverified sender (§10.3\'s rule, §10.6\'s store)', async (t) => {
+  // The same write-before-verify hazard the dedup store has, and it bites harder here: a forged
+  // delivery that advanced this stream would break a real sender's chain for this receiver
+  // permanently, and every genuine item after it would report a gap that never happened.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+  const first = sender.deliverItem(
+    { id: 'urn:uuid:real-1', content_text: 'one', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { at: T0 - 500, to: MOM },
+  );
+
+  const deliveries = new DeliveryStore();
+  const inbox = inboxFor(t, site, { deliveries });
+
+  // A forgery claiming to be Gran, at a delivery far ahead of anything she has sent.
+  const forged = { ...first, id: 'urn:uuid:forged', _delivery: { seq: 99 }, _sig: first._sig };
+  const rejected = await inbox.deliver(canonicalBytes(forged));
+  assert.equal(rejected.status, 401);
+  assert.equal(deliveries.bySender.size, 0, 'nothing was recorded for a sender who never verified');
+
+  const accepted = await inbox.deliver(canonicalBytes(first));
+  assert.equal(accepted.status, 202);
+  assert.equal(accepted.deliveryChain, null, 'the real first delivery is still a first delivery');
 });
