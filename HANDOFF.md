@@ -3,7 +3,7 @@
 Delete this file when it has been consumed. It is a list of what is still open plus the traps;
 none of it belongs in `CLAUDE.md` or the spec. `tmp/review-findings.md` is the durable register.
 
-**Baseline:** `npm test` → **246 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
+**Baseline:** `npm test` → **247 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
 `npm run prototypes` → all 17 hold (and now write `tmp/prototype-results.json`, gitignored —
 read it before paying for a rerun; the full suite costs ~5 min). Working tree clean.
 
@@ -48,20 +48,7 @@ five decisions it surfaced, then I worked the resulting queue. 13 commits on top
   (assorted nits, some fixed in passing), S2.11 (doc drift — NOT done, see below).
 
 **Old backlog (Stage 0):**
-- **DONE, revert-checked test:** 0.1 (prior pass), 0.2, 0.3, 0.4, 0.5, 0.6.
-- **Code DONE, test incomplete — FIX THESE FIRST, they are cheap:**
-  - **0.8** (rate-limiter eviction): fix is `delete`-then-`set` on both paths in
-    `inbox.js`'s `defaultRateLimit`, matching the module's own comment. The included test
-    (`test/inbox.test.js`, "churning fresh keys") does **not** reliably reproduce the eviction
-    under its parameters — Map insertion-order reasoning is subtle and the attacker's one allowed
-    delivery repositions its bucket to the tail. Either find parameters that make it bite on
-    revert, or replace it with a direct unit test of the limiter's bucket Map.
-  - **0.9** (equivocation on a listed feed downgraded to `unreadable_feed`): code fixed in
-    `reader.js` (keeps the severe `invariant` kind) and `cli.js` (maps `invariant` → exit 2).
-    **No test** — a faithful one needs a two-feed identity, and the reference `Publisher` only
-    builds a single `feeds` entry (`publish.js:132`). Either add multi-feed support to
-    `Publisher` (small, and Stage 4's "consumer-state / fetch-order" work wants it anyway) or
-    hand-assemble a two-feed identity document in the test.
+- **DONE, revert-checked test:** 0.1 (prior pass), 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 0.9.
 
 **Still OPEN from Stage 0:** 0.7 (walked identity versions not bound to the chain's identity —
 pairs with spec 1.13), 0.10 (no upper bound on self-reported signing time — pairs with 1.4),
@@ -73,35 +60,32 @@ before acting).
 
 ## Open, in the order I would take it
 
-**1. Finish 0.8 and 0.9's tests** (above). Cheap, and they close the "every fix lands with a
-test that fails without it" gap this pass left.
-
-**2. Stage 1 spec corrections that pair with landed code**, so text and code stop disagreeing:
+**1. Stage 1 spec corrections that pair with landed code**, so text and code stop disagreeing:
 1.2↔0.3 (DONE in text this pass — verify), 1.3↔0.5 (DONE), 1.4↔0.10 (OPEN both), 1.13↔0.7 (OPEN
 both). Then the standalone-high-value ones: 1.5 (URL comparison rule — `normalizeUrlForCompare`
 implements what the spec never states), 1.6 (RFC 3339 time profile), 1.7 (`seq` contiguity).
 
-**3. Decisions 2 + 3 together** (milliseconds + `_openfeed:` namespace), then
+**2. Decisions 2 + 3 together** (milliseconds + `_openfeed:` namespace), then
 `node tmp/regen.js` to regenerate every vector against the final wire. Do these near-last: they
 touch every signed document, and doing them before the other spec work means regenerating twice.
 S2.9's Appendix B gap (vectors carry no `items`/`_next_update`/`_delivery`) closes naturally
 when you regenerate after adding those to the canonical example.
 
-**4. Docs (S2.11).** README and DISTRIBUTION-MODEL are stale against *both* the previous Stage 2
+**3. Docs (S2.11).** README and DISTRIBUTION-MODEL are stale against *both* the previous Stage 2
 and this pass. The register's S2.11 entry enumerates every concrete contradiction with line
 numbers — the sharpest is `README.md:455`, whose verification recipe ("signature fields removed",
 plural) fails on every co-signed document under §6.3. Do this after the wire has settled
 (decisions 2/3), per the previous handoff's own warning: don't edit the human docs before the
 shape they describe is final.
 
-**5. §12 conformance checklists (S2.9).** No freshness item at any level; Level 1 missing §7.6's
+**4. §12 conformance checklists (S2.9).** No freshness item at any level; Level 1 missing §7.6's
 consumer MUST and §13.17. One editing pass.
 
-**6. Prototype gate hardening.** `enctags`, `inbox`, `deltamanifest` still lack real assertion
+**5. Prototype gate hardening.** `enctags`, `inbox`, `deltamanifest` still lack real assertion
 gates on their substantive claims (register Stage 5). `enctags` also never exercises
 `src/enc.js` and quotes spec sections that no longer exist.
 
-**7. Decision 4** — the three-model adversarial review, last, over the finished state.
+**6. Decision 4** — the three-model adversarial review, last, over the finished state.
 
 ## Things that will bite you
 
@@ -128,6 +112,11 @@ gates on their substantive claims (register Stage 5). `enctags` also never exerc
 - **`createInbox` renamed `holdsItem` → `ownsItem`** (owner-authored only); "previously accepted
   here" is answered by `DedupStore.knows`, wired automatically. A deployment pointing `ownsItem`
   at its whole item store reopens the fetch-oracle (0.5).
+- **A two-feed identity needs no `Publisher` change.** `advanceIdentity({ feeds: [...current, e] })`
+  merges over the tip, and a second `Publisher` on the same identity supplies the feed and manifest
+  files — serve everything it emits *except* `openfeed*`, or it overwrites the identity chain.
+  `test/cli.test.js`'s archive-equivocation test is the worked example; Stage 4's consumer-state
+  work wants the same staging.
 - **`_next_update` strictness binds the manifest tip only**; in retained history a malformed
   value is read as absent (`assertManifestShape(doc, url, { tip })`).
 - **§13's list is numbered and cross-referenced from four files** (`§13.12–14`, `§13.16` from
