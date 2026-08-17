@@ -349,8 +349,7 @@ test('an item whose _feed_url names another feed is a copy, verified and unrejec
   const copy = {
     id: 'urn:uuid:elsewhere',
     authors: [{ url: site.url }],
-    _feed_url: `${site.url}other-feed.json`,
-    _version: 1,
+    _openfeed: { feed_url: `${site.url}other-feed.json`, version: 1 },
     content_text: 'canonical somewhere else',
     date_published: new Date((T0 + 2 * DAY) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
   };
@@ -591,7 +590,7 @@ test('an attachment with no _sha256 is unverified content inside a verified item
       content_text: 'cookies',
       attachments: [{ url: `${site.url}cookies.jpg`, mime_type: 'image/jpeg' }],
     }, { at: T0 }),
-    /_sha256/,
+    /_openfeed\.sha256/,
   );
 
   // So build the item honestly, then strip the hash the way a non-conforming publisher would:
@@ -599,14 +598,14 @@ test('an attachment with no _sha256 is unverified content inside a verified item
   p.publishItem({
     id: 'urn:uuid:photo',
     content_text: 'cookies',
-    attachments: [{ url: `${site.url}cookies.jpg`, mime_type: 'image/jpeg', _sha256: 'x'.repeat(43) }],
+    attachments: [{ url: `${site.url}cookies.jpg`, mime_type: 'image/jpeg', _openfeed: { sha256: 'x'.repeat(43)  }}],
   }, { at: T0 });
   const hashless = p.publishItem({
     id: 'urn:uuid:hashless',
     content_text: 'more cookies',
-    attachments: [{ url: `${site.url}more.jpg`, mime_type: 'image/jpeg', _sha256: 'y'.repeat(43) }],
+    attachments: [{ url: `${site.url}more.jpg`, mime_type: 'image/jpeg', _openfeed: { sha256: 'y'.repeat(43)  }}],
   }, { at: T0 + 60 });
-  delete hashless.attachments[0]._sha256;
+  delete hashless.attachments[0]._openfeed?.sha256;
   hashless._sig = sign(hashless, signer.privateKey, `${site.url}#key-1`);
   p.items.set('urn:uuid:hashless', hashless);
   p.advanceManifest({ updated: T0 + 3600 });
@@ -943,8 +942,7 @@ test('an item that fails verification writes nothing into the first-observation 
   const asGran = (id, content) => ({
     id,
     authors: [{ url: board.url }],
-    _feed_url: `${site.url}feed.json`,
-    _version: 1,
+    _openfeed: { feed_url: `${site.url}feed.json`, version: 1 },
     content_text: content,
     date_published: new Date(T0 * 1000).toISOString(),
   });
@@ -1180,7 +1178,7 @@ test('one malformed author URL is one rejected item, not a dead read (§7.1)', a
   // Splice a poisoned item into the served page: a non-https author URL, which normalizeIdentityUrl
   // refuses (§3.1). Signed by nobody — it never reaches verification, which is the point.
   const poisoned = {
-    id: 'urn:uuid:poison', authors: [{ url: 'http://x/' }], _version: 1,
+    id: 'urn:uuid:poison', authors: [{ url: 'http://x/' }], _openfeed: { version: 1 },
     content_text: 'malformed', date_published: new Date(T0 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
   };
   site.replace('feed.json', { ...p.feed, items: [poisoned, ...p.feed.items] });

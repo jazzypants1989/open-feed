@@ -56,7 +56,7 @@ export const RESPONSES = {
  *
  * **The id-half match is bounded by authorship, and the bound is the security half of it.** Ids
  * are globally unique by convention and published in the clear, so without it anyone can copy a
- * public item's `id`, sign their own item at a higher `_version`, and have a receiver file it as
+ * public item's `id`, sign their own item at a higher `_openfeed.version`, and have a receiver file it as
  * a revision of somebody else's. Two different authors are one record only across a *verified*
  * migration; otherwise they are two items, and the collision is worth surfacing because it is
  * either a uniqueness failure or an attempt.
@@ -109,16 +109,16 @@ export class DeliveryStore {
    * verification because it writes nothing — §10.3's write-before-verify rule governs the
    * companion `record` below for the same reason it governs the dedup store.
    *
-   * `null` means nothing to report: no `_delivery` (the field is a SHOULD), a first delivery
+   * `null` means nothing to report: no `_openfeed.delivery` (the field is a SHOULD), a first delivery
    * from this sender, an unbroken continuation — or a late arrival that fills a recorded gap,
    * which §10.4's 24-hour retry window makes an ordinary event rather than a replay.
    */
   check(author, item) {
-    const d = item?._delivery;
+    const d = item?._openfeed?.delivery;
     if (!d || !Number.isInteger(d.seq) || d.seq < 1) return null;
     // §10.6: a published item may be pushed to any number of inboxes, so no single counter could
-    // be true of them all — receivers MUST ignore `_delivery` where `_feed_url` is present.
-    if (typeof item._feed_url === 'string') return null;
+    // be true of them all — receivers MUST ignore `_openfeed.delivery` where `_openfeed.feed_url` is present.
+    if (typeof item._openfeed?.feed_url === 'string') return null;
     const holder = this.#holder(author);
     if (holder === null) {
       // First contact at seq 1 is the ordinary genesis. First contact deeper into a stream is
@@ -165,9 +165,9 @@ export class DeliveryStore {
 
   /** Only after verification succeeds (§10.3's rule, same reasoning). */
   record(author, item) {
-    const d = item?._delivery;
+    const d = item?._openfeed?.delivery;
     if (!d || !Number.isInteger(d.seq) || d.seq < 1) return null;
-    if (typeof item._feed_url === 'string') return null; // same §10.6 rule as `check`
+    if (typeof item._openfeed?.feed_url === 'string') return null; // same §10.6 rule as `check`
 
     const holder = this.#holder(author) ?? normalizeIdentityUrl(author);
     const st = this.bySender.get(holder);
@@ -282,7 +282,7 @@ export class DedupStore {
 }
 
 /**
- * Split a `_rel` entry's `to` at the **last** `#` (§8).
+ * Split an `_openfeed.rel` entry's `to` at the **last** `#` (§8).
  *
  * Unambiguous because ids never contain one (§7.2), which is the entire reason §7.2 forbids it.
  */
@@ -309,7 +309,7 @@ export function renderable(item, { trusted = false } = {}) {
   return {
     text: escaped,
     // §7.5: bridged content is never natively authentic, and §10.5 makes distinct display a MUST.
-    unverified: item?._unverified === true,
+    unverified: item?._openfeed?.unverified === true,
     // Present but deliberately not sanitized here — a caller that renders it owes it an
     // allowlist-based sanitizer, and one that cannot supply one renders `text`.
     html: trusted ? item?.content_html ?? null : null,
@@ -362,11 +362,11 @@ export function createInbox({
   identityCacheSeconds = 3600,
   identityCacheEntries = 4096,
   // §7.3's allowlist, checked on receipt. A producer MUST emit exactly those fields; a receiver
-  // is deliberately more lenient about `_rel` (§8.2) and has no reason to be lenient about a
+  // is deliberately more lenient about `_openfeed.rel` (§8.2) and has no reason to be lenient about a
   // tombstone that kept its title.
   strictTombstones = true,
   // §16.1's heed side, OPTIONAL like the facility itself. Given the owner's `PinStore`, an
-  // accepted delivery's admissible `_pins` entries are judged against it and reported — local
+  // accepted delivery's admissible `_openfeed.pins` entries are judged against it and reported — local
   // verdicts only, no fetch, because §10.2's fetch discipline governs this pipeline and §16.1
   // forbids dereferencing on a stranger's word anyway. An entry whose verdict is `check` is
   // the caller's cue to run the reader's `resolvePeerPin`, whose fetch is scoped to chains
@@ -426,22 +426,27 @@ export function createInbox({
   }
   const limit = rateLimit ?? defaultRateLimit;
 
+  // §7.3's allowlist, in two halves because §7.2 puts this protocol's item members inside
+  // `_openfeed` and leaves `_sig` beside it. Both halves are closed: a tombstone smuggling the
+  // deleted content back in under `_openfeed` would satisfy a check that only looked at the top.
   const TOMBSTONE_FIELDS = new Set([
-    'id', 'authors', 'date_published', 'date_modified',
-    '_version', '_deleted', '_sig', 'content_text', '_feed_url', '_rel',
+    'id', 'authors', 'date_published', 'date_modified', '_sig', 'content_text', '_openfeed',
+  ]);
+  const TOMBSTONE_OPENFEED = new Set([
+    'version', 'deleted', 'feed_url', 'rel',
     // §7.3's two later admissions: the gateway marker travels with the item wherever it goes
     // (§7.5), and a delivered tombstone holds its own place in its pair's stream (§10.6).
-    '_unverified', '_delivery',
+    'unverified', 'delivery',
   ]);
 
   /**
-   * §10.2 step 3. One lookup over `_rel`, type-agnostic so an interaction of a type this
+   * §10.2 step 3. One lookup over `_openfeed.rel`, type-agnostic so an interaction of a type this
    * receiver has never heard of still reaches its subject (§8.1's `root` entry is the case that
    * matters: it is honored by receivers that predate it).
    */
   function relevant(item) {
-    if (!Array.isArray(item._rel)) return false;
-    for (const rel of item._rel) {
+    if (!Array.isArray(item._openfeed?.rel)) return false;
+    for (const rel of item._openfeed?.rel) {
       const { feed, id } = splitTarget(rel?.to);
       // An entry whose **id half** names an item of the owner's, or one previously accepted
       // into this inbox, is relevant whatever its feed half says (§10.2). Ids are globally
@@ -532,7 +537,7 @@ export function createInbox({
     if (typeof author !== 'string' || !Array.isArray(item.authors) || item.authors.length !== 1) {
       return out('missing_field', 'authors (§6.6: exactly one entry)');
     }
-    if (!Number.isInteger(item._version) || item._version < 1) return out('missing_field', '_version');
+    if (!Number.isInteger(item._openfeed?.version) || item._openfeed?.version < 1) return out('missing_field', '_version');
     if (typeof item.date_published !== 'string') return out('missing_field', 'date_published');
     if (typeof item._sig !== 'string') return out('missing_field', '_sig');
     if (item.content_text === undefined && item.content_html === undefined) {
@@ -547,8 +552,12 @@ export function createInbox({
     // §7.3: a tombstone MUST contain exactly the listed fields and no others. An allowlist on
     // purpose — a denylist naming today's content fields would let a conformant tombstone keep a
     // title, a tag, or an extension payload carrying the very thing the author deleted.
-    if (strictTombstones && item._deleted === true) {
-      const extra = Object.keys(item).filter((k) => !TOMBSTONE_FIELDS.has(k));
+    if (strictTombstones && item._openfeed?.deleted === true) {
+      const extra = [
+        ...Object.keys(item).filter((k) => !TOMBSTONE_FIELDS.has(k)),
+        ...Object.keys(item._openfeed ?? {})
+          .filter((k) => !TOMBSTONE_OPENFEED.has(k)).map((k) => `_openfeed.${k}`),
+      ];
       if (extra.length) return out('missing_field', `tombstone carries ${extra.join(', ')} (§7.3)`);
     }
 
@@ -558,7 +567,7 @@ export function createInbox({
     // it is not, which is the same existence oracle as `404`/`409`. Safe where ids are
     // unguessable UUIDs, and the reason `confirmTarget` defaults off.
     const stored = dedup.read(normalizedAuthor, item.id);
-    const tombstoneOfStored = item._deleted === true && stored?.version !== undefined && stored.version !== null;
+    const tombstoneOfStored = item._openfeed?.deleted === true && stored?.version !== undefined && stored.version !== null;
     if (!relevant(item) && !tombstoneOfStored) return out('not_relevant');
 
     // ---- 4: timestamp bounds ----
@@ -572,7 +581,7 @@ export function createInbox({
     // stale nor an update. It is a different item that happens to share a globally-unique id,
     // which is a uniqueness failure or an attempt; it is filed as its own record and named in
     // the result rather than resolved here.
-    if (!stored?.collision && typeof stored?.version === 'number' && item._version <= stored.version) {
+    if (!stored?.collision && typeof stored?.version === 'number' && item._openfeed?.version <= stored.version) {
       return out('stale_version', `held at version ${stored.version}`);
     }
 
@@ -615,7 +624,7 @@ export function createInbox({
 
     // ---- 9: OPTIONAL target existence, after step 7 and never before ----
     if (confirmTarget) {
-      const targets = (item._rel ?? []).map((r) => splitTarget(r?.to).id).filter(Boolean);
+      const targets = (item._openfeed?.rel ?? []).map((r) => splitTarget(r?.to).id).filter(Boolean);
       if (targets.length && !targets.some((id) => ownsItem(id) || dedup.knows(id))) return out('target_not_found');
     }
 
@@ -629,7 +638,7 @@ export function createInbox({
     // becomes an id anyone else can name to reach this inbox.
     const discard = blocked.has(normalizedAuthor);
     if (!discard) {
-      dedup.write(normalizedAuthor, item.id, item._version);
+      dedup.write(normalizedAuthor, item.id, item._openfeed?.version);
       // §10.6. The verdict was computed before verification because reading is free and this
       // pipeline reads the dedup store there too; the *write* waits, for §10.3's reason exactly —
       // the author is attacker-controlled until step 7, and a forged delivery that advanced this
@@ -643,7 +652,7 @@ export function createInbox({
     // is local and free: `corroborates` and `untracked` are terminal, and `check` or `unknown`
     // hand the caller §16.1's next move without this pipeline making a single fetch for it.
     let peerPins = null;
-    if (pins && Array.isArray(item._pins)) {
+    if (pins && Array.isArray(item._openfeed?.pins)) {
       const { admissible, ignored } = admissibleItemPins(item, { ownedChainUrls: ownChains });
       peerPins = {
         entries: admissible.map((e) => ({ ...e, ...pins.reconcilePeerPin(e.url, e.seq, e.hash) })),
@@ -665,9 +674,9 @@ export function createInbox({
       item: discard ? null : item,
       discarded: discard,
       collision: stored?.collision ?? null,
-      // §11.1.1: an item with no `_feed_url` was delivered, not published. The receiver holds it
+      // §11.1.1: an item with no `_openfeed.feed_url` was delivered, not published. The receiver holds it
       // as a custodian, and this flag is the one field every public projection must consult.
-      delivered: item._feed_url === undefined,
+      delivered: item._openfeed?.feed_url === undefined,
       // §10.6: a gap or a broken link in this sender's delivery stream. A finding and never a
       // rejection — the item in hand is genuine, and what it reports is about the ones that
       // never arrived. The receiver is the party being harmed and the only one positioned to
@@ -700,5 +709,5 @@ export function createInbox({
  * rather than at a list of today's surfaces, and it costs one lookup.
  */
 export function publishable(item) {
-  return typeof item?._feed_url === 'string';
+  return typeof item?._openfeed?.feed_url === 'string';
 }

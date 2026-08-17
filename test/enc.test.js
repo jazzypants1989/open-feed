@@ -59,12 +59,12 @@ function encryptedItem(author, { id, feedUrl, recipients, audience, content }) {
   const item = {
     id,
     authors: [{ url: author.url }],
-    _version: 1,
     content_text: '',
     date_published: iso(T0),
-    ...(feedUrl ? { _feed_url: feedUrl } : {}),
+    _openfeed: { version: 1, ...(feedUrl ? { feed_url: feedUrl } : {}) },
   };
-  item._enc = seal({ item, content, recipients: recipients.map((r) => r.document), audience });
+  // Sealed against the item as it stands, then the envelope joins the same object (§7.2, §15.2.1).
+  item._openfeed.enc = seal({ item, content, recipients: recipients.map((r) => r.document), audience });
   item._sig = sign(item, author.signer.privateKey, `${author.url}#${author.signer.kid}`);
   return item;
 }
@@ -126,7 +126,7 @@ test('the envelope carries one ephemeral and no kid, and its tags disclose nothi
   // `kid` is forbidden here.
   const of = (id) => encryptedItem(mom, {
     id, feedUrl: 'https://mom.pence.family/feed.json', recipients: [dad, gran], content: { content_text: 'x' },
-  })._enc;
+  })._openfeed?.enc;
 
   const first = of('urn:uuid:one');
   const second = of('urn:uuid:two');
@@ -173,11 +173,11 @@ test('a tag match whose unwrap fails keeps scanning and then fails closed', () =
     content: { content_text: 'still readable' },
   });
 
-  const dadTag = item._enc.recipients.find(
+  const dadTag = item._openfeed?.enc.recipients.find(
     (s) => s.header._tag === slotTag(crypto.diffieHellman({
       privateKey: dad.encPrivate,
       publicKey: crypto.createPublicKey({
-        key: JSON.parse(Buffer.from(item._enc.protected, 'base64url').toString('utf8')).epk,
+        key: JSON.parse(Buffer.from(item._openfeed?.enc.protected, 'base64url').toString('utf8')).epk,
         format: 'jwk',
       }),
     })),
@@ -185,7 +185,7 @@ test('a tag match whose unwrap fails keeps scanning and then fails closed', () =
   assert.ok(dadTag, 'Dad has a slot');
 
   // A forged slot carrying Dad's tag and garbage key material, placed first.
-  item._enc.recipients.unshift({
+  item._openfeed?.enc.recipients.unshift({
     header: { alg: 'ECDH-ES+A256KW', _tag: dadTag.header._tag },
     encrypted_key: b64u(crypto.randomBytes(40)),
   });
@@ -194,7 +194,7 @@ test('a tag match whose unwrap fails keeps scanning and then fails closed', () =
   assert.equal(plaintext.content_text, 'still readable', 'the reader kept scanning past the collision');
 
   // And with every real slot gone, it fails closed rather than half-opening.
-  item._enc.recipients = [item._enc.recipients[0]];
+  item._openfeed.enc.recipients = [item._openfeed.enc.recipients[0]];
   assert.throws(() => openEnvelope(item, { privateKeys: [dad.encPrivate] }), EncError);
 });
 
@@ -219,12 +219,10 @@ test('a relayed ciphertext is refused, and the relayer never had to be in the au
   const relayed = {
     id: 'urn:uuid:eves-post',
     authors: [{ url: eve.url }],
-    _feed_url: 'https://eve.example/feed.json',
-    _version: 1,
+    _openfeed: { feed_url: 'https://eve.example/feed.json', version: 1 },
     content_text: '',
     date_published: iso(T0 + 60),
-    _enc: original._enc,
-    _rel: [{ type: 'quote', to: 'https://mom.pence.family/feed.json#urn:uuid:private' }],
+    _openfeed: { enc: original._openfeed?.enc, rel: [{ type: 'quote', to: 'https://mom.pence.family/feed.json#urn:uuid:private' }] },
   };
   relayed._sig = sign(relayed, eve.signer.privateKey, `${eve.url}#${eve.signer.kid}`);
 
@@ -253,10 +251,10 @@ test('every field of the binding is checked, including a _feed_url that appeared
   // §11.1.1: only the author can move an item across the published/delivered line, by bumping
   // `_version`, adding `_feed_url`, and re-signing. A recipient adding one to the bytes they
   // hold is exactly what the binding stops.
-  const promoted = { ...delivered, _feed_url: 'https://dad.pence.family/feed.json' };
+  const promoted = { ...delivered, _openfeed: { ...delivered._openfeed, feed_url: "https://dad.pence.family/feed.json" } };
   assert.throws(
     () => openEnvelope(promoted, { privateKeys: [dad.encPrivate] }),
-    /_feed_url/,
+    /_openfeed\.feed_url/,
   );
 });
 
@@ -275,7 +273,7 @@ test('the audience travels inside the sealed bytes and reaches readers only', ()
     content: { content_text: 'a family thread' },
   });
 
-  const wire = JSON.stringify(item._enc);
+  const wire = JSON.stringify(item._openfeed?.enc);
   assert.ok(!wire.includes('dad.pence.family'), 'nothing about the audience is on the wire');
   assert.ok(!wire.includes('gran.example'));
 
@@ -290,7 +288,7 @@ test('the audience travels inside the sealed bytes and reaches readers only', ()
     recipients: [mom, dad],
     content: {
       content_text: 'wouldn\'t miss it',
-      _rel: [{ type: 'reply', to: 'https://mom.pence.family/feed.json#urn:uuid:convened' }],
+      _openfeed: { rel: [{ type: 'reply', to: 'https://mom.pence.family/feed.json#urn:uuid:convened' }] },
     },
   });
   assert.equal(openEnvelope(reply, { privateKeys: [mom.encPrivate] }).content_text, 'wouldn\'t miss it');
@@ -323,7 +321,7 @@ test('an encrypted attachment\'s _sha256 is over the ciphertext, so anyone can c
   const photo = crypto.randomBytes(8192);
   const sealed = sealAttachment(photo);
 
-  assert.equal(sealed._sha256, b64u(sha256(sealed.ciphertext)), 'the hash names the published bytes');
+  assert.equal(sealed._openfeed?.sha256, b64u(sha256(sealed.ciphertext)), 'the hash names the published bytes');
   assert.notDeepEqual(sealed.ciphertext.subarray(0, photo.length), photo);
   assert.deepEqual(openAttachment(sealed.ciphertext, sealed), photo);
 
@@ -340,7 +338,7 @@ test('an encrypted attachment\'s _sha256 is over the ciphertext, so anyone can c
     recipients: [dad],
     content: {
       content_text: 'the grandkids',
-      attachments: [{ url: 'https://mom.pence.family/p.enc', _sha256: sealed._sha256, _enc_key: sealed.key, _enc_iv: sealed.iv }],
+      attachments: [{ url: 'https://mom.pence.family/p.enc', _openfeed: { sha256: sealed._openfeed?.sha256 }, _enc_key: sealed.key, _enc_iv: sealed.iv }],
     },
   });
   const opened = openEnvelope(item, { privateKeys: [dad.encPrivate] });
@@ -357,13 +355,12 @@ test('§11.4\'s metadata is cleartext by construction, and the test says so out 
   const p = new Publisher({
     identity: mom.url, signer: mom.signer, profile: { name: 'Mom' }, now: () => T0,
   });
-  const carrier = { id: 'urn:uuid:visible', authors: [{ url: mom.url }], _feed_url: p.feedUrl };
+  const carrier = { id: 'urn:uuid:visible', authors: [{ url: mom.url }], _openfeed: { feed_url: p.feedUrl  }};
   const enc = seal({ item: carrier, content: { content_text: 'secret' }, recipients: [dad.document] });
   const published = p.publishItem({
     id: 'urn:uuid:visible',
     content_text: '',
-    _enc: enc,
-    _rel: [{ type: 'reply', to: 'https://gran.example/feed.json#urn:uuid:granny-post' }],
+    _openfeed: { enc: enc, rel: [{ type: 'reply', to: 'https://gran.example/feed.json#urn:uuid:granny-post' }] },
   }, { at: T0 });
 
   const wire = JSON.stringify(published);
@@ -387,7 +384,7 @@ test('the envelope is §5.1-strict: a non-canonical spelling is an EncError, nev
     'the honest spelling opens');
 
   const mutated = (field, change) =>
-    ({ ...item, _enc: { ...item._enc, [field]: change(item._enc[field]) } });
+    ({ ...item, _openfeed: { ...item._openfeed, enc: { ...item._openfeed.enc, [field]: change(item._openfeed.enc[field]) } } });
   for (const [field, change] of [
     ['tag', (v) => v + '='],
     ['ciphertext', (v) => v + '=='],
@@ -410,7 +407,7 @@ test('a hostile epk fails inside the module contract: EncError, never a bare cry
     const protectedB64 = Buffer.from(
       JSON.stringify({ enc: 'A256GCM', epk: { crv: 'X25519', kty: 'OKP', x } }),
     ).toString('base64url');
-    return { ...item, _enc: { ...item._enc, protected: protectedB64 } };
+    return { ...item, _openfeed: { ...item._openfeed, enc: { ...item._openfeed.enc, protected: protectedB64 } } };
   };
   // A truncated point, a padded spelling, and garbage: each is the attacker choosing the epk,
   // and each must surface as this module's own error before any key agreement is attempted.

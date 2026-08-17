@@ -71,8 +71,7 @@ test('canonicalizer reproduces B.2 known SHA-256', () => {
   // The external anchor: a hash computed outside this implementation. Without it a
   // canonicalizer bug would be invisible, since the same code produces and checks.
   const item = {
-    _feed_url: 'https://test.example/feed.json',
-    _version: 1,
+    _openfeed: { feed_url: 'https://test.example/feed.json', version: 1 },
     authors: [{ url: 'https://test.example/' }],
     content_text: 'Hello, wörld! 👋',
     date_published: '2025-01-15T12:00:00Z',
@@ -80,7 +79,7 @@ test('canonicalizer reproduces B.2 known SHA-256', () => {
   };
   assert.equal(
     sha256(canonicalBytes(item)).toString('hex'),
-    '7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168',
+    'cbf8bddd3412094c6d45ea5a92fff788abe29814d2a7be7d2f74390839c4fd70',
   );
 });
 
@@ -125,7 +124,7 @@ test('every vector was signed inside its key\'s validity window', () => {
 test('manifest entries commit the exact published bytes of their items', () => {
   // Spec §9: each `items` entry is [version, hash] over the item's FULL published bytes,
   // `_sig` included — a different hash from the signing payload in §6.3.
-  const items = signed.filter((v) => typeof v.doc._feed_url === 'string' && !Array.isArray(v.doc.keys));
+  const items = signed.filter((v) => typeof v.doc._openfeed?.feed_url === 'string' && !Array.isArray(v.doc.keys));
   const manifests = signed.filter((v) => typeof v.doc.feed_url === 'string');
   assert.ok(items.length >= 2 && manifests.length >= 2, 'expected item and manifest vectors');
 
@@ -135,7 +134,7 @@ test('manifest entries commit the exact published bytes of their items', () => {
       const item = items.find((v) => v.doc.id === id);
       if (!item) continue;
       const [version, hash] = entry;
-      assert.equal(item.doc._version, version, `version mismatch for ${id}`);
+      assert.equal(item.doc._openfeed?.version, version, `version mismatch for ${id}`);
       assert.equal(documentHash(item.doc), hash, `hash mismatch for ${id}`);
       checked++;
     }

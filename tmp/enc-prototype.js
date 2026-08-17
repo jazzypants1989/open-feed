@@ -156,7 +156,7 @@ const ephFor = i => xKeyFromLabel('eph-'+i);
 
 // CARRIER BINDING (the fix for the ciphertext-relay defect found in review):
 // the sealed plaintext names the item it belongs to. Without this, the envelope is
-// context-free — anyone can lift `_enc` out of Mom's item, drop it into their own
+// context-free — anyone can lift `_openfeed.enc` out of Mom's item, drop it into their own
 // freshly-signed item, and have an audience member render Mom's private words
 // attributed to the attacker. Note the attacker need not be able to READ it.
 const ITEM_ID = 'urn:uuid:aaaaaaaa-7dec-11d0-a765-00a0c91e6bf6';
@@ -171,7 +171,7 @@ const KID_URL = 'https://kid.example/';
 const plaintext = JSON.stringify({
   id: ITEM_ID,
   authors: [{ url: 'https://test.example/' }],
-  _feed_url: 'https://test.example/feed.json',
+  _openfeed: { feed_url: 'https://test.example/feed.json' },
   audience: [DAD, KID_URL],
   content_text: 'Kid took her first steps today 🥹',
   mood: 'overjoyed',
@@ -180,12 +180,12 @@ const plaintext = JSON.stringify({
 // A decrypting client MUST check the sealed binding fields against the outer item and
 // reject on any mismatch. This lives at the decrypting client, not the core verifier.
 function openBound(item, myXpriv){
-  const pt = decryptJWE(item._enc, myXpriv);
+  const pt = decryptJWE(item._openfeed?.enc, myXpriv);
   if (pt === null) return null;                      // not in the audience
   const inner = JSON.parse(pt);
   const outerAuthor = item.authors && item.authors[0] && item.authors[0].url;
   const innerAuthor = inner.authors && inner.authors[0] && inner.authors[0].url;
-  if (inner.id !== item.id || innerAuthor !== outerAuthor || inner._feed_url !== item._feed_url){
+  if (inner.id !== item.id || innerAuthor !== outerAuthor || inner._openfeed?.feed_url !== item._openfeed?.feed_url){
     return { rejected: 'carrier-binding mismatch' };  // relayed ciphertext
   }
   return inner;
@@ -195,13 +195,11 @@ const jwe = encryptJWE(plaintext, [dadEnc.x, kidEnc.x], {cek, iv, ephFor});
 
 // The encrypted ITEM: an ordinary signed item. content_text:"" keeps it JSON-Feed-valid.
 const item = {
-  _feed_url: 'https://test.example/feed.json',
-  _version: 1,
   authors: [{ url: 'https://test.example/' }],
   content_text: '',
   date_published: '2025-01-15T12:00:00Z',
   id: ITEM_ID,
-  _enc: jwe,
+  _openfeed: { feed_url: 'https://test.example/feed.json', version: 1, enc: jwe },
 };
 item._sig = sign(item, author.priv, KID);
 
@@ -214,10 +212,10 @@ const manifest = {
   feed_url: 'https://test.example/feed.json',
   seq: 1,
   updated: 1739577600,
-  items: { [item.id]: item._version },
+  items: { [item.id]: item._openfeed?.version },
 };
 manifest._sig = sign(manifest, author.priv, KID);
-const manOk = verify(manifest, author.x) && manifest.items[item.id] === item._version;
+const manOk = verify(manifest, author.x) && manifest.items[item.id] === item._openfeed?.version;
 
 // ---- CLAIM 4: recipients decrypt; stranger does not ----
 const dadReads     = openBound(item, dadEnc.priv);
@@ -225,7 +223,7 @@ const kidReads     = openBound(item, kidEnc.priv);
 const strangerReads= openBound(item, strangerEnc.priv);
 
 // ---- CLAIM 5: ciphertext relay is REJECTED ----
-// Eve cannot read the entry. She does not need to: she copies the opaque `_enc` blob
+// Eve cannot read the entry. She does not need to: she copies the opaque `_openfeed.enc` blob
 // verbatim into her own item, with a fresh id and her own authorship, and signs it
 // with her own key. Every core check passes — signature valid, author binding valid,
 // _feed_url consistent, fresh id so §7.5 exclusivity is not triggered, and an ordinary
@@ -233,14 +231,16 @@ const strangerReads= openBound(item, strangerEnc.priv);
 const eve = edKeyFromLabel('eve');
 const EVE_KID = 'https://eve.example/#eve-key-1';
 const relayed = {
-  _feed_url: 'https://eve.example/feed.json',
-  _version: 1,
   authors: [{ url: 'https://eve.example/' }],
   content_text: '',
   date_published: '2025-01-16T09:00:00Z',
   id: 'urn:uuid:eeeeeeee-7dec-11d0-a765-00a0c91e6bf6',
-  _rel: [{ type: 'reply', to: 'https://gran.example/~gran/feed.json#urn:uuid:1234' }],
-  _enc: item._enc,                     // Mom's sealed bytes, verbatim
+  _openfeed: {
+    feed_url: 'https://eve.example/feed.json',
+    version: 1,
+    rel: [{ type: 'reply', to: 'https://gran.example/~gran/feed.json#urn:uuid:1234' }],
+    enc: item._openfeed.enc,                     // Mom's sealed bytes, verbatim
+  },
 };
 relayed._sig = sign(relayed, eve.priv, EVE_KID);
 const relaySigValid = verify(relayed, eve.x);        // the forgery is a VALID signed item
@@ -277,17 +277,16 @@ const replyJwe = encryptJWE(
     iv: sha256(Buffer.from('probe-iv-reply')).subarray(0,12),
     ephFor: i => xKeyFromLabel('eph-reply-'+i) },
 );
-// Delivered, not published: no `_feed_url` (§15.4), so `_rel[].to` never lands in a
+// Delivered, not published: no `_openfeed.feed_url` (§15.4), so `_rel[].to` never lands in a
 // world-readable file. That is the other half of the design and it is why the reply is
 // POSTed to each audience member's inbox rather than appearing in Dad's feed.
 const reply = {
-  _version: 1,
+  _openfeed: { version: 1 },
   authors: [{ url: DAD }],
   content_text: '',
   date_published: '2025-01-15T13:00:00Z',
   id: REPLY_ID,
-  _rel: [{ type: 'reply', to: 'https://test.example/feed.json#' + ITEM_ID }],
-  _enc: replyJwe,
+  _openfeed: { rel: [{ type: 'reply', to: 'https://test.example/feed.json#' + ITEM_ID }], enc: replyJwe },
 };
 const dadSigner = edKeyFromLabel('dad-sig');
 reply._sig = sign(reply, dadSigner.priv, DAD + '#dad-key-1');
@@ -309,7 +308,7 @@ console.log('recipients (published X25519 x):');
 console.log('  dad     :', dadEnc.x);
 console.log('  kid     :', kidEnc.x);
 console.log('item.id   :', item.id);
-console.log('item bytes:', Buffer.byteLength(canon(item)), 'bytes  (JWE recipients:', item._enc.recipients.length + ')');
+console.log('item bytes:', Buffer.byteLength(canon(item)), 'bytes  (JWE recipients:', item._openfeed?.enc.recipients.length + ')');
 console.log();
 console.log('CLAIM 1 — signs with construction #1 (Ed25519 detached JWS) :', item._sig.slice(0,24)+'…');
 console.log('CLAIM 2 — verifies with the UNCHANGED verifier             :', sigOk ? 'PASS' : 'FAIL');
@@ -329,7 +328,7 @@ console.log('           reply signs and verifies (construction #1)  :', replySig
 console.log('           Kid — not the author of either — reads it   :', kidReadsReply && !kidReadsReply.rejected ? 'PASS' : 'FAIL');
 console.log('           Mom reads it                                :', momReadsReply && !momReadsReply.rejected ? 'PASS' : 'FAIL');
 console.log('           stranger still locked out                   :', strangerReadsReply === null ? 'PASS' : 'FAIL (LEAK!)');
-console.log('           reply is DELIVERED, not published (_feed_url):', reply._feed_url === undefined ? 'PASS (absent, §15.4)' : 'FAIL');
+console.log('           reply is DELIVERED, not published (_feed_url):', reply._openfeed?.feed_url === undefined ? 'PASS (absent, §15.4)' : 'FAIL');
 console.log('           documents published to make this work       :', 0);
 console.log();
 console.log('What the serving host / a non-recipient sees in cleartext (metadata leak surface):');

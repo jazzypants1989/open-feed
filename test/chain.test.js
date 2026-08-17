@@ -305,19 +305,19 @@ test("an item's pins are scoped by how the item travels (§16.1)", () => {
   const gran = { url: 'https://gran.example/openfeed.json', seq: 1, hash: 'h-gran' };
   const ownedByRecipient = new Set([mom.url, 'https://mom.example/manifest.json']);
 
-  const published = { _feed_url: 'https://me.example/feed.json', _pins: [mom, gran] };
+  const published = { _openfeed: { feed_url: 'https://me.example/feed.json', pins: [mom, gran] } };
   const pub = admissibleItemPins(published, { ownedChainUrls: ownedByRecipient });
   assert.equal(pub.delivered, false);
   assert.deepEqual(pub.admissible, [mom], 'a third-party pin on a published item is ignored');
   assert.deepEqual(pub.ignored, [gran]);
 
-  const deliveredOnly = { _pins: [mom, gran] };
+  const deliveredOnly = { _openfeed: { pins: [mom, gran] } };
   const del = admissibleItemPins(deliveredOnly, { ownedChainUrls: ownedByRecipient });
   assert.equal(del.delivered, true);
   assert.deepEqual(del.admissible, [mom, gran], 'delivery may carry third-party pins');
 
   // Malformed entries are ignored on either axis.
-  const junk = admissibleItemPins({ _pins: [{ url: mom.url, seq: 0, hash: 'h' }, 'nope', null] });
+  const junk = admissibleItemPins({ _openfeed: { pins: [{ url: mom.url, seq: 0, hash: 'h' }, 'nope', null] } });
   assert.deepEqual(junk.admissible, []);
   assert.equal(junk.ignored.length, 3);
 });
@@ -386,7 +386,7 @@ test('an emitter draws pins from its own store, and they are admissible by const
   // The property that makes the emitter conformant without a second rule: everything it
   // produces for a recipient survives that recipient's own §16.1 scoping on a *published*
   // item, which is where the rule bites (§16.2's MUST on an emitter).
-  const published = { _feed_url: 'https://me.example/feed.json', _pins: entries };
+  const published = { _openfeed: { feed_url: 'https://me.example/feed.json', pins: entries } };
   const scoped = admissibleItemPins(published, { ownedChainUrls: chainUrlsOf(momDoc) });
   assert.deepEqual(scoped.admissible, entries);
   assert.deepEqual(scoped.ignored, []);
@@ -398,13 +398,13 @@ test('an emitter draws pins from its own store, and they are admissible by const
   const gossip = pinsForRecipients(pins, [momDoc, granDoc]);
   assert.equal(gossip.length, 3);
   assert.deepEqual(
-    admissibleItemPins({ _feed_url: 'https://me.example/feed.json', _pins: gossip },
+    admissibleItemPins({ _openfeed: { feed_url: 'https://me.example/feed.json', pins: gossip } },
       { ownedChainUrls: chainUrlsOf(momDoc) }).ignored,
     [gossip.at(-1)],
     'published: the third-party entry is ignored on receipt',
   );
   assert.deepEqual(
-    admissibleItemPins({ _pins: gossip }, { ownedChainUrls: chainUrlsOf(momDoc) }).admissible,
+    admissibleItemPins({ _openfeed: { pins: gossip } }, { ownedChainUrls: chainUrlsOf(momDoc) }).admissible,
     gossip,
     'delivered-only: all three, because delivery reaches exactly one counterparty',
   );

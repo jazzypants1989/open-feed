@@ -1,6 +1,6 @@
 // Can canonicality stop naming a location?
 //
-// `_feed_url` sits inside every published item's signed bytes and does three jobs at once:
+// `_openfeed.feed_url` sits inside every published item's signed bytes and does three jobs at once:
 //
 //   (a) PUBLICATION MARKER — its absence means "delivered, not published" (§8, §11.1.1)
 //   (b) LOCATOR           — it names the feed whose manifest governs a copy's liveness (§7.5)
@@ -26,7 +26,7 @@
 //
 // The kill criterion, stated before the measurement: if the clause count does not drop, or if
 // preserving the multi-author board (§7.1) costs a rule as long as the one it replaces, keep
-// `_feed_url` and record why.
+// `_openfeed.feed_url` and record why.
 //
 // Imports src/: the corpus is built by the real Publisher and the URL comparator is the shipped
 // one, because a rule that only works against a re-derived normalizer is not a result.
@@ -71,9 +71,9 @@ function makeEquivalence(pairs) {
   };
 }
 
-/** TODAY (§7.5). Compares the item's `_feed_url` against the URL the consumer requested. */
+/** TODAY (§7.5). Compares the item's `_openfeed.feed_url` against the URL the consumer requested. */
 function canonicalToday(item, ctx) {
-  const declared = item._feed_url ? normalizeUrlForCompare(item._feed_url) : null;
+  const declared = item._openfeed?.feed_url ? normalizeUrlForCompare(item._openfeed?.feed_url) : null;
   if (!declared) return { canonical: false, why: 'delivered-only' };
   if (declared === normalizeUrlForCompare(ctx.fetchedFeedUrl)) return { canonical: true, why: 'own' };
   // §7.5's exception, which exists ONLY because the compared value is a location. It needs the
@@ -87,7 +87,7 @@ function canonicalToday(item, ctx) {
 
 /** PROPOSED. Compares two identity URLs through the equivalence the verifier already runs. */
 function canonicalProposed(item, ctx) {
-  if (!item._feed_url) return { canonical: false, why: 'delivered-only' };
+  if (!item._openfeed?.feed_url) return { canonical: false, why: 'delivered-only' };
   const claimed = item._feed_owner ?? item.authors?.[0]?.url;
   if (typeof claimed !== 'string') return { canonical: false, why: 'no owner named' };
   if (ctx.equivalent(claimed, ctx.feedOwnerIdentity)) return { canonical: true, why: 'owner matches' };
@@ -108,10 +108,10 @@ function item(authorId, signer, fields) {
   const doc = {
     id: fields.id,
     authors: [{ url: authorId }],
-    _version: 1,
+    _openfeed: { version: 1 },
     content_text: fields.content ?? 'hello',
     date_published: new Date(T0 * 1000).toISOString(),
-    ...(fields.feedUrl ? { _feed_url: fields.feedUrl } : {}),
+    ...(fields.feedUrl ? { _openfeed: { feed_url: fields.feedUrl  }} : {}),
     ...(fields.feedOwner ? { _feed_owner: fields.feedOwner } : {}),
   };
   doc._sig = sign(doc, signer.privateKey, `${authorId}#${signer.kid}`);
@@ -277,9 +277,9 @@ for (const [name, from, to] of PASSAGES) {
 
 // What does NOT delete, which is the honest half.
 const SURVIVES = [
-  'predecessor equivalence itself (§3.4) — still needed for keys, for `_rel` targets, for inbox dedup',
+  'predecessor equivalence itself (§3.4) — still needed for keys, for `_openfeed.rel` targets, for inbox dedup',
   '§4.5\'s recovery pin still records feed URLs, because a copy\'s liveness lookup (job (b)) still needs them',
-  '§10.2 / §10.3\'s id-half matching — those key on item ids, never on `_feed_url`',
+  '§10.2 / §10.3\'s id-half matching — those key on item ids, never on `_openfeed.feed_url`',
   '§9.3 invariant 5 — about manifest chains, not about item bytes',
 ];
 say();
@@ -313,13 +313,13 @@ if (failed.length) {
 }
 
 verdict(
-  'KEEP `_feed_url`. The candidate works, and it is not worth the churn.\n'
+  'KEEP `_openfeed.feed_url`. The candidate works, and it is not worth the churn.\n'
   + '\n'
   + `What it buys is real but small: ~${deleted} words of exception text, and the pleasing property that\n`
   + 'a migrated back catalog is canonical by a comparison the verifier already runs rather than by\n'
   + 'a rule written for it. What it costs is the reason to decline:\n'
   + '\n'
-  + '1. PRECISION. `_feed_url` names one feed; `_feed_owner` names an identity that may own\n'
+  + '1. PRECISION. `_openfeed.feed_url` names one feed; `_feed_owner` names an identity that may own\n'
   + '   twenty (§13.4). Under the candidate a contributor cannot say WHICH of an owner\'s feeds\n'
   + '   their item is canonical in, so a board owner can move a contributor\'s item into their\n'
   + '   primary feed and it stays canonical — measured in Q3. Today that is a copy. Recovering\n'
@@ -329,7 +329,7 @@ verdict(
   + '   — routing a copy to the manifest that governs it — still compares feed URLs.\n'
   + '3. IT ADDS A FIELD AND A DEFAULT. `_feed_owner ?? authors[0].url` is a second rule about\n'
   + '   what an absent field means, in a document where the ONE such rule that exists already\n'
-  + '   (an absent `_feed_url` means delivered-not-published, §11.1.1) is load-bearing enough to\n'
+  + '   (an absent `_openfeed.feed_url` means delivered-not-published, §11.1.1) is load-bearing enough to\n'
   + '   need its own MUST. Two fields whose absence means different things is exactly the\n'
   + '   equivocation §1 principle 4 is about.\n'
   + '\n'

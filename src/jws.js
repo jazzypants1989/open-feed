@@ -73,7 +73,7 @@ export function identityDocumentUrl(identityUrl) {
 
 /**
  * §3.1's comparison for every URL that is not an identity: feeds, manifests, the feed half of a
- * `_rel` target, and the URLs a pin is keyed on. §3.1's normalization minus its last two rules —
+ * `_openfeed.rel` target, and the URLs a pin is keyed on. §3.1's normalization minus its last two rules —
  * no trailing slash, because these name files and `feed.json/` names nothing; query kept, because
  * a feed may legitimately live behind one. One comparator, used by the reader and the inbox both,
  * because two normalizers that must agree on hosts and disagree on paths is exactly the

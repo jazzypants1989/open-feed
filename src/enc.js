@@ -3,7 +3,7 @@
 // access-control substitute (§15's conformance statement, §11.1's missing fifth cell).
 //
 // The layer defines **no new signing construction** (§6.1): an encrypted item is an ordinary
-// signed item whose content is an opaque payload in `_enc`. Nothing in `src/` outside this file
+// signed item whose content is an opaque payload in `_openfeed.enc`. Nothing in `src/` outside this file
 // knows the field exists, and nothing here touches `jws.js` — the core commits to ciphertext
 // exactly as it commits to cleartext, and the host serves bytes it cannot read.
 //
@@ -142,14 +142,14 @@ export function slotTag(z) {
 }
 
 /**
- * Seal an item's content to a set of recipients, returning the `_enc` value.
+ * Seal an item's content to a set of recipients, returning the `_openfeed.enc` value.
  *
  * `recipients` are identity documents, not keys: §15.1 requires resolving each recipient's key
  * from their own document, and taking documents here is what makes that structural rather than a
  * rule a caller is asked to remember.
  *
  * The sealed plaintext carries the carrier binding §15.2.1 makes a MUST — the item's `id`, its
- * author, and its `_feed_url` if it has one — plus the OPTIONAL declared `audience` (§15.2.2),
+ * author, and its `_openfeed.feed_url` if it has one — plus the OPTIONAL declared `audience` (§15.2.2),
  * which lives inside the sealed bytes and MUST NOT appear in any per-recipient header: readers
  * learning the audience is the point, observers learning it is the leak the tags exist to prevent.
  *
@@ -167,7 +167,7 @@ export function seal({ item, content, recipients, audience, ephemeral, cek, iv }
   const plaintext = {
     id: item.id,
     authors: [{ url: author }],
-    ...(item._feed_url !== undefined ? { _feed_url: item._feed_url } : {}),
+    ...(item._openfeed?.feed_url !== undefined ? { _openfeed: { feed_url: item._openfeed.feed_url } } : {}),
     ...(audience ? { audience: audience.map((u) => normalizeIdentityUrl(u)) } : {}),
     ...content,
   };
@@ -206,13 +206,13 @@ export function seal({ item, content, recipients, audience, ephemeral, cek, iv }
 }
 
 /**
- * Open an item's `_enc` with whatever private encryption keys the reader holds.
+ * Open an item's `_openfeed.enc` with whatever private encryption keys the reader holds.
  *
  * **Carrier binding (§15.2.1) is enforced here and is a MUST.** Without it the following works:
- * Eve fetches an encrypted item from a world-readable feed, cannot read it, copies the `_enc`
- * blob verbatim into a new item with a fresh `id`, her own `authors`, her own `_feed_url`, and
- * any `_rel` she likes, and signs it with her own key. Every core check passes — valid signature,
- * valid author binding, `_feed_url` matching the feed it is served from, fresh `id` so §7.5's
+ * Eve fetches an encrypted item from a world-readable feed, cannot read it, copies the `_openfeed.enc`
+ * blob verbatim into a new item with a fresh `id`, her own `authors`, her own `_openfeed.feed_url`, and
+ * any `_openfeed.rel` she likes, and signs it with her own key. Every core check passes — valid signature,
+ * valid author binding, `_openfeed.feed_url` matching the feed it is served from, fresh `id` so §7.5's
  * exclusivity rule is not triggered, and an ordinary manifest commits it. Any audience member's
  * client then renders the original author's private words attributed to Eve, in a context Eve
  * chose. What makes it worse than ordinary misattribution: **Eve does not need to be in the
@@ -224,8 +224,8 @@ export function seal({ item, content, recipients, audience, ephemeral, cek, iv }
  * could grind one deny a recipient their own item.
  */
 export function open(item, { privateKeys = [] } = {}) {
-  const envelope = item?._enc;
-  if (!envelope || typeof envelope !== 'object') throw new EncError('no _enc envelope on this item');
+  const envelope = item?._openfeed?.enc;
+  if (!envelope || typeof envelope !== 'object') throw new EncError('no _openfeed.enc envelope on this item');
   const protectedB64 = String(envelope.protected ?? '');
   const headerBytes = b64uStrict(protectedB64, 'JWE protected header');
   let header;
@@ -330,9 +330,9 @@ export function assertCarrierBinding(plaintext, item) {
   if (!same(sealedAuthor, outerAuthor)) {
     throw new EncError(`carrier binding: sealed author ${sealedAuthor} is not ${outerAuthor} (§15.2.1)`);
   }
-  if (!same(plaintext?._feed_url, item?._feed_url)) {
+  if (!same(plaintext?._openfeed?.feed_url, item?._openfeed?.feed_url)) {
     throw new EncError(
-      `carrier binding: sealed _feed_url ${plaintext?._feed_url} is not ${item?._feed_url} (§15.2.1)`,
+      `carrier binding: sealed _openfeed.feed_url ${plaintext?._openfeed?.feed_url} is not ${item?._openfeed?.feed_url} (§15.2.1)`,
     );
   }
   return plaintext;
@@ -356,7 +356,7 @@ export function declaredAudience(plaintext) {
 }
 
 /**
- * §15.3: an encrypted attachment's `_sha256` is the hash **of the ciphertext**.
+ * §15.3: an encrypted attachment's `_openfeed.sha256` is the hash **of the ciphertext**.
  *
  * So integrity is verifiable by anyone, without any key, from a signed item: a host that swaps
  * bytes is caught by a party who cannot read either version, and AEAD gives plaintext integrity
@@ -367,7 +367,9 @@ export function declaredAudience(plaintext) {
 export function sealAttachment(bytes, { key = crypto.randomBytes(32), iv = crypto.randomBytes(12) } = {}) {
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final(), cipher.getAuthTag()]);
-  return { ciphertext, key: b64u(key), iv: b64u(iv), _sha256: b64u(sha256(ciphertext)) };
+  // `_openfeed` rather than a bare `sha256`, so the result drops straight into an attachment
+  // entry: §7.2's namespace binds every JSON Feed object this specification writes into.
+  return { ciphertext, key: b64u(key), iv: b64u(iv), _openfeed: { sha256: b64u(sha256(ciphertext)) } };
 }
 
 export function openAttachment(ciphertext, { key, iv }) {

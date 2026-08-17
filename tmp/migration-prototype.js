@@ -206,7 +206,7 @@ say(`  §9.3 invariant 5: ${carried.carried} ids carried forward, none dropped`)
 
 // And the items at the new feed still name the OLD feed inside their signed bytes.
 const sample = own.items.get(BACK_CATALOG[0]);
-say(`  every carried item still signs _feed_url = ${sample._feed_url}`);
+say(`  every carried item still signs _feed_url = ${sample._openfeed?.feed_url}`);
 say(`  ...served from ${OWN_FEED}, so §7.5's plain test reads them as COPIES.`);
 say(`  Only the verified migration makes them canonical here — the predecessor exception.`);
 

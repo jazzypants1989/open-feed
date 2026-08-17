@@ -8,7 +8,7 @@
 // makes a publisher record every (seq, hash) it produced, and today that record has nothing
 // to compare against.
 //
-// Candidate: `_pins` on an ordinary signed item (§8), scoped to the RECIPIENT'S OWN CHAINS
+// Candidate: `_openfeed.pins` on an ordinary signed item (§8), scoped to the RECIPIENT'S OWN CHAINS
 // ONLY. Every reply, like, or repost already proves you read the recipient, so a pin of their
 // chains discloses nothing new. Claims tested here:
 //
@@ -87,11 +87,14 @@ function dadReply({ published, pins, id = 'urn:uuid:dad-reply-1' }){
   const item = {
     id, authors: [{ url: DAD }],
     content_text: 'Those cookies were delicious!',
-    date_published: '2026-02-15T09:00:00Z', _version: 1,
-    _rel: [{ type: 'reply', to: MOM + 'feed.json#urn:uuid:item-4' }],
+    date_published: "2026-02-15T09:00:00Z",
+    _openfeed: {
+      version: 1,
+      rel: [{ type: "reply", to: MOM + "feed.json#urn:uuid:item-4" }],
+      ...(published ? { feed_url: DAD_FEED } : {}),
+      ...(pins ? { pins } : {}),
+    },
   };
-  if (published) item._feed_url = DAD_FEED;
-  if (pins) item._pins = pins;
   item._sig = sign(item, dadK.priv, DAD + '#key-1');
   return item;
 }
@@ -106,7 +109,7 @@ const reply = dadReply({ published: true, pins: dadObservation });
 function compare(item, record){
   if (!verify(item, dadK.pub)) return { error: 'signature invalid' };
   const out = [];
-  for (const p of item._pins || []){
+  for (const p of item._openfeed?.pins || []){
     const mine = record.filter(r => r.url === p.url);
     const same = mine.find(r => r.seq === p.seq);
     if (same && same.hash !== p.hash) out.push({ verdict: 'EQUIVOCATION', url: p.url, seq: p.seq });
@@ -121,8 +124,13 @@ function compare(item, record){
 console.log('Recipient-scoped item pins — prototype\n');
 
 // ---- CLAIM 1: the pin is inside the signed bytes -------------------------------------------
-const stripped = { ...reply }; delete stripped._pins;
-const edited = { ...reply, _pins: [{ ...dadObservation[1], hash: hashOf(honest[2]) }] };
+// The copy has to be deep enough to reach `_openfeed`, or the delete mutates `reply` itself
+// and every later claim is measured against an already-stripped item.
+const stripped = { ...reply, _openfeed: { ...reply._openfeed } }; delete stripped._openfeed.pins;
+const edited = {
+  ...reply,
+  _openfeed: { ...reply._openfeed, pins: [{ ...dadObservation[1], hash: hashOf(honest[2]) }] },
+};
 console.log('CLAIM 1 — the pin cannot be stripped or edited in flight');
 console.log('  reply as sent verifies                    : ' + verify(reply, dadK.pub));
 console.log('  hub strips _pins, re-serves                : ' + (verify(stripped, dadK.pub) ? 'verifies (BAD)' : 'signature FAILS'));
@@ -178,7 +186,7 @@ const dadPinsDoc = { url: DAD, pins: [
   { url: GRAN + 'manifest.json', seq: 88, hash: 'x', observed: T0+4200 },
   { url: 'https://therapist.example/manifest.json', seq: 4, hash: 'y', observed: T0+4300 },
 ], updated: T0+5000 };
-const itemPinSubjects = [...new Set(reply._pins.map(p => new URL(p.url).origin))];
+const itemPinSubjects = [...new Set(reply._openfeed?.pins.map(p => new URL(p.url).origin))];
 const docPinSubjects  = [...new Set(dadPinsDoc.pins.map(p => new URL(p.url).origin))];
 console.log('  §16.1 pins document names   : ' + docPinSubjects.join(', '));
 console.log('  item-carried pin names      : ' + itemPinSubjects.join(', '));

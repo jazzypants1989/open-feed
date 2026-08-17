@@ -63,16 +63,16 @@ const embed = (label, str, file) => { embedded.push({label, str, file}); return 
 
 // ---- validate canonicalizer against known item hash ----
 const item = {
-  _feed_url:'https://test.example/feed.json', _version:1,
-  authors:[{url:'https://test.example/'}],
-  content_text:'Hello, wörld! 👋',
+  _openfeed:{feed_url:"https://test.example/feed.json", version:1},
+  authors:[{url:"https://test.example/"}],
+  content_text:"Hello, wörld! 👋",
   date_published:'2025-01-15T12:00:00Z',
   id:'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6'
 };
 const itemCanon = canonicalize(item);
 const itemHashHex = sha256(canonicalBytes(item)).toString('hex');
-console.log('CANONICALIZER CHECK (must equal 7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168):');
-console.log('  item sha256 =', itemHashHex, itemHashHex==='7176563ef95f0a466379e161081a05f591ea6be60b8ccf8e613801d33c16d168' ? 'OK' : 'MISMATCH');
+console.log('CANONICALIZER CHECK (must equal cbf8bddd3412094c6d45ea5a92fff788abe29814d2a7be7d2f74390839c4fd70):');
+console.log('  item sha256 =', itemHashHex, itemHashHex==='cbf8bddd3412094c6d45ea5a92fff788abe29814d2a7be7d2f74390839c4fd70' ? 'OK' : 'MISMATCH');
 console.log();
 embed('B.2 item canonical bytes', itemCanon, 'spec');
 embed('B.2 item sha256 (hex)', itemHashHex, 'spec');
@@ -111,8 +111,10 @@ embed('B.2 item full hash', itemFullHash, 'spec');
 // §6.5 step 5 resolves a kid against the current identity document, so a reply signed by
 // test-key-1 after that instant is one a conforming verifier must reject (§4.4).
 const item2 = {
-  _feed_url:'https://test.example/feed.json', _version:1,
-  _rel:[{to:'https://gran.example/~gran/feed.json#urn:uuid:00112233-4455-6677-8899-aabbccddeeff', type:'reply'}],
+  _openfeed:{
+    feed_url:"https://test.example/feed.json", version:1,
+    rel:[{to:"https://gran.example/~gran/feed.json#urn:uuid:00112233-4455-6677-8899-aabbccddeeff", type:"reply"}],
+  },
   authors:[{url:'https://test.example/'}],
   content_text:'Thanks, Gran!',
   date_published:'2025-02-10T09:00:00Z',
@@ -228,16 +230,18 @@ console.log();
 embed('B.6 reader identity bytes', canonicalize(idReader), 'spec');
 
 // ---- B.7 item carrying pins (§16.1) ----
-// A delivered-only reply (no _feed_url) from the reader to the owner of B.2's item, carrying
+// A delivered-only reply (no _openfeed.feed_url) from the reader to the owner of B.2's item, carrying
 // pins of the recipient's identity document (B.4) and manifest (B.3). Recipient-scoped, so it
 // is valid on either axis of §16.1's publication rule.
 const pinItem = {
-  _pins: [
+  _openfeed: {
+    pins: [
     { url:'https://test.example/openfeed.json', seq:1, hash:id1Hash,       observed:1739577600 },
     { url:'https://test.example/manifest.json', seq:1, hash:manifestHash1, observed:1739577600 }
-  ],
-  _rel: [ { type:'reply', to:'https://test.example/feed.json#urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6' } ],
-  _version: 1,
+    ],
+    rel: [ { type:'reply', to:'https://test.example/feed.json#urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6' } ],
+    version: 1,
+  },
   authors: [ { url: READER } ],
   content_text: 'Lovely!',
   date_published: '2025-02-15T12:00:00Z',
@@ -301,7 +305,7 @@ embed('B.9 member identity bytes', canonicalize(idMember), 'spec');
 
 const DEL_ITEM_ID = 'urn:uuid:2f1e8c4a-9b3d-4e5f-8a71-6c2d9e0b4f13';
 const delItem = {
-  _feed_url:'https://member.example/feed.json', _version:1,
+  _openfeed:{feed_url:"https://member.example/feed.json", version:1},
   authors:[{url:MEMBER}],
   content_text:'Posted by the hub on my behalf.',
   date_published:'2025-02-20T10:00:00Z',
@@ -364,14 +368,14 @@ embed('B.10 enc author identity bytes', canonicalize(idEncAuthor), 'spec');
 
 const ENC_ITEM_ID = 'urn:uuid:9d1f0a2b-3c4d-4e5f-8091-a2b3c4d5e6f7';
 const encCarrier = {
-  _feed_url:'https://enc-author.example/feed.json', _version:1,
+  _openfeed:{feed_url:"https://enc-author.example/feed.json", version:1},
   authors:[{url:ENC_AUTHOR}],
   content_text:'',
   date_published:'2025-02-20T12:00:00Z',
   id: ENC_ITEM_ID
 };
-const encItem = { ...encCarrier };
-encItem._enc = seal({
+const encItem = { ...encCarrier, _openfeed: { ...encCarrier._openfeed } };
+encItem._openfeed.enc = seal({
   item: encCarrier,
   content: { content_text: 'Sealed to one reader.' },
   recipients: [idEncReader],
@@ -427,7 +431,7 @@ const checks = [
   ['B.2b rel item',   verifies(item2)],
   ['B.3 manifest',    verifies(manifest)],
   // the manifest entry must name the item's exact published bytes, not merely its version
-  ['B.3 item commit', manifest.items[ITEM_ID][0]===item._version
+  ['B.3 item commit', manifest.items[ITEM_ID][0]===item._openfeed.version
                         && manifest.items[ITEM_ID][1]===documentHash(item)],
   ['B.3b manifest2',  verifies(manifest2) && manifest2.prev===manifestHash1],
   ['B.3b commits',    manifest2.items[ITEM_ID][1]===documentHash(item)
@@ -437,8 +441,8 @@ const checks = [
   ['no history field', !('history' in id1) && !('history' in id2) && !('history' in manifest2)],
   ['B.6 reader id',   verifies(idReader)],
   ['B.7 item pins',   verifies(pinItem)
-                        && pinItem._pins[0].hash===id1Hash && pinItem._pins[1].hash===manifestHash1
-                        && !('_feed_url' in pinItem)],
+                        && pinItem._openfeed.pins[0].hash===id1Hash && pinItem._openfeed.pins[1].hash===manifestHash1
+                        && !("feed_url" in pinItem._openfeed)],
   // an unknown `_` field carries no authority: verification must succeed with it treated as
   // opaque, and both entry forms (string, object) must be present in the signed bytes.
   ['B.8 extension id', verifies(id3)
@@ -464,8 +468,8 @@ const checks = [
     return opened.content_text === 'Sealed to one reader.'
       && opened.id === ENC_ITEM_ID
       && declaredAudience(opened).join() === ENC_READER
-      && encItem._enc.recipients.every((r) => r.header.kid === undefined)
-      && !canonicalize(encItem._enc).includes('enc-reader.example');
+      && encItem._openfeed.enc.recipients.every((r) => r.header.kid === undefined)
+      && !canonicalize(encItem._openfeed.enc).includes('enc-reader.example');
   })()],
 ];
 

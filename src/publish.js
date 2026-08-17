@@ -27,6 +27,16 @@ export class PublishError extends Error {
 const iso = (unixSeconds) => new Date(unixSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 /**
+ * Merge members into an item's `_openfeed` object (§7.2).
+ *
+ * Every member this specification defines on an item lives in that one object, so building an
+ * item is a merge into it rather than a set of top-level assignments. Members the caller already
+ * put there survive: §7.2's preservation rule does not stop at the boundary, and an extension
+ * riding inside `_openfeed` is unknown data exactly like one riding beside it.
+ */
+const withOpenFeed = (item, members) => ({ ...item, _openfeed: { ...item._openfeed, ...members } });
+
+/**
  * A publisher for one identity and one feed.
  *
  * `signer` is `{ kid, privateKey, jwk }`. The private key never leaves the caller — this class
@@ -120,6 +130,21 @@ export class Publisher {
    */
   #dated(updated, previous) {
     return previous ? Math.max(updated, previous.updated) : updated;
+  }
+
+  /**
+   * The members a caller never supplies: the two signatures (§6.4 computes them) and
+   * `_openfeed.deleted`, which only `tombstone()` sets because §7.3 is an allowlist.
+   */
+  #refuseReserved(id, fields, what) {
+    for (const reserved of ['_sig', '_recovery_sig']) {
+      if (reserved in fields) {
+        throw new PublishError(`${id} supplies ${reserved}, which ${what} never accepts (§7.3, §6.4)`);
+      }
+    }
+    if (fields._openfeed?.deleted !== undefined) {
+      throw new PublishError(`${id} supplies _openfeed.deleted, which ${what} never accepts (§7.3)`);
+    }
   }
 
   #genesisIdentity({ profile, recoveryKeys }) {
@@ -267,36 +292,30 @@ export class Publisher {
       throw new PublishError(`an item id must be a string without '#' (§7.2): ${id}`);
     }
     const previous = this.items.get(id);
-    if (previous?._deleted) throw new PublishError(`${id} is tombstoned; a new item needs a fresh id (§8.2)`);
+    if (previous?._openfeed?.deleted) throw new PublishError(`${id} is tombstoned; a new item needs a fresh id (§8.2)`);
     // §7.3: only `tombstone()` marks deletion, because a tombstone is an allowlist and this is
-    // not. Let `_deleted` ride in on the spread and the result is a signed "tombstone" carrying
-    // a title, tags, or any content field — exactly what the allowlist exists to rule out.
-    // Signature fields are computed, never supplied.
-    for (const reserved of ['_deleted', '_sig', '_recovery_sig']) {
-      if (reserved in fields) {
-        throw new PublishError(`${id} supplies ${reserved}, which publishItem never accepts (§7.3, §6.4)`);
-      }
-    }
+    // not. Let `_openfeed.deleted` ride in on the spread and the result is a signed "tombstone"
+    // carrying a title, tags, or any content field — exactly what the allowlist exists to rule
+    // out. Signature fields are computed, never supplied.
+    this.#refuseReserved(id, fields, 'publishItem');
 
     const when = at ?? this.now();
-    const version = (previous?._version ?? 0) + 1;
-    const item = {
+    const version = (previous?._openfeed?.version ?? 0) + 1;
+    const base = {
       id,
       authors: [{ url: this.identity }],   // §6.6: exactly one entry, and it is the binding
-      _feed_url: this.feedUrl,
-      _version: version,
       date_published: previous?.date_published ?? iso(when),
       ...fields,
       ...(version > 1 ? { date_modified: iso(when) } : {}),
     };
-    item.id = id;
-    item.authors = [{ url: this.identity }];
-    item._version = version;
-    item._feed_url = this.feedUrl;
+    base.id = id;
+    base.authors = [{ url: this.identity }];
+    // Merged last, so `fields` cannot supply either — the publisher owns both (§7.2, §7.5).
+    const item = withOpenFeed(base, { version, feed_url: this.feedUrl });
     if (item.content_text === undefined && item.content_html === undefined) {
       throw new PublishError(`${id} carries neither content_text nor content_html (§7.2)`);
     }
-    // §7.4: `_sha256` on an attachment entry is a MUST, and refusing here is the only place a
+    // §7.4: `_openfeed.sha256` on an attachment entry is a MUST, and refusing here is the only place a
     // publisher finds out. A consumer's remedy is to mark the bytes unverified (§10.5), which
     // is a downgrade the author never asked for and cannot see — the item still verifies, the
     // photo under it is simply outside the envelope, and whoever serves those bytes can swap
@@ -306,13 +325,13 @@ export class Publisher {
         throw new PublishError(`${id} has an attachments member that is not an array (§7.4)`);
       }
       for (const [i, a] of item.attachments.entries()) {
-        if (typeof a?._sha256 !== 'string' || a._sha256.length === 0) {
-          throw new PublishError(`${id} attachment ${i} (${a?.url ?? 'no url'}) has no _sha256 (§7.4)`);
+        if (typeof a?._openfeed?.sha256 !== 'string' || a._openfeed?.sha256.length === 0) {
+          throw new PublishError(`${id} attachment ${i} (${a?.url ?? 'no url'}) has no _openfeed.sha256 (§7.4)`);
         }
       }
     }
     const signed = this.#signDocument(
-      this.#withPins(item, { recipients, pins, _pins: fields._pins }),
+      this.#withPins(item, { recipients, pins, explicitPins: fields._openfeed?.pins }),
     );
     this.items.set(id, signed);
     return signed;
@@ -320,14 +339,14 @@ export class Publisher {
 
   /**
    * A **delivered-only** item (§8, §11.1): signed exactly like a published one and carrying no
-   * `_feed_url`, which is the whole of the distinction. It enters no feed and no manifest, so
+   * `_openfeed.feed_url`, which is the whole of the distinction. It enters no feed and no manifest, so
    * it is not stored here — the caller POSTs it to an inbox (§10.1) and keeps it for §14's
    * `delivered` slot, which is the only artifact it ever appears in.
    *
    * This exists because the column is not optional in the design: §8 makes a `like` delivered by
    * default, §15.4 keeps content-free reactions delivered, and a publisher that
-   * can only publish cannot express either. `_feed_url` is refused rather than ignored — adding
-   * one is the author promoting a delivered item to a published one at a new `_version` (§7.5),
+   * can only publish cannot express either. `_openfeed.feed_url` is refused rather than ignored — adding
+   * one is the author promoting a delivered item to a published one at a new `_openfeed.version` (§7.5),
    * which is `publishItem`'s job and needs to look like a decision.
    */
   deliverItem(fields, { at, to = null, recipients = [], pins = null } = {}) {
@@ -335,35 +354,31 @@ export class Publisher {
     if (typeof id !== 'string' || id.includes('#')) {
       throw new PublishError(`an item id must be a string without '#' (§7.2): ${id}`);
     }
-    if ('_feed_url' in fields) {
-      throw new PublishError(`${id} supplies _feed_url; a delivered item has none (§8, §11.1.1)`);
+    if (fields._openfeed?.feed_url !== undefined) {
+      throw new PublishError(`${id} supplies _openfeed.feed_url; a delivered item has none (§8, §11.1.1)`);
     }
-    for (const reserved of ['_deleted', '_sig', '_recovery_sig']) {
-      if (reserved in fields) {
-        throw new PublishError(`${id} supplies ${reserved}, which deliverItem never accepts (§7.3, §6.4)`);
-      }
-    }
+    this.#refuseReserved(id, fields, 'deliverItem');
     const when = at ?? this.now();
-    const item = {
+    const base = {
       id,
       authors: [{ url: this.identity }],
-      _version: fields._version ?? 1,
       date_published: iso(when),
       ...fields,
     };
-    item.id = id;
-    item.authors = [{ url: this.identity }];
+    base.id = id;
+    base.authors = [{ url: this.identity }];
+    const item = withOpenFeed(base, { version: fields._openfeed?.version ?? 1 });
     if (item.content_text === undefined && item.content_html === undefined) {
       throw new PublishError(`${id} carries neither content_text nor content_html (§7.2)`);
     }
     const signed = this.#signDocument(
-      this.#withDelivery(this.#withPins(item, { recipients, pins, _pins: fields._pins }), to),
+      this.#withDelivery(this.#withPins(item, { recipients, pins, explicitPins: fields._openfeed?.pins }), to),
     );
     // Advance the stream only once the bytes exist, because what the *next* delivery commits to
     // is this item's full published bytes (§5.1) — signature included, like every other hash in
     // this protocol.
-    if (to && signed._delivery) {
-      this.deliveries.set(this.#deliveryKey(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
+    if (to && signed._openfeed?.delivery) {
+      this.deliveries.set(this.#deliveryKey(to), { seq: signed._openfeed?.delivery.seq, hash: documentHash(signed) });
     }
     return signed;
   }
@@ -401,7 +416,7 @@ export class Publisher {
     const last = this.deliveries.get(this.#deliveryKey(to)) ?? null;
     const entry = { seq: (last?.seq ?? 0) + 1 };
     if (last) entry.prev = last.hash;
-    const withEntry = { ...item, _delivery: entry };
+    const withEntry = withOpenFeed(item, { delivery: entry });
     // The hash committed to the *next* delivery is of the signed item, which does not exist
     // until the caller signs it — so the stream is advanced by `deliverItem` after signing,
     // never here. Returning the unsigned shape keeps this function honest about that.
@@ -427,19 +442,19 @@ export class Publisher {
    * wanting to gossip about a third party may pass that party's document, and it is admissible
    * only on a delivered item; that judgement is the receiver's (`admissibleItemPins`).
    *
-   * An explicit `_pins` in `fields` wins, and nothing is emitted when there is nothing to say:
+   * An explicit `_openfeed.pins` in `fields` wins, and nothing is emitted when there is nothing to say:
    * the MUST binds a sender that *already* holds the recipient's pins, so a publisher with no
    * store, no named recipients, or no tracked chain among them owes nothing, and an empty array
    * would be noise inside signed bytes.
    */
-  #withPins(item, { recipients = [], pins, _pins } = {}) {
-    if (_pins !== undefined) return item;
+  #withPins(item, { recipients = [], pins, explicitPins } = {}) {
+    if (explicitPins !== undefined) return item;
     // `??` rather than a default parameter: the callers pass `pins` through explicitly and its
     // own default is `null`, which is not `undefined` and would therefore shadow the store.
     const store = pins ?? this.pinStore;
     if (!store || !recipients.length) return item;
     const entries = pinsForRecipients(store, recipients);
-    return entries.length ? { ...item, _pins: entries } : item;
+    return entries.length ? withOpenFeed(item, { pins: entries }) : item;
   }
 
   /**
@@ -451,18 +466,21 @@ export class Publisher {
     const previous = this.items.get(id);
     if (!previous) throw new PublishError(`nothing to tombstone at ${id}`);
     const when = at ?? this.now();
-    const doc = {
+    const carried = previous._openfeed ?? {};
+    const doc = withOpenFeed({
       id,
       authors: [{ url: this.identity }],
       date_published: previous.date_published,
       date_modified: iso(when),
-      _version: previous._version + 1,
-      _deleted: true,
       content_text: '',
-    };
-    if (previous._feed_url !== undefined) doc._feed_url = previous._feed_url;
-    if (previous._rel !== undefined) doc._rel = previous._rel; // retained for routing (§8.2)
-    if (previous._unverified !== undefined) doc._unverified = previous._unverified; // travels with the item (§7.5)
+      _openfeed: {},   // the allowlist starts empty; only the three below are carried over
+    }, {
+      version: carried.version + 1,
+      deleted: true,
+      ...(carried.feed_url !== undefined ? { feed_url: carried.feed_url } : {}),
+      ...(carried.rel !== undefined ? { rel: carried.rel } : {}),            // routing (§8.2)
+      ...(carried.unverified !== undefined ? { unverified: carried.unverified } : {}), // §7.5
+    });
     const signed = this.#signDocument(doc);
     this.items.set(id, signed);
     return signed;
@@ -473,7 +491,7 @@ export class Publisher {
    *
    * `tombstone()` cannot reach a delivered-only item, because `deliverItem` stores nothing —
    * the caller keeps the signed bytes for §14's `delivered` slot — so retraction takes those
-   * bytes back as its argument. The shape is §7.3's allowlist, and the `_delivery` entry is
+   * bytes back as its argument. The shape is §7.3's allowlist, and the `_openfeed.delivery` entry is
    * this tombstone's own position in the pair's stream (§10.6), never a field carried over
    * from the original: a retraction that had to shed its stream entry would break the sender's
    * own chain at the exact moment it is exercised.
@@ -482,24 +500,27 @@ export class Publisher {
     if (typeof original?.id !== 'string') {
       throw new PublishError('retractDelivered needs the delivered item it is retracting');
     }
-    if (original._feed_url !== undefined) {
+    if (original._openfeed?.feed_url !== undefined) {
       throw new PublishError(`${original.id} is published; tombstone() governs the feed (§7.3)`);
     }
     const when = at ?? this.now();
-    const doc = {
+    const carried = original._openfeed ?? {};
+    const doc = withOpenFeed({
       id: original.id,
       authors: [{ url: this.identity }],
       date_published: original.date_published,
       date_modified: iso(when),
-      _version: (original._version ?? 1) + 1,
-      _deleted: true,
       content_text: '',
-    };
-    if (original._rel !== undefined) doc._rel = original._rel; // retained for routing (§8.2)
-    if (original._unverified !== undefined) doc._unverified = original._unverified; // §7.5
+      _openfeed: {},
+    }, {
+      version: (carried.version ?? 1) + 1,
+      deleted: true,
+      ...(carried.rel !== undefined ? { rel: carried.rel } : {}),            // routing (§8.2)
+      ...(carried.unverified !== undefined ? { unverified: carried.unverified } : {}), // §7.5
+    });
     const signed = this.#signDocument(this.#withDelivery(doc, to));
-    if (to && signed._delivery) {
-      this.deliveries.set(this.#deliveryKey(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
+    if (to && signed._openfeed?.delivery) {
+      this.deliveries.set(this.#deliveryKey(to), { seq: signed._openfeed?.delivery.seq, hash: documentHash(signed) });
     }
     return signed;
   }
@@ -533,8 +554,8 @@ export class Publisher {
     const live = {};
     const deleted = {};
     for (const [id, item] of this.items) {
-      (item._deleted ? deleted : live)[id] = [item._version, documentHash(item)];
-      this.committed.set(id, item._version);
+      (item._openfeed?.deleted ? deleted : live)[id] = [item._openfeed?.version, documentHash(item)];
+      this.committed.set(id, item._openfeed?.version);
     }
 
     const doc = {

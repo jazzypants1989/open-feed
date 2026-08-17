@@ -43,13 +43,15 @@ function identityAt(site, name, { revoked_at } = {}) {
   return { url, signer, document: doc };
 }
 
-function item(who, fields) {
+function item(who, { _openfeed: openfeed, ...fields } = {}) {
   const doc = {
     authors: [{ url: who.url }],
-    _version: 1,
     content_text: 'thanks!',
     date_published: iso(T0 - 3600),
     ...fields,
+    // §7.2 puts this protocol's item members in one object, so a caller's members merge into
+    // the default rather than replacing it — `{ _openfeed: { rel } }` must not drop `version`.
+    _openfeed: { version: 1, ...openfeed },
   };
   doc._sig = sign(doc, who.signer.privateKey, `${who.url}#${who.signer.kid}`);
   return doc;
@@ -86,7 +88,7 @@ test('one delivery costs one hit in each rate-limit bucket, not two in the IP bu
   });
 
   const ok = await inbox.deliver(
-    body(item(gran, { id: 'urn:uuid:rl-1', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] })),
+    body(item(gran, { id: 'urn:uuid:rl-1', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } })),
     { sourceIp: '203.0.113.9' },
   );
   assert.equal(ok.status, 202, 'a well-formed delivery is accepted');
@@ -112,7 +114,7 @@ test('an irrelevant delivery costs zero outbound fetches', async (t) => {
 
   const stranger = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:elsewhere',
-    _rel: [{ type: 'reply', to: 'https://somebody-else.example/feed.json#urn:uuid:not-mine' }],
+    _openfeed: { rel: [{ type: 'reply', to: 'https://somebody-else.example/feed.json#urn:uuid:not-mine' }] },
   })));
   assert.equal(stranger.status, 400);
   assert.equal(stranger.error, 'not_relevant');
@@ -120,7 +122,7 @@ test('an irrelevant delivery costs zero outbound fetches', async (t) => {
 
   const relevant = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:reply-1',
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(relevant.status, 202);
   assert.equal(relevant.fetches, 1, 'exactly one, at the claimed author\'s fixed path');
@@ -156,7 +158,7 @@ test('malformed and off-limits bodies are refused before anything is dialled', a
   const old = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:ancient',
     date_published: iso(T0 - 30 * DAY),
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(old.status, 400);
   assert.equal(old.fetches, 0);
@@ -176,9 +178,9 @@ test('a forged delivery cannot pin a victim\'s item at a version it will never r
 
   const real = item(gran, {
     id: 'urn:uuid:gran-reply',
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   });
-  const forged = { ...real, _version: 99, content_text: 'not from gran' };
+  const forged = { ...real, _openfeed: { ...real._openfeed, version: 99 }, content_text: "not from gran" };
   forged._sig = real._sig;   // stale signature over different bytes
 
   const rejected = await inbox.deliver(body(forged));
@@ -197,14 +199,14 @@ test('a lower or equal version is stale, and an update replaces', async (t) => {
   const inbox = inboxFor(t, site);
   const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
 
-  assert.equal((await inbox.deliver(body(item(gran, { id: 'urn:uuid:r', _rel: rel, _version: 2 })))).status, 202);
-  const replay = await inbox.deliver(body(item(gran, { id: 'urn:uuid:r', _rel: rel, _version: 2 })));
+  assert.equal((await inbox.deliver(body(item(gran, { id: 'urn:uuid:r', _openfeed: { rel: rel, version: 2 } })))).status, 202);
+  const replay = await inbox.deliver(body(item(gran, { id: 'urn:uuid:r', _openfeed: { rel: rel, version: 2 } })));
   assert.equal(replay.status, 409);
   assert.equal(replay.error, 'stale_version');
   assert.equal(replay.fetches, 0, 'stale is rejected without fetching (§10.2 step 5)');
 
   const update = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:r', _rel: rel, _version: 3, date_modified: iso(T0 - 60),
+    id: 'urn:uuid:r', _openfeed: { rel: rel, version: 3 }, date_modified: iso(T0 - 60),
   })));
   assert.equal(update.status, 202);
 });
@@ -221,8 +223,8 @@ test('a stranger reusing an id files a separate record rather than revising some
   const inbox = inboxFor(t, site, { dedup });
   const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
 
-  await inbox.deliver(body(item(gran, { id: 'urn:uuid:shared', _rel: rel, _version: 2 })));
-  const collided = await inbox.deliver(body(item(eve, { id: 'urn:uuid:shared', _rel: rel, _version: 9 })));
+  await inbox.deliver(body(item(gran, { id: 'urn:uuid:shared', _openfeed: { rel: rel, version: 2 } })));
+  const collided = await inbox.deliver(body(item(eve, { id: 'urn:uuid:shared', _openfeed: { rel: rel, version: 9 } })));
 
   assert.equal(collided.status, 202, 'not stale — it is a different item that shares an id');
   assert.equal(collided.collision, gran.url, 'and the collision is named rather than resolved');
@@ -243,14 +245,12 @@ test('a verified migration makes two authors one record', async (t) => {
   const inbox = inboxFor(t, site, { dedup });
   const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
 
-  await inbox.deliver(body(item(before, { id: 'urn:uuid:moved', _rel: rel, _version: 1 })));
+  await inbox.deliver(body(item(before, { id: 'urn:uuid:moved', _openfeed: { rel: rel, version: 1 } })));
   const retraction = await inbox.deliver(body(item(after, {
     id: 'urn:uuid:moved',
-    _version: 2,
-    _deleted: true,
     content_text: '',
     date_modified: iso(T0 - 60),
-    _rel: rel,
+    _openfeed: { version: 2, deleted: true, rel },
   })));
 
   assert.equal(retraction.status, 202);
@@ -271,7 +271,7 @@ test('relevance matches the id half whatever feed the other half names', async (
 
   const preMigration = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:old-reply',
-    _rel: [{ type: 'reply', to: `https://mom.oldhost.example/feed.json#${MY_ITEM}` }],
+    _openfeed: { rel: [{ type: 'reply', to: `https://mom.oldhost.example/feed.json#${MY_ITEM}` }] },
   })));
   assert.equal(preMigration.status, 202, 'the feed half is stale; the id half is not');
 
@@ -279,16 +279,18 @@ test('relevance matches the id half whatever feed the other half names', async (
   // thread's host even at a receiver that predates the type.
   const nested = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:nested',
-    _rel: [
-      { type: 'reply', to: 'https://dad.example/feed.json#urn:uuid:dads-reply' },
-      { type: 'root', to: `${MOM_FEED}#${MY_ITEM}` },
-    ],
+    _openfeed: {
+      rel: [
+        { type: 'reply', to: 'https://dad.example/feed.json#urn:uuid:dads-reply' },
+        { type: 'root', to: `${MOM_FEED}#${MY_ITEM}` },
+      ],
+    },
   })));
   assert.equal(nested.status, 202);
 
   const unknownType = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:custom',
-    _rel: [{ type: 'https://example.com/ns#bookmark', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _openfeed: { rel: [{ type: 'https://example.com/ns#bookmark', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(unknownType.status, 202, 'an unknown type about me is still about me (§2.1)');
 });
@@ -305,17 +307,18 @@ test('a tombstone that kept its content is refused; one that dropped its _rel is
   const inbox = inboxFor(t, site);
   const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
 
-  await inbox.deliver(body(item(gran, { id: 'urn:uuid:t', _rel: rel })));
+  await inbox.deliver(body(item(gran, { id: 'urn:uuid:t', _openfeed: { rel: rel } })));
 
   const fat = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:t', _version: 2, _deleted: true, content_text: '',
-    date_modified: iso(T0 - 60), title: 'the thing I deleted', _rel: rel,
+    id: 'urn:uuid:t', content_text: '',
+    date_modified: iso(T0 - 60), title: 'the thing I deleted',
+    _openfeed: { version: 2, deleted: true, rel },
   })));
   assert.equal(fat.status, 400);
   assert.match(fat.message, /title/);
 
   const bare = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:t', _version: 2, _deleted: true, content_text: '', date_modified: iso(T0 - 60),
+    id: 'urn:uuid:t', _openfeed: { version: 2, deleted: true }, content_text: '', date_modified: iso(T0 - 60),
   })));
   assert.equal(bare.status, 202, '§8.2: the (author, id) match is the authority, not the routing');
 });
@@ -330,7 +333,7 @@ test('revocation is judged against receipt time, which a sender cannot backdate'
   const backdated = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:backdated',
     date_published: iso(T0 - 3 * DAY),     // before the revocation, as the sender tells it
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(backdated.status, 401);
   assert.equal(backdated.error, 'key_revoked');
@@ -344,7 +347,7 @@ test('a blocked author gets 202 and the content is discarded', async (t) => {
   const inbox = inboxFor(t, site, { blocked: new Set([`${site.url}gran/`]) });
 
   const got = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:blocked', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    id: 'urn:uuid:blocked', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(got.status, 202);
   assert.equal(got.item, null);
@@ -373,15 +376,14 @@ test('the republication gate is one field, and it is the only enforcement that c
   const inbox = inboxFor(t, site);
 
   const delivered = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:private', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    id: 'urn:uuid:private', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(delivered.delivered, true);
   assert.equal(publishable(delivered.item), false);
 
   const published = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:public',
-    _feed_url: `${gran.url}feed.json`,
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _openfeed: { feed_url: `${gran.url}feed.json`, rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(published.delivered, false);
   assert.equal(publishable(published.item), true);
@@ -412,14 +414,16 @@ test('a delivery\'s pins are judged locally, and cost the receiver nothing (§16
 
   const got = await inbox.deliver(body(item(gran, {
     id: 'urn:uuid:pinned-1',
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
-    _pins: [
-      { url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600 },
-      { url: MOM_CHAIN, seq: 3, hash: 'a-hash-the-peer-invented', observed: T0 - 600 },
-      { url: MOM_CHAIN, seq: 9, hash: 'mom-id-9', observed: T0 - 60 },
-      { url: STRANGER_CHAIN, seq: 1, hash: 'whoever', observed: T0 - 60 },
-      { url: MOM_CHAIN, seq: 0, hash: 'malformed' },
-    ],
+    _openfeed: {
+      rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+      pins: [
+        { url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600 },
+        { url: MOM_CHAIN, seq: 3, hash: 'a-hash-the-peer-invented', observed: T0 - 600 },
+        { url: MOM_CHAIN, seq: 9, hash: 'mom-id-9', observed: T0 - 60 },
+        { url: STRANGER_CHAIN, seq: 1, hash: 'whoever', observed: T0 - 60 },
+        { url: MOM_CHAIN, seq: 0, hash: 'malformed' },
+      ],
+    },
   })));
 
   assert.equal(got.status, 202);
@@ -461,14 +465,14 @@ test('a published item may pin only chains the receiver owns; a delivered one ma
   ];
 
   const published = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:pinned-public', _feed_url: `${gran.url}feed.json`, _rel: rel, _pins: carried,
+    id: 'urn:uuid:pinned-public', _openfeed: { feed_url: `${gran.url}feed.json`, rel: rel, pins: carried },
   })));
   assert.equal(published.delivered, false);
   assert.deepEqual(published.peerPins.entries.map((e) => e.url), [MOM_CHAIN]);
   assert.equal(published.peerPins.ignored, 1, 'the third-party entry never reaches a verdict');
 
   const delivered = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:pinned-private', _rel: rel, _pins: carried,
+    id: 'urn:uuid:pinned-private', _openfeed: { rel: rel, pins: carried },
   })));
   assert.equal(delivered.delivered, true);
   assert.deepEqual(delivered.peerPins.entries.map((e) => e.verdict), ['corroborates', 'untracked']);
@@ -484,7 +488,7 @@ test('the owner\'s manifest chains are pinnable on a published item only once de
   const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
   const entry = [{ url: MOM_MANIFEST, seq: 12, hash: 'mom-manifest-12', observed: T0 - 600 }];
   const asPublished = (id, extra) => body(item(gran, {
-    id, _feed_url: `${gran.url}feed.json`, _rel: rel, _pins: entry, ...extra,
+    id, _openfeed: { feed_url: `${gran.url}feed.json`, rel, pins: entry }, ...extra,
   }));
 
   const bare = await inboxFor(t, site, { pins: ownerPins() }).deliver(asPublished('urn:uuid:m-1'));
@@ -509,16 +513,16 @@ test('pins are heeded only after verification, and only where the receiver asked
   const carried = [{ url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600 }];
 
   const optedOut = await inboxFor(t, site).deliver(body(item(gran, {
-    id: 'urn:uuid:no-store', _rel: rel, _pins: carried,
+    id: 'urn:uuid:no-store', _openfeed: { rel: rel, pins: carried },
   })));
   assert.equal(optedOut.status, 202);
   assert.equal(optedOut.peerPins, null, 'no store, no verdicts — the facility is OPTIONAL');
 
   const inbox = inboxFor(t, site, { pins: ownerPins() });
-  const noPins = await inbox.deliver(body(item(gran, { id: 'urn:uuid:no-pins', _rel: rel })));
+  const noPins = await inbox.deliver(body(item(gran, { id: 'urn:uuid:no-pins', _openfeed: { rel: rel } })));
   assert.equal(noPins.peerPins, null, 'and an item carrying none is not an empty verdict set');
 
-  const real = item(gran, { id: 'urn:uuid:forged-pins', _rel: rel, _pins: carried });
+  const real = item(gran, { id: 'urn:uuid:forged-pins', _openfeed: { rel, pins: carried } });
   const forged = { ...real, content_text: 'not from gran' };
   forged._sig = real._sig;
   const rejected = await inbox.deliver(body(forged));
@@ -539,7 +543,7 @@ test('a target splits at the last #, and untrusted content is escaped', () => {
   assert.equal(rendered.text, '&lt;script&gt;alert(1)&lt;/script&gt;');
   assert.equal(rendered.html, null, '§10.5: never rendered as-is');
   assert.equal(rendered.requiresSanitizer, true);
-  assert.equal(renderable({ _unverified: true, content_text: '' }).unverified, true);
+  assert.equal(renderable({ _openfeed: { unverified: true }, content_text: '' }).unverified, true);
 });
 
 test('a publisher\'s emitted pins are the ones this inbox heeds — §16.1 end to end', async (t) => {
@@ -568,15 +572,15 @@ test('a publisher\'s emitted pins are the ones this inbox heeds — §16.1 end t
 
   // A published reply, with pins drawn from the store rather than written by hand.
   const reply = sender.publishItem(
-    { id: 'urn:uuid:emitted-1', content_text: 'lovely', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { id: 'urn:uuid:emitted-1', content_text: 'lovely', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
     { recipients: [momDocument], pins: senderPins },
   );
   assert.deepEqual(
-    reply._pins.map((e) => `${e.url}@${e.seq}`).sort(),
+    reply._openfeed?.pins.map((e) => `${e.url}@${e.seq}`).sort(),
     [`${MOM_MANIFEST}@12`, `${MOM}openfeed.json@4`].sort(),
     'recipient-scoped by construction — the stranger never appears',
   );
-  assert.ok(reply._pins.every((e) => typeof e.observed === 'number'), '§16.1 asks for `observed`');
+  assert.ok(reply._openfeed?.pins.every((e) => typeof e.observed === 'number'), '§16.1 asks for `observed`');
 
   // Mom's inbox, holding matching records for one chain and a conflicting one for the other.
   const momPins = new PinStore({ now: () => T0 });
@@ -615,10 +619,10 @@ test('a publisher holding pins emits them by construction, not by remembering to
     now: () => T0 - 600, pins,
   });
   const reply = sender.publishItem(
-    { id: 'urn:uuid:by-construction', content_text: 'lovely', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { id: 'urn:uuid:by-construction', content_text: 'lovely', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
     { recipients: [momDocument] },   // no `pins` option: the publisher already holds the store
   );
-  assert.deepEqual(reply._pins.map((e) => `${e.url}@${e.seq}`), [`${MOM}openfeed.json@4`]);
+  assert.deepEqual(reply._openfeed?.pins.map((e) => `${e.url}@${e.seq}`), [`${MOM}openfeed.json@4`]);
 
   // The MUST binds a sender that ALREADY tracks the recipient's chains, never one that would
   // have to go and read them first — so a publisher with no store owes nothing and emits nothing.
@@ -626,10 +630,10 @@ test('a publisher holding pins emits them by construction, not by remembering to
     identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
   });
   const bare = stranger.publishItem(
-    { id: 'urn:uuid:owes-nothing', content_text: 'hi', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { id: 'urn:uuid:owes-nothing', content_text: 'hi', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
     { recipients: [momDocument] },
   );
-  assert.equal(bare._pins, undefined);
+  assert.equal(bare._openfeed?.pins, undefined);
 });
 
 // ---- §10.6: delivery continuity ----
@@ -648,13 +652,13 @@ test('a dropped delivery is visible to its victim, and names the bytes it is mis
   const sent = [];
   for (let i = 1; i <= 4; i++) {
     sent.push(sender.deliverItem(
-      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
       { at: T0 - 500 + i, to: MOM },
     ));
   }
-  assert.deepEqual(sent.map((i) => i._delivery.seq), [1, 2, 3, 4]);
-  assert.equal(sent[1]._delivery.prev, documentHash(sent[0]), 'each names the previous by its full published bytes');
-  assert.equal(sent[0]._delivery.prev, undefined, 'the first names nothing');
+  assert.deepEqual(sent.map((i) => i._openfeed?.delivery.seq), [1, 2, 3, 4]);
+  assert.equal(sent[1]._openfeed?.delivery.prev, documentHash(sent[0]), 'each names the previous by its full published bytes');
+  assert.equal(sent[0]._openfeed?.delivery.prev, undefined, 'the first names nothing');
 
   const deliveries = new DeliveryStore();
   const inbox = inboxFor(t, site, { deliveries });
@@ -689,7 +693,7 @@ test('the delivery stream is not advanced by an unverified sender (§10.3\'s rul
     identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
   });
   const first = sender.deliverItem(
-    { id: 'urn:uuid:real-1', content_text: 'one', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { id: 'urn:uuid:real-1', content_text: 'one', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
     { at: T0 - 500, to: MOM },
   );
 
@@ -697,7 +701,11 @@ test('the delivery stream is not advanced by an unverified sender (§10.3\'s rul
   const inbox = inboxFor(t, site, { deliveries });
 
   // A forgery claiming to be Gran, at a delivery far ahead of anything she has sent.
-  const forged = { ...first, id: 'urn:uuid:forged', _delivery: { seq: 99 }, _sig: first._sig };
+  const forged = {
+    ...first, id: 'urn:uuid:forged',
+    _openfeed: { ...first._openfeed, delivery: { seq: 99 } },
+    _sig: first._sig,
+  };
   const rejected = await inbox.deliver(canonicalBytes(forged));
   assert.equal(rejected.status, 401);
   assert.equal(deliveries.bySender.size, 0, 'nothing was recorded for a sender who never verified');
@@ -720,7 +728,7 @@ test('`_delivery` on a published item is ignored, never a stream (§10.6, §11.2
   });
 
   const dm = sender.deliverItem(
-    { id: 'urn:uuid:dm-1', content_text: 'private', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { id: 'urn:uuid:dm-1', content_text: 'private', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
     { at: T0 - 500, to: MOM },
   );
 
@@ -729,7 +737,7 @@ test('`_delivery` on a published item is ignored, never a stream (§10.6, §11.2
   // the real stream. Hand-shaped rather than produced by `Publisher`, which refuses the shape.
   const published = {
     id: 'urn:uuid:pushed-reply', authors: [{ url: gran.url }],
-    _feed_url: `${gran.url}feed.json`, _delivery: { seq: 99 }, content_text: 'public reply',
+    _openfeed: { feed_url: `${gran.url}feed.json`, delivery: { seq: 99 } }, content_text: 'public reply',
   };
   assert.equal(deliveries.check(gran.url, published), null, 'no verdict is drawn from it');
   assert.equal(deliveries.record(gran.url, published), null, 'and nothing is recorded');
@@ -755,13 +763,13 @@ test('a delivered retraction carries its own place in the stream, and the allowl
   });
 
   const like = sender.deliverItem(
-    { id: 'urn:uuid:like-1', content_text: '', _rel: [{ type: 'like', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { id: 'urn:uuid:like-1', content_text: '', _openfeed: { rel: [{ type: 'like', to: `${MOM_FEED}#${MY_ITEM}` }] } },
     { at: T0 - 500, to: MOM },
   );
   const retraction = sender.retractDelivered(like, { at: T0 - 400, to: MOM });
-  assert.equal(retraction._deleted, true);
-  assert.equal(retraction._version, like._version + 1);
-  assert.deepEqual(retraction._delivery, { seq: 2, prev: documentHash(like) },
+  assert.equal(retraction._openfeed?.deleted, true);
+  assert.equal(retraction._openfeed?.version, like._openfeed?.version + 1);
+  assert.deepEqual(retraction._openfeed?.delivery, { seq: 2, prev: documentHash(like) },
     'the tombstone holds the next slot in the stream and names the item it retracts');
 
   const deliveries = new DeliveryStore();
@@ -786,7 +794,7 @@ test('a late delivery fills its gap instead of reading as a replay (§10.4 retri
   const sent = [];
   for (let i = 1; i <= 5; i++) {
     sent.push(sender.deliverItem(
-      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
       { at: T0 - 500 + i, to: MOM },
     ));
   }
@@ -828,7 +836,7 @@ test('a forged gap-filler is caught by the hash the real stream already committe
   const sent = [];
   for (let i = 1; i <= 5; i++) {
     sent.push(sender.deliverItem(
-      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
       { at: T0 - 500 + i, to: MOM },
     ));
   }
@@ -850,7 +858,7 @@ test('first contact deep into a stream is a gap, and streams survive a restart (
   const sent = [];
   for (let i = 1; i <= 3; i++) {
     sent.push(sender.deliverItem(
-      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
       { at: T0 - 500 + i, to: MOM },
     ));
   }
@@ -894,8 +902,8 @@ test('migration moves one half of the pair key and neither half restarts the str
   const one = gran.deliverItem(fields(1), { at: T0 + 1, to: MOM });
   const two = gran.deliverItem(fields(2), { at: T0 + 2, to: MOM });
   const three = gran.deliverItem(fields(3), { at: T0 + 3, to: MOM_NEW });
-  assert.deepEqual(one._delivery, { seq: 1 });
-  assert.deepEqual(three._delivery, { seq: 3, prev: documentHash(two) },
+  assert.deepEqual(one._openfeed?.delivery, { seq: 1 });
+  assert.deepEqual(three._openfeed?.delivery, { seq: 3, prev: documentHash(two) },
     'the recipient\'s new address continues the stream her old address carried');
 
   // Receiver half: Gran migrates; her successor carries the stream state out in the exit
@@ -906,7 +914,7 @@ test('migration moves one half of the pair key and neither half restarts the str
   });
   successor.deliveries.set(normalizeIdentityUrl(MOM), { seq: 3, hash: documentHash(three) });
   const four = successor.deliverItem(fields(4), { at: T0 + 4, to: MOM });
-  assert.deepEqual(four._delivery, { seq: 4, prev: documentHash(three) });
+  assert.deepEqual(four._openfeed?.delivery, { seq: 4, prev: documentHash(three) });
 
   const store = new DeliveryStore({ equivalent: same });
   for (const item of [one, two, three]) store.record(GRAN_OLD, item);
@@ -938,7 +946,7 @@ test('a stranger\'s id is not a routing token, and a previously accepted one is 
 
   const scraped = await inbox.deliver(body(item(eve, {
     id: 'urn:uuid:eve-1',
-    _rel: [{ type: 'reply', to: 'https://stranger.example/feed.json#urn:uuid:scraped-id' }],
+    _openfeed: { rel: [{ type: 'reply', to: 'https://stranger.example/feed.json#urn:uuid:scraped-id' }] },
   })));
   assert.equal(scraped.status, 400);
   assert.equal(scraped.error, 'not_relevant');
@@ -948,12 +956,12 @@ test('a stranger\'s id is not a routing token, and a previously accepted one is 
   // requires: a nested reply naming an id accepted here, under a feed half nobody recognizes —
   // predecessor equivalence's exact shape after the thread's author migrates.
   const first = await inbox.deliver(body(item(gran, {
-    id: 'urn:uuid:gran-reply', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    id: 'urn:uuid:gran-reply', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
   })));
   assert.equal(first.status, 202);
   const nested = await inbox.deliver(body(item(eve, {
     id: 'urn:uuid:eve-2',
-    _rel: [{ type: 'reply', to: 'https://moved.example/feed.json#urn:uuid:gran-reply' }],
+    _openfeed: { rel: [{ type: 'reply', to: 'https://moved.example/feed.json#urn:uuid:gran-reply' }] },
   })));
   assert.equal(nested.status, 202, 'the id half of an accepted item routes whatever its feed half says');
 });
@@ -982,10 +990,10 @@ test('a blocked source cannot reset its own budget by churning fresh keys (§10.
   const deliver = (sourceIp) => inbox.deliver(body({
     id: `urn:uuid:churn-${n++}`,
     authors: [{ url: ghost }],
-    _version: 1,
     content_text: 'thanks!',
     date_published: iso(T0 - 3600),
-    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],   // relevant, so step 3 lets it by
+    // relevant, so step 3 lets it by
+    _openfeed: { version: 1, rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
     _sig: 'never-reached',
   }), { sourceIp });
 

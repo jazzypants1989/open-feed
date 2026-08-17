@@ -10,7 +10,7 @@
 //
 // Three rules nothing else in this repository exercises end to end land here:
 //
-//   §7.5  the canonical/copy test — an item is canonical only in the feed its `_feed_url`
+//   §7.5  the canonical/copy test — an item is canonical only in the feed its `_openfeed.feed_url`
 //         names, and a copy is verifiable as *authored* while carrying no liveness at all
 //   §4.4  the pull-path revocation analog — check revocation against when *you* first saw
 //         the id committed by a signed manifest, not against what the item says about itself
@@ -67,7 +67,7 @@ export class ReaderError extends Error {
  *  - **Key on `(author, id)`, never `(feed_url, id)`.** A consumer that followed a predecessor
  *    across a migration (§3.4) keeps its earlier — and therefore stronger — observation. Key on
  *    the feed and the move silently resets every clock to the day of the migration.
- *  - **Only items canonical by the *ordinary* `_feed_url` test are checked against it.** An item
+ *  - **Only items canonical by the *ordinary* `_openfeed.feed_url` test are checked against it.** An item
  *    canonical here only by §7.5's predecessor exception arrived byte-verbatim from a migration,
  *    so its signing necessarily predates that event and the self-reported check governs. That
  *    filter is applied by the caller; this store just refuses to invent a time it never saw.
@@ -95,7 +95,7 @@ export class ObservationStore {
    * Record every `(id, version)` a verified manifest commits, and report which **ids** were
    * new to this store entirely.
    *
-   * The record is per **revision** — `(author, id, _version)`, the tuple §7.5 says names one
+   * The record is per **revision** — `(author, id, _openfeed.version)`, the tuple §7.5 says names one
    * exact signed revision — because §4.4 uses it as a *bound*: keyed on the id alone, a stale
    * observation of revision 1 would stand in for a fresh revision 4's claim, and the record
    * would make revocation weaker for every revision after the first, which is the audit finding
@@ -624,7 +624,7 @@ export function createReader({
     if (probe) allItems.push(...probe.obtained);
 
     const canonicalUrl = normalizeUrlForCompare(feedUrl);
-    // §7.5's exception: "One mismatch is not a copy." Where an item's signed `_feed_url` names
+    // §7.5's exception: "One mismatch is not a copy." Where an item's signed `_openfeed.feed_url` names
     // a feed of a **predecessor** identity of the one owning this feed, and the consumer has
     // verified that migration, the item is canonical here — §3.4 requires a migrated back
     // catalog to be republished byte-verbatim, so those items keep the old URL forever and
@@ -692,8 +692,8 @@ export function createReader({
       }
 
       let declared = null;
-      if (typeof item?._feed_url === 'string') {
-        try { declared = normalizeUrlForCompare(item._feed_url); } catch { declared = null; }
+      if (typeof item?._openfeed?.feed_url === 'string') {
+        try { declared = normalizeUrlForCompare(item._openfeed?.feed_url); } catch { declared = null; }
       }
       // Three outcomes, not two. `own` is the ordinary test; `predecessor` is §7.5's exception
       // and is canonical but scoped differently below; `null` is a copy.
@@ -701,16 +701,16 @@ export function createReader({
 
       // §4.4: the first-observation time **bounds** the self-reported one — verifyDocument runs
       // the revocation check against the later of the two — under two scoping rules that are
-      // the whole value of the record. Only items canonical by the **ordinary** `_feed_url`
+      // the whole value of the record. Only items canonical by the **ordinary** `_openfeed.feed_url`
       // test — one canonical here by §7.5's predecessor exception arrived byte-verbatim from a
       // migration, so its signing necessarily predates that event and the self-reported check
       // governs. And only ids this consumer observed on an *earlier* pass: an id first recorded
       // moments ago in this same read is a consumer with no history, which §4.4 sends back to
       // the self-reported check.
       //
-      // The record is per **revision** — `(author, id, _version)`, §7.5's tuple — because an
+      // The record is per **revision** — `(author, id, _openfeed.version)`, §7.5's tuple — because an
       // id-level record used as a substitute is §4.4's own inversion: a thief of a revoked key
-      // publishes `_version: 4` of an id first observed years ago, the stale observation stands
+      // publishes `_openfeed.version: 4` of an id first observed years ago, the stale observation stands
       // in for the fresh claim, and revocation gets *weaker* with every revision. Per revision,
       // v4's observation is the moment a manifest first committed those exact bytes — after the
       // revocation — and the item is rejected. Manifest-time recording is keyed on the feed
@@ -727,7 +727,7 @@ export function createReader({
       // published yet restores the backdating §4.4 exists to prevent. The forgery is rejected
       // either way, which is what makes the damage invisible: nothing is logged, and the store
       // is the only thing that changed. §13.9's sentence, about a different store.
-      const version = Number.isInteger(item?._version) ? item._version : 1;
+      const version = Number.isInteger(item?._openfeed?.version) ? item._openfeed?.version : 1;
       let observed = null;
       let recordUnder = null;
       if (via === 'own' && typeof item?.id === 'string' && !firstSeenHere.has(item.id)) {
@@ -849,13 +849,13 @@ export function createReader({
   }
 
   /**
-   * §7.4: every attachment entry MUST carry `_sha256`, and a consumer MUST treat one lacking it
+   * §7.4: every attachment entry MUST carry `_openfeed.sha256`, and a consumer MUST treat one lacking it
    * as unverified content (§10.5) rather than as part of the signed record.
    *
    * This is the whole of the check, and it is worth being clear about why so little buys so
    * much. An attachment's *metadata* — the URL, the type, the alt text — is inside the signed
    * bytes; the bytes it points at are not. So for a media-first deployment an attachment
-   * without `_sha256` is the largest integrity gap available: whoever controls those bytes,
+   * without `_openfeed.sha256` is the largest integrity gap available: whoever controls those bytes,
    * the host included, swaps the photo under a signed item and no signature notices. §13.2
    * claims full integrity against a serving-path compromise, and that claim holds only for
    * what the signature covers.
@@ -868,7 +868,7 @@ export function createReader({
     const attachments = item?.attachments;
     if (!Array.isArray(attachments)) return [];
     return attachments
-      .filter((a) => typeof a?._sha256 !== 'string' || a._sha256.length === 0)
+      .filter((a) => typeof a?._openfeed?.sha256 !== 'string' || a._openfeed?.sha256.length === 0)
       .map((a) => ({ id: item.id, url: typeof a?.url === 'string' ? a.url : null }));
   }
 
@@ -977,25 +977,25 @@ export function createReader({
         ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
         ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
         // §7.4: the signature covers the reference, never the bytes. An attachment with no
-        // `_sha256` is unverified content (§10.5) inside an otherwise-verified item, which is
+        // `_openfeed.sha256` is unverified content (§10.5) inside an otherwise-verified item, which is
         // the one finding a client cannot derive from the item's own verdict.
         ...feed.unhashedAttachments.map((a) => ({
           kind: 'unhashed_attachment',
           id: a.id,
-          message: `${a.id}: attachment ${a.url ?? '(no url)'} carries no _sha256, so its bytes are unverified (§7.4)`,
+          message: `${a.id}: attachment ${a.url ?? '(no url)'} carries no _openfeed.sha256, so its bytes are unverified (§7.4)`,
         })),
         // §7.5's gateway marker, surfaced rather than left for a caller to notice. §10.5 makes
         // distinct display a MUST and §13.6 says never to attribute unsigned content — and an
-        // `_unverified` item passes every check in this reader, because it *is* validly signed:
+        // `_openfeed.unverified` item passes every check in this reader, because it *is* validly signed:
         // by the gateway, about somebody else. Nothing else in the result distinguishes it, so a
         // client building on `items.live` alone would render a bridged assertion exactly as it
         // renders a native one, which is the one display rule the core states twice.
         ...[...feed.canonical, ...feed.copies]
-          .filter((c) => c.item?._unverified === true)
+          .filter((c) => c.item?._openfeed?.unverified === true)
           .map((c) => ({
             kind: 'unverified_content',
             id: c.item.id,
-            message: `${c.item.id}: signed by ${c.info.identityUrl} as bridged content (_unverified, §7.5) — display distinctly and attribute to no one else (§10.5, §13.6)`,
+            message: `${c.item.id}: signed by ${c.info.identityUrl} as bridged content (_openfeed.unverified, §7.5) — display distinctly and attribute to no one else (§10.5, §13.6)`,
           })),
       ],
     };

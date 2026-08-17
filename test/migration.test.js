@@ -140,7 +140,7 @@ test('a cooperative migration verifies, and the back catalog stays canonical', a
   // so §7.5's id/feed binding is never breached and needs no exception (§3.4).
   const carried = after.feed.canonical.filter((c) => c.via === 'predecessor');
   assert.equal(carried.length, 3);
-  for (const c of carried) assert.equal(c.item._feed_url, `${oldSite.url}feed.json`);
+  for (const c of carried) assert.equal(c.item._openfeed?.feed_url, `${oldSite.url}feed.json`);
 });
 
 test('a verified migration retires the predecessor chain', async (t) => {

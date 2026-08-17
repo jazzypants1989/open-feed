@@ -247,7 +247,7 @@ export class PinStore {
 
   /**
    * This store's observations of one chained document, in §16.1's entry shape — what an
-   * emitter puts in `_pins`.
+   * emitter puts in `_openfeed.pins`.
    *
    * What an item may carry is scoped by §16.1's publication rule (`admissibleItemPins` is
    * that rule), so this returns entries and does not sign or emit anything.
@@ -399,7 +399,7 @@ export function chainUrlsOf(identityDocument) {
 }
 
 /**
- * §16.1's supply side: the `_pins` entries an item addressed to `recipientDocuments` may carry.
+ * §16.1's supply side: the `_openfeed.pins` entries an item addressed to `recipientDocuments` may carry.
  *
  * "A publisher that already tracks a recipient's chains SHOULD carry pins for them on the
  * interaction items it sends: emission is the supply side of §5.3.1's Level 1 MUST, and a
@@ -426,9 +426,9 @@ export function pinsForRecipients(pins, recipientDocuments = []) {
 }
 
 /**
- * §16.1's publication rule for `_pins`, applied to one item.
+ * §16.1's publication rule for `_openfeed.pins`, applied to one item.
  *
- * On a published item (`_feed_url` present) every entry must name a chained document of an
+ * On a published item (`_openfeed.feed_url` present) every entry must name a chained document of an
  * identity the item is addressed to; anything else is ignored on receipt, because honoring it
  * would let a published item broadcast its author's reading graph. On a delivered-only item,
  * third-party entries are admissible — delivery reaches exactly one counterparty.
@@ -438,8 +438,8 @@ export function pinsForRecipients(pins, recipientDocuments = []) {
  * verified; this function stays pure. Malformed entries are ignored on either axis.
  */
 export function admissibleItemPins(item, { ownedChainUrls = new Set() } = {}) {
-  const entries = Array.isArray(item?._pins) ? item._pins : [];
-  const delivered = item?._feed_url === undefined;
+  const entries = Array.isArray(item?._openfeed?.pins) ? item._openfeed?.pins : [];
+  const delivered = item?._openfeed?.feed_url === undefined;
   const admissible = [];
   const ignored = [];
   for (const e of entries) {

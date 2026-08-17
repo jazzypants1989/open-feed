@@ -194,7 +194,7 @@ class Parser {
       // JavaScript `out[key] = v` for the member name `__proto__` invokes the prototype setter
       // instead of creating a member: the value vanishes from `Object.keys` and therefore from
       // `canonicalize`, while every property read downstream still sees it. Append
-      // `"__proto__":{"_deleted":true}` to somebody else's signed item and the signature, the
+      // `"__proto__":{"_openfeed":{"deleted":true}}` to somebody else's signed item and the signature, the
       // manifest hash, and the pin all still check out while the item reads as tombstoned.
       // `JSON.parse` disagrees — it defines an own property — so the same source text
       // canonicalizes two ways in two conforming verifiers, which is exactly the signature

@@ -51,16 +51,20 @@ const permalink = i => `${ID}${2025}/post-${i}/`;
 // §7.3 tombstone allowlist, faithfully: only these fields survive.
 function tombstone(item){
   const t = { id:item.id, authors:item.authors, date_published:item.date_published,
-    date_modified:'2026-08-13T12:00:00Z', _version:item._version+1, _deleted:true, content_text:'' };
-  if ('_feed_url' in item) t._feed_url = item._feed_url;
-  if ('_rel' in item) t._rel = item._rel;
+    date_modified:"2026-08-13T12:00:00Z", content_text:"",
+    _openfeed:{ version:item._openfeed.version+1, deleted:true } };
+  const carried = item._openfeed ?? {};
+  if ("feed_url" in carried) t._openfeed.feed_url = carried.feed_url;
+  if ("rel" in carried) t._openfeed.rel = carried.rel;
   t._sig = sign(t, k.priv, KID);
   return t;
 }
 
 function makeItem(i, extra={}){
-  const item = { id:`urn:uuid:post-${i}`, url:permalink(i), _feed_url:FEED, _version:1,
-    authors:[{url:ID}], content_text:`post ${i}`, date_published:'2026-01-01T00:00:00Z', ...extra };
+  const { _openfeed: of, ...rest } = extra;
+  const item = { id:`urn:uuid:post-${i}`, url:permalink(i),
+    authors:[{url:ID}], content_text:`post ${i}`, date_published:"2026-01-01T00:00:00Z", ...rest,
+    _openfeed:{ feed_url:FEED, version:1, ...of } };
   item._sig = sign(item, k.priv, KID);
   return item;
 }
@@ -72,7 +76,7 @@ class ManifestChain {
   advance(){
     this.seq++;
     const m = { url:ID, feed_url:this.feedUrl, seq:this.seq, updated:1767225600+this.seq,
-      items:Object.fromEntries(Object.entries(this.items).map(([id,it])=>[id,[it._version, docHash(it)]])) };
+      items:Object.fromEntries(Object.entries(this.items).map(([id,it])=>[id,[it._openfeed?.version, docHash(it)]])) };
     if (this.prevHash) m.prev = this.prevHash;
     m._sig = sign(m, k.priv, KID);
     this.prevHash = docHash(m);
@@ -93,7 +97,7 @@ const shapes = {};
     feed.set(item.id, item); man.commit(item);
     // syndicate → learn foreign URIs → one bump covering both targets (best case for A)
     const synd = [...Array(M_TARGETS)].map((_,t)=>fake(i,t));
-    const v2 = makeItem(i, {_syndication:synd, _version:2, date_modified:'2026-01-01T01:00:00Z'}); signs++;
+    const v2 = makeItem(i, {_syndication:synd, _openfeed:{version:2}, date_modified:"2026-01-01T01:00:00Z"}); signs++;
     feed.set(v2.id, v2); man.commit(v2);
   }
   // routing: foreign reply names its silo parent URI → find the home item
@@ -146,17 +150,18 @@ const shapes = {};
     const item = makeItem(i); signs++;
     feed.set(item.id, item); man.commit(item);
     for (let t=0;t<M_TARGETS;t++){
-      const r = { id:`urn:uuid:receipt-${i}-${t}`, _feed_url:ACTIVITY, _version:1, authors:[{url:ID}],
-        content_text:'', date_published:'2026-01-01T01:00:00Z',
-        _rel:[{ type:'https://openfeed.example/rel/syndicated', to:`${FEED}#${item.id}`, external_uri:fake(i,t) }] };
+      const r = { id:`urn:uuid:receipt-${i}-${t}`, authors:[{url:ID}],
+        content_text:"", date_published:"2026-01-01T01:00:00Z",
+        _openfeed:{ feed_url:ACTIVITY, version:1,
+          rel:[{ type:"https://openfeed.example/rel/syndicated", to:`${FEED}#${item.id}`, external_uri:fake(i,t) }] } };
       r._sig = sign(r, k.priv, KID); signs++;
       activity.set(r.id, r); actMan.commit(r);
     }
   }
-  const route = uri => { let ops=0; for (const r of activity.values()){ ops++; if (r._rel[0].external_uri===uri) return {ops}; } return {ops, miss:true}; };
+  const route = uri => { let ops=0; for (const r of activity.values()){ ops++; if (r._openfeed?.rel[0].external_uri===uri) return {ops}; } return {ops, miss:true}; };
   const victim = feed.get('urn:uuid:post-5');
   const t = tombstone(victim); feed.set(t.id, t); man.commit(t);
-  const receipts = [...activity.values()].filter(r=>r._rel[0].to.endsWith('#'+victim.id));
+  const receipts = [...activity.values()].filter(r=>r._openfeed?.rel[0].to.endsWith('#'+victim.id));
   shapes.C = { signs, manifests:[man, actMan], routeOps:route(fake(50,0)).ops,
     extraFetches:1, retractFromPublic:receipts.length===M_TARGETS, copyRecognitionFromBytes:false,
     note:'receipts survive the tombstone but are themselves permanent published items' };

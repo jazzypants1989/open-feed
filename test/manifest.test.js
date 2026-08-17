@@ -36,16 +36,13 @@ function item({ id, version = 1, at = T0, text = 'hello', deleted = false } = {}
       authors: [{ url: IDENTITY }],
       date_published: new Date(at * 1000).toISOString().replace('.000', ''),
       date_modified: new Date(at * 1000).toISOString().replace('.000', ''),
-      _version: version,
-      _deleted: true,
-      _feed_url: FEED,
+      _openfeed: { version: version, deleted: true, feed_url: FEED },
       content_text: '',
     }
     : {
       id,
       authors: [{ url: IDENTITY }],
-      _feed_url: FEED,
-      _version: version,
+      _openfeed: { feed_url: FEED, version: version },
       content_text: text,
       date_published: new Date(at * 1000).toISOString().replace('.000', ''),
       ...(version > 1 ? { date_modified: new Date(at * 1000).toISOString().replace('.000', '') } : {}),
@@ -54,7 +51,7 @@ function item({ id, version = 1, at = T0, text = 'hello', deleted = false } = {}
   return doc;
 }
 
-const commit = (i) => [i._version, documentHash(i)];
+const commit = (i) => [i._openfeed?.version, documentHash(i)];
 
 function manifest({ seq = 1, updated = T0, items = [], deleted = [], ...rest } = {}) {
   const doc = {
@@ -118,8 +115,7 @@ test('the passed-over test needs the manifest owner’s own signature, or it fra
   const backdated = {
     id: 'a',
     authors: [{ url: 'https://dad.example/' }],
-    _feed_url: FEED,
-    _version: 1,
+    _openfeed: { feed_url: FEED, version: 1 },
     content_text: 'planted',
     date_published: new Date((T0 - 3600) * 1000).toISOString().replace('.000', ''),
   };
@@ -308,7 +304,7 @@ test('a tombstone served as live content is a violation, and one aged out of the
 
   // Resurrection at the committed version, though, is the manifest being contradicted.
   const resurrected = { ...gone };
-  delete resurrected._deleted;
+  delete resurrected._openfeed?.deleted;
   resurrected._sig = gone._sig; // bytes differ, so this trips invariant 4 first — as it should
   assert.equal(reconcileFeed(m, [resurrected], { now: T0 + DAY }).violations[0].invariant, 4);
 });

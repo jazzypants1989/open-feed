@@ -62,7 +62,7 @@ function body(n) {
     title: `Day ${n}`,
     content_text: 'x'.repeat(1500 + Math.floor(rnd() * 2500)),
     content_html: `<p>${'x'.repeat(1500)}</p>`,
-    attachments: [{ url: `${ID}p/${n}.jpg`, mime_type: 'image/jpeg', _sha256: 'A'.repeat(43) }],
+    attachments: [{ url: `${ID}p/${n}.jpg`, mime_type: 'image/jpeg', _openfeed: { sha256: 'A'.repeat(43)  }}],
   };
 }
 

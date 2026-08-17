@@ -67,7 +67,7 @@ const mom = new Publisher({
   profile: { name: 'Mom' }, recoveryKeys: [recovery.jwk], now,
 });
 
-// A photo, so §14's attachment rules have something to carry. `_sha256` is over the BYTES
+// A photo, so §14's attachment rules have something to carry. `_openfeed.sha256` is over the BYTES
 // (§7.4) and is inside the signed item, which is what lets the archive container name files
 // by hash and still be self-verifying.
 const photoBytes = Buffer.from('=== not really a JPEG, but it hashes like one ==='.repeat(400));
@@ -81,7 +81,7 @@ mom.publishItem({
   // An extension field with no column anywhere — §7.2's preserve-unknown-members rule is a
   // signature dependency, and a bundle is where a schema-shaped exporter drops it.
   _ai_assisted: true,
-  attachments: [{ url: PHOTO_URL, mime_type: 'image/jpeg', _sha256: photoHash }],
+  attachments: [{ url: PHOTO_URL, mime_type: 'image/jpeg', _openfeed: { sha256: photoHash  }}],
 });
 mom.advanceManifest({ updated: tick() });
 
@@ -109,12 +109,11 @@ const receivedReply = (() => {
     authors: [{ url: STRANGER }],
     content_text: 'Lovely!',
     date_published: '2025-02-15T12:00:00Z',
-    _version: 1,
-    _rel: [{ type: 'reply', to: `${HUB}feed.json#urn:uuid:0001-cookies`, _mood: 'warm' }],
+    _openfeed: { version: 1, rel: [{ type: 'reply', to: `${HUB}feed.json#urn:uuid:0001-cookies`, _mood: 'warm' }] },
     _gran_client: { version: '3.1', theme: 'large-print' },
   };
   item._sig = sign(item, granSigner.privateKey, `${STRANGER}#gran-1`);
-  return item;               // no _feed_url: delivered, not published (§11.1.1)
+  return item;               // no _openfeed: { feed_url: delivered }, not published (§11.1.1)
 })();
 
 // Mom's own delivered-only item — a private note to Gran that reached no feed.
@@ -124,8 +123,7 @@ const deliveredNote = (() => {
     authors: [{ url: HUB }],
     content_text: 'Call me when you get a chance.',
     date_published: '2025-02-16T09:00:00Z',
-    _version: 1,
-    _rel: [{ type: 'mention', to: STRANGER }],
+    _openfeed: { version: 1, rel: [{ type: 'mention', to: STRANGER }] },
   };
   item._sig = sign(item, hubSigner.privateKey, `${HUB}#hub-1`);
   return item;
@@ -217,7 +215,7 @@ const bundle = exportBundle(mom, {
   delivered: [deliveredNote],
   received: [receivedReply],
   unpublished: drafts,
-  attachments: [{ url: PHOTO_URL, _sha256: photoHash, bytes: photoBytes.toString('base64url') }],
+  attachments: [{ url: PHOTO_URL, _openfeed: { sha256: photoHash }, bytes: photoBytes.toString('base64url') }],
 });
 
 const report = await restore(bundle);
@@ -261,19 +259,19 @@ const original = mom.items.get('urn:uuid:0001-cookies');
 say();
 say(`  survived the trip, and each is a signature dependency (§7.2):`);
 say(`    _ai_assisted (extension field, no column anywhere):     ${tripped._ai_assisted}`);
-say(`    attachment _sha256 (inside the signed bytes, §7.4):     ${tripped.attachments[0]._sha256 === photoHash}`);
+say(`    attachment _sha256 (inside the signed bytes, §7.4):     ${tripped.attachments[0]._openfeed?.sha256 === photoHash}`);
 say(`    item bytes identical to what was signed:                ${canonicalBytes(tripped).equals(canonicalBytes(original))}`);
 const grn = reloaded.received[0];
 say(`    a stranger's unknown members (_mood, _gran_client):     ` +
-    `${grn._rel[0]._mood === 'warm' && grn._gran_client?.theme === 'large-print'}`);
+    `${grn._openfeed?.rel[0]._mood === 'warm' && grn._gran_client?.theme === 'large-print'}`);
 say(`    that stranger's item still verifies against their key:  ` +
     `${(() => { try { verifyDocument(grn, { identityDocument: granIdentity }); return true; } catch { return false; } })()}`);
 
 // Now the failure mode, made explicit rather than described.
 const decomposed = {                      // what a columns-first exporter reconstructs
   id: original.id, authors: original.authors, content_text: original.content_text,
-  date_published: original.date_published, _feed_url: original._feed_url,
-  _version: original._version, attachments: original.attachments, _sig: original._sig,
+  date_published: original.date_published, _openfeed: { feed_url: original._openfeed?.feed_url },
+  _openfeed: { version: original._openfeed?.version, attachments: original.attachments, _sig: original._sig },
 };
 const stillHashes = documentHash(decomposed) === documentHash(original);
 say();
@@ -315,13 +313,13 @@ const migrated = own.coSignIdentity(recovery, { kidIdentity: HUB });
 
 const exitBundle = exportBundle(own, {
   delivered: [deliveredNote], received: [receivedReply], unpublished: drafts,
-  attachments: [{ url: PHOTO_URL, _sha256: photoHash, bytes: photoBytes.toString('base64url') }],
+  attachments: [{ url: PHOTO_URL, _openfeed: { sha256: photoHash }, bytes: photoBytes.toString('base64url') }],
 });
 
 say(`  the successor's bundle carries:`);
 say(`    identity chain of ${OWN}: ${[...exitBundle.identity.history, exitBundle.identity.current].length} version(s), back to ITS genesis`);
 say(`    manifest chain of ${OWN}: ${[...exitBundle.feeds[0].manifest_history, exitBundle.feeds[0].manifest].length} version(s)`);
-say(`    back catalog, byte-verbatim, still signing _feed_url = ${own.items.get('urn:uuid:0001-cookies')._feed_url}`);
+say(`    back catalog, byte-verbatim, still signing _feed_url = ${own.items.get('urn:uuid:0001-cookies')._openfeed?.feed_url}`);
 say();
 say(`  the genesis carries predecessor -> ${exitBundle.identity.current.predecessor}`);
 say(`  and a _recovery_sig. Verifying it needs the recovery key committed in a PINNED ANCESTOR`);
@@ -367,7 +365,7 @@ scene(4, 'The photos — archive container vs the degraded fallback');
 // =========================================================================================
 
 // §14: attachments SHOULD be inlined; where one JSON document makes that impractical the
-// bundle MAY be an archive container whose entries are named by `_sha256`; and only where
+// bundle MAY be an archive container whose entries are named by `_openfeed.sha256`; and only where
 // neither is possible may it fall back to url + hash alone — "a degraded export rather than
 // an equivalent one ... An export that omits the photos has not exported a family archive."
 
@@ -384,11 +382,11 @@ say(`    url + _sha256 only:                  ${kb(jsonOnly)} — and 0 photos`)
 say();
 say(`  the container stays self-verifying with no extra machinery, because the name of each`);
 say(`  file is the hash inside the signed item that references it:`);
-const entryName = bundle.attachments[0]._sha256;
+const entryName = bundle.attachments[0]._openfeed?.sha256;
 const recomputed = crypto.createHash('sha256').update(photoBytes).digest('base64url');
 say(`    archive entry:            ${entryName}`);
 say(`    hash of its bytes:        ${recomputed}`);
-say(`    named by the signed item: ${own.items.get('urn:uuid:0001-cookies').attachments[0]._sha256 === recomputed}`);
+say(`    named by the signed item: ${own.items.get('urn:uuid:0001-cookies').attachments[0]._openfeed?.sha256 === recomputed}`);
 say();
 say(`  What the degraded form actually degrades to: every \`url\` points back at ${HUB},`);
 say(`  the host being left. The fallback is not "smaller export" — it is an export whose`);

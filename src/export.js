@@ -132,7 +132,7 @@ export function completeness(bundle) {
 
 /**
  * §14's archive container: entry `openfeed-export.json` plus the attachment bytes, each named by
- * its `_sha256`.
+ * its `_openfeed.sha256`.
  *
  * "That is still one bundle and still self-verifying with nothing added, because the hash naming
  * each file is the one inside the signed item that references it." Returns a `Map` of entry name
@@ -148,9 +148,9 @@ export function containerEntries(bundle, blobs = new Map()) {
   const document = { ...bundle };
   let externalized = 0;
   for (const attachment of bundle.attachments ?? []) {
-    const hash = attachment?._sha256;
+    const hash = attachment?._openfeed?.sha256;
     const bytes = blobs.get(hash);
-    if (!hash) throw new ExportError('an attachment entry with no _sha256 cannot be named in a container (§7.4)');
+    if (!hash) throw new ExportError('an attachment entry with no _openfeed.sha256 cannot be named in a container (§7.4)');
     if (bytes === undefined) continue;   // a degraded export, named as such by `degraded` below
     if (b64u(sha256(bytes)) !== hash) {
       throw new ExportError(`attachment bytes do not hash to ${hash}: the container would lie about itself`);
@@ -164,7 +164,7 @@ export function containerEntries(bundle, blobs = new Map()) {
   // the one signature that says who assembled it.
   if (externalized && typeof bundle._sig !== 'string') {
     document.attachments = (bundle.attachments ?? []).map((a) => {
-      if (typeof a?.bytes !== 'string' || !entries.has(a?._sha256)) return a;
+      if (typeof a?.bytes !== 'string' || !entries.has(a?._openfeed?.sha256)) return a;
       const { bytes: _inlined, ...rest } = a;
       return rest;
     });
@@ -182,9 +182,9 @@ export function containerEntries(bundle, blobs = new Map()) {
  */
 export function degraded(bundle, blobs = new Map()) {
   const missing = (bundle.attachments ?? []).filter(
-    (a) => blobs.get(a?._sha256) === undefined && typeof a?.bytes !== 'string',
+    (a) => blobs.get(a?._openfeed?.sha256) === undefined && typeof a?.bytes !== 'string',
   );
-  return { degraded: missing.length > 0, missing: missing.map((a) => a.url ?? a._sha256) };
+  return { degraded: missing.length > 0, missing: missing.map((a) => a.url ?? a._openfeed?.sha256) };
 }
 
 /**

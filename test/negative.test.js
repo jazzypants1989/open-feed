@@ -40,15 +40,15 @@ const identity = {
   updated: 1736899200,
 };
 
-function signedItem(overrides = {}) {
+function signedItem({ _openfeed: openfeed, ...overrides } = {}) {
   const item = {
     id: 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
     authors: [{ url: ID }],
-    _feed_url: 'https://test.example/feed.json',
-    _version: 1,
     content_text: 'hello',
     date_published: '2025-01-15T12:00:00Z',
     ...overrides,
+    // Merged, not replaced (§7.2) — an override naming one member keeps the others.
+    _openfeed: { feed_url: 'https://test.example/feed.json', version: 1, ...openfeed },
   };
   item._sig = sign(item, k1.priv, KID);
   return item;
@@ -84,11 +84,11 @@ test('a __proto__ member is rejected, in both directions', () => {
   // canonicalization, the signature payload, and the manifest hash — while every property read
   // downstream still sees the value. An attacker appends fields to somebody else's *already
   // signed* item and every check still passes.
-  const injected = '{"id":"x","__proto__":{"_deleted":true,"content_text":"HACKED"}}';
+  const injected = '{"id":"x","__proto__":{"_openfeed":{"deleted":true},"content_text":"HACKED"}}';
   const naive = {};
   for (const [k, v] of Object.entries(JSON.parse(injected))) naive[k] = v;
   assert.deepEqual(Object.keys(naive), ['id'], 'a copy loop drops the member');
-  assert.equal(naive._deleted, true, 'while every property read still sees it');
+  assert.equal(naive._openfeed?.deleted, true, 'while every property read still sees it');
 
   // Rejecting means it never parses, so nothing downstream has to be careful.
   assert.throws(() => parseIJSON(injected), /reserved member name/);
@@ -439,11 +439,11 @@ test('tampering with any signed field breaks the signature', () => {
   const item = signedItem();
   for (const patch of [
     { content_text: 'goodbye' },
-    { _version: 2 },
-    { _feed_url: 'https://elsewhere.example/feed.json' },
+    { _openfeed: { version: 2 } },
+    { _openfeed: { feed_url: 'https://elsewhere.example/feed.json'  }},
     { id: 'urn:uuid:00000000-0000-0000-0000-000000000000' },
     { date_published: '2025-01-16T12:00:00Z' },
-    { _rel: [{ type: 'like', to: 'https://x.example/feed.json#y' }] }, // adding a field
+    { _openfeed: { rel: [{ type: 'like', to: 'https://x.example/feed.json#y' }] } }, // adding a field
   ]) {
     assert.throws(
       () => verifyDocument({ ...item, ...patch }, { identityDocument: identity, kind: 'item' }),
@@ -531,7 +531,7 @@ test('an old observation of an id cannot stand in for a fresh revision (§4.4)',
   assert.equal(store.firstObserved(ID, 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6', 1), OBSERVED_V1);
 
   // The thief's revision: backdated inside the key's validity window, signed with the stolen key.
-  const theft = signedItem({ _version: 4, date_published: '2025-01-20T00:00:00Z' });
+  const theft = signedItem({ _openfeed: { version: 4 }, date_published: '2025-01-20T00:00:00Z' });
   const revoked = { ...identity, keys: [{ ...identity.keys[0], revoked_at: R }] };
   assert.throws(
     () => verifyDocument(theft, { identityDocument: revoked, kind: 'item', signedAt: perRevision }),
@@ -757,8 +757,7 @@ function memberItem(signer, kid) {
   const item = {
     id: 'urn:uuid:0e37c1d6-5f7a-4b28-9c41-8d2e6a90f5b2',
     authors: [{ url: MEMBER }],
-    _feed_url: 'https://member.example/feed.json',
-    _version: 1,
+    _openfeed: { feed_url: 'https://member.example/feed.json', version: 1 },
     content_text: 'hello',
     date_published: '2025-02-20T10:00:00Z',
   };

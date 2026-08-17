@@ -383,7 +383,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
     }
     seen.add(id);
 
-    const version = item._version;
+    const version = item._openfeed?.version;
     const live = entryOf(manifest.items, id);
     const gone = entryOf(manifest.deleted, id);
     const committed = live ?? gone;
@@ -397,7 +397,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
     }
 
     if (!Number.isInteger(version)) {
-      violate(`${id} is committed at version ${committed.version} but the served item has no _version`, { invariant: 3, id });
+      violate(`${id} is committed at version ${committed.version} but the served item has no _openfeed.version`, { invariant: 3, id });
       continue;
     }
     if (version < committed.version) {
@@ -434,7 +434,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
       );
       continue;
     }
-    if (gone && item._deleted !== true) {
+    if (gone && item._openfeed?.deleted !== true) {
       violate(`${id} is committed as deleted at seq ${manifest.seq} but served as live content`, { invariant: 1, id });
       continue;
     }

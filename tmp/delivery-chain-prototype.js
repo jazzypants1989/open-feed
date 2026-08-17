@@ -93,7 +93,7 @@ function sender(publisher, { mode }) {
     const key = normalizeIdentityUrl(to);
     const seq = (streams.get(key) ?? 0) + 1;
     streams.set(key, seq);
-    return publisher.deliverItem({ ...fields, _delivery: { seq } }, { at });
+    return publisher.deliverItem({ ...fields, _openfeed: { delivery: { seq } } }, { at });
   };
 }
 
@@ -172,7 +172,7 @@ say();
 
 // The claim: what Mom holds is not a suspicion, it is a signed artifact naming bytes she lacks.
 const link = chainFindings.find((f) => f.kind === 'delivery_gap' || f.kind === 'delivery_broken_link');
-const carrier = heldC.find((i) => i._delivery.prev === link?.missingHash);
+const carrier = heldC.find((i) => i._openfeed?.delivery.prev === link?.missingHash);
 const carrierVerifies = (() => {
   try { return !!verifyDocument(carrier, { identityDocument: dadDoc, kind: 'item' }); } catch { return false; }
 })();
@@ -203,8 +203,8 @@ say();
 
 const GRAN = 'https://gran.example/';
 // (a) one top-level entry per recipient, naming them.
-const leaky = { _delivery: [{ to: MOM, seq: 4 }, { to: GRAN, seq: 2 }] };
-say(`  (a) an array naming each recipient:  ${JSON.stringify(leaky._delivery)}`);
+const leaky = { _openfeed: { delivery: [{ to: MOM, seq: 4 }, { to: GRAN, seq: 2 }] } };
+say(`  (a) an array naming each recipient:  ${JSON.stringify(leaky._openfeed?.delivery)}`);
 say('      Mom\'s hub receives this and learns Gran is in the audience. For a cleartext DM');
 say('      that is a disclosure the sender never made, and §11.4 spends its length keeping');
 say('      exactly this off the wire. REJECTED.');
@@ -242,7 +242,7 @@ check('Q4 the shipped tags are unlinkable across items (fresh ephemeral per item
 
 // The counterfactual: put (c)'s entry in the slot anyway and watch an observer — holding no
 // key and no tag preimage — chain one recipient's slots across two items by hash arithmetic.
-const itemA = { ...carrierA, _enc: envA };
+const itemA = { ...carrierA, _openfeed: { ...carrierA._openfeed, enc: envA } };
 const slotEntryB = { seq: 5, prev: documentHash(itemA) };
 say(`  item A, slot 0 entry (hypothetical): {"seq":4,"prev":"…"}`);
 say(`  item B, slot 0 entry (hypothetical): {"seq":5,"prev":"${slotEntryB.prev.slice(0, 12)}…"} — the hash of item A`);
@@ -261,11 +261,11 @@ check('Q4 the audience-of-one entry names no recipient at all',
 // The published side of the same rule: a pushed *published* item may reach any number of
 // inboxes, so no single counter could be true of them all — the shipped store ignores it there.
 const guard = new DeliveryStore();
-const pushed = { id: 'urn:uuid:q4-pub', authors: [{ url: DAD }], _feed_url: `${DAD}feed.json`,
-  _delivery: { seq: 99 } };
+const pushed = { id: 'urn:uuid:q4-pub', authors: [{ url: DAD }],
+  _openfeed: { feed_url: `${DAD}feed.json`, delivery: { seq: 99 } } };
 guard.record(DAD, pushed);
-check('Q4 the shipped store ignores `_delivery` where `_feed_url` is present (§10.6)',
-  guard.check(DAD, { ...pushed, _delivery: { seq: 101 } }) === null
+check('Q4 the shipped store ignores `_openfeed.delivery` where `_openfeed.feed_url` is present (§10.6)',
+  guard.check(DAD, { ...pushed, _openfeed: { ...pushed._openfeed, delivery: { seq: 101 } } }) === null
     && !guard.bySender.has(normalizeIdentityUrl(DAD)));
 
 // The rule (c)'s rejection produced is load-bearing, so it is checked against the document
@@ -275,7 +275,7 @@ const specText = await import('node:fs').then((fs) =>
   fs.readFileSync(new URL('../open-feed-spec.md', import.meta.url), 'utf8'));
 const anchors = [
   'MUST be addressed to exactly one recipient and delivered to exactly one inbox', // §11.2's rule
-  'receivers MUST ignore it where `_feed_url` is present',                         // §10.6's guard
+  'receivers MUST ignore it where `_openfeed.feed_url` is present',                         // §10.6's guard
   'Any audience larger than one requires a membership decision',                   // §11.2's framing
   'The author holds the list locally and wraps to it',                             // the group home
 ];
@@ -310,8 +310,8 @@ check('Q5 the pair key must resolve through predecessor equivalence',
 say();
 say('Q6  Cost');
 const bare = dad.deliverItem({ id: 'urn:uuid:cost-a', content_text: 'x' }, { at: T0 });
-const withCounter = dad.deliverItem({ id: 'urn:uuid:cost-b', content_text: 'x', _delivery: { seq: 12 } }, { at: T0 });
-const withChain = dad.deliverItem({ id: 'urn:uuid:cost-c', content_text: 'x', _delivery: { seq: 12, prev: documentHash(bare) } }, { at: T0 });
+const withCounter = dad.deliverItem({ id: 'urn:uuid:cost-b', content_text: 'x', _openfeed: { delivery: { seq: 12 } } }, { at: T0 });
+const withChain = dad.deliverItem({ id: 'urn:uuid:cost-c', content_text: 'x', _openfeed: { delivery: { seq: 12, prev: documentHash(bare) } } }, { at: T0 });
 const b = (i) => canonicalBytes(i).length;
 say(`  delivered item, bare        : ${b(bare)} bytes`);
 say(`  + counter                   : ${b(withCounter)} bytes  (+${b(withCounter) - b(bare)})`);

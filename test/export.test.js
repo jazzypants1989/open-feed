@@ -94,10 +94,10 @@ test('a bundle survives serialization and dies on decomposition', async () => {
   const decomposed = JSON.parse(canonicalBytes(bundle).toString('utf8'));
   decomposed.feeds[0].feed.items = decomposed.feeds[0].feed.items.map((i) => ({
     id: i.id, authors: i.authors, content_text: i.content_text,
-    date_published: i.date_published, _feed_url: i._feed_url, _version: i._version, _sig: i._sig,
+    date_published: i.date_published, _openfeed: { feed_url: i._openfeed?.feed_url }, _version: i._openfeed?.version, _sig: i._sig,
   }));
   decomposed.feeds[0].feed.items[0].content_text += '';
-  delete decomposed.feeds[0].feed.items[0]._feed_url;   // one field, gone
+  delete decomposed.feeds[0].feed.items[0]._openfeed?.feed_url;   // one field, gone
   const broken = await verifyBundle(decomposed, reading);
   assert.ok(
     broken.findings.some((f) => f.kind === 'withheld' || f.kind === 'unverifiable' || f.kind === 'invariant'),
@@ -145,7 +145,7 @@ test('the bundle says which of its halves it cannot prove complete', async () =>
     authors: [{ url: 'https://gran.example/' }],
     content_text: 'lovely',
     date_published: new Date((T0 + DAY) * 1000).toISOString().replace('.000', ''),
-    _version: 1,
+    _openfeed: { version: 1 },
   };
   inbound._sig = sign(inbound, gran.privateKey, 'https://gran.example/#gran-1');
 
@@ -174,9 +174,9 @@ test('received items are carried verbatim, extension fields and all', async () =
     authors: [{ url: 'https://gran.example/' }],
     content_text: 'hi',
     date_published: new Date(T0 * 1000).toISOString().replace('.000', ''),
-    _version: 1,
+    _openfeed: { version: 1 },
     _some_future_field: { nested: [1, 2, 3] },
-    _pins: [{ url: `${HUB}openfeed.json`, seq: 1, hash: 'x'.repeat(43), observed: T0 }],
+    _openfeed: { pins: [{ url: `${HUB}openfeed.json`, seq: 1, hash: 'x'.repeat(43), observed: T0 }] },
   };
   foreign._sig = sign(foreign, gran.privateKey, 'https://gran.example/#gran-1');
 
@@ -195,11 +195,11 @@ test('the container is self-verifying because the hash naming each file is the s
   p.publishItem({
     id: 'urn:uuid:with-photo',
     content_text: 'cookies',
-    attachments: [{ url: `${HUB}cookies.jpg`, mime_type: 'image/jpeg', _sha256: hash }],
+    attachments: [{ url: `${HUB}cookies.jpg`, mime_type: 'image/jpeg', _openfeed: { sha256: hash  }}],
   }, { at: T0 + 4 * DAY });
   p.advanceManifest({ updated: T0 + 4 * DAY + 60 });
 
-  const bundle = bundleOf(p, { attachments: [{ url: `${HUB}cookies.jpg`, _sha256: hash }] });
+  const bundle = bundleOf(p, { attachments: [{ url: `${HUB}cookies.jpg`, _openfeed: { sha256: hash  }}] });
   const entries = containerEntries(bundle, new Map([[hash, photo]]));
 
   assert.ok(entries.has(BUNDLE_ENTRY));
@@ -284,7 +284,7 @@ test('exit: migrate by recovery co-signature, export, restore, with the host ref
   // The carried items still name the *old* feed in their signed bytes, which is §3.4's whole
   // point: nothing was re-signed, so every hash any consumer or peer pinned survives.
   const carried = [...away.items.values()][0];
-  assert.equal(carried._feed_url, 'https://mom.hub.example/feed.json');
+  assert.equal(carried._openfeed?.feed_url, 'https://mom.hub.example/feed.json');
   assert.equal(documentHash(carried), documentHash([...hub.items.values()][0]));
 });
 

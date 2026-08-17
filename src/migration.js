@@ -169,7 +169,7 @@ export function verifyMigration({ predecessorDocument, successorDocument, pinned
  * What a consumer knows about who continued as whom, and which chains each identity owns.
  *
  * The chain inventory is not incidental to the migration record: §7.5's canonical exception
- * asks whether an item's `_feed_url` names a feed of a *predecessor*, which a consumer can only
+ * asks whether an item's `_openfeed.feed_url` names a feed of a *predecessor*, which a consumer can only
  * answer if it wrote down the predecessor's feeds while it could still read them. In an
  * uncooperative departure that is before the move, and there is no second chance.
  */
@@ -368,7 +368,7 @@ export class MigrationStore {
   /**
    * §7.5's exception, as a set: the feed URLs of every transitive predecessor of this identity.
    *
-   * An item whose signed `_feed_url` names one of these is **canonical** at this identity's feed
+   * An item whose signed `_openfeed.feed_url` names one of these is **canonical** at this identity's feed
    * despite the mismatch, because §3.4 requires a migrated back catalog to be republished
    * byte-verbatim — those items keep the old URL forever, and nothing can re-sign them.
    */
