@@ -433,8 +433,45 @@ export class Publisher {
     };
     if (previous._feed_url !== undefined) doc._feed_url = previous._feed_url;
     if (previous._rel !== undefined) doc._rel = previous._rel; // retained for routing (§8.2)
+    if (previous._unverified !== undefined) doc._unverified = previous._unverified; // travels with the item (§7.5)
     const signed = this.#signDocument(doc);
     this.items.set(id, signed);
+    return signed;
+  }
+
+  /**
+   * §8.2's retraction for the delivered column: a tombstone, delivered to the same inbox.
+   *
+   * `tombstone()` cannot reach a delivered-only item, because `deliverItem` stores nothing —
+   * the caller keeps the signed bytes for §14's `delivered` slot — so retraction takes those
+   * bytes back as its argument. The shape is §7.3's allowlist, and the `_delivery` entry is
+   * this tombstone's own position in the pair's stream (§10.6), never a field carried over
+   * from the original: a retraction that had to shed its stream entry would break the sender's
+   * own chain at the exact moment it is exercised.
+   */
+  retractDelivered(original, { at, to = null } = {}) {
+    if (typeof original?.id !== 'string') {
+      throw new PublishError('retractDelivered needs the delivered item it is retracting');
+    }
+    if (original._feed_url !== undefined) {
+      throw new PublishError(`${original.id} is published; tombstone() governs the feed (§7.3)`);
+    }
+    const when = at ?? this.now();
+    const doc = {
+      id: original.id,
+      authors: [{ url: this.identity }],
+      date_published: original.date_published,
+      date_modified: iso(when),
+      _version: (original._version ?? 1) + 1,
+      _deleted: true,
+      content_text: '',
+    };
+    if (original._rel !== undefined) doc._rel = original._rel; // retained for routing (§8.2)
+    if (original._unverified !== undefined) doc._unverified = original._unverified; // §7.5
+    const signed = this.#signDocument(this.#withDelivery(doc, to));
+    if (to && signed._delivery) {
+      this.deliveries.set(normalizeIdentityUrl(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
+    }
     return signed;
   }
 

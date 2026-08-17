@@ -741,3 +741,35 @@ test('`_delivery` on a published item is ignored, never a stream (§10.6, §11.2
   assert.deepEqual(deliveries.bySender.get(normalizeIdentityUrl(gran.url)),
     { seq: 1, hash: documentHash(dm) });
 });
+
+test('a delivered retraction carries its own place in the stream, and the allowlist admits it (§7.3, §8.2, §10.6)', async (t) => {
+  // §8.2 retracts a delivered item by delivering a tombstone; §10.6 has delivered items carry
+  // `_delivery`. Before §7.3's allowlist admitted the field, the two rules could not both be
+  // followed: a conformant retraction either broke the sender's own stream (no entry) or drew
+  // a 400 (entry present). The tombstone's entry is its own position in the pair's stream —
+  // seq 2 here, naming the like it retracts — never a field carried over.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+
+  const like = sender.deliverItem(
+    { id: 'urn:uuid:like-1', content_text: '', _rel: [{ type: 'like', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { at: T0 - 500, to: MOM },
+  );
+  const retraction = sender.retractDelivered(like, { at: T0 - 400, to: MOM });
+  assert.equal(retraction._deleted, true);
+  assert.equal(retraction._version, like._version + 1);
+  assert.deepEqual(retraction._delivery, { seq: 2, prev: documentHash(like) },
+    'the tombstone holds the next slot in the stream and names the item it retracts');
+
+  const deliveries = new DeliveryStore();
+  const inbox = inboxFor(t, site, { deliveries });
+  assert.equal((await inbox.deliver(canonicalBytes(like))).status, 202);
+  const got = await inbox.deliver(canonicalBytes(retraction));
+  assert.equal(got.status, 202, 'the allowlist admits `_delivery` on a delivered tombstone');
+  assert.equal(got.deliveryChain, null, 'and the stream reads it as an unbroken continuation');
+  assert.deepEqual(deliveries.bySender.get(normalizeIdentityUrl(gran.url)),
+    { seq: 2, hash: documentHash(retraction) });
+});

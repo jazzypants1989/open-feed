@@ -338,6 +338,9 @@ export function createInbox({
   const TOMBSTONE_FIELDS = new Set([
     'id', 'authors', 'date_published', 'date_modified',
     '_version', '_deleted', '_sig', 'content_text', '_feed_url', '_rel',
+    // §7.3's two later admissions: the gateway marker travels with the item wherever it goes
+    // (§7.5), and a delivered tombstone holds its own place in its pair's stream (§10.6).
+    '_unverified', '_delivery',
   ]);
 
   /**

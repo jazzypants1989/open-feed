@@ -372,6 +372,127 @@ Named with what breaks. All still open; none were touched.
 
 ---
 
+## Second-pass review of Stage 2 itself (2026-08-17)
+
+A four-way audit of the Stage 2 commits (crypto core; freshness + items flag; delivery layer;
+bookkeeping/consistency). Baseline re-verified: 228/228, regen clean, all 17 prototypes hold,
+tree clean. The mechanisms hold where tested; what follows is what the pass itself introduced or
+left dangling. Status key as above.
+
+**S2.1 The multi-recipient `_delivery` placement does not exist, and its privacy claim is false.
+OPEN — the sharpest finding; needs an owner decision.** spec:661 says a wrapped item's per-pair
+entry rides in that recipient's JWE header "beside `_tag`, which §15.2 has already built and
+already blinded" — but only the *tag* is blinded; a cleartext `{seq, prev}` in the per-recipient
+header re-links recipient slots across items (`prev` in item B equals the hash of what that slot
+last received), which is the exact unlinkability §15.2 cites to rule out `kid`. Nothing
+implements it on either end: `seal()` emits only `{alg, _tag}` (enc.js:169), `open()` neither
+returns nor checks a slot `_delivery`, `DeliveryStore.check` reads only the top-level field
+(inbox.js:109), no test covers a multi-recipient delivered item's chain, and
+`delivery-chain-prototype.js:214-229` asserts the *sentence* exists, not the property. Related:
+§8 permits cleartext delivered items relevant to two inboxes via multiple `mention`s (spec:479 vs
+§11.2's "exactly one counterparty", spec:694), which have no valid placement at all. Two exits:
+(a) define per-slot encryption of the entry under the recipient's already-derived shared secret —
+a new construction §15.2 must then own, killing §10.6's "no new mechanism" claim; or (b) restrict
+delivered-only items to exactly one recipient (promote §11.2's description to a rule; group
+content must be published-encrypted), which deletes the problem instead of building the fix —
+post-split the multi-recipient delivered case is nearly empty anyway (likes have one counterparty;
+group DMs would move to published-encrypted). (b) is the recommendation; it touches the settled
+split decision's edge, so it is the owner's call.
+
+**S2.2 `probeItems` asserts withheld about bytes it never requested. OPEN — defect in new code.**
+reader.js:737-748: the declared-then-declined branch marks up to `maxItemProbes` missing ids
+withheld after fetching only the *control* URL — and when the feed serves zero committed ids,
+after zero item-URL requests; `probed` also over-reports. §9.3 (spec:591) scopes withholding to
+"an item it requested and did not get." Fix: fall through to the existing per-id loop. The
+docstring at reader.js:860-866 is currently false for this branch; test/reader.test.js:270-292
+pins the wrong behavior.
+
+**S2.3 §16.2 still contradicts the §16 Level 3 MUST. OPEN — one-line spec fix.** The heading is
+still "Item-Carried Pins (OPTIONAL)" (spec:908) and §16.2 still says "a peer that neither emits
+nor heeds pins is fully conformant" (spec:946), against spec:732/:926. fa45fb8 updated §16's
+opening and §16.1 but missed these. Also §16.1's "Delivery reaches exactly one counterparty"
+(spec:931) is falsified by §10.6's multi-recipient case — resolved by whichever way S2.1 goes.
+
+**S2.4 `enc.js` retains the lenient base64url the §5.1 rule now forbids. OPEN.** Lenient
+`Buffer.from(x,'base64url')` at enc.js:206,234,241,243,247,321 and `'ascii'` AAD at :242 — the
+exact patterns d406fb1 purged from jws.js. The protected header is parsed from a lenient decode
+while the GCM tag authenticates the truncated string, so parsed header and authenticated bytes
+can diverge. Low practical exploitability; clear violation of §5.1's "everywhere". Route through
+`decodeBase64url`. Similarly `publicKeyFromJwk` (jws.js:225) accepts padded/standard-alphabet
+`x`, violating the MUST at spec:250.
+
+**S2.5 A delivered tombstone cannot carry `_delivery`. OPEN — new instance of 1.12's shape.**
+§7.3's allowlist (spec:411-412) excludes `_delivery`, but §8.2 retracts a delivered reaction by
+delivering a tombstone and §10.6 says delivered items SHOULD carry `_delivery` — so a conformant
+retraction forcibly breaks the sender's delivery chain. inbox.js:333-336 matches the spec, same
+gap. Fix alongside 1.12 (`_unverified`).
+
+**S2.6 Malformed `_next_update` bricks the whole chain, and only for strict readers. OPEN.**
+`assertManifestShape` (manifest.js:112-115) rejects the version outright and runs on every
+historical version in the walk (manifest.js:277); the spec (spec:522/:561) never says what a
+consumer does with a malformed value. One float from a foreign implementation → entire chain and
+back catalog unreadable here, fine elsewhere. Spec must state the verdict; candidates: strict
+everywhere (state it), or strict at the tip / ignored-as-absent in history.
+
+**S2.7 §10.6 loose ends in `src/`. OPEN, several small.** (a) Out-of-order redelivery (5 then 4,
+legitimate under §10.4's 24 h retry) yields a permanent `delivery_gap` plus a `delivery_replay`
+for the benign late item — no fill-a-gap path (inbox.js:114-116). (b) First contact skips the
+`prev`-names-an-item-it-holds check entirely (inbox.js:112), so a dropped *prefix* is invisible;
+and `DeliveryStore` has no `toJSON`/`fromJSON` (unlike `DedupStore`), so a receiver restart
+resets every stream to first contact. (c) Sender-side predecessor equivalence is unimplemented:
+`Publisher.deliveries` keys a plain `Map` on `normalizeIdentityUrl(to)` (publish.js:85,:344,
+:372-373), so a recipient who migrates gets a seq-1 restart the receiver reports as replay —
+spec:657 says both halves are subject to equivalence. Receiver-side hook exists (inbox.js:88)
+but is untested across a migration.
+
+**S2.8 `coSignIdentity` replaces the tip in place. OPEN — API hazard.** publish.js:200-201: if
+the un-co-signed tip was already served to anyone, the replacement is a second document at the
+same `(url, seq)` — §5.3.1 equivocation committed by the honest producer. Nothing enforces
+"co-sign before first serve"; the docstring warns only about later versions' `prev`. Also
+chain.js:932-935's docstring still describes the pre-fix symmetric construction ("sign identical
+bytes") — a future editor matching code to comment reintroduces the strip attack.
+
+**S2.9 Conformance surface not fully propagated. OPEN.** §12 has no freshness item at any level
+(Level 2 SHOULD "emit `_next_update`", Level 1 staleness handling — spec:720-744); Level 1's
+list also omits §7.6's new consumer MUST (spec:448) and §13.17's check. Appendix B vectors carry
+no `items: true` though §3.2.1 makes it a Level 2 MUST — the spec's own canonical publisher is
+non-conformant with itself (B.4/B.5, spec:1037/:1046); no vector carries `_next_update` or
+`_delivery` either. §15.2's header description (spec:839) never mentions the `_delivery` §10.6
+places there (one-way cross-reference; moot under S2.1(b)). §15's conformance subject wobbles
+("implementation" / "deployment" / neither defined in §2) — spec:812/:708/:906.
+
+**S2.10 Prototype and message nits. OPEN.** `freshness-prototype.js` runs Q4–Q6 against a local
+`freshness()` (lines 241-251) while its header claims it imports `src/` — the shipped
+equivalents are covered by tests, but the prototype overstates itself. `negative.test.js`'s
+trailing-bits sub-case is conditional on the fixture's final char (274-309) and could silently
+skip. migration.test.js:343-345 asserts `.verified === false` without pinning the distinct
+reason strings. reader.js:900 labels a ceiling-derived deadline "(declared)". spec:522 cites
+§9.2 where §9.1.2 defines. `enc.js:1` still opens with the superseded "OPTIONAL … at any level"
+wording; CLAUDE.md's table header still calls §15 an "OPTIONAL layer". §14 (spec:797) still says
+a trimmed `received` slot "verifies as nothing at all" — now overbroad in the safe direction,
+§10.6 being a partial trim-detector.
+
+**S2.11 Doc drift, enumerated (supersedes the vaguer Stage 5 bullets). OPEN.** README: :455
+verification recipe says signature field*s* removed (breaks on every co-signed doc under new
+§6.3); :99/:517 "§15 optional"; :73 "§16 optional"; :418/:601 recovery-by-polling with no §10.6
+carve-out; :758 cleartext delivery to plural recipients vs §11.2; :38/:575 completeness claims
+still unscoped to a declaring publisher; :145-146/:183 §7.6 explainer and example identity lack
+`items`. DISTRIBUTION-MODEL: :406/:422/:423/:883 (also :180/:808-811) cite §15.4 for the
+delivered-replies arrangement §15.4 now rejects, and :5 half-contradicts them; :156/:306
+`{audience}` via authenticated API is access-control audience restriction, now forbidden by
+spec:812; :402 recovery-by-polling; :644-648 example `openfeed.json` lacks `items: true`;
+:1241-1243 activity feed has no `/items/` tree; Phase checklists (:1012-1041) lack §16.1
+emission and §10.6. Confirmed: no `_next_update` *contradictions* in either doc, only omission.
+
+**Corrections to this register from the same audit:** line numbers drifted — 0.2 is now
+jws.js:273-274 (verifyDocument kind-blind at :346), 0.3 is reader.js:667-687 (store keying at
+:111), 0.5 is inbox.js:350 (`holdsItem` default at :249), 0.8 is inbox.js:322-327. All four
+confirmed still present as described. 1.18 confirmed still open: spec:430/:686 vs spec:854 +
+enc.js:279-283; test/enc.test.js:246-260 demonstrates the exact byte-shape, framed as an attack
+rejection.
+
+---
+
 ## The biggest thing this review did not resolve
 
 **Adoption asymmetry**, from the ecosystem audit. Publishing (Level 2) is expensive and buys the
