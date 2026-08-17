@@ -109,6 +109,42 @@ function enforceHeader(header) {
   return header;
 }
 
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Decode a base64url segment, rejecting every spelling but the one canonical one.
+ *
+ * `Buffer.from(s, 'base64url')` is a *lenient* decoder: it accepts `=` padding, accepts the
+ * standard `+`/`/` alphabet, ignores non-alphabet bytes outright, and ignores non-canonical
+ * trailing bits. That leniency makes a `_sig` string **malleable** — `sig`, `sig=`, `sig!!!`,
+ * and `sig` with `-_` swapped for `+/` all decode to the same signature and all verify.
+ *
+ * A malleable `_sig` is not cosmetic here, because §5.1 makes a document's identity its full
+ * published bytes, `_sig` included. Feeds are exempt from §6.3's arrival-canonicality rule
+ * (they are neither signed nor chained), so item `_sig` strings inside a feed page are the one
+ * signed-document bytes nothing byte-checks. A serving-path attacker holding **no key** flips
+ * one character: the item still verifies, so it lands in the canonical set, and then its
+ * `documentHash` no longer matches what the manifest committed — §9.3 invariant 4, which §9.3
+ * says "MUST be treated like chain equivocation." An honest publisher is convicted of the one
+ * thing the chains exist to detect, by an attacker who forged nothing.
+ *
+ * So: alphabet, length class, and a re-encode round-trip. The round-trip is what closes the
+ * trailing-bits case, which the first two checks cannot see.
+ */
+function decodeBase64url(segment, what) {
+  if (!BASE64URL.test(segment)) {
+    throw new VerifyError(`${what} is not canonical base64url`);
+  }
+  if (segment.length % 4 === 1) {
+    throw new VerifyError(`${what} has an impossible base64url length`);
+  }
+  const bytes = Buffer.from(segment, 'base64url');
+  if (bytes.toString('base64url') !== segment) {
+    throw new VerifyError(`${what} is not canonical base64url`);
+  }
+  return bytes;
+}
+
 /** Split `header-b64 || '..' || sig-b64` and enforce §6.2 on the header. */
 export function parseDetachedSig(sig) {
   if (typeof sig !== 'string') throw new VerifyError('signature must be a string');
@@ -117,6 +153,8 @@ export function parseDetachedSig(sig) {
     throw new VerifyError('signature is not a detached JWS (expected `header..signature`)');
   }
   const [headerB64, , signatureB64] = parts;
+  const headerBytes = decodeBase64url(headerB64, 'signature header');
+  const signature = decodeBase64url(signatureB64, 'signature');
   let header;
   try {
     // The strict parser, not `JSON.parse`. The protected header is signed bytes like any other
@@ -124,11 +162,11 @@ export function parseDetachedSig(sig) {
     // last-wins under `JSON.parse`, first-wins under some parsers, and rejected under this one.
     // Two verifiers disagreeing about which key a signature names is the whole of signature
     // confusion, and the header is the one place in this codebase the strict parser was skipped.
-    header = parseIJSON(Buffer.from(headerB64, 'base64url').toString('utf8'));
+    header = parseIJSON(headerBytes.toString('utf8'));
   } catch {
     throw new VerifyError('signature header is not valid I-JSON');
   }
-  return { headerB64, header: enforceHeader(header), signature: Buffer.from(signatureB64, 'base64url') };
+  return { headerB64, header: enforceHeader(header), signature };
 }
 
 // ---- signing input (spec §6.1, §6.4) ----
@@ -146,8 +184,18 @@ export function signingPayload(doc) {
  * ASCII(BASE64URL(UTF8(header)) || '.') || canonical-json-bytes.
  * The signature covers header AND payload: signing the payload alone would leave `alg`
  * and `kid` unauthenticated, letting an attacker swap the referenced key.
+ *
+ * The alphabet check is that claim's other half rather than a belt on a brace. `Buffer.from(s,
+ * 'ascii')` does not reject a non-ASCII code unit, it *truncates* it mod 256 — so `X` and
+ * `String.fromCharCode('X' + 256)` produce identical signing input, and the header half of the
+ * signature stops distinguishing them. `parseDetachedSig` already refuses such a segment on the
+ * verify path; enforcing it here too means the function is sound on its own terms, for the
+ * callers that reach it directly.
  */
 export function signingInput(headerB64, payload) {
+  if (typeof headerB64 !== 'string' || !BASE64URL.test(headerB64)) {
+    throw new VerifyError('signature header segment is not canonical base64url');
+  }
   return Buffer.concat([Buffer.from(headerB64 + '.', 'ascii'), payload]);
 }
 

@@ -271,6 +271,44 @@ test('malformed signatures are rejected', () => {
   assert.throws(() => verifyDocument({ ...item, _sig: undefined }, { identityDocument: identity, kind: 'item' }), throwsVerify(/has no _sig/));
 });
 
+test('a _sig is not malleable: only the canonical base64url spelling verifies', () => {
+  // The exploit this closes needs no key at all. A document's identity is its full published
+  // bytes, `_sig` included (§5.1), and a feed is exempt from §6.3's arrival-canonicality rule,
+  // so item `_sig` strings inside a feed page are the one signed bytes nothing byte-checks.
+  // Under a lenient base64url decoder every mutation below still verifies — and each changes
+  // `documentHash`, so the item lands in the canonical set and then fails its manifest entry
+  // (§9.3 invariant 4), which §9.3 says MUST be treated like chain equivocation. A serving-path
+  // attacker convicts an honest publisher by flipping one character.
+  const item = signedItem();
+  const [h, , s] = item._sig.split('.');
+  const rejects = (sig, why) =>
+    assert.throws(
+      () => verifyDocument({ ...item, _sig: sig }, { identityDocument: identity, kind: 'item' }),
+      throwsVerify(/canonical base64url|impossible base64url length/),
+      why,
+    );
+
+  rejects(`${h}..${s}=`, 'padding');
+  rejects(`${h}..${s}==`, 'double padding');
+  rejects(`${h}..${s}!!!`, 'non-alphabet trailing garbage');
+  rejects(`${h}..${s.replace(/-/g, '+').replace(/_/g, '/')}`, 'the standard base64 alphabet');
+  rejects(`${h}=..${s}`, 'padding on the header segment');
+  // `Buffer.from(x, 'ascii')` truncates mod 256 rather than rejecting, so an unrepaired
+  // implementation treats this as byte-identical to the honest header.
+  rejects(`${String.fromCharCode(h.charCodeAt(0) + 256)}${h.slice(1)}..${s}`, 'a non-ASCII header segment');
+
+  // The trailing-bits case the alphabet and length checks cannot see: a 43-character segment
+  // whose final character carries bits that re-encode differently.
+  const bytes = Buffer.from(s, 'base64url');
+  const alt = `${s.slice(0, -1)}${s.at(-1) === 'A' ? 'B' : 'A'}`;
+  if (Buffer.from(alt, 'base64url').equals(bytes) && alt !== s) {
+    rejects(`${h}..${alt}`, 'non-canonical trailing bits');
+  }
+
+  // The honest spelling still verifies, and is the only one that does.
+  assert.ok(verifyDocument(item, { identityDocument: identity, kind: 'item' }));
+});
+
 // ---- author binding (spec §6.6) ----
 
 test('author binding failures are rejected', () => {
