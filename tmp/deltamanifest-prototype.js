@@ -23,6 +23,7 @@
 // would only add noise. What is measured is the shape.
 
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 
 function canon(v) {
   if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
@@ -255,6 +256,10 @@ const SCENARIOS = [
 console.log('=== delta-manifest prototype: is a second document shape worth it? ===');
 console.log(`(byte arithmetic self-checked against real serialization: ${CHECKED} bytes, exact)\n`);
 
+// Q3's prose quotes these back. Capture them rather than hardcoding, because a hardcoded
+// figure is exactly how `itemurls-prototype.js`'s headline number went stale.
+const captured = {};
+
 for (const s of SCENARIOS) {
   const adds = Math.round(s.addsPerVersion);
   const { a, aNoSkip, b, liveCount } = measure({ ...s, addsPerVersion: adds, snapshotEvery: SNAPSHOT_EVERY });
@@ -272,8 +277,14 @@ for (const s of SCENARIOS) {
   console.log(`        tip version size          : A ${kb(tipA.size)}  ·  B ${kb(tipB.size)}`);
   console.log();
 
-  const budget = budgetFor(tipA.size);
-  console.log(`  Q2  reconnecting a pin, against §13.4's budget of ${mb(budget)} (20x the ${kb(tipA.size)} tip)`);
+  // §13.4's budget is "20x the CURRENT version's size", so it is a property of the model being
+  // walked, not a single number both models are graded against. B's tip is a delta, so B's real
+  // budget is almost always the 10 MB floor — which is *stricter* than grading it against A's
+  // tip, and an earlier draft of this file did the generous thing by mistake.
+  const budgetA = budgetFor(tipA.size);
+  const budgetB = budgetFor(tipB.size);
+  console.log(`  Q2  reconnecting a pin, each model against its OWN §13.4 budget`);
+  console.log(`        A: ${mb(budgetA)} (20x the ${kb(tipA.size)} tip)  ·  B: ${mb(budgetB)} (20x the ${kb(tipB.size)} tip, so the 10 MB floor)`);
   const perDay = s.versions / s.days;
   const absences = [['1 day', 1], ['1 month', 30], ['1 year', 365]]
     .map(([label, days]) => [label, Math.min(s.versions - 1, Math.max(1, Math.round(perDay * days)))]);
@@ -282,18 +293,123 @@ for (const s of SCENARIOS) {
     const lin = walkLinear(aNoSkip, pin);
     const skip = walkSkipping(a, pin);
     const delta = walkDelta(b, pin);
-    const verdict = (n) => (n <= budget ? 'ok  ' : 'OVER');
+    // The configuration this file previously declined to measure. Anchor structure is identical
+    // to A's — absolute powers of two, landing plus `seq+1` companion — so the same walker
+    // applies; only the per-version sizes differ. Caveat stated in Q3: for a consumer that needs
+    // reconstructed STATE (invariant 1), anchors would have to land on snapshots, which this
+    // does not model. As a hash-linkage cost it is exact.
+    const deltaSkip = walkSkipping(b, pin);
+    const v = (n, budget) => (n <= budget ? 'ok  ' : 'OVER');
     console.log(`        ${label.padEnd(8)} (${back} versions back)`);
-    console.log(`          A linear   ${verdict(lin)} ${mb(lin).padStart(9)}`);
-    console.log(`          A _skip    ${verdict(skip)} ${mb(skip).padStart(9)}`);
-    console.log(`          B delta    ${verdict(delta)} ${mb(delta).padStart(9)}`);
+    console.log(`          A linear     ${v(lin, budgetA)} ${mb(lin).padStart(9)}`);
+    console.log(`          A _skip      ${v(skip, budgetA)} ${mb(skip).padStart(9)}`);
+    console.log(`          B delta      ${v(delta, budgetB)} ${mb(delta).padStart(9)}`);
+    console.log(`          B delta+skip ${v(deltaSkip, budgetB)} ${mb(deltaSkip).padStart(9)}`);
+    captured[`${s.name}|${label}`] = { lin, skip, delta, deltaSkip, budgetA, budgetB };
   }
+  captured[s.name] = {
+    retainedA: sum(a.map((v) => v.size)),
+    retainedB: sum(b.map((v) => v.size)),
+    ratio: sum(a.map((v) => v.size)) / sum(b.map((v) => v.size)),
+  };
   console.log();
   console.log('  Q4  first contact (no pin: the cost of meeting this identity at all)');
   console.log(`        A  the tip alone          : ${kb(tipA.size)}`);
   console.log(`        B  tip + replay to snapshot: ${kb(firstContactB(b))}`);
   console.log();
 }
+
+// =========================================================================================
+// Q5 — the claim the recommendation rests on, finally measured.
+//
+// The verdict below says the storage win is "bought at the wrong counter" because compressing
+// AT REST gets the same 40-60x with no wire change. That sentence is now in the spec
+// (§13.4: "compressing or delta-encoding at rest brings the bytes on disk to roughly O(total
+// changes)") and nothing here had ever measured it. It needs real bytes, so this builds one
+// scenario's chain honestly — 365 versions is affordable to serialize, unlike 8760.
+//
+// Two regimes, because they answer different questions and only one of them is the claim:
+//   per-file   — what a static host with precompressed assets gets. Cannot see across versions,
+//                so it can only find redundancy INSIDE one manifest.
+//   whole-set  — what a backup or an object store with cross-object dedup gets. This is the
+//                regime the O(total changes) claim is about.
+// =========================================================================================
+console.log('=== Q5: is the storage win really available at rest, with no wire change? ===\n');
+{
+  const S = { versions: 365, addsPerVersion: 3 };
+  const live = new Map();
+  const deleted = new Map();
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  let next = 0;
+  const files = [];
+  for (let seq = 1; seq <= S.versions; seq++) {
+    for (let i = 0; i < S.addsPerVersion; i++) live.set(itemId(next++), 1);
+    const recent = (n) => itemId(Math.max(0, next - 1 - Math.floor(rnd() * Math.min(next, n))));
+    for (let i = 0; i < S.addsPerVersion; i++) {
+      if (rnd() < 0.05) { const id = recent(500); if (live.has(id)) live.set(id, live.get(id) + 1); }
+      if (rnd() < 0.01) { const id = recent(500); if (live.has(id)) { deleted.set(id, live.get(id) + 1); live.delete(id); } }
+    }
+    const doc = {
+      url: ID, feed_url: FEED, seq, updated: 1736899200 + seq * 86400,
+      ...(seq > 1 ? { prev: b64u(sha256(Buffer.from('prev' + seq))) } : {}),
+      items: Object.fromEntries([...live].map(([id, v]) => [id, [v, itemHash(id, v)]])),
+      ...(deleted.size ? { deleted: Object.fromEntries([...deleted].map(([id, v]) => [id, [v, itemHash(id, v)]])) } : {}),
+    };
+    files.push(Buffer.from(JSON.stringify(doc), 'utf8'));
+  }
+
+  const raw = sum(files.map((f) => f.length));
+  const perFileGzip = sum(files.map((f) => zlib.gzipSync(f, { level: 9 }).length));
+  const concat = Buffer.concat(files);
+  const wholeGzip = zlib.gzipSync(concat, { level: 9 }).length;
+  const wholeBrotli = zlib.brotliCompressSync(concat).length;
+  const wholeZstd = typeof zlib.zstdCompressSync === 'function'
+    ? zlib.zstdCompressSync(concat).length : null;
+
+  // The floor the claim aims at: what a delta encoding of the same series would cost, which is
+  // Model B's total for the same shape.
+  const { b: bSeries } = measure({ versions: S.versions, addsPerVersion: S.addsPerVersion, snapshotEvery: SNAPSHOT_EVERY });
+  const deltaTotal = sum(bSeries.map((v) => v.size));
+
+  const line = (label, n) => console.log(`    ${label.padEnd(34)} ${mb(n).padStart(9)}   ${(raw / n).toFixed(1)}x`);
+  console.log(`  365 versions, ${live.size} live items at the end, serialized for real:\n`);
+  line('raw on disk (what §5.4 obliges)', raw);
+  line('per-file gzip -9', perFileGzip);
+  line('whole-set gzip -9', wholeGzip);
+  line('whole-set brotli', wholeBrotli);
+  if (wholeZstd) line('whole-set zstd', wholeZstd);
+  line('delta encoding (Model B, for scale)', deltaTotal);
+  console.log();
+  console.log('  The claim holds — but NOT for the compressor most people mean by "compress at rest",');
+  console.log('  and that qualification is the finding here.');
+  console.log();
+  console.log(`  · per-file gzip: ${(raw / perFileGzip).toFixed(1)}x. It is compressing one manifest against itself. The`);
+  console.log('    entries are SHA-256 hashes, so what it finds is the shared id prefix and base64');
+  console.log('    alphabet, not the fact that this version is nearly identical to the last one.');
+  console.log(`  · whole-set gzip: ${(raw / wholeGzip).toFixed(1)}x — barely better, and this is the trap. DEFLATE's window`);
+  console.log(`    is 32 KB and one version here is ${kb(files[files.length - 1].length)}, so gzip cannot see the previous`);
+  console.log('    version even when handed the whole series. Concatenating and gzipping LOOKS like');
+  console.log('    the fix and is not.');
+  console.log(`  · whole-set brotli: ${(raw / wholeBrotli).toFixed(1)}x` + (wholeZstd ? `, zstd: ${(raw / wholeZstd).toFixed(1)}x` : '') + '. Large-window compressors DO see across');
+  console.log(`    versions, and they beat an actual delta encoding (${(raw / deltaTotal).toFixed(1)}x) — because a delta version`);
+  console.log('    still carries a fresh 43-char hash per change, while a compressor sees the whole');
+  console.log('    unchanged remainder as one reference.');
+  console.log();
+  console.log('  So §13.4\'s "compressing or delta-encoding at rest brings the bytes on disk to roughly');
+  console.log('  O(total changes)" is earned, and it should say WITH WHAT: a large-window compressor');
+  console.log('  or a store that dedups across objects. A static host serving precompressed files gets');
+  console.log(`  the ${(raw / perFileGzip).toFixed(1)}x column, not the ${(raw / wholeBrotli).toFixed(0)}x one — an ordinary operational choice, but a choice.`);
+  console.log('  (Ids here share a fixed 36-char suffix, which flatters the per-file column and does');
+  console.log('  not touch the cross-version one, since that redundancy is whole-entry repetition.)');
+}
+console.log();
+
+const HOURLY = SCENARIOS[2].name;
+const ANNUAL = SCENARIOS[1].name;
+const day = captured[`${HOURLY}|1 day`];
+const year = captured[`${HOURLY}|1 year`];
+const ratios = SCENARIOS.map((s) => captured[s.name].ratio);
 
 console.log('=== Q3: does B retire `_skip`?  No — and the reason is the interesting part ===');
 console.log(`
@@ -302,20 +418,28 @@ The two mechanisms scale in different variables, and the rows above are where th
   \`_skip\` is O(log VERSIONS).  Deltas are O(CHANGES SINCE THE PIN).
 
 For a short absence, deltas win outright and it is not close: one day back at hourly cadence
-costs A+\`_skip\` 2.5 MB and B under 0.1 MB, because B transfers the twenty-odd entries that
+costs A+\`_skip\` ${mb(day.skip)} and B ${mb(day.delta)}, because B transfers the twenty-odd entries that
 actually changed and A transfers two full snapshots per jump. For a LONG absence it inverts. A
-year back at hourly cadence costs A+\`_skip\` 3.9 MB and B 59.4 MB — the whole history — because
-a delta chain has no shortcut in it and a logarithmic one does. B breaches §13.4's budget in
-exactly the case \`_skip\` was invented for.
+year back at hourly cadence costs A+\`_skip\` ${mb(year.skip)} and B ${mb(year.delta)} — the whole history —
+because a delta chain has no shortcut in it and a logarithmic one does. B breaches §13.4's
+budget in exactly the case \`_skip\` was invented for.
 
 So the honest answer to "does the delta shape let us delete §9.1.1?" is no. The two are
-complements, and B+\`_skip\` (anchored on snapshots, the only versions carrying full state) would
-genuinely dominate both — at the price of a THIRD mechanism in the one document a consumer
-parses most, which is where the design stops being small.
+complements — and B+\`_skip\` genuinely dominates both, which this file previously asserted and
+declined to measure. It is measured now, in the fourth row of every block above: ${mb(year.deltaSkip)} for the
+year-back lapse against A+\`_skip\`'s ${mb(year.skip)} and B-delta's ${mb(year.delta)}, and it is the cheapest
+option at every other lapse too. That is a real result and it should be stated as one: **the
+recommendation below is not that Model A is cheaper. It is not.**
 
-What B unambiguously wins is STORAGE, by 38-60x, and that is the obligation §13.4 calls the
+(One caveat on that row, since an unstated approximation is how the last set of numbers rotted:
+it prices HASH LINKAGE, reusing A's absolute-anchor structure over B's version sizes. A consumer
+that must also reconstruct STATE — invariant 1 — would need anchors landing on snapshots, which
+would raise it. The direction of the error is against B+\`_skip\`, so the conclusion that it
+dominates on transfer cost is safe.)
+
+What B unambiguously wins is STORAGE, by ${Math.min(...ratios).toFixed(0)}-${Math.max(...ratios).toFixed(0)}x, and that is the obligation §13.4 calls the
 largest in the protocol. Note though what §9.2 already does about it: the middle scenario is
-that section's own recommendation (annual rotation) and Model A lands at 18.9 MB of retained
+that section's own recommendation (annual rotation) and Model A lands at ${mb(captured[ANNUAL].retainedA)} of retained
 history for a family with a thousand live posts, walked comfortably inside budget at every
 absence except a full year — which \`_skip\` covers. §9.2's two axes are doing the job they
 claim to do.
@@ -332,10 +456,16 @@ The cost side, stated plainly, because it is what the decision turns on:
     two observers hold in common is reconstructed state rather than published bytes — and
     §16.1 already calls a skipping consumer a weaker witness for exactly this reason.
 
-Recommendation on these numbers: keep Model A. Not because the storage win is small — it is
-large — but because it is bought at the wrong counter. The publisher pays the storage, and
-§13.4 already notes that successive versions differ by a handful of entries, so compressing or
-delta-encoding AT REST brings the same 40-60x to disk with no change to the wire format, no
-second document shape, and no weakening of what a consumer can check. The delta shape moves a
-publisher-side storage cost onto every verifier's complexity budget. That is the trade, and it
-is a bad one at this scale.`);
+Recommendation on these numbers: keep Model A — on the three costs above, NOT on cost of
+transfer or storage, both of which B wins. The storage win is real and large; it is bought at
+the wrong counter. The publisher pays the storage, and Q5 now measures what §13.4 asserts: a
+large-window compressor over the retained series gets the same order as a delta encoding, with
+no change to the wire format, no second document shape, and no weakening of what a consumer can
+check. Two qualifications Q5 earns and §13.4 should carry: plain gzip does NOT get you there —
+its 32 KB window is smaller than one manifest version — and a static host serving precompressed
+files gets the per-file column, not the cross-version one.
+
+So the trade is: a publisher-side storage cost, removable at rest by choosing the right
+compressor, against a permanent complexity cost on every verifier plus a weakening of invariant
+1 and of what §5.3.1 observers hold in common. That is a bad trade at this scale, and it would
+still be a bad trade if B+\`_skip\` were faster — which it is.`);

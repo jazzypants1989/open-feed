@@ -173,24 +173,42 @@ console.log('retained history: %s plain, %s with _skip (publisher storage cost o
   fmt(retainedPlain), fmt(retainedAbs), fmt(retainedAbs - retainedPlain));
 
 // ---- Q1: where does the linear walk breach the cap? --------------------------------------
-const row = (a,b,c,d,e,f,g) => '  ' + String(a).padEnd(20) + String(b).padStart(8) +
-  String(c).padStart(11) + String(d).padStart(8) + '   ' + String(e).padStart(6) +
-  String(f).padStart(11) + String(g).padStart(8);
+const row = (a,b,c,d,e,f,g,h) => '  ' + String(a).padEnd(19) + String(b).padStart(7) +
+  String(c).padStart(10) + String(d).padStart(8) + '  ' + String(e).padStart(6) +
+  String(f).padStart(10) + '  ' + String(g).padStart(6) + String(h).padStart(10);
 
+// The spot-check is NOT optional in the shipped spec, and this prototype's first draft priced
+// the walk as though it were. §9.1.1 says a consumer "SHOULD then fetch the version immediately
+// above that anchor and confirm its `prev` names the same hash", and §9.1 hardened the
+// companion's own `_sig` verification to a MUST — "so MUST the `_sig` ... of the `seq+1`
+// companion that confirms the anchor". §13.4 prices a jump at "two full versions" accordingly.
+// So the column that sold this mechanism is the wrong column; both are shown, and the verdict
+// is judged on the right-hand one.
 console.log('\nCLAIM 1 — the lapsed-reader cliff (§13.4 cap = ' + fmt(CAP) + ')');
-console.log(row('lapse', 'linear', 'bytes', 'cap?', 'skip', 'bytes', 'cap?'));
+console.log('  (skip-unchecked is what this file measured before §9.1 made the companion a MUST)');
+console.log(row('lapse', 'linear', 'bytes', 'cap?', 'unchk', 'bytes', 'skip+', 'bytes'));
 let cliff = null;
+let worstChecked = 0;
 for (const days of [7, 30, 90, 150, 240, 364]){
   const pin = head - days;
   const L = walkLinear(plain, pin, plain[pin-1].hash);
   const S = walkSkip(abs, pin, abs[pin-1].hash);
-  if (!L.ok || !S.ok) throw new Error('walk failed to reconnect the pin');
+  const C = walkSkip(abs, pin, abs[pin-1].hash, { spotCheck: true });
+  if (!L.ok || !S.ok || !C.ok) throw new Error('walk failed to reconnect the pin');
   if (cliff === null && L.bytes > CAP) cliff = days;
-  console.log(row(`${days} d (pin seq ${pin})`, L.fetches, fmt(L.bytes),
-    L.bytes > CAP ? 'BREACH' : 'ok', S.fetches, fmt(S.bytes), S.bytes > CAP ? 'BREACH' : 'ok'));
+  worstChecked = Math.max(worstChecked, C.bytes);
+  console.log(row(`${days} d (pin ${pin})`, L.fetches, fmt(L.bytes),
+    L.bytes > CAP ? 'BREACH' : 'ok', S.fetches, fmt(S.bytes),
+    C.fetches, fmt(C.bytes) + (C.bytes > CAP ? ' BREACH' : '')));
 }
 console.log('  → linear walking breaches the cap after ~%d days away; §5.3 then requires the', cliff);
-console.log('    consumer to treat the chain as UNVERIFIABLE. Skip walking stays under it at every lapse.');
+console.log('    consumer to treat the chain as UNVERIFIABLE.');
+console.log('  → the companion fetch roughly doubles the skip walk, exactly as §13.4 says it does.');
+console.log('    Worst checked lapse is %s against a %s cap — still an order of magnitude', fmt(worstChecked), fmt(CAP));
+console.log('    of headroom, so the verdict survives being priced correctly. It is the SPEC\'s');
+console.log('    extrapolations that need care: §9.1.1 and §13.4 both reason from "a skip jump');
+console.log('    costs two full versions", and that is the number measured here, not the one');
+console.log('    this file originally reported.');
 
 // ---- Q2: absolute vs relative anchors, and the comparison network --------------------------
 // §5.3.1 needs two observers to land on the SAME seq to compare hashes. Anchors decide that.
@@ -271,8 +289,12 @@ console.log('   - the only thing that keeps a lapsed reader inside §13.4. Caden
 console.log('     storage for the publisher; neither shortens a walk from a live pin.');
 console.log('   - anchors MUST be absolute (multiples of powers of two), or the §5.3.1 comparison');
 console.log('     network dissolves — relative offsets walk just as fast and witness nothing shared.');
-console.log('   - a skipping consumer SHOULD spot-check one `prev` per hop: ~2x fetches, still');
-console.log('     logarithmic, and it restores full-walk security exactly.');
+console.log('   - a skipping consumer MUST spot-check one `prev` per hop: ~2x fetches, still');
+console.log('     logarithmic, and it restores full-walk security exactly. This file first reported');
+console.log('     the UNCHECKED cost and recommended the check as a SHOULD; the spec correctly');
+console.log('     hardened it (§9.1, §9.1.1) and §13.4 now prices a jump at two full versions.');
+console.log('     Measured at the right price the worst lapse is ' + fmt(worstChecked) + ' against a ' + fmt(CAP) + ' cap,');
+console.log('     so the conclusion holds — but the number it holds by is half what was reported.');
 console.log('   - publisher cost: ' + (abs[head-1].bytes.length - plain[head-1].bytes.length) +
   ' B on the head manifest, ' + fmt(retainedAbs - retainedPlain) + ' of retained history.');
 console.log('  NOT the identity chain: 5-20 lifetime versions (§3.2.1) never repay the field.');

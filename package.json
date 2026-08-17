@@ -11,6 +11,7 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "verify": "node bin/openfeed.js verify",
-    "vectors": "node tmp/regen.js"
+    "vectors": "node tmp/regen.js",
+    "prototypes": "node tmp/check-prototypes.js"
   }
 }

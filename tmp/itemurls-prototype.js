@@ -1,14 +1,23 @@
-// Derived item URLs: can an individually-addressable item rescue §9.3's withholding verdict,
-// and if so, addressed by what?
+// Derived item URLs: can an individually-addressable item make §9.3's withholding verdict
+// reachable at all, and if so, addressed by what?
 //
-// The problem is live in shipped code. §9.3 scopes withholding to "an item it requested and did
-// not get: the permalink, or the page the item's position implies, or a complete pass over the
-// feed it chose to make". `src/reader.js` passes `partial: feed.nextUrl !== null` — but the
-// absence of `next_url` is not knowledge that a complete pass was made, and §13.4 budgets
-// nothing for walking pagination to its end. So today an ordinary publisher serving a 50-item
-// window over 10,000 committed items has every older item reported as **withheld**: a false
-// accusation of the one attack the manifest exists to detect. The state is nearly dead on the
-// pull path, and `HANDOFF.md` §3 item 1 names this as the top open defect.
+// The problem is live in shipped code, and it is the *opposite* of what this file's first draft
+// assumed. That draft argued §7.6's case from false accusations — an ordinary publisher serving
+// a 50-item window having every older item reported as `withheld`. Commit 932404c then rewrote
+// `src/manifest.js` so that `withheld` is asserted only for ids the caller **requested** at a
+// §7.6 URL and did not get; everything else committed-but-not-yielded is `absent`, which
+// accuses nobody (`src/manifest.js:327-352`). That is the correct reading of §9.3 — a page with
+// no `next_url` may be a complete catalog or a recency window, and the two are indistinguishable
+// from the bytes — so the false accusations are gone and this prototype's old headline number no
+// longer reproduces.
+//
+// What replaces it is a stronger argument, not a weaker one. A reader with no §7.6 available now
+// never reports withholding against anybody: safe, and also **blind**. The one attack the
+// manifest exists to detect on the pull path — commit the bytes, refuse to serve them — has no
+// verdict behind it. §9.3 says exactly this ("close to unreachable on the pull path unless the
+// publisher offers §7.6"), which makes §7.6 the load-bearing half of a Level 1 MUST rather than
+// a convenience. Q1 below measures both halves: what the blind reader reports, and what the
+// alternative — a complete pass over the catalog — actually costs.
 //
 // §5.4 already solved the shape of this problem once — a chained document's prior versions are
 // individually addressable at a *derived* URL, so a consumer can ask for one thing instead of
@@ -107,7 +116,7 @@ say(`  feed bytes (all)     : ${mb(canonicalBytes(mom.feed).length)}`);
 // Q1 — the do-nothing fix: walk next_url to the end
 // ---------------------------------------------------------------------------------------
 
-scene(1, 'The baseline — following pagination to the end, priced against §13.4');
+scene(1, 'The baseline — what a reader without §7.6 can say, and what the alternative costs');
 
 const PAGE = 50;                          // §7.4: feeds SHOULD carry at least 50 recent items
 const FEED_PAGE_CAP = 10 * 1048576;       // §13.4 feed page cap
@@ -142,24 +151,49 @@ say(`  history budget (${mb(HISTORY_CAP)}) is for CHAIN versions. A complete pas
 say(`  and ${mb(scaledBytes)} on every poll, to assert a verdict about items nobody suspects.`);
 say();
 
-// What the reader reports today, with the real reconcile logic.
+// What the reader reports today, with the real reconcile logic. The `partial` flag is the one
+// an earlier draft thought was load-bearing; measure both settings and show it is not.
 const onePage = feedItems.slice(0, PAGE);
-const todayPartialFlagUnset = reconcileFeed(manifest, onePage, { now: clock, url: FEED, partial: false });
-const todayPartialFlagSet = reconcileFeed(manifest, onePage, { now: clock, url: FEED, partial: true });
-const falseWithheld = todayPartialFlagUnset.states.filter((s) => s.state === 'withheld').length;
-const withFlag = todayPartialFlagSet.states.filter((s) => s.state === 'withheld').length;
+const blindUnflagged = reconcileFeed(manifest, onePage, { now: clock, url: FEED, partial: false });
+const blindFlagged = reconcileFeed(manifest, onePage, { now: clock, url: FEED, partial: true });
+const count = (r, state) => r.states.filter((s) => s.state === state).length;
 
-say(`  reconcile one ${PAGE}-item page against a ${liveCount}-item manifest:`);
-say(`    partial:false (what a feed with no next_url yields today) → ${falseWithheld} withheld`);
-say(`    partial:true                                              → ${withFlag} withheld`);
-say(`  Every one of those ${falseWithheld} is a false accusation. `
-  + `The flag is load-bearing and the reader sets it`);
-say(`  from \`next_url\`, which a publisher on its last page does not carry.`);
+const falseWithheld = count(blindUnflagged, 'withheld');
+const withFlag = count(blindFlagged, 'withheld');
+const absentCount = count(blindUnflagged, 'absent');
+
+say(`  reconcile one ${PAGE}-item page against a ${liveCount}-item manifest, no §7.6 available:`);
+say(`    partial:false → ${String(falseWithheld).padStart(5)} withheld, ${String(absentCount).padStart(5)} absent`);
+say(`    partial:true  → ${String(withFlag).padStart(5)} withheld, ${String(count(blindFlagged, 'absent')).padStart(5)} absent`);
+say(`  Zero accusations either way, and the flag only colors a reason string. That is the`);
+say(`  shipped behavior being *correct* — and it is also the reader saying nothing at all about`);
+say(`  ${absentCount} committed revisions it cannot obtain.`);
+say();
+
+// Now the same corpus with §7.6 available: probe the ids the page did not yield, and let a
+// hostile publisher refuse a handful of them. This is the only path that reaches `withheld`.
+const committedIds = Object.keys(manifest.items);
+const servedIds = new Set(onePage.map((i) => i.id));
+const notYielded = committedIds.filter((id) => !servedIds.has(id));
+// A publisher that commits the bytes and answers 404 at the item URL: the attack itself.
+const REFUSED = 3;
+const unobtainable = new Set(notYielded.slice(0, REFUSED));
+const probed = reconcileFeed(manifest, onePage, { now: clock, url: FEED, partial: true, unobtainable });
+const withheldWithProbe = count(probed, 'withheld');
+
+say(`  the same read with §7.6 probes, against a publisher refusing ${REFUSED} committed revisions:`);
+say(`    → ${withheldWithProbe} withheld, ${count(probed, 'absent')} absent`);
+const probeBytes = canonicalBytes(mom.items.get([...unobtainable][0])).length;
+say(`  ${withheldWithProbe} fetches of ${probeBytes} B each reach a verdict the ${mb(scaledBytes)} pass above`);
+say('  reaches for every id at once and no consumer can afford on every poll.');
 
 verdict(
-  `Following pagination is not a fix, it is a ${mb(scaledBytes)} poll. And the state it would rescue is\n`
-  + 'one a consumer asserts about a handful of items it cares about, not about ten thousand it has\n'
-  + 'never looked at — so the mechanism wanted here is "ask for one item", not "read everything".',
+  `Without §7.6 the withholding verdict is not weak, it is unreachable: ${falseWithheld} withheld out of\n`
+  + `${absentCount} committed-and-unobtainable revisions, at any \`partial\` setting. The only alternative the\n`
+  + `core offers is a ${mb(scaledBytes)} complete pass on every poll, which §13.4 budgets nothing for. With\n`
+  + '§7.6 it is one fetch per item a consumer actually cares about — so the mechanism wanted here\n'
+  + 'is "ask for one item", not "read everything", and it is the difference between a MUST that\n'
+  + 'can be honored and one that cannot.',
 );
 
 // ---------------------------------------------------------------------------------------
@@ -191,6 +225,7 @@ const encoders = {
 
 say('  item id                                              distinct derived paths');
 let ambiguous = 0;
+let ambiguousEncodersOnly = 0;   // excluding the resolver, which is a mistake rather than a choice
 let escapes = 0;
 for (const id of IDS) {
   const results = new Map();
@@ -201,6 +236,7 @@ for (const id of IDS) {
   }
   const distinct = new Set(results.values());
   if (distinct.size > 1) ambiguous++;
+  if (new Set([encodeURIComponent(id), encodeURI(id)]).size > 1) ambiguousEncodersOnly++;
   // The one thing §5.4 asks of a derived path is that it stay under the reserved prefix. A
   // surviving '/' makes it a different subtree; a resolver that swallowed the base loses it.
   const traversal = [...distinct].some((p) => p.includes('/'));
@@ -209,7 +245,12 @@ for (const id of IDS) {
   for (const [name, got] of results) say(`      ${name.padEnd(18)} ${base}/${got}.json`);
 }
 say();
-say(`  ${ambiguous} of ${IDS.length} ids derive a different URL depending on which encoder the implementation uses.`);
+say(`  ${ambiguous} of ${IDS.length} ids derive a different URL depending on which of the three the implementation uses.`);
+say(`  ${ambiguousEncodersOnly} of ${IDS.length} still do with the resolver excluded — and that is the number the argument`);
+say('  rests on. `new URL(id, base)` is a *resolver*, not an encoder: an id carrying its own');
+say('  scheme is not a relative reference, so it swallows the base and produces garbage. Counting');
+say('  it inflates the case. The honest comparison is encodeURIComponent vs encodeURI, and they');
+say(`  already disagree on ${ambiguousEncodersOnly} of ${IDS.length} — two encoders every implementer has to hand.`);
 say(`  ${escapes} of ${IDS.length} escape their path segment under at least one encoder — a derived URL that is`);
 say('  no longer under the reserved prefix, which is the one thing §5.4 asks of a derived path.');
 say();
@@ -308,17 +349,32 @@ say('    comparison instead of silently pinning a different hash than everybody 
 
 say();
 say('='.repeat(78));
-if (falseWithheld === 0 || ambiguous === 0 || !allSafe || !selfVerifies || !agree) {
+const claims = [
+  ['a feed read alone never asserts withholding, at either `partial` setting', falseWithheld === 0 && withFlag === 0],
+  ['and it therefore says nothing about revisions it cannot obtain', absentCount > 0],
+  ['a §7.6 probe is the only path that reaches the verdict', withheldWithProbe === REFUSED],
+  ['the two ordinary encoders disagree about an id-addressed derivation', ambiguousEncodersOnly > 0],
+  ['every committed hash is URL-safe and fixed-length', allSafe],
+  ['a hash-addressed body is self-verifying on arrival', selfVerifies],
+  ['a feed-parsed item and a standalone body hash identically', agree],
+];
+const failed = claims.filter(([, ok]) => !ok);
+if (failed.length) {
+  for (const [what] of failed) console.error(`FAILED: ${what}`);
   console.error('PROTOTYPE FAILED — a claim above did not hold');
   process.exit(1);
 }
-say('VERDICT — adopt HASH-ADDRESSED derived item URLs, OPTIONAL and additive');
-say(`  - The withholding verdict is dead on the pull path without them: the only honest way to`);
-say(`    assert it today is a ${mb(scaledBytes)} complete pass, and a consumer that skips it reports`);
-say(`    ${falseWithheld} false accusations against an honest publisher on a single page.`);
+say('VERDICT — adopt HASH-ADDRESSED derived item URLs');
+say(`  - Without them the withholding verdict is unreachable, not merely weak: ${falseWithheld} withheld`);
+say(`    against ${absentCount} committed revisions a one-page reader cannot obtain, at either \`partial\``);
+say(`    setting. The only alternative the core offers is a ${mb(scaledBytes)} complete pass per poll.`);
+say(`  - With them it is ${withheldWithProbe} fetches of ~${probeBytes} B to convict a publisher that commits bytes`);
+say('    and refuses to serve them — the one pull-path attack the manifest exists to detect.');
+say('  - That is the honest case for §7.6, and it is a stronger one than the false-accusation');
+say('    argument this file made before 932404c: the reader is not wrong today, it is blind.');
 say('  - ID-addressed is the obvious encoding and is wrong for the reason §3.1 already gives:');
-say(`    it needs a percent-encoding normalizer, ${ambiguous} of ${IDS.length} sampled ids derive differently across`);
-say(`    ordinary encoders, and ${escapes} escape the reserved path segment entirely.`);
+say(`    it needs a percent-encoding normalizer, ${ambiguousEncodersOnly} of ${IDS.length} sampled ids derive differently across the`);
+say(`    two ordinary encoders alone, and ${escapes} escape the reserved path segment entirely.`);
 say('  - Hash-addressed needs no encoding rule, is self-verifying on arrival, and is the value');
 say('    the manifest already commits — so the spec adds a URL derivation and nothing else. No');
 say('    new field, no new construction, no new hashing rule.');
