@@ -59,6 +59,19 @@ export function normalizeIdentityUrl(input) {
 }
 
 /**
+ * The identity document's URL, derived from the identity URL and never taken from input.
+ * §13.9: fetch only the fixed-path document of the claimed author, never an arbitrary URL
+ * out of a `kid`. The path convention is what makes that structural rather than a check.
+ *
+ * It lives here rather than in `fetch.js` — which re-exports it — because it is the *naming*
+ * half of §3.2's fixed path, and the walk needs it to bind each version it fetches to the
+ * chain it is walking without importing the module that opens sockets.
+ */
+export function identityDocumentUrl(identityUrl) {
+  return `${normalizeIdentityUrl(identityUrl)}openfeed.json`;
+}
+
+/**
  * §7.5's comparison for feed and manifest URLs. These are not identities — no trailing slash
  * is appended, because they name files — so this is §3.1's normalization minus the path rules:
  * scheme and host folded, default port and fragment dropped, path and query left alone. One

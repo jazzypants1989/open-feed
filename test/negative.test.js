@@ -621,6 +621,39 @@ async function pinnedAtTip(versions = 5) {
   return { fx, pins, walk };
 }
 
+test('a walked identity version MUST belong to the chain it was walked in (§3.2, §5.3)', async () => {
+  // §3.2 binds an identity document's `url` to "the URL it was fetched under". Applied
+  // literally that rule reaches only the tip, because a retained version is fetched at
+  // `openfeed/3.json` — no identity's document URL — so the check was never applied to the
+  // versions the walk actually collects. Nothing else covers them: continuity matches on the
+  // bare `kid` (§4.2 binds `(identity, kid)`, and this is the half that names no identity),
+  // §6.6's author binding compares the `kid` against the document's *own* `url`, and §5.3
+  // step 1 resolves the key in the document itself. So a custodian holding `key-1` publishes
+  // a version of its own chain claiming to be somebody else's identity, with the same key
+  // material, and every one of those checks passes on the forgery's own terms.
+  const fx = identityFixture({ versions: 2 });
+  const pin = pinOf(fx.chain.at(1));
+  const pins = new PinStore();
+  const walk = (tip) =>
+    walkToPin({ url: fx.url, tip, pin, fetchVersion: fx.store.fetchVersion, policy: identityChainPolicy, pins });
+
+  const victim = 'https://victim.example/';
+  fx.chain.publish({
+    fields: { url: victim, name: 'Owner', keys: fx.keys.map((k) => ({ ...k })) },
+    signer: { ...fx.primary, identity: victim },
+  });
+  // And an honest version above it, so the forgery sits *mid-walk* rather than at the tip —
+  // the tip is the one place the fetch layer already checks this (`assertIdentityMatches`).
+  fx.chain.publish({ fields: { url: fx.identity, name: 'Owner', keys: fx.keys.map((k) => ({ ...k })) }, signer: fx.primary });
+
+  await assert.rejects(
+    () => walk(fx.chain.at(4)),
+    (e) => e instanceof ChainError && /seq 3 of .* claims to belong to https:\/\/victim\.example\//.test(e.message),
+    'a chain is one identity’s history, and a version that says otherwise is not part of it',
+  );
+  assert.equal(pins.pin(fx.url), null, 'and nothing from an unanchored walk was recorded (§5.3.1)');
+});
+
 test('a forged tip does not freeze the chain against its own owner', async () => {
   const { fx, pins, walk } = await pinnedAtTip();
 
@@ -729,7 +762,7 @@ test('a delegated key MUST NOT sign an identity-document version', () => {
   const genesis = { url: MEMBER, keys: memberKeys, seq: 1, updated: 1736899200 };
   genesis._sig = sign(genesis, kDel.priv, MEMBER + '#hub-key-1');
   assert.throws(
-    () => identityChainPolicy.verifySignature(genesis),
+    () => identityChainPolicy.verifySignature(genesis, { url: `${MEMBER}openfeed.json` }),
     (e) => e instanceof ChainError && /delegated key .* MUST NOT sign identity-document versions/.test(e.message),
   );
 

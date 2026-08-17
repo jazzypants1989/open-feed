@@ -23,7 +23,7 @@ import dns from 'node:dns';
 import net from 'node:net';
 import { isPublicAddress } from './addresses.js';
 import { parseIJSON, assertCanonicalBytes } from './canonical.js';
-import { normalizeIdentityUrl } from './jws.js';
+import { normalizeIdentityUrl, identityDocumentUrl } from './jws.js';
 
 export class FetchError extends Error {
   constructor(message, { code = 'fetch_failed', url, status, transient = false } = {}) {
@@ -177,14 +177,10 @@ export class NegativeCache {
 
 // ---- identity documents (§3.2, §13.9) ----
 
-/**
- * The identity document's URL, derived from the identity URL and never taken from input.
- * §13.9: fetch only the fixed-path document of the claimed author, never an arbitrary URL
- * out of a `kid`. The path convention is what makes that structural rather than a check.
- */
-export function identityDocumentUrl(identityUrl) {
-  return `${normalizeIdentityUrl(identityUrl)}openfeed.json`;
-}
+// Defined beside `normalizeIdentityUrl` in `jws.js` and re-exported here, because §3.2's path
+// convention is a *naming* rule rather than a fetch rule and `chain.js` needs it to bind a
+// walked version to the chain it was walked in (§3.2, §5.3) without importing the socket module.
+export { identityDocumentUrl };
 
 /**
  * §3.2: an identity document's `url` MUST match the URL it was fetched under, after

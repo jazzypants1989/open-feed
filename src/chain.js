@@ -15,6 +15,7 @@ import {
   signingPayload,
   publicKeyFromJwk,
   normalizeIdentityUrl,
+  identityDocumentUrl,
   VerifyError,
 } from './jws.js';
 import crypto from 'node:crypto';
@@ -523,7 +524,40 @@ export function assertContinuityKey(successor, predecessor) {
 export const identityChainPolicy = {
   kind: 'identity',
   allowSkipLinks: false,
-  verifySignature(doc) {
+  verifySignature(doc, { url } = {}) {
+    // §3.2's `url` rule, applied to **every** version of the chain and not only to the tip.
+    //
+    // The tip is checked at the fetch layer (`assertIdentityMatches`), where "the URL it was
+    // fetched under" is the identity document's own path. A retained version is fetched at a
+    // derived URL — `openfeed/3.json` — which is not any identity's document URL, so the rule
+    // as literally written cannot be applied there and an earlier draft simply did not apply
+    // it. That left the walk's most important assumption unchecked: an identity document is
+    // its own key source (§5.3 step 1), so a mid-walk version claiming a *different* identity
+    // self-verifies against its own `keys`, satisfies the hash link, and anchors to this
+    // consumer's pin — a chain spliced out of somebody else's document. `manifestChainPolicy`
+    // has always checked this because a manifest names its owner in `url`; the identity policy
+    // is the one that needed it more and had it less.
+    //
+    // So the comparison is against the identity whose chain this is, which is exactly what the
+    // chain URL names. Required rather than optional: a policy whose check is skipped when a
+    // caller omits an argument is a check nobody notices the absence of.
+    if (typeof url !== 'string') {
+      throw new ChainError('the identity chain policy needs the chain URL to bind a version to (§3.2)', {
+        seq: doc?.seq,
+      });
+    }
+    let claimed;
+    try {
+      claimed = identityDocumentUrl(doc?.url);
+    } catch {
+      throw new ChainError(`seq ${doc?.seq} has no usable url (§3.2)`, { url, seq: doc?.seq });
+    }
+    if (claimed !== url) {
+      throw new ChainError(
+        `seq ${doc.seq} of ${url} claims to belong to ${normalizeIdentityUrl(doc.url)} (§3.2)`,
+        { url, seq: doc.seq },
+      );
+    }
     const info = verifyDocument(doc, { identityDocument: doc, kind: 'document' });
     // §4.6's exclusion has to hold at genesis and at a freshly-fetched tip too, where
     // there is no predecessor for assertContinuityKey to judge against.
@@ -692,7 +726,7 @@ async function classifyConflictAtPin({ url, tip, pin, fetchVersion, policy }) {
   }
   // The retained copy moved. Only the publisher serves that URL, and §5.4 makes changing it a
   // violation on its own, so this is evidence about the chain rather than about one response.
-  policy.verifySignature(retained);
+  policy.verifySignature(retained, { url });
   return retained;
 }
 
@@ -734,7 +768,7 @@ export async function walkToPin({
   // The only call that names itself the tip. Every other version on this walk arrives
   // hash-committed by something already verified, and a policy that checks the *current*
   // validity of a signing key (§9.1's revoked-tip rule) must not apply that to history.
-  policy.verifySignature(tip, { tip: true });
+  policy.verifySignature(tip, { tip: true, url });
 
   const tipHash = Buffer.isBuffer(tipBytes) ? b64u(sha256(tipBytes)) : documentHash(tip);
   // Buffered, not committed. See the note above: nothing here is evidence until the walk
@@ -824,7 +858,7 @@ export async function walkToPin({
       );
     }
     assertUpdatedAdvances(current, predecessor, url);
-    policy.verifySignature(predecessor);
+    policy.verifySignature(predecessor, { url });
     policy.verifyContinuity(current, predecessor);
     record(predecessor, hash);
     versions.push(predecessor);
@@ -892,7 +926,7 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
       { url, seq: anchor.seq },
     );
   }
-  policy.verifySignature(above);
+  policy.verifySignature(above, { url });
   record(above, aboveHash);
   versions.push(above);
 
@@ -909,7 +943,7 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
   }
   assertUpdatedAdvances(above, landed, url);
   assertUpdatedAdvances(current, landed, url);
-  policy.verifySignature(landed);
+  policy.verifySignature(landed, { url });
   policy.verifyContinuity(above, landed);
   record(landed, hash);
   versions.push(landed);
