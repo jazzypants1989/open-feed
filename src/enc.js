@@ -1,4 +1,6 @@
-// Encrypted content (§15). OPTIONAL, and MUST NOT be required for core conformance at any level.
+// Encrypted content (§15). Required by no core conformance level, and REQUIRED in full of any
+// deployment offering audience-restricted content — there is no partial adoption and no
+// access-control substitute (§15's conformance statement, §11.1's missing fifth cell).
 //
 // The layer defines **no new signing construction** (§6.1): an encrypted item is an ordinary
 // signed item whose content is an opaque payload in `_enc`. Nothing in `src/` outside this file
