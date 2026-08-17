@@ -303,7 +303,7 @@ export class Publisher {
    * `delivered` slot, which is the only artifact it ever appears in.
    *
    * This exists because the column is not optional in the design: §8 makes a `like` delivered by
-   * default, §15.4 makes every interaction on encrypted content delivered, and a publisher that
+   * default, §15.4 keeps content-free reactions delivered, and a publisher that
    * can only publish cannot express either. `_feed_url` is refused rather than ignored — adding
    * one is the author promoting a delivered item to a published one at a new `_version` (§7.5),
    * which is `publishItem`'s job and needs to look like a decision.
@@ -359,10 +359,9 @@ export class Publisher {
    *
    * `to` is the recipient's identity URL, and it is a separate argument from `recipients` (which
    * is §16.1's pin scoping) because they answer different questions: pins may be drawn for
-   * several parties an item is *about*, while a delivery stream is one pair. An item delivered to
-   * more than one inbox is §15.2's wrapped case, where §10.6 puts the entry in the per-recipient
-   * JWE header instead — a top-level array naming each recipient would tell every recipient's
-   * host who else was written to, which is the disclosure §11.4 exists to avoid.
+   * several parties an item is *about*, while a delivery stream is one pair — and §11.2 makes
+   * one pair the whole of the delivered column: a delivered-only item goes to exactly one
+   * recipient, which is why a single top-level entry naming nobody is never ambiguous.
    *
    * No `to`, no field: §10.6 is a SHOULD and a sender that does not track streams emits nothing
    * rather than a counter that restarts at 1 and means nothing.

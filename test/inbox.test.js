@@ -15,6 +15,7 @@ import {
   DedupStore,
   DeliveryStore,
   documentHash,
+  normalizeIdentityUrl,
   splitTarget,
   renderable,
   publishable,
@@ -704,4 +705,39 @@ test('the delivery stream is not advanced by an unverified sender (§10.3\'s rul
   const accepted = await inbox.deliver(canonicalBytes(first));
   assert.equal(accepted.status, 202);
   assert.equal(accepted.deliveryChain, null, 'the real first delivery is still a first delivery');
+});
+
+test('`_delivery` on a published item is ignored, never a stream (§10.6, §11.2)', async (t) => {
+  // A published item may be pushed to any number of inboxes, so no single counter could be true
+  // of them all. If the store honored one anyway, a pushed reply carrying a stray `_delivery`
+  // would advance — or, worse, corrupt — the private pair stream this sender keeps with this
+  // receiver, and every later genuine delivery would report a gap that never happened.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`,
+    manifestUrl: `${gran.url}manifest.json`, title: 'gran', now: () => T0 - 600,
+  });
+
+  const dm = sender.deliverItem(
+    { id: 'urn:uuid:dm-1', content_text: 'private', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { at: T0 - 500, to: MOM },
+  );
+
+  const deliveries = new DeliveryStore();
+  // A published item that (in violation of §10.6's MUST NOT) carries a `_delivery` far ahead of
+  // the real stream. Hand-shaped rather than produced by `Publisher`, which refuses the shape.
+  const published = {
+    id: 'urn:uuid:pushed-reply', authors: [{ url: gran.url }],
+    _feed_url: `${gran.url}feed.json`, _delivery: { seq: 99 }, content_text: 'public reply',
+  };
+  assert.equal(deliveries.check(gran.url, published), null, 'no verdict is drawn from it');
+  assert.equal(deliveries.record(gran.url, published), null, 'and nothing is recorded');
+  assert.equal(deliveries.bySender.size, 0);
+
+  // The real stream is untouched: the genuine first delivery is still seq 1, no gap, no replay.
+  assert.equal(deliveries.check(gran.url, dm), null);
+  deliveries.record(gran.url, dm);
+  assert.deepEqual(deliveries.bySender.get(normalizeIdentityUrl(gran.url)),
+    { seq: 1, hash: documentHash(dm) });
 });

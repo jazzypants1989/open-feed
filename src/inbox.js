@@ -108,6 +108,9 @@ export class DeliveryStore {
   check(author, item) {
     const d = item?._delivery;
     if (!d || !Number.isInteger(d.seq) || d.seq < 1) return null;
+    // §10.6: a published item may be pushed to any number of inboxes, so no single counter could
+    // be true of them all — receivers MUST ignore `_delivery` where `_feed_url` is present.
+    if (typeof item._feed_url === 'string') return null;
     const holder = this.#holder(author);
     if (holder === null) return null; // first contact: nothing to be continuous with
     const last = this.bySender.get(holder);
@@ -133,6 +136,8 @@ export class DeliveryStore {
   record(author, item) {
     const d = item?._delivery;
     if (!d || !Number.isInteger(d.seq)) return null;
+    if (typeof item._feed_url === 'string') return null; // same §10.6 rule as `check`
+
     const holder = this.#holder(author) ?? normalizeIdentityUrl(author);
     const last = this.bySender.get(holder);
     if (last && d.seq <= last.seq) return last;      // a replay never moves the stream
