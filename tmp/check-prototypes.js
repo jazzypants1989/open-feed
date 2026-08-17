@@ -25,6 +25,7 @@ if (!files.length) {
 }
 
 const failed = [];
+const results = [];
 for (const f of files) {
   const started = Date.now();
   let ok = true;
@@ -40,9 +41,19 @@ for (const f of files) {
     output = `${e.stdout ?? ''}${e.stderr ?? ''}`;
     failed.push({ f, output });
   }
-  const secs = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${f.padEnd(34)} ${secs.padStart(6)}s`);
+  const seconds = Number(((Date.now() - started) / 1000).toFixed(1));
+  results.push({ prototype: f, ok, seconds, ...(ok ? {} : { tail: output.slice(-2000) }) });
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${f.padEnd(34)} ${seconds.toFixed(1).padStart(6)}s`);
 }
+
+// The full run costs minutes, so its outcome is written down every time: a later reader (human
+// or agent) who saw only a truncated terminal — or is wondering whether a rerun is needed at
+// all — reads this instead of paying for the run again. Failures keep their output tail.
+fs.writeFileSync(path.join(here, 'prototype-results.json'), JSON.stringify({
+  ranAt: new Date().toISOString(),
+  allHold: failed.length === 0,
+  results,
+}, null, 2) + '\n');
 
 console.log();
 if (failed.length) {
@@ -53,6 +64,7 @@ if (failed.length) {
   }
   console.error(`\n${failed.length} of ${files.length} prototypes no longer hold.`);
   console.error('Either the prototype is stale or the claim it supports is. Both are findings.');
+  console.error(`Per-prototype results (with failure output) in tmp/prototype-results.json.`);
   process.exit(1);
 }
-console.log(`all ${files.length} prototypes hold`);
+console.log(`all ${files.length} prototypes hold  (results written to tmp/prototype-results.json)`);
