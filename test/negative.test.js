@@ -309,6 +309,47 @@ test('a _sig is not malleable: only the canonical base64url spelling verifies', 
   assert.ok(verifyDocument(item, { identityDocument: identity, kind: 'item' }));
 });
 
+test('deleting a recovery co-signature breaks the _sig over it', () => {
+  // §6.3: `_sig` strips only itself; the co-signature strips both. So `_sig` covers
+  // `_recovery_sig`, and the party this protects against holds no key at all.
+  //
+  // With identical payloads — as an earlier draft had them — a serving-path attacker deletes
+  // `_recovery_sig` from a successor's genesis identity document and `_sig` still verifies over
+  // bytes that never mentioned it. The consumer then sees a `predecessor` with no co-signature,
+  // which §3.4 says MUST NOT be treated as migration, and the exit is denied in silence with a
+  // message identical to an honest document that offered none.
+  const recovery = keyFromLabel('recovery-1');
+  const withRecovery = {
+    ...identity,
+    keys: [...identity.keys, { kid: 'recovery-1', kty: 'OKP', crv: 'Ed25519', use: 'recovery', x: recovery.x, iat: 1736899200 }],
+  };
+
+  // Co-sign first, then sign: the order the coverage forces.
+  const doc = { ...withRecovery };
+  doc._recovery_sig = sign(doc, recovery.priv, `${ID}#recovery-1`, { recovery: true });
+  doc._sig = sign(doc, k1.priv, KID);
+  assert.ok(verifyDocument(doc, { identityDocument: withRecovery, kind: 'document' }), 'the honest document verifies');
+
+  const stripped = { ...doc };
+  delete stripped._recovery_sig;
+  assert.throws(
+    () => verifyDocument(stripped, { identityDocument: withRecovery, kind: 'document' }),
+    throwsVerify(/signature does not verify/),
+    'a keyless attacker can no longer delete the co-signature',
+  );
+
+  // And the reverse order — appending a co-signature to an already-signed document — produces
+  // something every verifier rejects, which is what makes "co-sign first" a rule rather than
+  // advice a producer can quietly skip.
+  const appended = { ...withRecovery };
+  appended._sig = sign(appended, k1.priv, KID);
+  appended._recovery_sig = sign(appended, recovery.priv, `${ID}#recovery-1`, { recovery: true });
+  assert.throws(
+    () => verifyDocument(appended, { identityDocument: withRecovery, kind: 'document' }),
+    throwsVerify(/signature does not verify/),
+  );
+});
+
 // ---- author binding (spec §6.6) ----
 
 test('author binding failures are rejected', () => {

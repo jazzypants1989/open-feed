@@ -308,9 +308,10 @@ const own = new Publisher({
 });
 for (const [id, item] of mom.items) own.items.set(id, item);
 own.advanceManifest({ updated: tick() });
-const migrated = { ...own.identityDocument };
-migrated._recovery_sig = sign(migrated, recovery.privateKey, `${HUB}#${recovery.kid}`);
-own.identityVersions[own.identityVersions.length - 1] = migrated;
+// §6.3: `_sig` covers `_recovery_sig`, so the co-signature goes on first and the version is
+// re-signed over it. `coSignIdentity` replaces the tip, which is the same thing this used to
+// do by hand and is now the publisher's job.
+const migrated = own.coSignIdentity(recovery, { kidIdentity: HUB });
 
 const exitBundle = exportBundle(own, {
   delivered: [deliveredNote], received: [receivedReply], unpublished: drafts,
@@ -407,6 +408,29 @@ say();
 say('='.repeat(78));
 say('SUMMARY');
 say('='.repeat(78));
+
+// ---- gate ---------------------------------------------------------------------------------
+// This file had no assertion gate, so `check-prototypes.js` was only ever proving it did not
+// crash — and its two findings sat printed as open long after §14 absorbed them. A prototype
+// is evidence; evidence nobody re-runs is a claim.
+{
+  const claims = [
+    ['S1 a bundle verifies with no bundle-specific verifier and no network', report.items.violations.length === 0],
+    ['S1 both chains walk from genesis out of the bundle alone', report.chains.length === 2],
+    ['S2 the bundle survives a serialize/parse round trip byte-verbatim', afterTrip.items.violations.length === 0],
+    ['S3 a successor\'s own keys cannot verify its own recovery co-signature', withoutAncestor.valid === false],
+    ['S3 the predecessor\'s retained chain can', withAncestor.valid === true],
+  ];
+  const broken = claims.filter(([, ok]) => !ok);
+  if (broken.length) {
+    say();
+    say('FAIL — these claims no longer hold:');
+    for (const [label] of broken) say(`  ${label}`);
+    say('Either the prototype is stale or the rule it supports is. Both are findings.');
+    process.exit(1);
+  }
+}
+
 say(`
   Holds
     S1  §14's "verification does not change" is literally true — the restorer needed no

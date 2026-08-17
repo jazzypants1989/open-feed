@@ -172,10 +172,27 @@ export function parseDetachedSig(sig) {
 // ---- signing input (spec §6.1, §6.4) ----
 
 /** Strip signature fields and canonicalize: the detached payload. */
-export function signingPayload(doc) {
+export function signingPayload(doc, { recovery = false } = {}) {
+  // §6.3 step 1. `_sig` always goes; `_recovery_sig` goes only when the payload being built is
+  // the *co-signature's*, which is what makes `_sig` cover `_recovery_sig`.
+  //
+  // The asymmetry is the point and it is worth its clause. Strip both for both signatures and
+  // neither covers the other — so a serving-path attacker holding no key can DELETE a
+  // `_recovery_sig`, and `_sig` still verifies over bytes that never mentioned it. On a
+  // successor's genesis identity document (§3.4 path 3) that is the exit being denied in
+  // silence: the consumer sees a `predecessor` with no co-signature, which §3.4 says MUST NOT
+  // be treated as a migration, and the message is identical to an honest document that simply
+  // offered none. It is not permanent — the successor's `seq: 2` names the unstripped genesis
+  // in its `prev`, and a peer's pin (§16.1) disagrees at once — but an identity chain advances
+  // 5-20 times in a lifetime (§3.2.1), so "until seq 2" is a window measured in months, and it
+  // opens exactly when the exit is being exercised.
+  //
+  // Order follows: co-sign first, then sign. A `_recovery_sig` added after the fact invalidates
+  // the `_sig` over it, which is the same rule as any other member and needs no exception.
+  const strip = recovery ? SIGNATURE_FIELDS : ['_sig'];
   const rest = {};
   for (const [k, v] of Object.entries(doc)) {
-    if (!SIGNATURE_FIELDS.includes(k)) rest[k] = v;
+    if (!strip.includes(k)) rest[k] = v;
   }
   return canonicalBytes(rest);
 }
@@ -212,9 +229,9 @@ export function publicKeyFromJwk(jwk) {
 }
 
 /** Sign a document, returning the `_sig` value. Present so tests can build negative vectors. */
-export function sign(doc, privateKey, kid) {
+export function sign(doc, privateKey, kid, { recovery = false } = {}) {
   const headerB64 = Buffer.from(JSON.stringify(buildHeader(kid)), 'utf8').toString('base64url');
-  const sig = crypto.sign(null, signingInput(headerB64, signingPayload(doc)), privateKey);
+  const sig = crypto.sign(null, signingInput(headerB64, signingPayload(doc, { recovery })), privateKey);
   return `${headerB64}..${Buffer.from(sig).toString('base64url')}`;
 }
 

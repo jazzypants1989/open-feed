@@ -243,13 +243,10 @@ test('exit: migrate by recovery co-signature, export, restore, with the host ref
   for (const item of hub.items.values()) away.items.set(item.id, item);
   away.advanceManifest({ updated: T0 + 10 * DAY + 60 });
 
-  const genesis = away.identityVersions[0];
-  const headerB64 = Buffer.from(
-    JSON.stringify(buildHeader('https://mom.hub.example/#recovery-1')), 'utf8',
-  ).toString('base64url');
-  genesis._recovery_sig = `${headerB64}..${Buffer.from(
-    crypto.sign(null, signingInput(headerB64, signingPayload(genesis)), recovery.privateKey),
-  ).toString('base64url')}`;
+  // §3.4 path 3: the `kid` names the PREDECESSOR, because that is where the key is committed
+  // and where §4.5 resolves it. `_sig` covers `_recovery_sig` (§6.3), so the publisher co-signs
+  // and re-signs in one step rather than the field being appended to a finished document.
+  away.coSignIdentity(recovery, { kidIdentity: 'https://mom.hub.example/' });
 
   // The bundle the member carries. It must include the predecessor's chain, which is where the
   // co-signature resolves — and the hub is the one holding those bytes.

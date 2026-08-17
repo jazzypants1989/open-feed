@@ -42,6 +42,7 @@ import {
   canonicalBytes,
   sign,
   normalizeIdentityUrl,
+  verifyDocument,
 } from '../src/index.js';
 
 // ---- a web ------------------------------------------------------------------------------
@@ -227,17 +228,22 @@ const declined = new Publisher({
   identity: OWN, title: "Mom's Journal", signer: makeSigner('own-2'),
   profile: { name: 'Mom', predecessor: HUB }, recoveryKeys: [recovery.jwk], now: () => tick(0),
 });
-// The recovery co-signature. §6.3 strips BOTH signature fields before canonicalizing, so the
-// root signer and the recovery co-signer sign identical bytes and neither covers the other.
+// The recovery co-signature. §6.3 has the co-signature's payload strip both signature fields
+// while `_sig` strips only its own, so `_sig` COVERS `_recovery_sig` — co-sign first, then sign.
+// `coSignIdentity` is that order, and it is why a serving-path attacker cannot delete the
+// co-signature and deny the exit in silence.
 //
-// Note the `kid`, which is where this prototype's first surprise lives — see the finding below.
+// Note the `kid`, which is where this prototype's first surprise lived — see the finding below.
 // It names the PREDECESSOR, not the document it sits on.
-const declinedGenesis = { ...declined.identityDocument };
-declinedGenesis._recovery_sig = sign(declinedGenesis, recovery.privateKey, `${HUB}#${recovery.kid}`);
+const declinedGenesis = declined.coSignIdentity(recovery, { kidIdentity: HUB });
 
-// The other reading, built so the difference is visible rather than asserted.
-const kidNamesSelf = { ...declined.identityDocument };
-kidNamesSelf._recovery_sig = sign(kidNamesSelf, recovery.privateKey, `${OWN}#${recovery.kid}`);
+// The other reading, built so the difference is visible rather than asserted. A separate
+// publisher, because co-signing replaces the tip rather than producing a variant beside it.
+const selfNaming = new Publisher({
+  identity: OWN, title: "Mom's Journal", signer: ownSigner,
+  profile: { name: 'Mom', predecessor: HUB }, recoveryKeys: [recovery.jwk], now: () => tick(0),
+});
+const kidNamesSelf = selfNaming.coSignIdentity(recovery, { kidIdentity: OWN });
 
 // Gran verifies the co-signature against the recovery key committed in the version of the
 // predecessor chain she has ACTUALLY verified — §4.5 is emphatic that this is the most recent
@@ -383,8 +389,7 @@ const eve = new Publisher({
   identity: EVE, title: "Mom's Journal", signer: makeSigner('eve-1'),
   profile: { name: 'Mom', predecessor: HUB }, recoveryKeys: [recovery.jwk], now: () => tick(0),
 });
-const eveGenesis = { ...eve.identityDocument };
-eveGenesis._recovery_sig = sign(eveGenesis, recovery.privateKey, `${HUB}#${recovery.kid}`);
+const eveGenesis = eve.coSignIdentity(recovery, { kidIdentity: HUB });
 
 const momClaim = verifyRecoverySignature(declinedGenesis, { pinnedAncestor });
 const eveClaim = verifyRecoverySignature(eveGenesis, { pinnedAncestor });
@@ -466,6 +471,54 @@ verdict(
   'likely to be lost. It retires one of predecessor equivalence\'s five sites — the most\n' +
   'fragile one — while §7.5, §9.3 invariant 5, §4.4, and §9 keep the rule for the rest.',
 );
+
+// =========================================================================================
+say();
+say('='.repeat(78));
+say('S6. Can a party holding NO key deny the exit?');
+say('='.repeat(78));
+say();
+say('  §6.3 used to strip both signature fields before canonicalizing, so `_sig` and');
+say('  `_recovery_sig` covered identical bytes and neither covered the other. That made the');
+say('  co-signature DELETABLE by whoever controls the serving path: `_sig` still verified over');
+say('  bytes that never mentioned it, the consumer saw a `predecessor` with no co-signature,');
+say('  and §3.4 says that MUST NOT be treated as a migration. The exit denied, in silence, by');
+say('  an attacker who forged nothing — and the message is identical to an honest document');
+say('  that simply offered none.');
+say();
+const stripped = { ...declinedGenesis };
+delete stripped._recovery_sig;
+let stripVerdict;
+try {
+  verifyDocument(stripped, { identityDocument: declined.identityVersions[0], kind: 'document' });
+  stripVerdict = 'ACCEPTED';
+} catch (e) { stripVerdict = `REJECTED — ${e.message}`; }
+say(`  strip \`_recovery_sig\` from the migration genesis, then verify \`_sig\`: ${stripVerdict}`);
+say();
+say('  §6.3 now has the co-signature strip both fields and `_sig` strip only its own, so `_sig`');
+say('  covers the co-signature and deleting it breaks the document. The cost is one clause and');
+say('  a fixed order — co-sign first, then sign — and nothing else in the construction moves.');
+
+// ---- gate ---------------------------------------------------------------------------------
+// This file had no assertion gate at all, which is what let it go on printing "the spec never
+// says" about five findings the spec had since absorbed. A prototype is evidence; evidence
+// nobody re-runs is a claim.
+const claims = [
+  ['S1 the back catalog survives byte-verbatim', granHeldHashes.size > 0],
+  ['S2 a recovery migration verifies against a host that declines', momClaim.valid === true],
+  ['S2 the kid must name the predecessor, not the successor',
+    verifyRecoverySignature(kidNamesSelf, { pinnedAncestor }).valid === false],
+  ['S4 a stolen recovery key mints a claim that verifies exactly as well', eveClaim.valid === true],
+  ['S6 a stripped co-signature is now detected', stripVerdict.startsWith('REJECTED')],
+];
+const broken = claims.filter(([, ok]) => !ok);
+if (broken.length) {
+  say();
+  say('FAIL — these claims no longer hold:');
+  for (const [label] of broken) say(`  ${label}`);
+  say('Either the prototype is stale or the rule it supports is. Both are findings.');
+  process.exit(1);
+}
 
 // =========================================================================================
 say();

@@ -332,10 +332,12 @@ All four fields MUST be present with exactly these `alg`/`b64`/`crit` values. Ve
 
 ### 6.3. Canonicalization
 
-1. Remove the document's **top-level** `_sig` (and `_recovery_sig` if present). Removal is top-level only: a `_sig` nested anywhere inside — an embedded signed document, an open `_rel` or `_pins` entry — is ordinary data and MUST be left in place. A recursive strip is not merely a second serialization but a security defect, and §14 is where it bites: a signed export bundle nests whole signed documents, so removing *their* signatures from the payload leaves them uncovered by the bundle's own signature and freely swappable under it.
+1. Remove the document's **top-level** `_sig`. When the signature being computed or checked is a **recovery co-signature** (`_recovery_sig`, §3.4, §5.5), remove that field as well. Removal is top-level only: a `_sig` nested anywhere inside — an embedded signed document, an open `_rel` or `_pins` entry — is ordinary data and MUST be left in place. A recursive strip is not merely a second serialization but a security defect, and §14 is where it bites: a signed export bundle nests whole signed documents, so removing *their* signatures from the payload leaves them uncovered by the bundle's own signature and freely swappable under it.
 2. Serialize per RFC 8785: UTF-8, no whitespace, keys sorted, ES6 number formatting
 
-Because step 1 removes **both** signature fields, a signer and a recovery co-signer (§3.4, §5.5) compute their signatures over identical bytes, and neither signature covers the other.
+**`_sig` therefore covers `_recovery_sig`, and that asymmetry is load-bearing.** The co-signature's payload omits both fields, so a recovery co-signer signs bytes that mention no signature at all; `_sig`'s payload omits only `_sig`, so the primary signature is computed over a document that includes the co-signature. Two consequences follow, and the order is one of them: **co-sign first, then sign.** A `_recovery_sig` attached to an already-signed document invalidates the `_sig` over it, exactly as adding any other member would, and a producer that appends one has produced a document every verifier rejects.
+
+The reason is an attack available to a party holding **no key**. Were the two payloads identical — as an earlier draft of this section had them — `_sig` would verify over bytes that never mentioned the co-signature, so whoever controls the serving path could simply **delete `_recovery_sig`**. On a successor's genesis identity document (§3.4 path 3) that is the exit being denied in silence: the consumer sees a `predecessor` with no co-signature, §3.4 says such a claim MUST NOT be treated as migration, and the resulting message is indistinguishable from an honest document that offered none. It is not permanent — the successor's `seq: 2` names the unstripped genesis in its `prev`, and a peer's pin of that version disagrees at once (§16.1) — but an identity chain advances five to twenty times in a lifetime (§3.2.1), so "until `seq: 2`" is a window measured in months, and it opens at precisely the moment the mechanism is being used. §13.2 claims a serving-path attacker can achieve no undetectable omission; this is the omission that claim has to survive, and covering the field is what makes it true. The cost is one clause here and a fixed order at the producer. Nothing else in the construction moves: same JWS, same header, same canonicalization, still one signing construction (§6.1).
 
 Strings are signed **byte-exact as published** — no Unicode normalization at sign or verify time. Producers SHOULD emit NFC.
 
@@ -354,14 +356,14 @@ Strings are signed **byte-exact as published** — no Unicode normalization at s
 
 ### 6.4. Signing
 
-1. Remove signature fields; canonicalize → payload bytes
+1. Remove `_sig` — and `_recovery_sig` too, if this is the co-signature (§6.3 step 1); canonicalize → payload bytes
 2. Build the header; `header-b64 = BASE64URL(UTF8(header))`
 3. Sign `ASCII(header-b64 || '.') || payload-bytes` with Ed25519
 4. Set `_sig` = `header-b64 || '..' || BASE64URL(signature)`
 
 ### 6.5. Verification
 
-1. Extract and remove signature fields; canonicalize → payload bytes
+1. Extract the signature; remove `_sig` — and `_recovery_sig` too, if this is the co-signature (§6.3 step 1); canonicalize → payload bytes
 2. Parse header; enforce §6.2
 3. Split `kid` at the last `#` → identity URL + key id
 4. **Author binding**: the `kid` identity URL MUST equal the claimed author (§6.6) after normalization. Reject otherwise.

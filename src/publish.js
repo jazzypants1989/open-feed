@@ -156,6 +156,45 @@ export class Publisher {
   }
 
   /**
+   * §3.4 path 3 and §5.5: attach a recovery co-signature to the identity chain's current tip.
+   *
+   * Without this the reference publisher could not perform the only exit path that works against
+   * a host which declines to cooperate — the one §13.2 ends every adversary tier at — and every
+   * test of it had to hand-assemble a detached JWS outside the library, which is a gap that
+   * looks like coverage.
+   *
+   * `kidIdentity` is the identity whose chain commits the recovery key, and it defaults to this
+   * one because that is the fork-resolution case (§5.5). A **migration** passes the
+   * *predecessor*: §3.4 requires the `kid` to name where the key is committed and where §4.5
+   * resolves it, and a `kid` naming the successor would send a verifier to resolve the key in
+   * the very document making the claim.
+   *
+   * Order is not a style choice. §6.3 has the co-signature's payload strip both signature fields
+   * while `_sig` strips only its own, so `_sig` covers `_recovery_sig` — which is what stops a
+   * serving-path attacker holding no key from deleting the co-signature and denying the exit in
+   * silence. Co-sign first, then sign. Adding a co-signature afterwards invalidates the `_sig`
+   * over it, exactly as adding any other member would.
+   *
+   * The tip is replaced rather than appended: a co-signature changes the version's bytes, so
+   * doing this to anything but the newest version would break the `prev` of everything above it.
+   */
+  coSignIdentity(recoverySigner, { kidIdentity = this.identity } = {}) {
+    if (recoverySigner?.jwk?.use !== 'recovery') {
+      throw new PublishError(`${recoverySigner?.kid} is not a recovery key (§4.5)`);
+    }
+    const version = { ...this.identityDocument };
+    delete version._sig;
+    delete version._recovery_sig;
+    version._recovery_sig = sign(
+      version, recoverySigner.privateKey, `${normalizeIdentityUrl(kidIdentity)}#${recoverySigner.kid}`,
+      { recovery: true },
+    );
+    const signed = this.#signDocument(version);
+    this.identityVersions[this.identityVersions.length - 1] = signed;
+    return signed;
+  }
+
+  /**
    * §4.3 rotation: publish a version adding the new key, then sign with it from the next
    * version on. Two versions rather than one, because §5.2's continuity rule judges the
    * signing key against the *previous* version's key list — a key introduced and used in the

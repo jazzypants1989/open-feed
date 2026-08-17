@@ -937,7 +937,9 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
 export function verifyRecoverySignature(doc, { pinnedAncestor }) {
   const identity = normalizeIdentityUrl(pinnedAncestor.url);
   const recoveryKeys = (pinnedAncestor.keys ?? []).filter((k) => k?.use === 'recovery');
-  const payload = signingPayload(doc);
+  // §6.3: the co-signature's payload strips both signature fields. `_sig` strips only its
+  // own, so it covers this one — see `signingPayload`.
+  const payload = signingPayload(doc, { recovery: true });
   const when = doc.updated;
 
   try {

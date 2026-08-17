@@ -769,16 +769,11 @@ test('a forked identity chain is resolved by the recovery co-signature, not froz
   assert.equal(first.identity.pin.seq, 2);
 
   // The other branch. Different bytes at seq 2 — a genuine fork, not a continuation — and a
-  // seq 3 above it that the recovery key co-signs. §6.3 strips both signature fields before
-  // canonicalizing, so adding the co-signature leaves `_sig` valid over identical bytes.
+  // seq 3 above it that the recovery key co-signs. §6.3 has `_sig` cover `_recovery_sig`, so the
+  // co-signature goes on first and the version is re-signed over it; `coSignIdentity` is that
+  // order, and it replaces the tip because a co-signature changes the version's bytes.
   const rival = build('Mom (recovered)', 3);
-  const tip = rival.identityVersions.at(-1);
-  const headerB64 = Buffer.from(
-    JSON.stringify(buildHeader(`${site.url}#recovery-1`)), 'utf8',
-  ).toString('base64url');
-  tip._recovery_sig = `${headerB64}..${Buffer.from(
-    crypto.sign(null, signingInput(headerB64, signingPayload(tip)), recovery.privateKey),
-  ).toString('base64url')}`;
+  rival.coSignIdentity(recovery);
   site.serve(rival);
 
   const resolved = await reader(me, { migrations, now: () => T0 + 5 * DAY }).read(site.url);

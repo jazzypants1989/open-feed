@@ -76,18 +76,13 @@ function successorOf(predecessorOrigin, origin, signer, recovery, catalog, { sta
  * naming the successor would send a verifier to resolve the key in the very document making
  * the claim, which is the self-blessing §4.2 rules out.
  *
- * Adding the field does not disturb `_sig`: §6.3 removes *both* signature fields before
- * canonicalizing, so signer and co-signer cover identical bytes and neither covers the other.
+ * `_sig` covers `_recovery_sig` (§6.3): the co-signature's payload strips both signature fields
+ * while `_sig` strips only its own, so the co-signature has to go on first and the document is
+ * re-signed over it. That is what stops a serving-path attacker with no key from deleting the
+ * co-signature and denying the exit in silence, and `coSignIdentity` is the publisher doing it.
  */
 function coSign(publisher, recovery, predecessorOrigin) {
-  const genesis = publisher.identityVersions[0];
-  const headerB64 = Buffer.from(
-    JSON.stringify(buildHeader(`${predecessorOrigin}#${recovery.kid}`)), 'utf8',
-  ).toString('base64url');
-  const sigBytes = crypto
-    .sign(null, signingInput(headerB64, signingPayload(genesis)), recovery.privateKey);
-  genesis._recovery_sig = `${headerB64}..${Buffer.from(sigBytes).toString('base64url')}`;
-  return genesis;
+  return publisher.coSignIdentity(recovery, { kidIdentity: predecessorOrigin });
 }
 
 function reader(me, { migrations, now = () => T0 + 30 * DAY, ...rest } = {}) {
