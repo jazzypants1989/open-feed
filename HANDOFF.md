@@ -1,134 +1,155 @@
-# Handoff — after the Stage-2 second-pass repairs
+# Handoff — after the Stage-1 spec/code reconciliation
 
 Delete this file when it has been consumed. It is a list of what is still open plus the traps;
 none of it belongs in `CLAUDE.md` or the spec. `tmp/review-findings.md` is the durable register.
 
-**Baseline:** `npm test` → **247 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
-`npm run prototypes` → all 17 hold (and now write `tmp/prototype-results.json`, gitignored —
-read it before paying for a rerun; the full suite costs ~5 min). Working tree clean.
-
-## What this pass was
-
-A four-agent skeptical review of the *previous* pass's Stage 2 work, then the owner settled the
-five decisions it surfaced, then I worked the resulting queue. 13 commits on top of `dae5c76`.
-`git log` has the reasoning; `git log --stat dae5c76..HEAD` the shape.
+**Baseline:** `npm test` → **253 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
+`npm run prototypes` → see `tmp/prototype-results.json` (gitignored; read it before paying for a
+rerun, the full suite costs ~5 min). Working tree clean.
 
 ## The owner's five decisions — SETTLED, do not relitigate
 
-1. **Group messages → the delivered column is an audience of one, by rule.** A delivered-only
-   item (no `_feed_url`) MUST go to exactly one recipient; group content is §15.4's
-   published-encrypted case. This deleted the unsolved multi-recipient `_delivery` placement
-   (S2.1) instead of building a fix for it. Landed: spec §11.2/§10.6, `inbox.js`/`publish.js`,
-   prototype, tests.
-2. **Timestamps → milliseconds.** NOT YET DONE. See "Open, decision 2" below. This is a wire
-   change; do it with decision 3 and regenerate vectors once.
-3. **`_`-field rename → yes, move to a single namespacing object (`_openfeed: {...}` or
-   similar).** NOT YET DONE. Wire change; pairs with decision 2. This is Stage 4's
-   "namespace collision" item, now approved rather than "worth pricing".
-4. **§15 review → three foundation-model adversarial reviews for now** (human cryptographer
-   later, at public launch). The owner uses OpenCode Go; the key is in `.env` (gitignored) as
-   `OPENCODE_KEY`. Requested models: **GLM-5.3, Kimi K3, Qwen3.8 Max** (three labs, three
-   blind spots). NOT YET DONE — this is the *last* step, run over the finished state so the
-   models review a settled artifact, not a moving target. It is a shake-out, not a substitute
-   for a cryptographer's pass; say so.
-5. **Audience → for the owner's family, but the spec is meant to be picked up by anyone; the
-   owner plans 2–3 full reference implementations, so "early publishers" get an off-the-shelf
-   start.** This reframes the adoption-asymmetry question (register's last section) but does not
-   close it; it is context, not a task.
+1. **Group messages → the delivered column is an audience of one, by rule.** DONE (previous pass).
+2. **Timestamps → milliseconds.** NOT DONE. Wire change; do it with decision 3 and regenerate
+   vectors once. See "Open, 1" below — it has grown a third component since it was written.
+3. **`_`-field rename → a single namespacing object (`_openfeed: {...}` or similar).** NOT DONE.
+   Wire change; pairs with decision 2.
+4. **§15 review → three foundation-model adversarial reviews** (human cryptographer later, at
+   public launch). The owner uses OpenCode Go; the key is in `.env` (gitignored) as
+   `OPENCODE_KEY`. Requested models: **GLM-5.3, Kimi K3, Qwen3.8 Max**. NOT DONE — this is the
+   *last* step, run over the finished state. It is a shake-out, not a substitute for a
+   cryptographer's pass; say so.
+5. **Audience → the owner's family first, but the spec is for anyone; 2–3 reference
+   implementations planned.** Context, not a task.
 
-## Status of the review's findings
+## What this pass was
 
-**Stage 2 self-review (S2.1–S2.11, in `tmp/review-findings.md`):**
-- **DONE:** S2.1 (one-recipient rule), S2.2 (`probeItems` false accusation), S2.3 (§16.2
-  OPTIONAL contradiction), S2.4 (`enc.js`/`jws.js` lenient base64url), S2.5 (tombstone allowlist
-  + `retractDelivered`), S2.6 (malformed `_next_update` bricking the chain), S2.7 (delivery
-  stream: late arrivals, restart persistence, sender-side migration), S2.8 (atomic co-sign).
-- **PARTIAL / rolled into other work:** S2.9 (conformance-surface propagation — §12 checklists,
-  Appendix B vectors carrying `items`/`_next_update`/`_delivery` — NOT done, see below), S2.10
-  (assorted nits, some fixed in passing), S2.11 (doc drift — NOT done, see below).
+Handoff item 1 (the Stage 1 spec corrections paired with landed code) plus everything else in
+Stage 1 and the rest of Stage 0's backlog. Seven commits on `8703ea4`. `git log` has the
+reasoning per change; each one lands with a test that fails without it.
 
-**Old backlog (Stage 0):**
-- **DONE, revert-checked test:** 0.1 (prior pass), 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 0.9.
+## Status
 
-**Still OPEN from Stage 0:** 0.7 (walked identity versions not bound to the chain's identity —
-pairs with spec 1.13), 0.10 (no upper bound on self-reported signing time — pairs with 1.4),
-and 0.11's list (unbounded store growth on `PinStore`/`MigrationStore`/`ObservationStore`;
-`export.js` dropping `requireCanonical` on restore; skip-hop undercount; `timingSafeEqualString`
-coercing non-strings; §13.4 slot caps; blocked authors writing the dedup store; non-`EncError`
-escaping `enc.js` — some of these last two may have been incidentally closed this pass, verify
-before acting).
+**Stage 0 (`src/` defects): CLOSED.** 0.1–0.10 all DONE with revert-checked tests. 0.11's list is
+DONE except the store-growth item — see "Open, 3". One 0.11 entry (`export.js` dropping
+`requireCanonical` on restore) was **not a defect**; the reason is in `d746c7f`'s message and in
+the register.
+
+**Stage 1 (spec corrections): CLOSED.** 1.1–1.18 all landed. 1.8 (whole-second `updated` as a
+publishing lock) is the exception and is **subsumed by decision 2** — milliseconds is its fix, so
+do not treat it as separately open.
+
+**Stage 2: DONE** (previous pass). **S2.1–S2.8 DONE**; S2.9 (§12 checklists + Appendix B
+coverage) and S2.11 (doc drift) remain and are items 3 and 4 below. S2.10's nits are partly
+absorbed.
+
+**Stage 3 (surface-area cuts), Stage 4 (publication readiness), Stage 5 (prototype gates):**
+untouched, except that Stage 4's `_`-field namespace item is now decision 3.
 
 ## Open, in the order I would take it
 
-**1. Stage 1 spec corrections that pair with landed code**, so text and code stop disagreeing:
-1.2↔0.3 (DONE in text this pass — verify), 1.3↔0.5 (DONE), 1.4↔0.10 (OPEN both), 1.13↔0.7 (OPEN
-both). Then the standalone-high-value ones: 1.5 (URL comparison rule — `normalizeUrlForCompare`
-implements what the spec never states), 1.6 (RFC 3339 time profile), 1.7 (`seq` contiguity).
+**1. Decisions 2 + 3, plus `typ`, as one wire change.** Then `node tmp/regen.js` regenerates
+every vector against the final wire. Three components, deliberately batched so the vectors are
+regenerated once:
 
-**2. Decisions 2 + 3 together** (milliseconds + `_openfeed:` namespace), then
-`node tmp/regen.js` to regenerate every vector against the final wire. Do these near-last: they
-touch every signed document, and doing them before the other spec work means regenerating twice.
-S2.9's Appendix B gap (vectors carry no `items`/`_next_update`/`_delivery`) closes naturally
-when you regenerate after adding those to the canonical example.
+- **Milliseconds** (decision 2, closes 1.8). Scope it explicitly before starting: the argument in
+  1.8 is about `updated` on chained documents — three tombstones in one second, or an NTP step
+  back, and `#assertDated` refuses to advance either chain. JOSE's `iat`/`revoked_at` are seconds
+  by convention and §4.1 says so. **Decide and write down whether those move too.** My reading:
+  move everything numeric to milliseconds and restate §4.1's convention, because two numeric time
+  units in one document is the kind of thing a second implementer gets wrong silently — but that
+  is a judgement, not a settled decision. `parseTimestamp` (new this pass, `jws.js`) returns
+  seconds today and is the single place the content-side conversion lives.
+- **`_openfeed: {...}`** (decision 3). The hazard is §6.3: `_sig` is stripped from the payload at
+  the **top level only**, and that rule is load-bearing (a recursive strip is the §14 attack
+  written up in §6.3). If `_sig` moves inside `_openfeed`, decide what "top-level" now means and
+  whether an emptied `_openfeed` stays as `{}` — the answer changes the signing construction, so
+  it needs to be written into §6.3 rather than left to `canonical.js`.
+- **`typ` in the JWS protected header** (register 1.17's last item, the only one I did not land).
+  Identity/manifest/item type confusion is closed today only *accidentally*, by shape checks that
+  happen to disagree. §6.2's "all four fields" becomes five, `buildHeader` takes the kind, and
+  §6.6's "the verifier takes the kind from context" gains a second, cheaper enforcement. It is
+  one line of construction and it must not be done on its own — it regenerates every vector.
 
-**3. Docs (S2.11).** README and DISTRIBUTION-MODEL are stale against *both* the previous Stage 2
-and this pass. The register's S2.11 entry enumerates every concrete contradiction with line
-numbers — the sharpest is `README.md:455`, whose verification recipe ("signature fields removed",
-plural) fails on every co-signed document under §6.3. Do this after the wire has settled
-(decisions 2/3), per the previous handoff's own warning: don't edit the human docs before the
-shape they describe is final.
+**2. Docs (S2.11).** README and DISTRIBUTION-MODEL are stale against Stage 2, the previous pass,
+*and* this one. The register's S2.11 entry enumerates the pre-existing contradictions with line
+numbers; **this pass added more**, because the spec moved: §3.1 gained a URL-comparison rule,
+§3.3.1 is new (caching), §7.2 pins RFC 3339, §9.3's response is now graded, and §13.4's caps
+carry a keyword. Do this after the wire has settled — don't edit the human docs before the shape
+they describe is final.
+
+**3. The store-growth item, the last thing open from Stage 0.** `MigrationStore` and
+`ObservationStore` still grow without bound, though §13.4 sanctions eviction. `PinStore` already
+has `compact`/`MAX_OBSERVATIONS_PER_CHAIN` and is fine. `ObservationStore` is the one that
+matters: it holds a record per `(author, id, _version)` forever, so a hub polling a few thousand
+members accumulates one entry per revision of every item it has ever seen. Note the constraint
+before writing an evictor — §4.4's value is *older* observations, so evicting the oldest inverts
+the mechanism. Evict by identity (the whole of a chain nothing else references), never by age.
 
 **4. §12 conformance checklists (S2.9).** No freshness item at any level; Level 1 missing §7.6's
-consumer MUST and §13.17. One editing pass.
+consumer MUST and §13.17. **This grew this pass**: Level 1 should now also carry §7.2's RFC 3339
+profile, §3.1's URL-comparison rule, §7.4's pagination bounds, and §13.4's "enforce *a* bound".
+One editing pass, cheap, and it does not touch the wire — it could be done before item 1.
 
-**5. Prototype gate hardening.** `enctags`, `inbox`, `deltamanifest` still lack real assertion
-gates on their substantive claims (register Stage 5). `enctags` also never exercises
-`src/enc.js` and quotes spec sections that no longer exist.
+**5. Prototype gate hardening (register Stage 5).** `enctags`, `inbox`, `deltamanifest` still lack
+assertion gates on their substantive claims. `enctags` also never exercises `src/enc.js` and
+quotes spec sections that no longer exist.
 
 **6. Decision 4** — the three-model adversarial review, last, over the finished state.
 
 ## Things that will bite you
 
-- **`npm run prototypes` takes ~5 minutes and several prototypes read `src/`/the spec mid-run.**
-  Never edit those files while a run is in flight — a half-landed edit reads as a prototype
-  failure (this bit me: a stray concurrent run reported a phantom failure). Read
-  `tmp/prototype-results.json` instead of rerunning.
-- **`_sig` covers `_recovery_sig` (§6.3), so order matters: co-sign first, then sign.** New this
-  pass: `advanceIdentity(changes, { recoverySigner })` co-signs *atomically*, before the version
-  exists to serve — prefer it for every post-genesis case. `coSignIdentity` retrofits onto the
-  tip and is only safe before the tip's bytes are first served (else self-equivocation); it
-  carries the warning now, and exists for the genesis case.
-- **The delivered column is an audience of one now.** `_delivery` lives only at top level, is
-  ignored (and MUST NOT appear) on published items, and `Publisher.retractDelivered` is how a
-  delivered item is tombstoned (`tombstone()` reaches only the published store).
-- **`ObservationStore` keys `(author, id, _version)` now**, not `(author, id)`. It bumped to
-  serialization version 2 with a new `idsSeen` map; `fromJSON` reads v0/v1/v2. The revocation
-  check *bounds* the self-reported time (`Math.max`), never replaces it — the inversion is
-  written into §4.4 and the docstrings; don't "simplify" it back to `??`.
-- **`effectiveSigningTime` and `claimedAuthor` both require an explicit `{ kind }`** — no
-  field-sniffing, because an item can carry a numeric `updated` as conformant unknown data.
-- **`verifyBundle` returns `predecessorTofu` and downgrades a bundle-anchored migration to
-  unverified** unless the caller passes `pins` holding the predecessor from outside the bundle.
-- **`createInbox` renamed `holdsItem` → `ownsItem`** (owner-authored only); "previously accepted
-  here" is answered by `DedupStore.knows`, wired automatically. A deployment pointing `ownsItem`
-  at its whole item store reopens the fetch-oracle (0.5).
-- **A two-feed identity needs no `Publisher` change.** `advanceIdentity({ feeds: [...current, e] })`
-  merges over the tip, and a second `Publisher` on the same identity supplies the feed and manifest
-  files — serve everything it emits *except* `openfeed*`, or it overwrites the identity chain.
-  `test/cli.test.js`'s archive-equivocation test is the worked example; Stage 4's consumer-state
-  work wants the same staging.
-- **`_next_update` strictness binds the manifest tip only**; in retained history a malformed
-  value is read as absent (`assertManifestShape(doc, url, { tip })`).
-- **§13's list is numbered and cross-referenced from four files** (`§13.12–14`, `§13.16` from
-  README, DISTRIBUTION-MODEL, `src/manifest.js`, `test/inbox.test.js`). Append, don't insert.
+- **`npm run prototypes` takes ~5 minutes and several prototypes read `src/` and the spec
+  mid-run.** Never edit those while a run is in flight — a half-landed edit reads as a prototype
+  failure. Read `tmp/prototype-results.json` instead of rerunning.
 - **`node tmp/regen.js` after anything touching canonicalization, signing, document shape, or
   vectors** — CLAUDE.md rule 4, not optional.
+- **`policy.verifySignature(doc, { url })` — the chain URL is now required by
+  `identityChainPolicy`** and it throws without one. That is deliberate (a policy whose check is
+  skipped when a caller forgets an argument is a check nobody notices the absence of), but it
+  means any new direct caller must pass it. `walkToPin` threads it everywhere.
+- **`identityDocumentUrl` moved to `jws.js`** (re-exported from `fetch.js`, so every importer
+  still works). It is there so `chain.js` can name §3.2's path convention without importing the
+  module that opens sockets.
+- **`parseTimestamp` (`jws.js`) is the only content-timestamp parser.** Do not reach for
+  `Date.parse` — it accepts `2025-02-30` and rolls it forward, accepts `24:00:00`, and falls back
+  to an implementation-defined reading where `Jan 15 2025` is **local** time.
+- **Invariant 3's passed-over test now requires the item's signer to own the manifest.** Do not
+  "simplify" that scope away: unscoped it convicts a board owner on a timestamp a contributor
+  chose, and there is a test named for exactly that.
+- **`reconcileFeed` violations carry `retryable`**, and `reader.js` maps those to a
+  `feed_behind_manifest` finding rather than `invariant` (so exit 1, not 2). §9.3's response is
+  graded now; a feed behind its manifest is two non-atomic reads, not an attack.
+- **`fetchDocument` refuses cross-origin redirects for every `kind` except `'json'`.** `'json'` is
+  the unclassified default and keeps the permissive behaviour.
+- **`_sig` covers `_recovery_sig` (§6.3), so order matters: co-sign first, then sign.** Prefer
+  `advanceIdentity(changes, { recoverySigner })`, which co-signs atomically. `coSignIdentity`
+  retrofits onto the tip and is only safe before the tip's bytes are first served.
+- **The delivered column is an audience of one.** `_delivery` lives only at top level, is ignored
+  (and MUST NOT appear) on published items, and `Publisher.retractDelivered` tombstones a
+  delivered item.
+- **`ObservationStore` keys `(author, id, _version)`.** The revocation check *bounds* the
+  self-reported time (`Math.max`), never replaces it; don't "simplify" it back to `??`.
+- **`effectiveSigningTime` and `claimedAuthor` both require an explicit `{ kind }`** — no
+  field-sniffing, because an item can carry a numeric `updated` as conformant unknown data.
+- **`createInbox`'s `ownsItem` is owner-authored only**; "previously accepted here" is
+  `DedupStore.knows`, wired automatically. Pointing `ownsItem` at a whole item store reopens the
+  fetch oracle (0.5). A **blocked** author now writes neither store — that is what stops their ids
+  becoming routing tokens.
+- **A two-feed identity needs no `Publisher` change.** `advanceIdentity({ feeds: [...current, e] })`
+  merges over the tip, and a second `Publisher` on the same identity supplies the feed and manifest
+  files — serve everything it emits *except* `openfeed*`. `test/cli.test.js`'s archive-equivocation
+  test is the worked example.
+- **`_next_update` strictness binds the manifest tip only**; in retained history a malformed value
+  is read as absent.
+- **§13's list is numbered and cross-referenced from four files.** Append, don't insert.
 
-## Questions still unanswered (unchanged from before)
+## Questions still unanswered
 
 1. **§3.1's percent-encoding** — the one place two conforming implementations can split one
-   identity into two chains. No prototype, longest-standing open question.
-2. **Where the §15 review comes from** — decision 4 is the interim answer (three models now,
-   cryptographer at launch); it does not fully retire the "never independently reviewed" caveat.
-3. **Adoption asymmetry** — decision 5 reframes it (off-the-shelf reference implementations) but
-   does not close it. Product/distribution question.
+   identity into two chains. No prototype; longest-standing open question. Note that §3.1 now
+   states a *second* comparator beside it (for feeds and manifests), which shares the same
+   hazard and inherits the same open question.
+2. **Where the §15 review comes from** — decision 4 is the interim answer; it does not retire the
+   "never independently reviewed" caveat.
+3. **Adoption asymmetry** — decision 5 reframes it, does not close it. Product question.

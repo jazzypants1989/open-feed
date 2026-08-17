@@ -6,13 +6,22 @@ every finding, with its current status. `HANDOFF.md` is the short list of what t
 
 Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 
-> **Session update (2026-08-17, second pass).** A large batch landed. Rather than rewrite every
-> entry below in place, the authoritative status is now the table at the top of `HANDOFF.md`;
-> where this register and the handoff disagree, the handoff is newer. Quick index of what
-> changed this pass: owner settled all five open decisions (see the handoff); Stage 2 self-review
-> findings S2.1–S2.11 are recorded in the section near the bottom of this file, most now DONE;
-> and from the old backlog 0.2, 0.3, 0.4, 0.5, 0.6, 0.8 and 0.9 are DONE with revert-checked
-> tests. Still OPEN: 0.7, 0.10, 0.11's list, most of Stage 1, Stage 3/4, and the doc rewrites.
+> **Session update (2026-08-17, third pass).** The authoritative status is the top of
+> `HANDOFF.md`; where this register and the handoff disagree, the handoff is newer. Entries below
+> are left as written — they are the *findings*, and rewriting them in place destroys the record
+> of what was found. What changed this pass:
+>
+> - **Stage 0 is CLOSED.** 0.1–0.10 all DONE with revert-checked tests. 0.11's list is DONE
+>   except unbounded `MigrationStore` / `ObservationStore` growth (`PinStore` was already fine —
+>   it has `compact`). One 0.11 entry was **wrong**: see "Corrections to the audit itself" #3.
+> - **Stage 1 is CLOSED.** 1.1–1.18 all landed, except 1.8, which is **subsumed by owner
+>   decision 2** (milliseconds is its fix) and must not be treated as separately open.
+> - **Still OPEN:** Stage 3, Stage 4 (minus its `_`-field item, now decision 3), Stage 5,
+>   S2.9 (§12 checklists + Appendix B coverage), S2.11 (doc drift, which grew — the spec moved),
+>   and owner decisions 2, 3 and 4.
+> - **The one Stage 1 item not landed** is 1.17's last clause, a `typ` header field. It is
+>   deliberately deferred into the decision 2 + 3 wire change, because it regenerates every
+>   vector and doing that twice is what the handoff exists to prevent.
 
 A copy of the original plan lives at
 `~/.claude/plans/src-open-feed-spec-md-distribution-mode-vectorized-biscuit.md`. It is outside
@@ -33,6 +42,40 @@ thing a later pass will otherwise re-derive and act on.
    `walkToPin` follows `prev` and enforces contiguity at `chain.js:814`, capped at 1000 hops.
    The *spec* gap is real and is 1.7 below: contiguity is never required in the text, so a
    publisher emitting `seq: 1` then `seq: 5` is conformant and permanently unreadable by `src/`.
+3. **"`export.js` drops `requireCanonical` on the restore path"** (0.11). Recorded as a defect;
+   it is not one, and the code comment at `export.js:257` already said so. A bundle stores parsed
+   JSON *values*, not served bytes, so the check would compare a canonicalization with itself.
+   Chain integrity runs over canonical bytes either way, and I-JSON parsing still binds every
+   nested document. §6.3's arrival rule is about what a producer **served**, and a bundle is not
+   served — §14 keeps that testable by requiring bundle contents byte-verbatim on the way *in*.
+   Recorded here because a later pass reading the entry alone would "fix" it and add a check that
+   can only ever pass.
+
+## Judgement calls taken while closing Stage 1
+
+Not owner decisions — these were mine, and each closed a finding that named a problem without
+naming its fix. Recorded because the *reason* is the part a later pass would otherwise re-derive
+or reverse. Revisit any of them with an argument; do not revisit them by accident.
+
+- **1.14 — invariant 3's passed-over test is scoped to items the manifest's owner signed.** The
+  alternatives were rebasing on first-observation time (needs history, which invariant 3 is
+  written to avoid) or on "since the manifest last committed anything" (weaker, and still
+  self-reported). Scoping needs nothing new and names precisely why the test is sound where it is
+  sound: the publisher is asserting the time itself. Cost: withholding a *contributor's* item is
+  caught by the ceiling a week later instead of at once, which §7.1 already prices.
+- **1.15 — only invariant 3's first clause is graded down.** The line drawn is *evidence*, not
+  severity: a check over signed bytes the consumer holds is conclusive; a check across two
+  objects fetched at two moments is not. Everything else keeps §5.3.1's response.
+- **1.17 — the cross-origin-redirect refusal was widened to every `kind` except `'json'`.** The
+  spec's own reason ("a redirect is never identity equivalence") generalizes to any URL a pin is
+  keyed on. `'json'` stays permissive because it is a URL this protocol does not define.
+- **1.5 — `normalizeUrlForCompare` now strips userinfo.** §3.1's argument ("an identity is a
+  place, not a credential") was never identity-specific. Both halves of that comparison are
+  attacker-influenced.
+- **§3.4's migration cap is 32 hops**, matching `migration.js`'s existing `MAX_CHAIN` rather than
+  inventing a number for the text to disagree with.
+- **`typ` (1.17's last clause) was deliberately NOT landed.** It belongs in the decision 2 + 3
+  wire change; landing it alone regenerates every vector for a second time.
 
 ## Owner decisions — settled, do not relitigate
 
