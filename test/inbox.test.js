@@ -965,23 +965,45 @@ test('a blocked source cannot reset its own budget by churning fresh keys (§10.
   // evicted first. An attacker at their limit then resets their own budget by churning fresh
   // keys until their blocked bucket falls off the front. delete-then-set on both paths keeps a
   // blocked bucket as freshly-positioned as an allowed one.
+  //
+  // Isolating that costs some staging. Step 6 charges the IP bucket; step 7's *author* bucket is
+  // charged after verification, and it is shared by every request in this test — so traffic that
+  // reaches step 7 would exhaust the author budget and return `429` for a reason that has nothing
+  // to do with eviction, which is exactly how a weaker version of this test passed against the
+  // defect. Every request here therefore names an author whose identity document does not exist:
+  // step 6 charges the IP, step 7 cannot resolve the author and returns `401` before the author
+  // bucket is touched. `429` versus `401` is then a direct readout of whether the attacker's
+  // bucket is still in the Map.
   const site = await newSite(t);
-  const gran = identityAt(site, 'gran');
+  const ghost = `${site.url}ghost/`;                     // 404s: no identity is ever served here
   const inbox = inboxFor(t, site, { rateLimitPerMinute: 1, rateLimitBuckets: 4 });
 
-  const deliver = (name, i) => inbox.deliver(
-    body(item(gran, { id: `urn:uuid:${name}-${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] })),
-    { sourceIp: name },
-  );
+  let n = 0;
+  const deliver = (sourceIp) => inbox.deliver(body({
+    id: `urn:uuid:churn-${n++}`,
+    authors: [{ url: ghost }],
+    _version: 1,
+    content_text: 'thanks!',
+    date_published: iso(T0 - 3600),
+    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],   // relevant, so step 3 lets it by
+    _sig: 'never-reached',
+  }), { sourceIp });
 
-  // The attacker spends their one hit, then is blocked.
-  assert.equal((await deliver('attacker', 0)).status, 202);
-  assert.equal((await deliver('attacker', 1)).status, 429, 'over the per-minute limit');
+  // The attacker spends their one hit — 401, not 202, but the IP bucket was charged all the same.
+  assert.equal((await deliver('attacker')).status, 401, 'charged at step 6, refused at step 7');
+  assert.equal((await deliver('attacker')).status, 429, 'over the per-minute limit');
 
-  // Now churn distinct source IPs past the bucket cap. If the blocked bucket held its slot the
-  // eviction loop never reaches it; if it drifted to the head, this frees it.
-  for (let i = 0; i < 12; i++) await deliver(`churn-${i}`, i);
-
-  assert.equal((await deliver('attacker', 2)).status, 429,
-    'still blocked: churning did not evict the attacker\'s own bucket first');
+  // Churn distinct source IPs past the bucket cap, with the attacker retrying between each. Every
+  // churn request is *allowed*, so each one runs the eviction loop. If a blocked bucket holds its
+  // original slot it reaches the head and falls off; if every touch repositions it, it never does.
+  //
+  // The assertion is that *every* retry is refused, not just the last one: eviction hands the
+  // attacker a fresh bucket, and one allowed request refills it, so the reset shows up as a single
+  // `401` in the middle of the run and is gone by the end. Checking only the final status reads
+  // the budget one hit after it was spent.
+  for (let i = 0; i < 6; i++) {
+    assert.equal((await deliver(`churn-${i}`)).status, 401, 'a fresh key is under its own limit');
+    assert.equal((await deliver('attacker')).status, 429,
+      `retry ${i}: churning did not evict the attacker's own bucket first`);
+  }
 });

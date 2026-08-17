@@ -125,6 +125,67 @@ test('a rewritten history is caught on the second run and exits 2, and stays cau
   assert.equal(again.code, 2);
 });
 
+test('an equivocating archive feed draws the same 2 as the headline one (§3.2.1, §5.3.1)', async (t) => {
+  // §9.2's recommended growth path is a second feed: rotate, and leave the old one listed as
+  // `rel: "archive"` with its own manifest chain and its own pin. That gives an attacker a
+  // cheaper target than the headline feed — and a reader that renders every failure on a listed
+  // entry as "one unreadable archive" turns equivocation there into a flaky host, exit 1 instead
+  // of 2. The severe verdict must not be escapable by moving the attack one entry over.
+  const site = await newSite(t);
+  // Old enough to have signed the archive: the harness's default key is issued a day before T0,
+  // and the archive's posts predate the primary feed's.
+  const signer = makeSigner('key-1', { iat: T0 - 30 * DAY });
+  const p = publisher(site.url, signer);
+  const archiveFeed = `${site.url}archive-feed.json`;
+  const archiveManifest = `${site.url}archive-manifest.json`;
+
+  const archive = (firstPost) => {
+    const a = new Publisher({
+      identity: site.url, feedUrl: archiveFeed, manifestUrl: archiveManifest,
+      title: 'Mom', signer, profile: { name: 'Mom' }, now: () => T0,
+    });
+    a.publishItem({ id: 'urn:uuid:old-0', content_text: firstPost }, { at: T0 - 2 * DAY });
+    a.advanceManifest({ updated: T0 - 2 * DAY + 3600 });
+    a.publishItem({ id: 'urn:uuid:old-1', content_text: 'still the old feed' }, { at: T0 - DAY });
+    a.advanceManifest({ updated: T0 - DAY + 3600 });
+    return a;
+  };
+  // Everything but the identity document: an archive is another feed of the *same* identity.
+  const serveArchive = (a) => {
+    for (const [path, bytes] of a.files()) if (!path.startsWith('openfeed')) site.files.set(path, bytes);
+  };
+  serveArchive(archive('the old feed'));
+  // Only the identity chain can list a feed, so listing one is a new identity version. The
+  // reference publisher builds one entry per feed *it* serves, which is why this is written out.
+  p.advanceIdentity({
+    feeds: [...p.identityDocument.feeds, { url: archiveFeed, manifest: archiveManifest, rel: 'archive', items: true }],
+  }, { updated: T0 + 3600 });
+  site.serve(p);
+
+  const pinFile = tmpFile(t, 'pins.json');
+  const clean = await cli(t, ['verify', site.url, '--pins', pinFile]);
+  assert.equal(clean.code, 0, 'both feeds read, both manifest chains pinned');
+  assert.equal(JSON.parse(fs.readFileSync(pinFile, 'utf8')).pins.pins[archiveManifest].seq, 2);
+
+  // The control, and the reason the classification has to be a classification: a listed feed the
+  // host simply stops serving is exit 1. One unreadable archive does not make an identity
+  // unverifiable, and this is the case the severe kind must not be confused with.
+  site.remove('archive-manifest.json');
+  const flaky = await cli(t, ['verify', site.url, '--pins', pinFile], { now: () => T0 + 4 * DAY });
+  assert.equal(flaky.code, 1);
+  assert.match(flaky.out, /\[unreadable_feed\] https:\/\/mom\.example:\d+\/archive-feed\.json \(rel archive\)/);
+
+  // Now the same entry, rewritten below its pin and rebuilt above it: every signature valid,
+  // every hash chaining, and only the persisted pin able to see it.
+  const rebuilt = archive('a post she never wrote');
+  rebuilt.advanceManifest({ updated: T0 + 2 * DAY });
+  serveArchive(rebuilt);
+
+  const caught = await cli(t, ['verify', site.url, '--pins', pinFile], { now: () => T0 + 5 * DAY });
+  assert.equal(caught.code, 2, 'equivocation on an archive is equivocation');
+  assert.match(caught.out, /\[invariant\] https:\/\/mom\.example:\d+\/archive-feed\.json \(rel archive\)/);
+});
+
 test('withholding is a finding, not an error: exit 1 with the item named', async (t) => {
   const site = await newSite(t);
   const p = site.serve(publisher(site.url, makeSigner()));
