@@ -388,3 +388,18 @@ test('a _next_update that does not postdate its own version is refused as a shap
     );
   }
 });
+
+test('a malformed _next_update in retained history does not brick the walk (§9.1.2)', () => {
+  // The strictness above binds the tip, which its publisher can correct by advancing. Retained
+  // versions are immutable and freshness is only ever computed at the tip, so a walk that
+  // failed on an old typo — say, a float written by some earlier tool — would convert a MAY
+  // field into a permanent hole in the back catalog, and only for the strictest readers: the
+  // exact divergence one-spelling rules exist to prevent, manufactured by a shape check.
+  const a = { ...manifest({ seq: 1, updated: T0, items: [item({ id: 'a', at: T0 })] }), _next_update: T0 + 1.5 };
+  const b = manifest({ seq: 2, updated: T0 + DAY, items: [item({ id: 'a', at: T0 })], prev: a });
+
+  assert.doesNotThrow(() => assertHistoryInvariants([a, b], { url: MANIFEST }),
+    'the old typo is read as absent');
+  assert.throws(() => assertHistoryInvariants([a], { url: MANIFEST }), /_next_update/,
+    'the same version at the tip is still refused');
+});

@@ -99,7 +99,7 @@ export const entryOf = (map, id) => {
  * against a malformed map reports the wrong thing: a missing `items` object would look like
  * every item being withheld.
  */
-export function assertManifestShape(doc, url) {
+export function assertManifestShape(doc, url, { tip = true } = {}) {
   if (!doc || typeof doc !== 'object') throw new ManifestError(`${url} did not yield a manifest`, { url });
   for (const field of ['url', 'feed_url']) {
     if (typeof doc[field] !== 'string') throw new ManifestError(`${url} has no usable ${field}`, { url, seq: doc.seq });
@@ -108,8 +108,11 @@ export function assertManifestShape(doc, url) {
   if (typeof doc.updated !== 'number') throw new ManifestError(`${url} has no usable updated`, { url, seq: doc.seq });
   // §9.1.2: a freshness deadline that does not postdate the version it rides on is either a
   // typo or a publisher declaring itself perpetually stale. Refusing the shape beats computing
-  // a verdict from it — the field's whole value is that a reader can act on it.
-  if (doc._next_update !== undefined) {
+  // a verdict from it — but only at the **tip**, which the publisher can correct by advancing.
+  // Retained versions are immutable, freshness is only ever computed at the tip, and a walk
+  // that failed on an old typo would convert a MAY field into a permanent hole in the back
+  // catalog for exactly the strictest readers — so in history the field is read as absent.
+  if (tip && doc._next_update !== undefined) {
     if (!Number.isInteger(doc._next_update) || doc._next_update <= doc.updated) {
       throw new ManifestError(`${url} has a _next_update that does not postdate updated`, { url, seq: doc.seq });
     }
@@ -274,7 +277,8 @@ export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
  */
 export function assertHistoryInvariants(versions, { url, contiguous = true } = {}) {
   const ordered = [...versions].sort((a, b) => a.seq - b.seq);
-  for (const v of ordered) assertManifestShape(v, url ?? v.url);
+  // §9.1.2: `_next_update` strictness binds the tip only; see `assertManifestShape`.
+  for (const v of ordered) assertManifestShape(v, url ?? v.url, { tip: v === ordered[ordered.length - 1] });
 
   if (!contiguous) {
     // Endpoints only: content cannot vanish between the pin and the tip even across a skip.
