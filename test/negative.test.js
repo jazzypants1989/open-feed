@@ -812,12 +812,15 @@ test('a delegated key MUST NOT sign an identity-document version', () => {
   assert.doesNotThrow(() => assertContinuityKey(honest, memberIdentity));
 });
 
-// ---- §5.2: `updated` strictly increases ----
+// ---- §5.2: `updated` never decreases ----
 //
 // The one self-reported field with authority. It is the effective signing time for every
 // revocation and `iat` check on a chained document (§6.5), and §9.3 invariant 3 decides lag
 // from violation by asking whether a manifest's `updated` has moved past an item — so a chain
 // whose clock walks backward disables both while every signature on it still verifies.
+//
+// Backward is the violation; equal is not. `seq` orders the chain, and the tests below pin
+// both halves — a regressing version is refused, and a burst inside one second walks.
 
 test('a chain version dated before its predecessor is rejected', async () => {
   const fx = identityFixture({ versions: 3 });
@@ -843,44 +846,72 @@ test('a chain version dated before its predecessor is rejected', async () => {
       url: fx.url, tip: backdated, pin, fetchVersion: fx.store.fetchVersion, policy: identityChainPolicy,
       pins: new PinStore(),
     }),
-    (e) => e instanceof ChainError && /not after seq 3/.test(e.message),
+    (e) => e instanceof ChainError && /before seq 3/.test(e.message),
   );
 });
 
-test('a manifest hop that does not advance updated is an invariant violation', () => {
+test('a chain version sharing its predecessor\'s second still walks', async () => {
+  // §5.2's liveness half. §9.2 wants a tombstone committed immediately and `rotateKey` emits
+  // three versions in a row, so a same-second advance is ordinary publishing, not an anomaly.
+  const fx = identityFixture({ versions: 3 });
+  const pin = pinOf(fx.chain.at(1));
+
+  const sameSecond = fx.chain.publish({
+    fields: { url: fx.identity, name: 'Owner', keys: fx.keys.map((k) => ({ ...k })) },
+    signer: fx.primary,
+    updated: fx.chain.at(3).updated,
+  });
+  assert.equal(sameSecond.updated, fx.chain.at(3).updated, 'the two versions share one clock reading');
+
+  assert.ok(await walkToPin({
+    url: fx.url, tip: sameSecond, pin, fetchVersion: fx.store.fetchVersion, policy: identityChainPolicy,
+    pins: new PinStore(),
+  }), 'equal is not a regression — seq is the ordering key (§5.2)');
+});
+
+test('a manifest hop whose updated goes backward is an invariant violation', () => {
   const base = {
     url: MEMBER, feed_url: MEMBER + 'feed.json', seq: 1, updated: 1739577600,
     items: { 'urn:uuid:a': [1, 'AAAA'] },
   };
-  const stalled = { ...base, seq: 2, updated: 1739577600, prev: 'BBBB' };
+  const regressed = { ...base, seq: 2, updated: 1739577599, prev: 'BBBB' };
 
   assert.throws(
-    () => assertInvariantsAcrossHop(base, stalled, { url: MEMBER + 'manifest.json' }),
-    (e) => e instanceof InvariantViolation && e.invariant === 2 && /not after seq 1/.test(e.message),
+    () => assertInvariantsAcrossHop(base, regressed, { url: MEMBER + 'manifest.json' }),
+    (e) => e instanceof InvariantViolation && e.invariant === 2 && /before seq 1/.test(e.message),
   );
-  // One second is enough; the rule is strict monotonicity, not a minimum cadence.
-  assert.ok(assertInvariantsAcrossHop(base, { ...stalled, updated: base.updated + 1 }, {}));
+  // Equal passes: invariant 2 forbids a backward clock, not a busy second (§5.2).
+  assert.ok(assertInvariantsAcrossHop(base, { ...regressed, updated: base.updated }, {}));
+  assert.ok(assertInvariantsAcrossHop(base, { ...regressed, updated: base.updated + 1 }, {}));
 });
 
-test('a publisher refuses to emit a version dated before its predecessor', () => {
+test('a publisher raises a regressing clock instead of refusing to publish', () => {
+  // 1.8's two real cases, and the reason §5.2 dropped the strict inequality: refusing here
+  // converts a clock problem into an inability to advance either chain.
   const signer = makeKey('key-1');
   signer.identity = 'https://pub.example/';
+  let clock = 1739577600;
   const pub = new Publisher({
     identity: 'https://pub.example/',
     signer: { kid: signer.kid, privateKey: signer.privateKey, jwk: signer.jwk },
-    now: () => 1739577600,
+    now: () => clock,
   });
 
-  assert.throws(
-    () => pub.advanceIdentity({ name: 'Renamed' }, { updated: 1736899200 }),
-    (e) => e instanceof PublishError && /not after seq 1/.test(e.message),
-  );
+  // NTP steps the clock backward by a day. The version is still emitted, dated at the
+  // predecessor's second rather than before it.
+  clock = 1736899200;
+  const stepped = pub.advanceIdentity({ name: 'Renamed' });
+  assert.equal(stepped.seq, 2);
+  assert.equal(stepped.updated, 1739577600, 'raised to the predecessor, not written backward');
 
+  // A burst inside one second: §9.2 wants each tombstone committed immediately.
+  clock = 1739577600;
   pub.publishItem({ id: 'urn:uuid:one', content_text: 'hi' }, { at: 1739577600 });
-  pub.advanceManifest({ updated: 1739577700 });
-  assert.throws(
-    () => pub.advanceManifest({ updated: 1739577700 }),
-    (e) => e instanceof PublishError && /not after seq 1/.test(e.message),
-    'equal is not greater — a same-second re-advance is the accident this catches',
-  );
+  const first = pub.advanceManifest();
+  pub.tombstone('urn:uuid:one', { at: 1739577600 });
+  const second = pub.advanceManifest();
+
+  assert.equal(second.seq, first.seq + 1, 'seq carries the ordering');
+  assert.equal(second.updated, first.updated, 'and both versions share the one second');
+  assert.ok(assertInvariantsAcrossHop(first, second, { url: pub.manifestUrl }));
 });

@@ -107,18 +107,19 @@ export class Publisher {
   }
 
   /**
-   * §5.2 step 2: a version is dated strictly after its predecessor. Refusing here rather than
-   * emitting the version is the whole point — a chain whose `updated` drifts backward passes
-   * every signature check and quietly disables §9.3 invariant 3, so the producer is the only
-   * party positioned to notice.
+   * §5.2 step 2: a version is never dated before its predecessor — so the producer raises a
+   * clock reading that would regress, rather than refusing to publish.
+   *
+   * Clamping rather than throwing is the rule, not a leniency. A chain whose `updated` drifts
+   * backward passes every signature check and quietly disables §9.3 invariant 3, and the
+   * producer is the only party positioned to notice — but the two ways that happens in
+   * practice are a burst inside one second (§9.2 wants a tombstone committed *now*, and
+   * `rotateKey` emits three versions in a row) and an NTP step backward. Refusing either
+   * converts a clock problem into an inability to publish, which is the failure §5.2 declines
+   * to trade for a strict inequality it argues buys nothing.
    */
-  #assertDated(updated, previous, what) {
-    if (previous && updated <= previous.updated) {
-      throw new PublishError(
-        `${what} seq ${previous.seq + 1} would be dated ${updated}, not after seq ${previous.seq}'s ${previous.updated} (§5.2)`,
-      );
-    }
-    return updated;
+  #dated(updated, previous) {
+    return previous ? Math.max(updated, previous.updated) : updated;
   }
 
   #genesisIdentity({ profile, recoveryKeys }) {
@@ -162,7 +163,7 @@ export class Publisher {
     delete next._recovery_sig;
     next.seq = previous.seq + 1;
     next.prev = documentHash(previous);
-    next.updated = this.#assertDated(updated ?? this.now(), previous, 'identity document');
+    next.updated = this.#dated(updated ?? this.now(), previous);
     // A version that needs a co-signature gets it *here*, before the version exists to serve —
     // the safe path. `coSignIdentity` can retrofit one, but only until the tip's bytes have
     // been served to anyone (see its warning).
@@ -540,7 +541,7 @@ export class Publisher {
       url: this.identity,
       feed_url: this.feedUrl,
       seq: (previous?.seq ?? 0) + 1,
-      updated: this.#assertDated(updated ?? this.now(), previous, 'manifest'),
+      updated: this.#dated(updated ?? this.now(), previous),
       items: live,
     };
     // §9.1.2: the freshness deadline. `nextUpdate` is a *cadence in seconds* rather than an

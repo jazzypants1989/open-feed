@@ -213,13 +213,15 @@ export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
       { invariant: 2, url, seq: later.seq },
     );
   }
-  // §5.2, and invariant 2 restates it: `updated` advances too. Invariant 3 below reads a
-  // manifest's `updated` as proof the chain has moved past a given item's signing time, which
-  // it only is if `updated` moves — otherwise a publisher parks its clock and holds content in
-  // permanent, unfalsifiable lag.
-  if (later.updated <= earlier.updated) {
+  // §5.2, and invariant 2 restates it: `updated` never goes backward. Equal is fine — `seq`
+  // orders the chain and a burst of versions in one second shares a clock reading. Invariant 3
+  // below still reads a manifest's `updated` as proof the chain moved past a given item's
+  // signing time, which it remains: that test asks whether `updated` has *passed* the item, not
+  // whether it changed on this hop. A publisher parking its clock outright is caught by the
+  // consumer's own ceiling and §9.1.2's deadline, not here.
+  if (later.updated < earlier.updated) {
     throw new InvariantViolation(
-      `${url ?? 'manifest'} seq ${later.seq} is dated ${later.updated}, not after seq ${earlier.seq}'s ${earlier.updated}`,
+      `${url ?? 'manifest'} seq ${later.seq} is dated ${later.updated}, before seq ${earlier.seq}'s ${earlier.updated}`,
       { invariant: 2, url, seq: later.seq },
     );
   }

@@ -672,7 +672,7 @@ function assertVersionShape(doc, url) {
 }
 
 /**
- * §5.2 step 2: `updated` strictly increases along a chain.
+ * §5.2 step 2: `updated` never decreases along a chain.
  *
  * It reads like bookkeeping and is not. `updated` is the effective signing time every
  * revocation and `iat` check on a chained document resolves against (§6.5), and §9.3
@@ -680,13 +680,18 @@ function assertVersionShape(doc, url) {
  * passed a given item — so a publisher whose timestamps drift backward escapes both while
  * every other check on this walk still passes.
  *
+ * Equal is allowed, and deliberately: `seq` is the ordering key, so two versions published in
+ * one second share a timestamp rather than forcing the publisher to invent a later one. §5.2
+ * has the argument — strictness would forbid a tombstone burst and an NTP correction while
+ * buying nothing against a publisher who simply adds a second per version.
+ *
  * Checked on every hop kind, skips included: across a jump it is weaker (the intermediates are
  * unobserved) but it is not wrong, and it costs a comparison.
  */
-function assertUpdatedAdvances(successor, predecessor, url) {
-  if (successor.updated <= predecessor.updated) {
+function assertUpdatedDoesNotRegress(successor, predecessor, url) {
+  if (successor.updated < predecessor.updated) {
     throw new ChainError(
-      `${url} seq ${successor.seq} is dated ${successor.updated}, not after seq ${predecessor.seq}'s ${predecessor.updated} (§5.2)`,
+      `${url} seq ${successor.seq} is dated ${successor.updated}, before seq ${predecessor.seq}'s ${predecessor.updated} (§5.2)`,
       { url, seq: successor.seq },
     );
   }
@@ -885,7 +890,7 @@ export async function walkToPin({
         { url, seq: predecessor.seq },
       );
     }
-    assertUpdatedAdvances(current, predecessor, url);
+    assertUpdatedDoesNotRegress(current, predecessor, url);
     policy.verifySignature(predecessor, { url });
     policy.verifyContinuity(current, predecessor);
     record(predecessor, hash);
@@ -957,7 +962,7 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
   // The landing is below `current`, so its companion is too: §5.2 step 2's monotonicity has to
   // hold across the jump as well, or a publisher can date a skip landing after the version that
   // anchored it and §9.3 invariant 3 reads a chain that never advanced as one that did.
-  assertUpdatedAdvances(current, above, url);
+  assertUpdatedDoesNotRegress(current, above, url);
   policy.verifySignature(above, { url });
   record(above, aboveHash);
   versions.push(above);
@@ -973,8 +978,8 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
       { url, seq: anchor.seq },
     );
   }
-  assertUpdatedAdvances(above, landed, url);
-  assertUpdatedAdvances(current, landed, url);
+  assertUpdatedDoesNotRegress(above, landed, url);
+  assertUpdatedDoesNotRegress(current, landed, url);
   policy.verifySignature(landed, { url });
   policy.verifyContinuity(above, landed);
   record(landed, hash);
