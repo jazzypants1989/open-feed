@@ -121,6 +121,59 @@ test('non-representable values are rejected', () => {
   assert.throws(() => canonicalize({ a: 1n }), /BigInt/);
 });
 
+test('an integer token beyond ±(2⁵³−1) is rejected, in both directions', () => {
+  // §6.3, and the divergence it closes has no other symptom: a bignum-equipped parser
+  // preserves such a token exactly while a double-equipped one rounds it, so the two compute
+  // signature payloads from one document that neither of them ever sees the other's bytes of.
+  assert.equal(JSON.parse('{"a":9007199254740993}').a, 9007199254740992, 'a stock parse rounds it silently');
+
+  // The parse rejects the token where it reads it — the offset is how you can tell it never
+  // took the lossy value at all, rather than noticing later that what it took cannot be
+  // re-serialized. Both answers are refusals; only one of them names the byte.
+  assert.throws(() => parseIJSON('{"a":9007199254740993}'), /interoperable range \(§6\.3\) at offset/);
+  assert.throws(() => parseIJSON('{"a":-9007199254740993}'), /interoperable range \(§6\.3\) at offset/);
+  assert.throws(() => parseIJSON('{"a":[1,10000000000000000000]}'), /interoperable range/);
+  assert.throws(() => parseIJSON('{"a":{"b":9007199254740992}}'), /interoperable range/);
+  // The producer half, so no value is emittable here and unreadable there.
+  assert.throws(() => canonicalize({ a: 2 ** 53 }), /interoperable range/);
+  assert.throws(() => canonicalize({ a: -(2 ** 53) }), /interoperable range/);
+
+  // ±(2⁵³−1) itself is inside the range, and so is every value a double holds exactly.
+  assert.equal(canonicalize({ a: Number.MAX_SAFE_INTEGER }), '{"a":9007199254740991}');
+  assert.deepEqual(parseIJSON('{"a":9007199254740991,"b":-9007199254740991}'), {
+    a: 9007199254740991, b: -9007199254740991,
+  });
+  assert.equal(canonicalize(parseIJSON('{"a":1.5,"b":-0.0001,"c":0}')), '{"a":1.5,"b":-0.0001,"c":0}');
+
+  // A magnitude RFC 8785 serializes with an exponent is unambiguously a double, and passes.
+  assert.equal(canonicalize({ a: 1e21 }), '{"a":1e+21}');
+  assert.equal(canonicalize(parseIJSON('{"a":1e21}')), '{"a":1e+21}');
+
+  // Between those two: a token written in exponent form whose *canonicalization* is an
+  // out-of-range integer is rejected as well. The canonicalization is the signature payload
+  // (§6.3), so a value no conformant producer could emit is one no consumer can read back.
+  assert.throws(() => parseIJSON('{"a":1e17}'), /interoperable range/);
+  assert.throws(() => parseIJSON('{"a":9007199254740992.0}'), /interoperable range/);
+
+  // …and it is rejected by the same predicate at the same place as every other out-of-range
+  // number, naming the byte. §6.3 states its rule on the canonical form precisely so that
+  // `1e17` and `100000000000000000` — one value, one canonicalization — stand or fall
+  // together; a rule read against the source token admits the first and refuses the second,
+  // which is a parser and a serializer disagreeing about one MUST.
+  for (const token of ['1e17', '100000000000000000', '1e20']) {
+    assert.throws(
+      () => parseIJSON(`{"a":${token}}`),
+      /interoperable range \(§6\.3\) at offset/,
+      `${token} should be refused where it is read`,
+    );
+  }
+  // The message has to explain itself: a publisher told only "1e17 is out of range" would
+  // reasonably disbelieve it, since the token plainly is not.
+  assert.throws(() => parseIJSON('{"a":1e17}'), /1e17 canonicalizes to 100000000000000000/);
+  // And the rounding the rule exists to prevent is named, not merely refused.
+  assert.throws(() => parseIJSON('{"a":9007199254740993}'), /canonicalizes to 9007199254740992/);
+});
+
 // ---- identity URLs (spec §3.1) ----
 
 test('identity URL normalization matches the spec table', () => {

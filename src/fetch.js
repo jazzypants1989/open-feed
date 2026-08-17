@@ -123,14 +123,19 @@ export class NegativeCache {
     this.entries = new Map();
   }
 
+  /**
+   * Oldest-failure-first, in O(1) per eviction rather than O(n).
+   *
+   * A `Map` iterates in insertion order and `recordFailure` re-inserts (delete then set), so the
+   * first key is by construction the entry whose `lastFailure` is oldest — no scan needed. The
+   * scan this replaces ran on *every* recorded failure, over up to `maxEntries` entries, which
+   * made the cost quadratic under exactly the conditions §12's retry ladder exists for: a host
+   * that is down while a consumer walks a long chain records one failure per derived-version URL
+   * and rescans the whole map each time.
+   */
   #evict() {
     while (this.entries.size > this.maxEntries) {
-      let oldestUrl = null;
-      let oldest = Infinity;
-      for (const [url, entry] of this.entries) {
-        if (entry.lastFailure < oldest) { oldest = entry.lastFailure; oldestUrl = url; }
-      }
-      this.entries.delete(oldestUrl);
+      this.entries.delete(this.entries.keys().next().value);
     }
   }
 
@@ -156,6 +161,10 @@ export class NegativeCache {
     const entry = this.entries.get(url) ?? { failures: 0, lastFailure: 0 };
     entry.failures += 1;
     entry.lastFailure = this.now();
+    // Delete before set, so the entry moves to the end of the insertion order and `#evict`'s
+    // "first key is the oldest failure" holds. Without the delete, `set` on an existing key
+    // updates in place and leaves it where it was.
+    this.entries.delete(url);
     this.entries.set(url, entry);
     this.#evict();
     return entry;

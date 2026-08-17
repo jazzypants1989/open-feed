@@ -31,16 +31,34 @@ function serializeString(s, where) {
   return JSON.stringify(s);
 }
 
+/**
+ * §6.3's interoperable-range rule, stated once so the producer and the parser cannot drift.
+ *
+ * The test is on the form the value **canonicalizes to**, never on the source token. Those are
+ * different things and testing the token gets it wrong in both directions: `1e17` and
+ * `100000000000000000` are one value that canonicalizes to one byte string, so they must be
+ * accepted or rejected together, and a token test accepts the first and rejects the second.
+ * Canonical bytes are the signature payload; the token a publisher happened to type is not.
+ *
+ * What is being excluded is an **integer-form** canonical token beyond ±(2⁵³−1). A wider
+ * integer type preserves such a token exactly while a double implementation silently rounds it,
+ * so two conforming-looking verifiers hash different payloads from one document, and the fork
+ * has no other symptom. Values large enough that RFC 8785 emits them in exponent form (≥1e21)
+ * are unambiguous under any reading and pass — as does every fraction.
+ */
+function outsideInteroperableRange(n, canonical) {
+  return !/[.eE]/.test(canonical) && (n > Number.MAX_SAFE_INTEGER || n < -Number.MAX_SAFE_INTEGER);
+}
+
 function serializeNumber(n) {
   if (!Number.isFinite(n)) throw new CanonicalError(`non-finite number: ${n}`);
   // RFC 8785 §3.2.2.3 defers to ECMAScript Number::toString, which is what
   // JSON.stringify applies; -0 renders as "0" under that rule.
-  //
-  // Integers beyond Number.MAX_SAFE_INTEGER lose precision here, as they do in any
-  // double-based implementation. That needs no guard: a verifier that reparsed such a
-  // value would produce different canonical bytes than the publisher and the signature
-  // would fail, which is the correct outcome rather than a silent mismatch.
-  return JSON.stringify(n);
+  const out = JSON.stringify(n);
+  if (outsideInteroperableRange(n, out)) {
+    throw new CanonicalError(`integer ${out} is outside I-JSON's interoperable range (§6.3)`);
+  }
+  return out;
 }
 
 /** Serialize a value to RFC 8785 canonical JSON text. */
@@ -244,9 +262,21 @@ class Parser {
   parseNumber() {
     const m = NUMBER_RE.exec(this.s.slice(this.i));
     if (!m) throw this.error('invalid value');
-    this.i += m[0].length;
-    const n = Number(m[0]);
+    const token = m[0];
+    this.i += token.length;
+    const n = Number(token);
     if (!Number.isFinite(n)) throw this.error('non-finite number');
+    // §6.3, the consumer half — the *same* predicate the producer applies, against the same
+    // canonical form, because a parser and a serializer that disagree about one rule accept
+    // documents they cannot round-trip. The error names both forms: `1e17` is rejected not
+    // because the token is out of range but because it canonicalizes to one that is, and a
+    // publisher told only "1e17 is invalid" would reasonably disbelieve it.
+    const canonical = JSON.stringify(n);
+    if (outsideInteroperableRange(n, canonical)) {
+      throw this.error(
+        `number ${token} canonicalizes to ${canonical}, outside I-JSON's interoperable range (§6.3)`,
+      );
+    }
     return n;
   }
 }

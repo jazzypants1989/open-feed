@@ -443,4 +443,29 @@ test('the negative cache is bounded, because §13.9 makes it attacker-driven', (
   assert.ok(MAX_NEGATIVE_CACHE_ENTRIES > 0);
   // Eviction loses backoff state, never trust: an evicted URL is refetched, not believed.
   assert.doesNotThrow(() => cache.assertFetchable('https://a0.example/openfeed.json'));
+
+  // Oldest failure first, and the *survivors* are what says so. Eviction is O(1) — it deletes
+  // the first key, relying on `recordFailure` re-inserting so that insertion order tracks
+  // `lastFailure`. Get that re-insertion wrong and the cache silently starts evicting the
+  // freshest entries, which is invisible in a size check and wrong in exactly the case §12's
+  // ladder is for: a host that is down while a consumer walks a chain records one failure per
+  // derived-version URL, and the entries worth keeping are the recent ones.
+  assert.deepEqual(
+    [...cache.entries.keys()],
+    ['https://a7.example/openfeed.json', 'https://a8.example/openfeed.json', 'https://a9.example/openfeed.json'],
+  );
+
+  // A URL failing again moves to the back of the queue rather than staying where it was, so a
+  // repeatedly-failing host is not evicted ahead of one that failed once and went quiet.
+  const clock = { at: 2000 };
+  const c2 = new NegativeCache({ maxEntries: 2, now: () => clock.at });
+  c2.recordFailure('https://old.example/openfeed.json');
+  c2.recordFailure('https://mid.example/openfeed.json');
+  clock.at = 3000;
+  c2.recordFailure('https://old.example/openfeed.json');   // now the freshest
+  c2.recordFailure('https://new.example/openfeed.json');   // evicts `mid`, not `old`
+  assert.deepEqual(
+    [...c2.entries.keys()],
+    ['https://old.example/openfeed.json', 'https://new.example/openfeed.json'],
+  );
 });

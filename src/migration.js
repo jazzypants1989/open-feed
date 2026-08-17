@@ -240,6 +240,27 @@ export class MigrationStore {
   }
 
   /**
+   * What kind of chained document a URL names — `'identity'`, `'manifest'`, or `null` for a
+   * chain this consumer does not track.
+   *
+   * Answered out of the inventory this store already keeps, because the alternative is sniffing
+   * the URL's spelling, and the spelling does not carry it. §3.2 fixes `openfeed.json` for an
+   * identity document, but §3.2.1 constrains a `manifest` URL only to end in `.json` — so a
+   * manifest may legitimately be served at a path ending `openfeed.json`, and a consumer
+   * choosing a §13.4 size cap by suffix would cap it at the identity document's 100 KB. The
+   * kind is a fact about a document's role in this consumer's records, exactly as §6.6 says the
+   * document kind is a fact of the verification context and never of the bytes.
+   */
+  chainKind(url) {
+    const wanted = String(url);
+    for (const held of this.chains.values()) {
+      if (held.identityDocument === wanted) return 'identity';
+      if (held.manifests.has(wanted)) return 'manifest';
+    }
+    return null;
+  }
+
+  /**
    * Verify a migration and record it. Returns the verdict; throws only for a competing claim,
    * which is a state the consumer must not resolve on its own (§3.4).
    */

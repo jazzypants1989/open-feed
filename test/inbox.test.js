@@ -17,6 +17,9 @@ import {
   renderable,
   publishable,
   canonicalBytes,
+  chainUrlsOf,
+  PinStore,
+  Publisher,
   sign,
 } from '../src/index.js';
 
@@ -64,6 +67,36 @@ function inboxFor(t, site, extra = {}) {
   });
 }
 
+test('one delivery costs one hit in each rate-limit bucket, not two in the IP bucket', async (t) => {
+  // §10.2 step 6 is "by source IP (always) and by author (once known)" — two axes, charged
+  // once each. The pipeline calls the limiter twice, before and after verification, and the
+  // status is `202` either way, so a limiter charging the IP on both calls is invisible until
+  // an operator wonders why a configured budget of N behaves like N/2. Worse, it behaves like
+  // N/2 for *well-formed* traffic and the full N for garbage that never reaches step 8 — the
+  // ladder pointing the wrong way. Only the charges reveal it, which is why this asserts on
+  // them rather than on a `429`.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const charges = [];
+  const inbox = inboxFor(t, site, {
+    rateLimit: ({ sourceIp, author }) => { charges.push({ sourceIp, author }); return true; },
+  });
+
+  const ok = await inbox.deliver(
+    body(item(gran, { id: 'urn:uuid:rl-1', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] })),
+    { sourceIp: '203.0.113.9' },
+  );
+  assert.equal(ok.status, 202, 'a well-formed delivery is accepted');
+
+  assert.equal(charges.length, 2, 'the limiter is consulted before and after verification');
+  assert.deepEqual(charges[0], { sourceIp: '203.0.113.9', author: null }, 'step 6: IP only');
+  assert.deepEqual(charges[1], { sourceIp: null, author: `${gran.url}` }, 'step 8: author only');
+
+  // The axes are disjoint: exactly one charge per bucket per delivery.
+  assert.equal(charges.filter((c) => c.sourceIp).length, 1, 'the IP is charged once');
+  assert.equal(charges.filter((c) => c.author).length, 1, 'the author is charged once');
+});
+
 // ---- §10.2: the order is the security property ----
 
 test('an irrelevant delivery costs zero outbound fetches', async (t) => {
@@ -100,6 +133,7 @@ test('malformed and off-limits bodies are refused before anything is dialled', a
     ['not json at all', 400, 'invalid_json'],
     ['{"a":1,"a":2}', 400, 'invalid_json'],                       // I-JSON duplicate member
     ['{"__proto__":{}}', 400, 'invalid_json'],                    // §6.3's reserved name
+    ['{"a":9007199254740993}', 400, 'invalid_json'],              // §6.3's number range
     [JSON.stringify({ id: 'x#y' }), 400, 'missing_field'],        // §7.2: ids carry no #
     [JSON.stringify({ id: 'a', authors: [] }), 400, 'missing_field'],
   ];
@@ -350,6 +384,145 @@ test('the republication gate is one field, and it is the only enforcement that c
   assert.equal(publishable(published.item), true);
 });
 
+// ---- §16.1: pins that arrive on a delivery ----
+
+const MOM_CHAIN = `${MOM}openfeed.json`;
+const MOM_MANIFEST = `${MOM}manifest.json`;
+const STRANGER_CHAIN = 'https://stranger.example/openfeed.json';
+
+/** An owner who has been reading its own chains, which is what gives an entry anything to hit. */
+function ownerPins() {
+  const pins = new PinStore({ now: () => T0 });
+  pins.advance(MOM_CHAIN, 3, 'mom-id-3');
+  pins.advance(MOM_MANIFEST, 12, 'mom-manifest-12');
+  return pins;
+}
+
+test('a delivery\'s pins are judged locally, and cost the receiver nothing (§16.1)', async (t) => {
+  // §10.2's fetch discipline governs this pipeline and §16.1 forbids dereferencing a stranger's
+  // entry anyway (§13.9), so heeding pins must not add an outbound request. The count is the
+  // only observable difference between an inbox that obeys that and one that does not.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const pins = ownerPins();
+  const inbox = inboxFor(t, site, { pins });
+
+  const got = await inbox.deliver(body(item(gran, {
+    id: 'urn:uuid:pinned-1',
+    _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+    _pins: [
+      { url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600 },
+      { url: MOM_CHAIN, seq: 3, hash: 'a-hash-the-peer-invented', observed: T0 - 600 },
+      { url: MOM_CHAIN, seq: 9, hash: 'mom-id-9', observed: T0 - 60 },
+      { url: STRANGER_CHAIN, seq: 1, hash: 'whoever', observed: T0 - 60 },
+      { url: MOM_CHAIN, seq: 0, hash: 'malformed' },
+    ],
+  })));
+
+  assert.equal(got.status, 202);
+  assert.equal(got.fetches, 1, 'the author\'s identity document, and nothing for the pins');
+  assert.deepEqual(got.peerPins.entries.map((e) => e.verdict), [
+    'corroborates',   // the same bytes at a seq this receiver observed itself
+    'check',          // different bytes there: §16.1's reason to go look, resolved elsewhere
+    'unknown',        // a tracked chain at a seq beyond the pin — the re-walk signal
+    'untracked',      // never tracked: ignored outright rather than dereferenced (§13.9)
+  ]);
+  assert.equal(got.peerPins.ignored, 1, 'the malformed entry');
+  // Entries come back whole — §3.2 keeps unknown members, and `observed` is what §16.1's
+  // informal timestamping is made of, so a verdict that dropped them would be unusable.
+  assert.deepEqual(got.peerPins.entries[0], {
+    url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600,
+    verdict: 'corroborates', held: 'mom-id-3',
+  });
+
+  // And the claim stayed a claim. If a peer's entry were an observation, §5.3.1's response —
+  // accept no further version until a human re-pins — would be available to any stranger who
+  // can reach an inbox, against any chain the owner reads.
+  assert.equal(pins.isFrozen(MOM_CHAIN), false);
+  assert.deepEqual(pins.pin(MOM_CHAIN), { seq: 3, hash: 'mom-id-3', observed: T0, firstPinned: T0 });
+  assert.equal(pins.reconcilePeerPin(MOM_CHAIN, 9, 'mom-id-9').verdict, 'unknown', 'seq 9 was not recorded');
+});
+
+test('a published item may pin only chains the receiver owns; a delivered one may gossip (§16.1)', async (t) => {
+  // The scoping is the whole basis of the claim that pins disclose nothing new: a published
+  // item is world-readable forever, so a third-party entry there would broadcast its author's
+  // reading graph to everyone, silently.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const pins = ownerPins();
+  const inbox = inboxFor(t, site, { pins });
+  const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
+  const carried = [
+    { url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600 },
+    { url: STRANGER_CHAIN, seq: 1, hash: 'whoever', observed: T0 - 60 },
+  ];
+
+  const published = await inbox.deliver(body(item(gran, {
+    id: 'urn:uuid:pinned-public', _feed_url: `${gran.url}feed.json`, _rel: rel, _pins: carried,
+  })));
+  assert.equal(published.delivered, false);
+  assert.deepEqual(published.peerPins.entries.map((e) => e.url), [MOM_CHAIN]);
+  assert.equal(published.peerPins.ignored, 1, 'the third-party entry never reaches a verdict');
+
+  const delivered = await inbox.deliver(body(item(gran, {
+    id: 'urn:uuid:pinned-private', _rel: rel, _pins: carried,
+  })));
+  assert.equal(delivered.delivered, true);
+  assert.deepEqual(delivered.peerPins.entries.map((e) => e.verdict), ['corroborates', 'untracked']);
+  assert.equal(delivered.peerPins.ignored, 0, 'delivery reaches exactly one counterparty');
+});
+
+test('the owner\'s manifest chains are pinnable on a published item only once declared', async (t) => {
+  // `ownedChainUrls` defaults to the identity document alone, because that is the one chain
+  // whose URL §3.1 derives. A deployment that knows its manifest URLs says so — and until it
+  // does, an entry naming one is a third party's as far as the scoping rule can tell.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
+  const entry = [{ url: MOM_MANIFEST, seq: 12, hash: 'mom-manifest-12', observed: T0 - 600 }];
+  const asPublished = (id, extra) => body(item(gran, {
+    id, _feed_url: `${gran.url}feed.json`, _rel: rel, _pins: entry, ...extra,
+  }));
+
+  const bare = await inboxFor(t, site, { pins: ownerPins() }).deliver(asPublished('urn:uuid:m-1'));
+  assert.deepEqual(bare.peerPins.entries, []);
+  assert.equal(bare.peerPins.ignored, 1);
+
+  const declared = await inboxFor(t, site, {
+    pins: ownerPins(),
+    ownedChainUrls: chainUrlsOf({ url: MOM, feeds: [{ url: MOM_FEED, manifest: MOM_MANIFEST }] }),
+  }).deliver(asPublished('urn:uuid:m-2'));
+  assert.deepEqual(declared.peerPins.entries.map((e) => e.verdict), ['corroborates']);
+  assert.equal(declared.peerPins.ignored, 0);
+});
+
+test('pins are heeded only after verification, and only where the receiver asked for them', async (t) => {
+  // §16 is OPTIONAL and this is where that has to be visible: a receiver that passes no store
+  // reports nothing, and a receiver that passes one still learns nothing from a delivery that
+  // never got past §10.2 step 7. Everything before that step ran on attacker-controlled bytes.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const rel = [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }];
+  const carried = [{ url: MOM_CHAIN, seq: 3, hash: 'mom-id-3', observed: T0 - 600 }];
+
+  const optedOut = await inboxFor(t, site).deliver(body(item(gran, {
+    id: 'urn:uuid:no-store', _rel: rel, _pins: carried,
+  })));
+  assert.equal(optedOut.status, 202);
+  assert.equal(optedOut.peerPins, null, 'no store, no verdicts — the facility is OPTIONAL');
+
+  const inbox = inboxFor(t, site, { pins: ownerPins() });
+  const noPins = await inbox.deliver(body(item(gran, { id: 'urn:uuid:no-pins', _rel: rel })));
+  assert.equal(noPins.peerPins, null, 'and an item carrying none is not an empty verdict set');
+
+  const real = item(gran, { id: 'urn:uuid:forged-pins', _rel: rel, _pins: carried });
+  const forged = { ...real, content_text: 'not from gran' };
+  forged._sig = real._sig;
+  const rejected = await inbox.deliver(body(forged));
+  assert.equal(rejected.status, 401);
+  assert.ok(!rejected.peerPins, 'an unverified item\'s pins are not evidence of anything');
+});
+
 // ---- helpers the pipeline exposes ----
 
 test('a target splits at the last #, and untrusted content is escaped', () => {
@@ -364,4 +537,59 @@ test('a target splits at the last #, and untrusted content is escaped', () => {
   assert.equal(rendered.html, null, '§10.5: never rendered as-is');
   assert.equal(rendered.requiresSanitizer, true);
   assert.equal(renderable({ _unverified: true, content_text: '' }).unverified, true);
+});
+
+test('a publisher\'s emitted pins are the ones this inbox heeds — §16.1 end to end', async (t) => {
+  // §16.1 has two halves and until now only one of them had a caller. §5.3.1 is a Level 1 MUST
+  // and §5.2 step 5 makes a publisher record every `(seq, hash)` it produced, but "nothing in
+  // the core supplies either with a second observation to compare against" — that is the
+  // emission half, and a compare rule nobody feeds is evidence collected and thrown away.
+  //
+  // So this drives the whole loop with no hand-written `_pins` anywhere: a sender that tracks
+  // Mom's chains emits pins *for Mom* on an item addressed to her, and Mom's inbox scopes and
+  // reconciles them against her own store.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+
+  // What the sender knows about Mom, in its own PinStore.
+  const senderPins = new PinStore({ now: () => T0 - 600 });
+  senderPins.advance(`${MOM}openfeed.json`, 4, 'mom-identity-4');
+  senderPins.advance(MOM_MANIFEST, 12, 'mom-manifest-12');
+  // …and something about a third party, which the publication rule must keep off a published item.
+  senderPins.advance('https://stranger.example/openfeed.json', 2, 'stranger-2');
+
+  const momDocument = { url: MOM, feeds: [{ url: MOM_FEED, manifest: MOM_MANIFEST }] };
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+
+  // A published reply, with pins drawn from the store rather than written by hand.
+  const reply = sender.publishItem(
+    { id: 'urn:uuid:emitted-1', content_text: 'lovely', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { recipients: [momDocument], pins: senderPins },
+  );
+  assert.deepEqual(
+    reply._pins.map((e) => `${e.url}@${e.seq}`).sort(),
+    [`${MOM_MANIFEST}@12`, `${MOM}openfeed.json@4`].sort(),
+    'recipient-scoped by construction — the stranger never appears',
+  );
+  assert.ok(reply._pins.every((e) => typeof e.observed === 'number'), '§16.1 asks for `observed`');
+
+  // Mom's inbox, holding matching records for one chain and a conflicting one for the other.
+  const momPins = new PinStore({ now: () => T0 });
+  momPins.advance(`${MOM}openfeed.json`, 4, 'mom-identity-4');       // agrees
+  momPins.advance(MOM_MANIFEST, 12, 'a-different-hash-entirely');    // disagrees
+
+  const got = await inboxFor(t, site, {
+    pins: momPins,
+    ownedChainUrls: chainUrlsOf(momDocument),
+  }).deliver(canonicalBytes(reply));
+
+  assert.equal(got.status, 202);
+  assert.equal(got.peerPins.ignored, 0, 'everything the publisher emitted was admissible');
+  assert.deepEqual(
+    Object.fromEntries(got.peerPins.entries.map((e) => [e.url, e.verdict])),
+    { [`${MOM}openfeed.json`]: 'corroborates', [MOM_MANIFEST]: 'check' },
+    'agreement corroborates; disagreement is a reason to check, never a freeze on a stranger\'s word',
+  );
 });

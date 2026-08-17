@@ -38,6 +38,7 @@ import {
   assertHistoryInvariants,
   assertRelocationCarriesForward,
   reconcileFeed,
+  entryOf,
   LAG_CEILING_SECONDS,
 } from './manifest.js';
 import { verifyDocument, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
@@ -255,10 +256,6 @@ export function createReader({
     }
   }
 
-  // Forks this read resolved by §5.5, reported as findings. Not silent: preferring a branch is
-  // a consequential act even when the specification asks for it.
-  const forkResolutions = [];
-
   /**
    * §5.5: does the offered branch carry a valid recovery co-signature?
    *
@@ -318,6 +315,12 @@ export function createReader({
       });
     }
     const budget = budgetFor(tipBytes.length);
+    // A fork this walk resolved by §5.5, travelling with the result that produced it rather than
+    // accumulating in reader-wide state. Preferring a branch is a consequential act even when
+    // the specification asks for it, so it is reported — but two concurrent `read()` calls must
+    // not be able to report each other's, and a caller using `readIdentity` directly must not
+    // lose it into whichever `read()` happens to drain next.
+    let forkResolved = null;
     let walk;
     try {
       walk = await walkToPin({
@@ -337,9 +340,13 @@ export function createReader({
       // §5.5 answers it with the one thing a thief of an online key cannot produce: a
       // co-signature by an offline recovery key committed in a pinned ancestor.
       if (!(e instanceof EquivocationError) || !resolveDivergence(url, tip)) throw e;
-      pins.rePin(url, tip.seq, documentHash(tip));
-      forkResolutions.push({ url, seq: tip.seq });
-      walk = { versions: [tip], hops: 0, tofu: false, contiguous: true, hash: documentHash(tip) };
+      // The tip's bytes are in hand and already proven canonical by the fetch layer, so hash
+      // them once rather than re-canonicalizing the parsed value twice — which is the whole
+      // reason `tipBytes` is threaded down here.
+      const hash = b64u(sha256(tipBytes));
+      pins.rePin(url, tip.seq, hash);
+      forkResolved = { url, seq: tip.seq };
+      walk = { versions: [tip], hops: 0, tofu: false, contiguous: true, hash };
     }
     // Everything the caller checks about the *contents* of the walked range runs here, before
     // the pin moves. §9.3 says an invariant violation is treated like chain equivocation, and
@@ -348,7 +355,7 @@ export function createReader({
     // it has detected an attack and destroyed its own evidence.
     validate?.(walk);
     pins.advance(url, tip.seq, walk.hash);
-    return { ...walk, budget };
+    return { ...walk, budget, forkResolved };
   }
 
   /**
@@ -382,6 +389,7 @@ export function createReader({
       pin: pins.pin(url),
       tofu: walk.tofu,
       hops: walk.hops,
+      forkResolved: walk.forkResolved,
       migration: verifyMigration ? await reconcileMigration(identity, fetched.doc) : null,
     };
   }
@@ -507,6 +515,7 @@ export function createReader({
       tofu: walk.tofu,
       hops: walk.hops,
       contiguous: walk.contiguous,
+      forkResolved: walk.forkResolved,
       firstSeenHere,
     };
   }
@@ -642,15 +651,29 @@ export function createReader({
       // feed *owner*, so on a multi-author board (§7.1) a contributor's items are recorded
       // here, at read time, when the author is first known — otherwise the lookup below misses
       // on every contributor forever and §4.4 silently degrades to the self-reported check.
+      //
+      // **The lookup happens now; the write waits for the signature** — §10.3's discipline,
+      // here for the same reason and against a cheaper attack. Until `verifyDocument` returns,
+      // this item's claim to be by this author is the *feed's* word: a board owner, or anyone
+      // on the serving path, can drop in an unsigned item claiming `(victim, id)`. A store
+      // written first would then record a first-observation time the victim never earned — and
+      // that time is §4.4's whole defence, so planting an early one for an id a victim has not
+      // published yet restores the backdating §4.4 exists to prevent. The forgery is rejected
+      // either way, which is what makes the damage invisible: nothing is logged, and the store
+      // is the only thing that changed. §13.9's sentence, about a different store.
       let observed = null;
+      let recordUnder = null;
       if (via === 'own' && typeof item?.id === 'string' && !firstSeenHere.has(item.id)) {
         const authorUrl = authorDocument.url;
+        // A contributor on someone else's board: the manifest recorded ids under the feed
+        // *owner*, so this author's ids have never been recorded and must be, once verified.
         if (normalizeIdentityUrl(authorUrl) !== normalizeIdentityUrl(identityDocument.url)) {
-          const fresh = observations.recordIds(authorUrl, [item.id]);
-          observed = fresh.has(item.id) ? null : observations.firstObserved(authorUrl, item.id);
-        } else {
-          observed = observations.firstObserved(authorUrl, item.id);
+          recordUnder = authorUrl;
         }
+        // Either way the lookup is a read. `null` means no history, which §4.4 sends back to
+        // the self-reported check — including for an id being recorded for the first time
+        // below, since a record created a moment ago is not history.
+        observed = observations.firstObserved(authorUrl, item.id);
       }
 
       try {
@@ -659,6 +682,7 @@ export function createReader({
           kind: 'item',
           ...(observed !== null ? { signedAt: observed } : {}),
         });
+        if (recordUnder) observations.recordIds(recordUnder, [item.id]);
         (via ? canonical : copies).push({ item, info, via, revocationCheckedAt: observed ?? info.signedAt });
         unhashedAttachments.push(...unhashed(item));
       } catch (e) {
@@ -704,12 +728,12 @@ export function createReader({
     if (missing.length === 0) return idle;
 
     const control = Object.keys(manifest.items).find((id) => servedIds.has(id));
-    if (!control || !await fetchItem(feedUrl, manifest.items[control])) return idle;
+    if (!control || !await fetchItem(feedUrl, manifest.items, control)) return idle;
 
     const unobtainable = new Set();
     const obtained = [];
     for (const id of missing.slice(0, maxItemProbes)) {
-      const got = await fetchItem(feedUrl, manifest.items[id]);
+      const got = await fetchItem(feedUrl, manifest.items, id);
       if (got) obtained.push(got);
       else unobtainable.add(id);
     }
@@ -724,8 +748,9 @@ export function createReader({
    * *is* the hash. What it does not establish is authorship, which is why the caller puts the
    * result through the same §6.5 pass as anything read out of a page.
    */
-  async function fetchItem(feedUrl, entry) {
-    const hash = Array.isArray(entry) ? entry[1] : entry?.hash;
+  async function fetchItem(feedUrl, map, id) {
+    // Read through `manifest.js`'s own accessor, so there is one answer to "what is an entry".
+    const hash = entryOf(map, id)?.hash;
     let url;
     try { url = derivedItemUrl(feedUrl, hash); } catch { return null; }
     try {
@@ -876,6 +901,71 @@ export function createReader({
   }
 
   /**
+   * §16.1: resolve one pin entry carried on a peer's item against this consumer's own records.
+   *
+   * "An entry is a claim, never an observation." So nothing here writes the store on the
+   * entry's word: an `untracked` chain is ignored outright (dereferencing it would make every
+   * inbox a fetch-amplification oracle, §13.9), a matching entry corroborates, and a
+   * *disagreeing* entry at a seq this consumer can check is a reason to fetch that seq from
+   * its derived URL — what the consumer then holds is its **own** observation, and §5.3.1
+   * applies to that. An `EquivocationError` thrown from here is the compare rule firing on
+   * evidence a peer's pin led this consumer to collect, which is the entire point of §16.1.
+   *
+   * An entry naming a seq **above** the consumer's pin is the recovery-propagation signal
+   * (§16.1 property 2): the answer is a fresh `read()` — a walk that anchors — never an
+   * observation recorded off one fetch, which is the same buffered-commit discipline the walk
+   * itself keeps (§5.3.1).
+   */
+  async function resolvePeerPin(entry) {
+    const { url, seq, hash } = entry ?? {};
+    if (typeof url !== 'string' || !Number.isInteger(seq) || seq < 1 || typeof hash !== 'string') {
+      return { verdict: 'malformed', resolved: false };
+    }
+    const local = pins.reconcilePeerPin(url, seq, hash);
+    if (local.verdict === 'untracked' || local.verdict === 'corroborates') {
+      return { ...local, resolved: local.verdict === 'corroborates' };
+    }
+    const pin = pins.pin(url);
+    if (local.verdict === 'unknown' && (!pin || seq > pin.seq)) {
+      return { ...local, resolved: false, rewalk: true };
+    }
+    // The two gates `walkAndPin` applies before it touches the network, for the same reasons.
+    // A **retired** chain is one a verified migration stopped advancing (§3.4), so fetching it
+    // reads publication state out of the very chain that rule retires — and a departed-from host
+    // would get to answer. A **frozen** chain is one §5.3.1 already caught equivocating, where
+    // the stated response is to accept no further version until a human re-pins; observing more
+    // of it is collecting evidence for a verdict already reached. Without these, this path is a
+    // way to keep feeding a store the walk itself refuses to feed.
+    if (migrations.retiredChainUrls().has(url)) {
+      return { ...local, resolved: false, verdict: 'retired' };
+    }
+    if (pins.isFrozen(url)) {
+      return { ...local, resolved: false, verdict: 'frozen' };
+    }
+    // The kind selects a §13.4 size cap, and it is taken from the chain's *role* in this
+    // consumer's own records rather than sniffed from the URL's spelling — §3.2.1 constrains a
+    // manifest URL only to end in `.json`, so the suffix does not carry it. `untracked` was
+    // already returned above, so a chain that reaches here is one this consumer walked and can
+    // classify; `?? 'manifest'` is the conservative default, since the manifest cap is larger
+    // and misclassifying downward would reject a legitimate document.
+    const kind = migrations.chainKind(url) ?? 'manifest';
+    const derived = derivedVersionUrl(url, seq);
+    // The ladder is keyed on the URL actually fetched, not on the chain it belongs to, or a
+    // failing derived version poisons the backoff state of the tip and vice versa.
+    const got = await laddered(derived, () => fetcher.fetchDocument(derived, { kind }));
+    const observedHash = b64u(sha256(got.bytes));
+    // Fires §5.3.1 where this contradicts what the store holds — equivocation, frozen chain —
+    // and otherwise records an ordinary observation of a version this consumer had not fetched.
+    pins.observe(url, seq, observedHash, { provenance: 'peer-pin resolution (§16.1)' });
+    return {
+      verdict: observedHash === hash ? 'witness_confirmed' : 'witness_refuted',
+      held: observedHash,
+      seq,
+      resolved: true,
+    };
+  }
+
+  /**
    * The whole Level 1 pipeline over one identity.
    *
    * Order matters and is the reason this function exists: identity chain first, because the
@@ -971,12 +1061,18 @@ export function createReader({
           kind: 'unread_feed',
           message: `${f.url} (rel ${f.rel ?? 'primary'}) was not read: past this read's cap of ${maxFeedEntries} feeds entries (§13.4)`,
         })),
-        // Drained, not copied: a long-lived reader must not re-report every fork it has ever
-        // resolved against every identity it reads afterwards.
-        ...forkResolutions.splice(0).map((f) => ({
-          kind: 'fork_resolved',
-          message: `${f.url} forked at seq ${f.seq}; §5.5 preferred the branch carrying a valid recovery co-signature`,
-        })),
+        // Gathered from the results that produced them, never from reader-wide state. An
+        // earlier shape accumulated these in a closure and drained it here with `.splice(0)`,
+        // which is correct for exactly one read at a time: two concurrent `read()` calls steal
+        // each other's findings, and a caller using `readIdentity` or `readManifest` directly
+        // loses its own into whichever `read()` drains next. A finding about one chain belongs
+        // to the walk of that chain.
+        ...[identity.forkResolved, ...[primary, ...rest].map((r) => r?.manifest?.forkResolved)]
+          .filter(Boolean)
+          .map((f) => ({
+            kind: 'fork_resolved',
+            message: `${f.url} forked at seq ${f.seq}; §5.5 preferred the branch carrying a valid recovery co-signature`,
+          })),
         ...(identity.cors ? [] : [{ kind: 'conformance', message: `${identity.url} is served without Access-Control-Allow-Origin: * (§3.3)` }]),
         // A migration claim that did not verify is a finding rather than a failure: §3.4 says a
         // consumer with no prior pin of the old identity can only treat one as unverified, and
@@ -994,7 +1090,7 @@ export function createReader({
     };
   }
 
-  return { readIdentity, readManifest, readFeed, read, pins, observations, migrations, fetcher };
+  return { readIdentity, readManifest, readFeed, read, resolvePeerPin, pins, observations, migrations, fetcher };
 }
 
 

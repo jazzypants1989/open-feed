@@ -237,21 +237,33 @@ export function restoreFetcher(bundle) {
     }
   }
 
-  async function fetchDocument(rawUrl) {
+  async function fetchDocument(rawUrl, { budget = null } = {}) {
     const doc = byUrl.get(String(rawUrl));
     if (doc === undefined) {
       throw new FetchError(`${rawUrl} is not in this bundle`, { code: 'bad_status', url: String(rawUrl) });
     }
     const bytes = canonicalBytes(doc);
+    // §13.4's history budget binds here too, and it is not ceremony: "verification does not
+    // change because the bytes arrived in a file" (§14) cuts both ways, and a bundle is the one
+    // artifact a consumer accepts from a party it has explicitly decided not to trust. Ignoring
+    // the budget on this path leaves a hostile export's chain bounded only by the hop cap, so a
+    // restore can be made to read gigabytes that a live read of the same chain would refuse.
+    // There is no socket to be slow about it, which makes it cheaper here, not safer.
+    budget?.charge(bytes.length, String(rawUrl));
     // `cors: true` because a bundle is not served and the header is a property of serving. A
     // restorer that reported the bundle non-conforming for lacking one would be reporting on a
     // socket nobody opened.
+    //
+    // `requireCanonical` is deliberately not honored: these bytes are produced by canonicalizing
+    // the parsed value a moment ago, so the check would compare a string with itself. §6.3's
+    // arrival rule is about what a producer *served*, and §14 keeps that testable by requiring
+    // bundle contents byte-verbatim — which `buildBundle` enforces on the way in.
     return { url: String(rawUrl), requestedUrl: String(rawUrl), redirects: 0, doc, bytes, contentType: 'application/json', cors: true };
   }
 
-  async function fetchIdentityDocument(identityUrl_) {
+  async function fetchIdentityDocument(identityUrl_, options) {
     const url = `${normalizeIdentityUrl(identityUrl_)}openfeed.json`;
-    const result = await fetchDocument(url);
+    const result = await fetchDocument(url, options);
     return { ...result, identity: normalizeIdentityUrl(identityUrl_) };
   }
 

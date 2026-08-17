@@ -239,8 +239,9 @@ test('an item missing from the page but served at its §7.6 URL is obtained, not
 });
 
 test('probing is inert against a publisher that offers no item URLs', async (t) => {
-  // The control probe, and the reason it is not optional. A publisher that simply does not
-  // implement §7.6 answers 404 to every derived item URL, so probing without a control would
+  // The consumer half of §7.6's asymmetry — producers MUST serve item URLs, consumers MUST NOT
+  // require them — and the reason the control probe is not optional. A publisher that predates
+  // the rule answers 404 to every derived item URL, so probing without a control would
   // report its whole back catalog as withheld — the same false accusation by a new route. So
   // the reader asks for one revision the feed *did* yield first, and when that fails it stays
   // silent entirely: the committed-but-unserved item is `absent`, the state that accuses
@@ -757,6 +758,21 @@ test('a forked identity chain is resolved by the recovery co-signature, not froz
   const finding = resolved.findings.find((f) => f.kind === 'fork_resolved');
   assert.ok(finding, JSON.stringify(resolved.findings));
   assert.match(finding.message, /recovery co-signature/);
+
+  // The finding belongs to the walk that produced it, and to nothing else. Two properties,
+  // and both were violated by an earlier shape that accumulated resolutions in reader-wide
+  // state and drained them here with `.splice(0)`:
+  //
+  //   1. It reaches a caller who used `readIdentity` directly, instead of being stranded until
+  //      some later `read()` drained it and misattributed it to whatever that read was about.
+  const direct = await reader(me, { migrations: new MigrationStore({ now: () => T0 + DAY }), now: () => T0 + 5 * DAY })
+    .readIdentity(site.url);
+  assert.equal(direct.forkResolved, null, 'an already-pinned branch re-read fresh is TOFU, not a fork');
+  //   2. A second read that resolved nothing reports nothing — the finding is not re-emitted,
+  //      and just as importantly it is not *drained* from a concurrent reader's results.
+  const again = await reader(me, { migrations, now: () => T0 + 6 * DAY }).read(site.url);
+  assert.equal(again.findings.filter((f) => f.kind === 'fork_resolved').length, 0,
+    'a read that resolved no fork reports no fork');
 });
 
 test('a fork with no co-signature on either branch stays frozen', async (t) => {
@@ -836,4 +852,204 @@ test('an identity document is cached across reads, and the cache expires', async
   clock.at = T0 + DAY + 3601;
   await shared.read(site.url);
   assert.ok(board.requested.length > afterFirst, 'and past the ceiling it asks again');
+});
+
+test('an item that fails verification writes nothing into the first-observation record', async (t) => {
+  // The reader's half of §10.3's write-before-verify rule, against the same shape of attack and
+  // a cheaper one. §4.4's pull-path record is what makes "this item entered a manifest after the
+  // key was revoked" checkable, and it is only worth anything because a publisher cannot choose
+  // it. On a shared board (§7.1) an item's `authors` entry is the *feed's* word until the
+  // signature checks out — so a board owner, or anyone on the serving path, can drop in an
+  // unsigned item claiming `(victim, some-id)` and, if the store is written first, plant an
+  // early observation for an id the victim has not published yet. Every later genuine revision
+  // of that id is then checked against a timestamp an attacker chose.
+  //
+  // The forgery is rejected either way. Only the store shows the difference, so that is what
+  // this asserts — status codes and verdicts are identical in both worlds.
+  const site = await newSite(t);
+  const board = await newSite(t);
+  const signer = makeSigner('key-1');
+  const guest = makeSigner('guest-1');
+
+  const owner = familyPublisher(site.url, signer, { days: 1 });
+  const gran = new Publisher({
+    identity: board.url, signer: guest, profile: { name: 'Gran' }, now: () => T0,
+  });
+  gran.publishItem({ id: 'urn:uuid:gran-real', content_text: 'from Gran' }, { at: T0 });
+  gran.advanceManifest({ updated: T0 + 60 });
+  board.serve(gran);
+  site.serve(owner);
+
+  // Two items claiming Gran, both `_feed_url`-canonical on Mom's feed so both reach the record
+  // path. One is signed by Gran's key; the other is signed by nobody who matters.
+  const asGran = (id, content) => ({
+    id,
+    authors: [{ url: board.url }],
+    _feed_url: `${site.url}feed.json`,
+    _version: 1,
+    content_text: content,
+    date_published: new Date(T0 * 1000).toISOString(),
+  });
+  const genuine = asGran('urn:uuid:gran-contributed', 'a real contribution');
+  genuine._sig = sign(genuine, guest.privateKey, `${board.url}#guest-1`);
+  const forged = asGran('urn:uuid:gran-never-published', 'she never wrote this');
+  forged._sig = sign(forged, signer.privateKey, `${board.url}#guest-1`);   // Mom's key, Gran's kid
+
+  site.replace('feed.json', { ...owner.feed, items: [...owner.feed.items, genuine, forged] });
+
+  const observations = new ObservationStore({ now: () => T0 + DAY });
+  const me = consumer(t);
+  const result = await createReader({
+    fetcher: me.fetcher, pins: me.pins, observations, now: () => T0 + DAY,
+  }).read(site.url);
+
+  // The forgery is rejected, as it would be either way.
+  assert.ok(
+    result.feed.rejected.some((r) => r.item.id === 'urn:uuid:gran-never-published'),
+    'the forged item is rejected',
+  );
+  // …and left no trace. This is the assertion the fix is about.
+  assert.equal(
+    observations.firstObserved(board.url, 'urn:uuid:gran-never-published'), null,
+    'a rejected item must not seed an observation an attacker chose the time of',
+  );
+  // The verified contribution *is* recorded, or §4.4 silently degrades to the self-reported
+  // check for every contributor on every board — which is the reason this record exists.
+  assert.equal(
+    observations.firstObserved(board.url, 'urn:uuid:gran-contributed'), T0 + DAY,
+    'a verified contributor item is recorded under its own author',
+  );
+});
+
+// ---- §16.1: a peer's pin, resolved rather than believed ----
+
+test('a peer pin resolves locally where it can, and dials nobody on a stranger\'s word', async (t) => {
+  // §16.1: "An entry is a claim, never an observation." Three of the four verdicts are settled
+  // out of the store alone, and the fourth — an unknown chain — is the one §13.9 cares about:
+  // acting on it would make every inbox a fetch-amplification oracle pointed wherever the
+  // sender likes. So the assertion that matters here is the request count.
+  const site = await newSite(t);
+  site.serve(familyPublisher(site.url, makeSigner()));
+  const me = consumer(t);
+  const r = reader(me);
+
+  const result = await r.read(site.url);
+  const idUrl = `${site.url}openfeed.json`;
+  const quiet = site.requested.length;
+
+  assert.deepEqual(await r.resolvePeerPin({ url: idUrl, seq: 2, hash: result.identity.pin.hash }), {
+    verdict: 'corroborates', held: result.identity.pin.hash, seq: 2, resolved: true,
+  }, 'the same bytes at a seq this consumer fetched itself');
+
+  assert.deepEqual(await r.resolvePeerPin({ url: idUrl, seq: 9, hash: 'later-than-anything-here' }), {
+    verdict: 'unknown', held: null, seq: 9, resolved: false, rewalk: true,
+  }, 'a seq above the pin is §16.1 property 2: re-walk, never record off one fetch');
+
+  assert.deepEqual(await r.resolvePeerPin({ url: 'https://stranger.example/openfeed.json', seq: 1, hash: 'x' }), {
+    verdict: 'untracked', held: null, seq: 1, resolved: false,
+  }, 'an untracked chain is ignored outright');
+
+  for (const junk of [null, {}, { url: idUrl, seq: 0, hash: 'h' }, { url: idUrl, seq: 1 }, { url: 7, seq: 1, hash: 'h' }]) {
+    assert.deepEqual(await r.resolvePeerPin(junk), { verdict: 'malformed', resolved: false });
+  }
+
+  assert.equal(site.requested.length, quiet, 'not one of those cost a request');
+  assert.equal(me.pins.isFrozen(idUrl), false, 'and no claim moved the store');
+});
+
+test('a disagreeing peer pin is resolved at the derived URL, and what is kept is the fetch', async (t) => {
+  // The other half of §16.1's compare: an entry at a seq this consumer never fetched is a
+  // reason to go look. What it holds afterwards is its **own** observation of the derived URL
+  // (§5.4) — the peer's hash is the question, never the answer — so a lying witness is refuted
+  // rather than believed, and refuting one leaves the chain usable.
+  const site = await newSite(t);
+  const p = site.serve(familyPublisher(site.url, makeSigner()));
+  const me = consumer(t);
+  const r = reader(me);
+  await r.read(site.url);
+
+  const idUrl = `${site.url}openfeed.json`;
+  const trueSeq1 = documentHash(p.identityVersions[0]);
+  const before = site.requested.length;
+
+  const refuted = await r.resolvePeerPin({ url: idUrl, seq: 1, hash: 'a-hash-the-peer-invented' });
+  assert.deepEqual(refuted, { verdict: 'witness_refuted', held: trueSeq1, seq: 1, resolved: true });
+  assert.ok(site.requested.includes('openfeed/1.json'), 'fetched from §5.4\'s derived URL');
+  assert.equal(site.requested.length, before + 1, 'one version, not a walk');
+
+  // The observation now in the store is the publisher's bytes, so the peer's claim is what a
+  // later comparison disagrees with — not the other way round.
+  assert.equal(me.pins.reconcilePeerPin(idUrl, 1, trueSeq1).verdict, 'corroborates');
+  assert.equal(me.pins.reconcilePeerPin(idUrl, 1, 'a-hash-the-peer-invented').verdict, 'check');
+  assert.equal(me.pins.isFrozen(idUrl), false, 'a wrong witness does not freeze anything');
+
+  // A second, honest witness of the same version is now answered without a fetch at all.
+  const settled = site.requested.length;
+  assert.equal((await r.resolvePeerPin({ url: idUrl, seq: 1, hash: trueSeq1 })).verdict, 'corroborates');
+  assert.equal(site.requested.length, settled);
+
+  // And a manifest chain resolves the same way, at its own derived URL: the entry's `url` is
+  // what disambiguates all of an identity's chains, and the reader takes the document's *kind*
+  // from its own chain inventory rather than from the URL's spelling (§3.2.1 constrains a
+  // manifest URL only to end in `.json`, so the suffix does not carry it).
+  const manifestUrl = `${site.url}manifest.json`;
+  const confirmed = await r.resolvePeerPin({
+    url: manifestUrl, seq: 3, hash: documentHash(p.manifestVersions[2]),
+  });
+  assert.deepEqual(confirmed, {
+    verdict: 'witness_confirmed', held: documentHash(p.manifestVersions[2]), seq: 3, resolved: true,
+  });
+  assert.ok(site.requested.includes('manifest/3.json'));
+
+  // A frozen chain is not fetched at all. §5.3.1's stated response to an unresolved divergence
+  // is to accept no further version until a human re-pins, and this path must not be the way
+  // around it — observing more of a chain whose future is already impeached is collecting
+  // evidence for a verdict already reached. `walkAndPin` gates on exactly this; so must the
+  // path a stranger's item can reach.
+  assert.throws(
+    () => me.pins.observe(idUrl, 1, 'a-hash-that-is-not-the-one-held'),
+    EquivocationError,
+    'a second observation at a pinned seq with different bytes is the compare rule firing',
+  );
+  assert.equal(me.pins.isFrozen(idUrl), true);
+  const beforeFrozen = site.requested.length;
+  const onFrozen = await r.resolvePeerPin({ url: idUrl, seq: 1, hash: 'anything-at-all' });
+  assert.equal(onFrozen.verdict, 'frozen');
+  assert.equal(onFrozen.resolved, false);
+  assert.equal(site.requested.length, beforeFrozen, 'a frozen chain costs no fetch');
+});
+
+test('a peer pin can fire §5.3.1 on evidence the consumer collected itself', async (t) => {
+  // What §16.1 is *for*. A host serving each reader a consistent private branch is never caught
+  // by any one reader alone; the pin riding somebody else's item is how two readers' views
+  // meet. The freeze still comes from this consumer's own fetch of the derived URL — §5.4 makes
+  // rewriting a retained version a violation on its own, and that is what the fetch finds.
+  const site = await newSite(t);
+  const signer = makeSigner();
+  const p = site.serve(familyPublisher(site.url, signer));
+  const me = consumer(t);
+  const r = reader(me);
+
+  const first = await r.read(site.url);
+  const idUrl = `${site.url}openfeed.json`;
+  assert.equal(first.identity.pin.seq, 2);
+
+  // The branch a relative was served: same seq, same signer, different bytes. Only the
+  // *retained* copy is swapped, so the tip a fresh read sees is unchanged and nothing about
+  // this identity looks wrong until two observations of seq 2 are put side by side.
+  const branch = { ...p.identityDocument, name: 'Mom (for you only)' };
+  delete branch._sig;
+  branch._sig = sign(branch, signer.privateKey, `${site.url}#${signer.kid}`);
+  site.replace('openfeed/2.json', branch);
+
+  await assert.rejects(
+    () => r.resolvePeerPin({ url: idUrl, seq: 2, hash: documentHash(branch) }),
+    (e) => e instanceof EquivocationError && e.seq === 2 && /peer-pin resolution/.test(e.message),
+  );
+  assert.equal(me.pins.isFrozen(idUrl), true, '§5.3.1: accept no further version until a human re-pins');
+  assert.equal(me.pins.pin(idUrl).hash, first.identity.pin.hash, 'and the pin does not move');
+
+  // The freeze is the whole response: an ordinary read of the same identity is refused now,
+  // which is what makes the detection worth anything.
+  await assert.rejects(() => reader(me, { now: () => T0 + 7 * DAY }).read(site.url), /frozen/);
 });

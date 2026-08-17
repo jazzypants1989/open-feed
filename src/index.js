@@ -53,6 +53,8 @@ export {
   skipAnchors,
   PinStore,
   admissibleItemPins,
+  chainUrlsOf,
+  pinsForRecipients,
   walkToPin,
   identityChainPolicy,
   manifestChainPolicy,
@@ -62,6 +64,8 @@ export {
   ChainError,
   EquivocationError,
   MAX_VERSIONS_PER_UPDATE,
+  MAX_OBSERVATIONS_PER_CHAIN,
+  MAX_SUPERSEDED_PER_CHAIN,
 } from './chain.js';
 export {
   assertManifestShape,

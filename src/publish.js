@@ -13,7 +13,7 @@
 import { canonicalBytes } from './canonical.js';
 import { documentHash } from './hash.js';
 import { sign, normalizeIdentityUrl } from './jws.js';
-import { derivedVersionUrl, derivedItemUrl, skipAnchors } from './chain.js';
+import { derivedVersionUrl, derivedItemUrl, skipAnchors, pinsForRecipients } from './chain.js';
 import { assertManifestShape } from './manifest.js';
 
 export class PublishError extends Error {
@@ -184,7 +184,7 @@ export class Publisher {
    * next `advanceManifest()` — which is manifest lag (§9.3 invariant 3), the normal state of
    * freshly-published content under a cadence, and not a violation.
    */
-  publishItem(fields, { at } = {}) {
+  publishItem(fields, { at, recipients = [], pins = null } = {}) {
     const id = fields.id;
     if (typeof id !== 'string' || id.includes('#')) {
       throw new PublishError(`an item id must be a string without '#' (§7.2): ${id}`);
@@ -234,9 +234,78 @@ export class Publisher {
         }
       }
     }
-    const signed = this.#signDocument(item);
+    const signed = this.#signDocument(
+      this.#withPins(item, { recipients, pins, _pins: fields._pins }),
+    );
     this.items.set(id, signed);
     return signed;
+  }
+
+  /**
+   * A **delivered-only** item (§8, §11.1): signed exactly like a published one and carrying no
+   * `_feed_url`, which is the whole of the distinction. It enters no feed and no manifest, so
+   * it is not stored here — the caller POSTs it to an inbox (§10.1) and keeps it for §14's
+   * `delivered` slot, which is the only artifact it ever appears in.
+   *
+   * This exists because the column is not optional in the design: §8 makes a `like` delivered by
+   * default, §15.4 makes every interaction on encrypted content delivered, and a publisher that
+   * can only publish cannot express either. `_feed_url` is refused rather than ignored — adding
+   * one is the author promoting a delivered item to a published one at a new `_version` (§7.5),
+   * which is `publishItem`'s job and needs to look like a decision.
+   */
+  deliverItem(fields, { at, recipients = [], pins = null } = {}) {
+    const id = fields.id;
+    if (typeof id !== 'string' || id.includes('#')) {
+      throw new PublishError(`an item id must be a string without '#' (§7.2): ${id}`);
+    }
+    if ('_feed_url' in fields) {
+      throw new PublishError(`${id} supplies _feed_url; a delivered item has none (§8, §11.1.1)`);
+    }
+    for (const reserved of ['_deleted', '_sig', '_recovery_sig']) {
+      if (reserved in fields) {
+        throw new PublishError(`${id} supplies ${reserved}, which deliverItem never accepts (§7.3, §6.4)`);
+      }
+    }
+    const when = at ?? this.now();
+    const item = {
+      id,
+      authors: [{ url: this.identity }],
+      _version: fields._version ?? 1,
+      date_published: iso(when),
+      ...fields,
+    };
+    item.id = id;
+    item.authors = [{ url: this.identity }];
+    if (item.content_text === undefined && item.content_html === undefined) {
+      throw new PublishError(`${id} carries neither content_text nor content_html (§7.2)`);
+    }
+    return this.#signDocument(this.#withPins(item, { recipients, pins, _pins: fields._pins }));
+  }
+
+  /**
+   * §16.1's **emission** half, which is the side nothing else in this repository supplies.
+   *
+   * "A publisher that already tracks a recipient's chains SHOULD carry pins for them on the
+   * interaction items it sends: emission is the supply side of §5.3.1's Level 1 MUST, and a
+   * compare rule nobody feeds is evidence collected and thrown away." A `PinStore` and the
+   * identity documents of whoever this item is addressed to are exactly what that needs, and a
+   * publisher that verifies the people it talks to already holds both.
+   *
+   * Scoping is by construction rather than by check. `pinsForRecipients` draws only from chains
+   * the recipients own, so every entry satisfies §16.1's publication rule even on a published
+   * item — which is the rule that matters, since a published item is world-readable forever and
+   * a third-party pin there would broadcast its author's reading graph to everyone. A caller
+   * wanting to gossip about a third party may pass that party's document, and it is admissible
+   * only on a delivered item; that judgement is the receiver's (`admissibleItemPins`).
+   *
+   * An explicit `_pins` in `fields` wins, and nothing is emitted when there is nothing to say —
+   * §16 is OPTIONAL and an empty array is noise inside signed bytes.
+   */
+  #withPins(item, { recipients = [], pins = null, _pins } = {}) {
+    if (_pins !== undefined) return item;
+    if (!pins || !recipients.length) return item;
+    const entries = pinsForRecipients(pins, recipients);
+    return entries.length ? { ...item, _pins: entries } : item;
   }
 
   /**
@@ -344,11 +413,15 @@ export class Publisher {
         out.set(derivedVersionUrl(this.manifestUrl, version.seq), version);
       }
     }
-    // §7.6, OPTIONAL: each committed revision at its own derived URL. Same shape as the
+    // §7.6, a Level 2 MUST: each committed revision at its own derived URL. Same shape as the
     // retention above and the same reason it needs no discipline — the file's name is the hash
     // of its bytes, so it cannot drift from what the manifest commits without ceasing to be
     // the file the manifest names. What it buys a reader is the ability to ask for one item,
     // which is what makes §9.3's withholding verdict assertable at all.
+    //
+    // `itemUrls: false` is retained so a test can build the pre-rule publisher a consumer must
+    // still be able to read (§7.6: producers MUST serve, consumers MUST NOT require). It is not
+    // a conformant configuration.
     if (this.itemUrls) {
       for (const item of this.items.values()) {
         out.set(derivedItemUrl(this.feedUrl, documentHash(item)), item);

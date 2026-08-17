@@ -8,7 +8,7 @@
 // Nothing here opens a socket or fetches anything. It is given documents and returns verdicts.
 
 import { documentHash, timingSafeEqualString } from './hash.js';
-import { effectiveSigningTime, normalizeIdentityUrl, VerifyError } from './jws.js';
+import { effectiveSigningTime, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
 
 export class ManifestError extends Error {
   constructor(message, { url, seq, id } = {}) {
@@ -45,7 +45,16 @@ export const LAG_CEILING_SECONDS = 7 * 24 * 3600;
 
 // ---- shape ----
 
-const entryOf = (map, id) => {
+/**
+ * One `items` / `deleted` entry, read as `{ version, hash }`, or `null` if it is not §9's
+ * `[version, hash]` shape.
+ *
+ * Exported because it is the *only* reading of that wire shape in this implementation, and a
+ * second one is a divergence waiting to happen: a reader that also accepted, say, an object with
+ * a `hash` member would follow a manifest this module's own shape check rejects, and the two
+ * would disagree about what a conformant manifest is while both looked reasonable in isolation.
+ */
+export const entryOf = (map, id) => {
   const e = map?.[id];
   return Array.isArray(e) && e.length === 2 && Number.isInteger(e[0]) && typeof e[1] === 'string'
     ? { version: e[0], hash: e[1] }
@@ -92,30 +101,47 @@ export function assertManifestShape(doc, url) {
  * signed: `url` must be the identity whose `feeds` entry names this manifest, and `feed_url`
  * must be the feed that entry points at.
  *
- * `predecessorFeedUrls` is why this takes an array rather than one URL. §3.4 requires a
- * migrated back catalog to be republished byte-verbatim, so those items keep the old feed URL
- * forever and the successor's manifest is the only place they can be committed — a verifier
- * MUST NOT reject a manifest for committing them (§9).
+ * What this deliberately does **not** check is which feed the committed *items* name. §3.4
+ * requires a migrated back catalog to be republished byte-verbatim, so those items keep the
+ * predecessor's feed URL forever and the successor's manifest is the only place they can be
+ * committed — a verifier MUST NOT reject a manifest for committing them (§9). That check
+ * belongs to the reader's canonical/copy classification (§7.5), which holds the verified
+ * migration this one knows nothing about.
+ *
+ * Both halves are compared **normalized**. The identity half always was; the feed half was
+ * raw string equality, one line apart, which made a publisher who wrote `:443` in the `feeds`
+ * entry and not in the manifest — or differed in host case between them — unreadable over a
+ * difference §3.1 says is not one. `normalizeUrlForCompare` is the same comparator §7.5 uses
+ * on this exact pair of URLs in the reader, and one comparator is the point.
  */
 export function assertManifestBinding(doc, { identityUrl, feedUrl }) {
   if (normalizeIdentityUrl(doc.url) !== normalizeIdentityUrl(identityUrl)) {
     throw new ManifestError(`manifest claims ${doc.url}, not ${identityUrl}`, { seq: doc.seq });
   }
-  if (doc.feed_url !== feedUrl) {
+  const compare = (u) => { try { return normalizeUrlForCompare(u); } catch { return String(u); } };
+  if (compare(doc.feed_url) !== compare(feedUrl)) {
     throw new ManifestError(`manifest commits ${doc.feed_url}, not the feed it was named for (${feedUrl})`, { seq: doc.seq });
   }
   return doc;
 }
 
-// ---- §9.3 invariants 1 and 2: across a hop ----
+// ---- §9.3 invariants 1 and 2, plus same-version byte stability: across a hop ----
 
 /**
- * Invariants 1 and 2, applied to one adjacent pair of manifest versions.
+ * Applied to one adjacent pair of manifest versions.
  *
  * 1. An `id`, once present in `items`, MUST appear in every later manifest — in `items` at the
  *    same or a higher version, or in `deleted`. Content cannot silently vanish; removal
  *    requires a signed tombstone.
- * 2. `seq` and per-item versions never decrease.
+ * 2. `seq`, `updated`, and per-item versions never decrease.
+ * — and one rule that is not a numbered invariant, which is why this heading names it: **an
+ *    entry at the same version MUST name the same bytes.** §9.3 invariant 4 states the
+ *    feed-against-manifest form of "the manifest names an exact revision"; this is the
+ *    manifest-against-manifest form, and it is what §9's paragraph on committing bytes rather
+ *    than versions is actually for — a key custodian signing item `X` version 1 as one thing
+ *    for you and another for your sister produces two manifests that differ *only* here.
+ *    Violations are reported under `invariant: 4` because it is the same rule about the same
+ *    exactness, seen from the other side.
  */
 export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
   if (later.seq <= earlier.seq) {
@@ -192,6 +218,18 @@ export function assertInvariantsAcrossHop(earlier, later, { url } = {}) {
  * but a gap means an id could have been added and removed inside it without this consumer ever
  * seeing either. That is exactly what §9.1.1 means by a skipping consumer being a weaker
  * witness, and it is stated here rather than quietly not checked.
+ *
+ * **Cost, because it looks alarming and is already bounded.** This is O(hops x ids): every hop
+ * iterates every id the earlier version held. It cannot be less — invariant 1 is the statement
+ * that *no* id vanished, and answering it needs every id. What bounds it is that a version's
+ * ids are proportional to its bytes, and §13.4 caps the bytes a walk may fetch (the greater of
+ * 10 MB and 20x the tip). So the work is proportional to bytes this consumer already parsed,
+ * not to the chain's true length: a walk that would exceed it is refused by the budget before
+ * this function sees it. The shape that would make it cheaper is a delta manifest, and
+ * `tmp/deltamanifest-prototype.js` measures why that trade is refused — under deltas this
+ * check stops being a map read between adjacent versions and becomes a fold over a range, so
+ * the work does not go away, it moves into every consumer and takes invariant 1's per-hop
+ * checkability with it.
  */
 export function assertHistoryInvariants(versions, { url, contiguous = true } = {}) {
   const ordered = [...versions].sort((a, b) => a.seq - b.seq);

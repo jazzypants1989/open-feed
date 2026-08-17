@@ -23,8 +23,11 @@
 // `tmp/inbox-prototype.js` is where this shape was settled, with the fetch stubbed to a counter.
 
 import { parseIJSON } from './canonical.js';
-import { verifyDocument, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
+import {
+  verifyDocument, normalizeIdentityUrl, normalizeUrlForCompare, effectiveSigningTime, VerifyError,
+} from './jws.js';
 import { SIZE_CAPS, createFetcher, FetchError } from './fetch.js';
+import { admissibleItemPins } from './chain.js';
 
 /** §10.4's table, as the only place a status and a code are paired. */
 export const RESPONSES = {
@@ -177,6 +180,12 @@ export function createInbox({
   // read this far. Callers with infrastructure of their own pass their own function.
   rateLimit = null,
   rateLimitPerMinute = 60,
+  // Bucket keys are attacker-chosen exactly as the identity cache's are (§13.9), so the map is
+  // bounded — but by its own number, not by the identity cache's. Tying the two meant that
+  // shrinking the cache to save memory silently shrank the rate limiter's reach, and a limiter
+  // whose oldest buckets are evicted under load has forgotten precisely the sources it was
+  // counting.
+  rateLimitBuckets = 8192,
   // §13.9: the identity cache is keyed by attacker-chosen author URLs, so it is sized,
   // evicting, and expiring — an unbounded cache is a memory lever, and a non-expiring one
   // quietly defeats the receipt-time revocation check below, which reads whatever the cache
@@ -187,8 +196,21 @@ export function createInbox({
   // is deliberately more lenient about `_rel` (§8.2) and has no reason to be lenient about a
   // tombstone that kept its title.
   strictTombstones = true,
+  // §16.1's heed side, OPTIONAL like the facility itself. Given the owner's `PinStore`, an
+  // accepted delivery's admissible `_pins` entries are judged against it and reported — local
+  // verdicts only, no fetch, because §10.2's fetch discipline governs this pipeline and §16.1
+  // forbids dereferencing on a stranger's word anyway. An entry whose verdict is `check` is
+  // the caller's cue to run the reader's `resolvePeerPin`, whose fetch is scoped to chains
+  // this receiver already tracks.
+  pins = null,
+  // The chained-document URLs the owner publishes — identity document plus each feed's
+  // manifest — which is what a *published* item's pins may name (§16.1's publication rule).
+  // Defaults to the identity document alone; a deployment that knows its manifest URLs passes
+  // them (`chainUrlsOf(ownIdentityDocument)` builds the set).
+  ownedChainUrls = null,
 } = {}) {
   const ownerUrl = normalizeIdentityUrl(owner);
+  const ownChains = ownedChainUrls ?? new Set([`${ownerUrl}openfeed.json`]);
   // Compared normalized (§7.5's comparator), so a sender writing `:443` or a differently-cased
   // host is not bounced as `not_relevant` over a string mismatch.
   const ownFeeds = new Set(feedUrls.map((u) => {
@@ -199,8 +221,12 @@ export function createInbox({
   /**
    * The default §10.2 step 6 limiter: a sliding one-minute window per source IP, and per
    * author once known. Deliberately simple — the point is that the step exists and returns
-   * `429` under load, not that it is clever. Buckets are bounded like the identity cache,
-   * since their keys are attacker-chosen too.
+   * `429` under load, not that it is clever. Buckets are bounded, since their keys are
+   * attacker-chosen too.
+   *
+   * Called twice per delivery, with exactly one axis populated each time: by IP before
+   * verification, by author after it. Whichever axis is `null` is not charged, so one request
+   * costs one hit in each bucket rather than two in the IP bucket.
    */
   const buckets = new Map();   // key -> [unix seconds]
   function defaultRateLimit({ sourceIp, author }) {
@@ -212,7 +238,7 @@ export function createInbox({
       hits.push(at);
       buckets.delete(key);
       buckets.set(key, hits);
-      while (buckets.size > identityCacheEntries) buckets.delete(buckets.keys().next().value);
+      while (buckets.size > rateLimitBuckets) buckets.delete(buckets.keys().next().value);
     }
     return true;
   }
@@ -246,9 +272,19 @@ export function createInbox({
     return false;
   }
 
+  /**
+   * §6.5 step 6's effective signing time, as a verdict rather than a throw.
+   *
+   * Delegates to `jws.js` rather than recomputing it. A second implementation of one comparison
+   * is two answers that must agree, and these two did not: the local one read
+   * `date_modified ?? date_published` and ignored `updated`, so an item carrying an `updated`
+   * member — conformant data, since §7.2 obliges a consumer to preserve unknown members — was
+   * bounded here on one timestamp and revocation-checked in `verifyDocument` on another. The
+   * inbox wants a `400` where the verifier wants an exception, and that is the only difference
+   * that should exist between them.
+   */
   function effectiveSigningSeconds(item) {
-    const at = Date.parse(item.date_modified ?? item.date_published);
-    return Number.isNaN(at) ? null : Math.floor(at / 1000);
+    try { return effectiveSigningTime(item); } catch { return null; }
   }
 
   /**
@@ -378,7 +414,13 @@ export function createInbox({
       return out('key_revoked', `${info.keyId} was revoked at ${info.key.revoked_at}`);
     }
 
-    if (!limit({ sourceIp, author: normalizedAuthor })) return out('rate_limited');
+    // §10.2 step 6's second half: "by author (once known)", and *only* by author. The source IP
+    // was already charged above, and charging it twice for one request is worse than untidy —
+    // it makes the effective IP budget half the configured one for well-formed traffic and the
+    // full one for garbage that never reaches here, which is the ladder pointing the wrong way.
+    // The two calls therefore charge disjoint axes, and a custom `rateLimit` is called twice per
+    // delivery with exactly one of them populated.
+    if (!limit({ sourceIp: null, author: normalizedAuthor })) return out('rate_limited');
 
     // ---- 9: OPTIONAL target existence, after step 7 and never before ----
     if (confirmTarget) {
@@ -388,6 +430,26 @@ export function createInbox({
 
     // ---- accepted: only now is the store written (§10.3) ----
     dedup.write(normalizedAuthor, item.id, item._version);
+
+    // §16.1, heeded after verification like everything else that trusts the item's contents.
+    // Scoping first (`admissibleItemPins` — a published item's third-party entries are ignored
+    // outright), then each admissible entry judged against the owner's own records. A verdict
+    // is local and free: `corroborates` and `untracked` are terminal, and `check` or `unknown`
+    // hand the caller §16.1's next move without this pipeline making a single fetch for it.
+    let peerPins = null;
+    if (pins && Array.isArray(item._pins)) {
+      const { admissible, ignored } = admissibleItemPins(item, { ownedChainUrls: ownChains });
+      peerPins = {
+        entries: admissible.map((e) => ({ ...e, ...pins.reconcilePeerPin(e.url, e.seq, e.hash) })),
+        ignored: ignored.length,
+        // Which chains were dropped, not just how many. `ownedChainUrls` defaults to the
+        // identity document alone (above), so a deployment that has not declared its manifest
+        // URLs drops every legitimate pin naming one — correctly, per §16.1's publication rule,
+        // and indistinguishably from dropping a stranger's. Naming them is the difference
+        // between a scoping rule doing its job and a deployment quietly configured wrong.
+        ignoredUrls: [...new Set(ignored.map((e) => e?.url).filter((u) => typeof u === 'string'))],
+      };
+    }
 
     // §10.4: a blocked author gets `202` with the content discarded. A distinct status tells a
     // harasser to make a new identity and confirms the account exists.
@@ -401,6 +463,7 @@ export function createInbox({
       // §11.1.1: an item with no `_feed_url` was delivered, not published. The receiver holds it
       // as a custodian, and this flag is the one field every public projection must consult.
       delivered: item._feed_url === undefined,
+      peerPins,
       fetches,
       fetchesBeforeVerify,
     };

@@ -124,9 +124,20 @@ export function skipAnchors(seq) {
  * Observations are kept per `seq` rather than only at the pin, because that is what makes a
  * peer's pin at an *older* `seq` (§16.1) checkable. The map is bounded by chain length.
  */
+/** Observations retained per chain before `compact` runs. See `PinStore#compact`. */
+export const MAX_OBSERVATIONS_PER_CHAIN = 512;
+/** Re-pins retained per chain. Each carries the observation set that was set aside. */
+export const MAX_SUPERSEDED_PER_CHAIN = 8;
+
 export class PinStore {
-  constructor({ now = () => Math.floor(Date.now() / 1000) } = {}) {
+  constructor({
+    now = () => Math.floor(Date.now() / 1000),
+    maxObservationsPerChain = MAX_OBSERVATIONS_PER_CHAIN,
+    maxSupersededPerChain = MAX_SUPERSEDED_PER_CHAIN,
+  } = {}) {
     this.now = now;
+    this.maxObservationsPerChain = maxObservationsPerChain;
+    this.maxSupersededPerChain = maxSupersededPerChain;
     this.pins = new Map();          // url -> { seq, hash, observed, firstPinned }
     // url -> Map(seq -> { hash, observed }). The time is per `seq`, not per URL, because
     // §16.1's `observed` is "when this `(url, seq, hash)` was **first** observed" — share a
@@ -176,7 +187,60 @@ export class PinStore {
     // First observation wins the timestamp; a later corroborating fetch does not move it.
     if (held === undefined) seen.set(seq, { hash, observed: this.now() });
     this.observations.set(url, seen);
+    if (seen.size > this.maxObservationsPerChain * 2) this.compact(url);
     return { corroborated: held !== undefined };
+  }
+
+  /**
+   * Bound one chain's observation history, keeping the entries most likely to be **shared**.
+   *
+   * Observations are kept per `seq` so a peer's pin at an older `seq` is checkable (§16.1), and
+   * that is worth real money — but a manifest chain advancing daily for ten years is 3,650 seqs,
+   * hourly is 87,600, and this store is serialized whole on every run. Growing without bound is
+   * not a property anybody chose; it is what "the map is bounded by chain length" turns into
+   * once the chain is the long one (§9.2).
+   *
+   * Which entries to drop is decided by §9.1.1 rather than by age, and that is the whole design
+   * here. Skip anchors are **absolute** — the largest multiple of each 2^k below a seq — for the
+   * stated reason that "every reader then lands on a different set of versions, and §5.3.1 needs
+   * two observers at the **same** `seq` to compare anything". So the seqs two readers are most
+   * likely to hold in common are exactly those divisible by the largest powers of two, whatever
+   * heads they walked from. Retaining by 2-adic valuation keeps the comparison network intact at
+   * O(log versions) while dropping the entries no second observer is likely to have.
+   *
+   * Never dropped: the current pin, and the most recent `keepRecent`, since a peer's pin is
+   * usually recent and a disagreement there is the one worth resolving today.
+   *
+   * Runs from `observe` at twice the cap rather than at the cap, so the sort is amortized and a
+   * chain sits between `max` and `2 x max` entries in the steady state. Measured on a 4,000
+   * version chain at `max: 64`: 100 entries retained, and every one of the ten anchors a reader
+   * walking from the tip would land on is still there.
+   */
+  compact(url, { max = this.maxObservationsPerChain, keepRecent } = {}) {
+    const seen = this.observations.get(url);
+    if (!seen || seen.size <= max) return 0;
+    // Recent entries never take more than half the budget. They are kept because a peer's pin is
+    // usually recent, but the anchors are what make an *old* peer pin checkable at all, and a
+    // recency window sized to the whole budget would silently crowd them out — leaving a store
+    // that is bounded, cheap, and useless for the one comparison §16.1 exists to supply.
+    const recent = Math.max(1, Math.min(keepRecent ?? 64, Math.floor(max / 2)));
+    const pinned = this.pins.get(url)?.seq;
+    const seqs = [...seen.keys()].sort((a, b) => b - a);
+    const keep = new Set(seqs.slice(0, recent));
+    if (pinned !== undefined) keep.add(pinned);
+    // Trailing zero bits: how many powers of two divide this seq, and therefore how many
+    // distinct readers' anchor sets it appears in.
+    const valuation = (n) => { let v = 0; while (n > 0 && n % 2 === 0) { v++; n /= 2; } return v; };
+    const rest = seqs
+      .filter((s) => !keep.has(s))
+      .sort((a, b) => valuation(b) - valuation(a) || b - a);
+    for (const s of rest) {
+      if (keep.size >= max) break;
+      keep.add(s);
+    }
+    let dropped = 0;
+    for (const s of seen.keys()) if (!keep.has(s)) { seen.delete(s); dropped++; }
+    return dropped;
   }
 
   /**
@@ -263,6 +327,12 @@ export class PinStore {
     if (held?.size) {
       const list = this.superseded.get(url) ?? [];
       list.push({ at: this.now(), observations: Object.fromEntries(held) });
+      // Bounded, and oldest-first is the right end to drop. A re-pin is a deliberate human act,
+      // so this list is short in every honest deployment — but it is written by an action a
+      // hostile publisher can *provoke* repeatedly (equivocate, get re-pinned, equivocate), and
+      // each entry carries a whole observation set. Keeping the most recent re-pins keeps the
+      // evidence about the branch the consumer is actually on.
+      while (list.length > this.maxSupersededPerChain) list.shift();
       this.superseded.set(url, list);
     }
     this.observations.delete(url);
@@ -311,6 +381,49 @@ export class PinStore {
 }
 
 /**
+ * The chained-document URLs an identity owns: its identity document at its fixed path, plus
+ * every manifest its `feeds` entries name. This is the set §16.1's publication rule scopes a
+ * published item's pins to, and the set an emitter draws recipient-scoped entries from.
+ */
+export function chainUrlsOf(identityDocument) {
+  const urls = new Set();
+  try {
+    urls.add(`${normalizeIdentityUrl(identityDocument?.url)}openfeed.json`);
+  } catch { /* a document with no usable url owns no chains a pin can name */ }
+  for (const f of Array.isArray(identityDocument?.feeds) ? identityDocument.feeds : []) {
+    if (typeof f?.manifest === 'string') urls.add(f.manifest);
+  }
+  return urls;
+}
+
+/**
+ * §16.1's supply side: the `_pins` entries an item addressed to `recipientDocuments` may carry.
+ *
+ * "A publisher that already tracks a recipient's chains SHOULD carry pins for them on the
+ * interaction items it sends: emission is the supply side of §5.3.1's Level 1 MUST, and a
+ * compare rule nobody feeds is evidence collected and thrown away." This draws each entry from
+ * the emitter's own `PinStore` — its latest pin of each chain the recipients own, with the
+ * `observed` time §16.1 asks for — so every entry satisfies the publication rule on a
+ * published item by construction. On a delivered-only item the emitter MAY additionally pass
+ * documents of third parties it wants to gossip about; that admissibility is the receiving
+ * side's to judge (`admissibleItemPins`) and delivery's one-counterparty reach is what makes
+ * it non-disclosing (§16.1).
+ */
+export function pinsForRecipients(pins, recipientDocuments = []) {
+  const entries = [];
+  const seen = new Set();
+  for (const doc of recipientDocuments) {
+    for (const url of chainUrlsOf(doc)) {
+      if (seen.has(url)) continue;
+      seen.add(url);
+      const pin = pins.pin(url);
+      if (pin) entries.push({ url, seq: pin.seq, hash: pin.hash, observed: pin.observed });
+    }
+  }
+  return entries;
+}
+
+/**
  * §16.1's publication rule for `_pins`, applied to one item.
  *
  * On a published item (`_feed_url` present) every entry must name a chained document of an
@@ -319,9 +432,8 @@ export class PinStore {
  * third-party entries are admissible — delivery reaches exactly one counterparty.
  *
  * `ownedChainUrls` is the set of chained-document URLs belonging to the identities the item is
- * addressed to: their identity-document URLs plus the manifest URLs their `feeds` entries name.
- * The caller assembles it from documents it has already verified; this function stays pure.
- * Malformed entries are ignored on either axis.
+ * addressed to (`chainUrlsOf` builds it). The caller assembles it from documents it has already
+ * verified; this function stays pure. Malformed entries are ignored on either axis.
  */
 export function admissibleItemPins(item, { ownedChainUrls = new Set() } = {}) {
   const entries = Array.isArray(item?._pins) ? item._pins : [];
@@ -651,10 +763,20 @@ export async function walkToPin({
     // Different bytes at the pinned seq, and the walk is zero-length here so nothing has
     // authenticated them. Ask the publisher's own retained copy which version is theirs before
     // firing a rule whose response is to stop accepting this chain until a human intervenes.
+    // `classifyConflictAtPin` throws a `ChainError` unless the retained copy has *moved*, which
+    // is §5.4 violated on its own and therefore evidence about the chain rather than about one
+    // response.
     await classifyConflictAtPin({ url, tip, pin, fetchVersion, policy });
+    // One condition, two reporting paths, and only one of them runs. With a `PinStore`, this
+    // commit records the tip's hash at a seq the store already holds a different hash for, so
+    // `PinStore.observe` fires the compare rule and freezes the chain — the throw below is
+    // unreachable. Without one (`pins: null`, the stateless-verifier case §12 carves out) there
+    // is nothing to freeze and nothing to fire, so the same finding is raised here instead.
+    // Both are `EquivocationError` carrying the same `{url, seq, held, seen}`; what differs is
+    // only whether a store exists to remember it.
     commit();
     throw new EquivocationError(
-      `${url} served a different version at the pinned seq ${pin.seq}`,
+      `${url} served a different version at the pinned seq ${pin.seq}: ${pin.hash} and ${tipHash}`,
       { url, seq: pin.seq, held: pin.hash, seen: tipHash },
     );
   }

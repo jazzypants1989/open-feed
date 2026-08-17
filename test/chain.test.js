@@ -9,6 +9,8 @@ import {
   skipAnchors,
   PinStore,
   admissibleItemPins,
+  chainUrlsOf,
+  pinsForRecipients,
   walkToPin,
   identityChainPolicy,
   manifestChainPolicy,
@@ -299,6 +301,94 @@ test("an item's pins are scoped by how the item travels (§16.1)", () => {
   const junk = admissibleItemPins({ _pins: [{ url: mom.url, seq: 0, hash: 'h' }, 'nope', null] });
   assert.deepEqual(junk.admissible, []);
   assert.equal(junk.ignored.length, 3);
+});
+
+test('the chains an identity owns are its document and every manifest it names (§16.1)', () => {
+  // The set a published item's pins are scoped to, and the set an emitter draws from. The
+  // identity URL is normalized first (§3.1): a recipient who writes `:443` or a capitalized
+  // host owns the same chains either way, and a set keyed on the raw string would make one
+  // identity two — two pins of one document, never reconcilable.
+  const doc = {
+    url: 'https://Mom.Example:443/~mom',
+    feeds: [
+      { url: 'https://mom.example/feed.json', manifest: 'https://mom.example/manifest.json' },
+      { url: 'https://mom.example/garden.json', manifest: 'https://mom.example/garden/manifest.json' },
+      { url: 'https://mom.example/unmanifested.json' },   // §9 is per feed, and optional
+      'not an entry',
+      null,
+    ],
+  };
+  assert.deepEqual([...chainUrlsOf(doc)].sort(), [
+    'https://mom.example/garden/manifest.json',
+    'https://mom.example/manifest.json',
+    'https://mom.example/~mom/openfeed.json',
+  ]);
+
+  // A document with nothing usable owns no chains rather than throwing: this feeds a scoping
+  // rule, and a scoping rule that throws on a malformed peer document is a scoping rule an
+  // attacker turns off.
+  assert.deepEqual([...chainUrlsOf({})], []);
+  assert.deepEqual([...chainUrlsOf(null)], []);
+  assert.deepEqual([...chainUrlsOf({ url: 'http://insecure.example/' })], []);
+  assert.deepEqual([...chainUrlsOf({ feeds: 'not an array' })], []);
+});
+
+test('an emitter draws pins from its own store, and they are admissible by construction (§16.1)', () => {
+  // The supply side of §5.3.1's compare rule: "a publisher that already tracks a recipient's
+  // chains SHOULD carry pins for them on the interaction items it sends."
+  let clock = 1000;
+  const pins = new PinStore({ now: () => clock });
+  const momDoc = {
+    url: 'https://mom.example/',
+    feeds: [{ url: 'https://mom.example/feed.json', manifest: 'https://mom.example/manifest.json' }],
+  };
+  const granDoc = { url: 'https://gran.example/' };
+
+  pins.advance('https://mom.example/openfeed.json', 1, 'h-id-1');
+  clock = 2000;
+  pins.advance('https://mom.example/openfeed.json', 2, 'h-id-2');
+  clock = 3000;
+  pins.advance('https://mom.example/manifest.json', 7, 'h-man-7');
+  pins.advance('https://gran.example/openfeed.json', 1, 'h-gran-1');
+
+  const entries = pinsForRecipients(pins, [momDoc, momDoc]);
+  assert.deepEqual(entries, [
+    // `observed` is this version's own first-observation time, not first contact with the
+    // chain — §16.1's informal timestamping is an assertion about `(url, seq, hash)`, and a
+    // URL-level time would make every entry a claim to have witnessed seq 2 at seq 1's clock.
+    { url: 'https://mom.example/openfeed.json', seq: 2, hash: 'h-id-2', observed: 2000 },
+    { url: 'https://mom.example/manifest.json', seq: 7, hash: 'h-man-7', observed: 3000 },
+  ], 'the tip of each chain the recipient owns, once, whatever the recipient is listed twice');
+
+  // Nothing is invented for a chain this emitter does not track.
+  assert.deepEqual(pinsForRecipients(pins, [{ url: 'https://stranger.example/' }]), []);
+  assert.deepEqual(pinsForRecipients(pins, []), []);
+
+  // The property that makes the emitter conformant without a second rule: everything it
+  // produces for a recipient survives that recipient's own §16.1 scoping on a *published*
+  // item, which is where the rule bites (§16.2's MUST on an emitter).
+  const published = { _feed_url: 'https://me.example/feed.json', _pins: entries };
+  const scoped = admissibleItemPins(published, { ownedChainUrls: chainUrlsOf(momDoc) });
+  assert.deepEqual(scoped.admissible, entries);
+  assert.deepEqual(scoped.ignored, []);
+
+  // And the boundary the emitter must not cross by itself: gran's pin is a third party's, so
+  // it is gossip a *delivered* item may carry and a published one may not. `pinsForRecipients`
+  // will assemble it — the caller chose the documents — and the receiving side is what draws
+  // the line, which is the only place it can be drawn.
+  const gossip = pinsForRecipients(pins, [momDoc, granDoc]);
+  assert.equal(gossip.length, 3);
+  assert.deepEqual(
+    admissibleItemPins({ _feed_url: 'https://me.example/feed.json', _pins: gossip },
+      { ownedChainUrls: chainUrlsOf(momDoc) }).ignored,
+    [gossip.at(-1)],
+    'published: the third-party entry is ignored on receipt',
+  );
+  assert.deepEqual(
+    admissibleItemPins({ _pins: gossip }, { ownedChainUrls: chainUrlsOf(momDoc) }).admissible,
+    gossip,
+    'delivered-only: all three, because delivery reaches exactly one counterparty',
+  );
 });
 
 test('re-pinning is deliberate, and it discards the observations that disagreed', async () => {
@@ -837,4 +927,54 @@ test('§5.5 resolution runs before a divergence is called unresolved compromise'
   const forged = { ...tip };
   delete forged._recovery_sig;
   assert.equal(verifyRecoverySignature(forged, { pinnedAncestor: fx.chain.at(1) }).valid, false);
+});
+
+// ---- bounding a store that is written whole on every run ----
+
+test('observation history is compacted toward the seqs two readers share', () => {
+  // §16.1 keeps observations per `seq` so a peer's *older* pin is checkable, and that is worth
+  // real money — but the manifest is the long chain (§9.2), and this store is serialized whole
+  // on every run. "Bounded by chain length" is not a bound once the chain is 87,600 versions.
+  //
+  // What to drop is decided by §9.1.1 rather than by age. Skip anchors are absolute — the
+  // largest multiple of each 2^k below a seq — precisely so that "every reader does not land on
+  // a different set of versions", because §5.3.1 needs two observers at the SAME seq to compare
+  // anything. So the entries worth keeping are the ones divisible by the largest powers of two:
+  // those are the seqs a second observer, walking from some other head, is most likely to hold.
+  const store = new PinStore({ now: () => 1000, maxObservationsPerChain: 64 });
+  const url = 'https://mom.example/manifest.json';
+  for (let seq = 1; seq <= 4000; seq++) store.observe(url, seq, `hash-${seq}`);
+
+  const kept = new Set(store.observationsFor(url).map((e) => e.seq));
+  assert.ok(kept.size <= 128, `compaction ran: ${kept.size} entries retained of 4000`);
+
+  // The high-order anchors survive, which is the property the whole rule exists for: two readers
+  // polling at different heads both land on these.
+  for (const anchor of [1024, 2048, 3072, 512, 1536]) {
+    assert.ok(kept.has(anchor), `seq ${anchor} is an anchor many readers share`);
+  }
+  // A reader walking down from 4000 lands on this set; the overlap with what we kept is what a
+  // peer's pin can actually be checked against.
+  const landings = skipAnchors(4000).filter((s) => s <= 4000);
+  const checkable = landings.filter((s) => kept.has(s));
+  assert.ok(checkable.length >= landings.length / 2,
+    `${checkable.length} of ${landings.length} anchor landings remain checkable`);
+
+  // Recent history survives whatever its divisibility — a peer's pin is usually recent, and an
+  // odd seq near the tip is the disagreement worth resolving today.
+  assert.ok(kept.has(3999) && kept.has(4000));
+});
+
+test('re-pin evidence is bounded, because a hostile publisher can provoke re-pins', () => {
+  // §5.3.1's re-pin sets the disagreeing observations aside rather than deleting them, and that
+  // is right — a re-pin chooses a branch, it does not un-happen the divergence. But each entry
+  // carries a whole observation set, and the act that writes one can be provoked repeatedly.
+  const store = new PinStore({ now: () => 1000, maxSupersededPerChain: 3 });
+  const url = 'https://mom.example/openfeed.json';
+  for (let i = 1; i <= 10; i++) {
+    store.advance(url, i, `hash-${i}`);
+    store.rePin(url, i, `hash-${i}`);
+  }
+  const held = store.supersededObservationsFor(url);
+  assert.equal(held.length, 3, 'oldest re-pins drop; the branch in use keeps its evidence');
 });
