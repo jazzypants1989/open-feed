@@ -435,3 +435,83 @@ test('advanceIdentity co-signs atomically, and matches the retrofit byte for byt
   assert.notDeepEqual(signingPayload(stripped), signingPayload(atomic),
     '_sig was computed over bytes that name the co-signature');
 });
+
+// ---- MigrationStore eviction (§13.4) ---------------------------------------------------
+//
+// The chain inventory grew one entry per identity ever read. §13.4 sanctions evicting them,
+// but this record is sharper than a pin: its whole value is that it predates the event, and
+// §4.5 says outright there is no second chance. So what these tests pin is not "the store is
+// bounded" — that is the easy half — but that the bound never reaches a record something
+// already refers to.
+
+function noteChains(store, { identities, feedsEach = 1, from = 0 }) {
+  for (let i = from; i < from + identities; i++) {
+    const url = `https://m${String(i).padStart(4, '0')}.example/`;
+    const feeds = [];
+    for (let n = 0; n < feedsEach; n++) {
+      feeds.push({ url: `${url}feed${n}.json`, manifest: `${url}manifest${n}.json`, items: true });
+    }
+    store.noteIdentity({ url, seq: 1, updated: T0, keys: [], feeds });
+  }
+}
+
+test('the migration store evicts whole chains, and keeps the ones with the most to answer', () => {
+  const store = new MigrationStore({ now: () => T0, maxTrackedChains: 1000 });
+  noteChains(store, { identities: 10, feedsEach: 4 });                // publishers actually read
+  noteChains(store, { identities: 40, feedsEach: 0, from: 10 });      // seen once as an item author
+
+  const evicted = store.compact({ max: 12 });
+  assert.ok(evicted > 0, 'nothing was evicted');
+  assert.ok(store.chains.size <= 12, `store still holds ${store.chains.size} chains`);
+
+  // A record naming no feeds answers §7.5's canonical exception with nothing, so it goes first;
+  // one naming four is a publisher this consumer has read, and §4.5's recovery pin for it is
+  // unreconstructible once the host is gone.
+  for (let i = 0; i < 10; i++) {
+    assert.ok(store.pinnedAncestorFor(`https://m${String(i).padStart(4, '0')}.example/`),
+      `a four-feed publisher was evicted ahead of the chainless long tail`);
+  }
+});
+
+test('a party to a recorded migration is never evicted, on either side', async () => {
+  const store = new MigrationStore({ now: () => T0, maxTrackedChains: 1000 });
+  const from = 'https://m0000.example/';
+  const to = 'https://m0001.example/';
+
+  // Record the link directly: this test is about what `compact` refuses to touch, not about
+  // how the verdict was reached.
+  store.forward.set(from, { successor: to, via: 'successor', at: T0 });
+  store.backward.set(to, from);
+  noteChains(store, { identities: 60, feedsEach: 0 });
+
+  store.compact({ max: 2 });
+  assert.ok(store.chains.size <= 4, `store still holds ${store.chains.size} chains`);
+  assert.ok(store.pinnedAncestorFor(from), 'the predecessor of a recorded migration was evicted');
+  assert.ok(store.pinnedAncestorFor(to), 'the successor of a recorded migration was evicted');
+
+  // A contested claim is the case with the most at stake: both sides are void until a human
+  // settles it (§3.4), and `settle` needs the records to still be there when they do.
+  const other = 'https://m0002.example/';
+  store.contested.set(other, [
+    { successor: 'https://m0003.example/', via: 'recovery', at: T0 },
+    { successor: 'https://m0004.example/', via: 'recovery', at: T0 },
+  ]);
+  // Re-noted because the first compaction ran before the claim existed. That ordering is not
+  // an accident of the test: nothing can retain a record for a reason it does not yet have,
+  // which is exactly why §4.5 writes the record on every read rather than at migration time.
+  noteChains(store, { identities: 3, feedsEach: 0, from: 2 });
+  noteChains(store, { identities: 60, feedsEach: 0, from: 100 });
+  store.compact({ max: 2 });
+  for (const url of [other, 'https://m0003.example/', 'https://m0004.example/']) {
+    assert.ok(store.pinnedAncestorFor(url), `${url} was evicted while its claim is unsettled`);
+  }
+});
+
+test('the chain inventory bounds itself, and never evicts the identity just noted', () => {
+  const store = new MigrationStore({ now: () => T0, maxTrackedChains: 4 });
+  noteChains(store, { identities: 80, feedsEach: 0 });
+  assert.ok(store.chains.size <= 8, `automatic compaction never ran (${store.chains.size} chains)`);
+  // `pinnedAncestorFor` is read immediately after `noteIdentity` on every identity read.
+  assert.ok(store.pinnedAncestorFor('https://m0079.example/'),
+    'the identity being read was evicted by the write that recorded it');
+});

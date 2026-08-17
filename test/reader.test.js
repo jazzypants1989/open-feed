@@ -1188,3 +1188,109 @@ test('one malformed author URL is one rejected item, not a dead read (§7.1)', a
   assert.ok(result.feed.rejected.some((r) => r.item?.id === 'urn:uuid:poison' && /author url/.test(r.reason)),
     'the poisoned item is classified, not thrown');
 });
+
+// ---- ObservationStore eviction (§13.4) -------------------------------------------------
+//
+// The store held a record per `(author, id, _openfeed.version)` forever. §13.4 sanctions
+// evicting them; what it does not say, and what these tests pin, is that the unit has to be
+// the identity. §4.4's record is valuable *because* it is old, so an evictor that drops the
+// oldest entries first bounds the store by destroying the mechanism it is bounding.
+
+function fill(store, { identities, itemsEach = 1, from = 0 }) {
+  for (let i = from; i < from + identities; i++) {
+    const author = `https://a${String(i).padStart(4, '0')}.example/`;
+    const entries = [];
+    for (let n = 0; n < itemsEach; n++) entries.push([`urn:uuid:${i}-${n}`, 1]);
+    store.recordIds(author, entries);
+  }
+}
+
+test('the observation store evicts whole identities, and never the oldest records', () => {
+  let clock = T0;
+  const store = new ObservationStore({ now: () => clock, maxObservedIdentities: 10 });
+
+  // Ten identities recorded long ago — the strong observations, the ones §4.4 is made of.
+  fill(store, { identities: 10, itemsEach: 3 });
+  const oldest = [...Array(10).keys()].map((i) => `https://a${String(i).padStart(4, '0')}.example/`);
+  clock = T0 + 400 * DAY;
+  // Twenty more, recorded today, each with less history than the old ones.
+  fill(store, { identities: 20, itemsEach: 1, from: 10 });
+
+  const evicted = store.compact();
+  assert.ok(evicted > 0, 'nothing was evicted');
+  assert.ok(store.authors.size <= 10, `store still holds ${store.authors.size} identities`);
+
+  // The whole point: every surviving record of an old identity still reads at its original
+  // time. Evicting by age would have taken exactly these and left the store bounded, cheap,
+  // and useless — a thief's backdated item would then be checked against a time it chose.
+  const survivors = oldest.filter((a) => store.hasHistory(a, `urn:uuid:${oldest.indexOf(a)}-0`));
+  assert.ok(survivors.length > 0, 'every old identity was evicted; the evictor ranks by age');
+  for (const author of survivors) {
+    const i = oldest.indexOf(author);
+    assert.equal(store.firstObserved(author, `urn:uuid:${i}-0`, 1), T0,
+      'a surviving record moved off its first-observation time');
+  }
+
+  // And an eviction is whole: no identity survives as a partial record, which would make
+  // `hasHistory` true while `firstObserved` returned null — the one combination that reads as
+  // "I have seen this id before" while supplying nothing to bound the claim with.
+  for (let i = 0; i < 30; i++) {
+    const author = `https://a${String(i).padStart(4, '0')}.example/`;
+    const items = i < 10 ? 3 : 1;
+    const held = [...Array(items).keys()].filter((n) => store.firstObserved(author, `urn:uuid:${i}-${n}`, 1) !== null);
+    assert.ok(held.length === 0 || held.length === items,
+      `${author} survived as a partial record (${held.length} of ${items})`);
+  }
+});
+
+test('an identity that owns a tracked feed is never evicted, nor is one the caller retains', () => {
+  // A high cap so nothing compacts while the store is being filled; the bound under test is
+  // the one `compact` is asked for explicitly.
+  const store = new ObservationStore({ now: () => T0, maxObservedIdentities: 1000 });
+  fill(store, { identities: 40 });
+
+  const owner = 'https://a0007.example/';
+  const followed = 'https://a0011.example/';
+  store.recordFeedManifest('https://a0007.example/feed.json', 'https://a0007.example/manifest.json', {
+    url: owner, feed_url: 'https://a0007.example/feed.json', seq: 3, updated: T0, items: {},
+  });
+
+  store.compact({ max: 5, retain: [followed] });
+  assert.ok(store.authors.size <= 5 + 2, 'the retained classes did not bound the eviction');
+  assert.ok(store.hasHistory(owner, 'urn:uuid:7-0'), 'a feed-owning identity was evicted');
+  assert.ok(store.hasHistory(followed, 'urn:uuid:11-0'), 'a caller-retained identity was evicted');
+});
+
+test('an evicted identity reads as first contact, not as an identity with no record of an id', () => {
+  const store = new ObservationStore({ now: () => T0, maxObservedIdentities: 1 });
+  fill(store, { identities: 4 });
+  store.compact({ retain: ['https://a0000.example/'] });
+
+  const gone = ['https://a0001.example/', 'https://a0002.example/', 'https://a0003.example/']
+    .filter((a) => !store.authors.has(a));
+  assert.ok(gone.length > 0, 'nothing was evicted');
+  for (const author of gone) {
+    const i = Number(author.match(/a0*(\d+)\./)[1]);
+    assert.equal(store.hasHistory(author, `urn:uuid:${i}-0`), false);
+    assert.equal(store.firstObserved(author, `urn:uuid:${i}-0`, 1), null);
+  }
+  // §4.4's fallback, and the reason eviction is affordable at all: no history means the
+  // self-reported check, exactly as never having fetched the identity would have.
+});
+
+test('the store bounds itself as it is written to, and never evicts the author being written', () => {
+  const store = new ObservationStore({ now: () => T0, maxObservedIdentities: 4 });
+  fill(store, { identities: 40, itemsEach: 2 });
+  assert.ok(store.authors.size <= 8, `automatic compaction never ran (${store.authors.size} identities)`);
+  // The last write is still readable: an evictor that could drop the identity it was just
+  // handed makes the record a function of when the cap happened to be crossed.
+  assert.equal(store.firstObserved('https://a0039.example/', 'urn:uuid:39-0', 1), T0);
+});
+
+test('a serialized store round-trips its eviction index', () => {
+  const store = new ObservationStore({ now: () => T0, maxObservedIdentities: 3 });
+  fill(store, { identities: 6, itemsEach: 2 });
+  const back = ObservationStore.fromJSON(JSON.parse(JSON.stringify(store)), { maxObservedIdentities: 3 });
+  assert.equal(back.authors.size, store.authors.size, 'the author index was not rebuilt');
+  assert.ok(back.compact() > 0, 'a restored store cannot compact itself');
+});

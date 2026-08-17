@@ -75,12 +75,22 @@ export class ReaderError extends Error {
  * A consumer with no history for an identity falls back to the self-reported check throughout —
  * first contact is TOFU here as everywhere (§5.3).
  */
+/** Distinct author identities retained in an `ObservationStore` before `compact` runs. */
+export const MAX_OBSERVED_IDENTITIES = 512;
+
 export class ObservationStore {
-  constructor({ now = () => Math.floor(Date.now() / 1000) } = {}) {
+  constructor({
+    now = () => Math.floor(Date.now() / 1000),
+    maxObservedIdentities = MAX_OBSERVED_IDENTITIES,
+  } = {}) {
     this.now = now;
+    this.maxObservedIdentities = maxObservedIdentities;
     this.firstSeen = new Map();      // `${author}\n${id}\n${version}` -> unix seconds (§4.4, §7.5's tuple)
     this.idsSeen = new Map();        // `${author}\n${id}` -> unix seconds of the earliest revision
     this.feedManifests = new Map();  // feed url -> { manifestUrl, manifest } (§9.3 invariant 5)
+    // author -> number of `firstSeen` records held for it. Derived, never serialized, and kept
+    // incrementally so `compact`'s trigger is O(1) on a store whose whole problem is its size.
+    this.authors = new Map();
   }
 
   static #key(author, id, version) {
@@ -89,6 +99,11 @@ export class ObservationStore {
 
   static #idKey(author, id) {
     return `${normalizeIdentityUrl(author)}\n${id}`;
+  }
+
+  static #authorOf(key) {
+    const at = key.indexOf('\n');
+    return at === -1 ? key : key.slice(0, at);
   }
 
   /**
@@ -133,9 +148,71 @@ export class ObservationStore {
         fresh.add(id);
       }
       const key = ObservationStore.#key(author, id, version);
-      if (!this.firstSeen.has(key)) this.firstSeen.set(key, at);
+      if (!this.firstSeen.has(key)) {
+        this.firstSeen.set(key, at);
+        const who = ObservationStore.#authorOf(key);
+        this.authors.set(who, (this.authors.get(who) ?? 0) + 1);
+      }
+    }
+    // Amortized like `PinStore#observe`'s: run at twice the cap so the sort is paid for rarely
+    // and the store sits between `max` and `2 x max` identities in the steady state. The author
+    // written a line above is retained unconditionally — evicting the identity this very read
+    // depends on would make the record a function of when the cap happened to be crossed.
+    if (this.authors.size > this.maxObservedIdentities * 2) {
+      this.compact({ retain: [author] });
     }
     return fresh;
+  }
+
+  /**
+   * Bound this store by dropping **whole identities**, and never by age.
+   *
+   * §13.4 sanctions the eviction and names its cost — a first-contact record nothing else
+   * references, whose loss costs a fresh TOFU exactly as never having fetched it would. What
+   * §13.4 does not say, and what the shape of this store makes essential, is that the unit has
+   * to be the identity. §4.4's record is worth having precisely because it is **old**: it is a
+   * lower bound on when a thief could have signed, so the oldest entries are the strongest ones
+   * and an evictor that drops them first inverts the mechanism it is bounding. Dropping every
+   * record of one identity is the only reduction that leaves the remaining ones as strong as
+   * they were. Same reason a version-level trim is not offered: a superseded revision's record
+   * is the one an item still retrievable at its §7.6 URL is checked against.
+   *
+   * Two classes are never dropped. An identity that **owns a feed this store tracks** is live
+   * state — the consumer is polling it, and §9.3 invariant 5 reads the same record. And an
+   * identity the caller names in `retain`, since only the caller knows what it follows: this
+   * store cannot tell an identity of ongoing interest from one seen once in a stranger's feed,
+   * and a consumer tracking N identities holds O(N x items) here by design.
+   *
+   * Among the rest, fewest records first. The count is how much history an eviction destroys,
+   * so this spends the eviction budget on the identities that have the least to lose — the long
+   * tail of one-off item authors §13.4 describes — and keeps the identities actually read.
+   *
+   * Returns the number of identities evicted.
+   */
+  compact({ max = this.maxObservedIdentities, retain = [] } = {}) {
+    if (this.authors.size <= max) return 0;
+    const keep = new Set();
+    for (const url of retain) keep.add(normalizeIdentityUrl(url));
+    for (const held of this.feedManifests.values()) {
+      if (typeof held?.manifest?.url === 'string') keep.add(normalizeIdentityUrl(held.manifest.url));
+    }
+    const drop = new Set();
+    const evictable = [...this.authors.entries()]
+      .filter(([who]) => !keep.has(who))
+      .sort(([aWho, a], [bWho, b]) => a - b || (aWho < bWho ? -1 : aWho > bWho ? 1 : 0));
+    for (const [who] of evictable) {
+      if (this.authors.size - drop.size <= max) break;
+      drop.add(who);
+    }
+    if (drop.size === 0) return 0;
+    for (const key of [...this.firstSeen.keys()]) {
+      if (drop.has(ObservationStore.#authorOf(key))) this.firstSeen.delete(key);
+    }
+    for (const key of [...this.idsSeen.keys()]) {
+      if (drop.has(ObservationStore.#authorOf(key))) this.idsSeen.delete(key);
+    }
+    for (const who of drop) this.authors.delete(who);
+    return drop.size;
   }
 
   /**
@@ -222,6 +299,12 @@ export class ObservationStore {
       }
     }
     for (const [k, v] of Object.entries(raw.feedManifests ?? {})) store.feedManifests.set(k, v);
+    // `authors` is derived, so it is rebuilt rather than serialized — a count written to disk is
+    // one more thing that can disagree with the records it counts.
+    for (const key of store.firstSeen.keys()) {
+      const who = ObservationStore.#authorOf(key);
+      store.authors.set(who, (store.authors.get(who) ?? 0) + 1);
+    }
     return store;
   }
 }

@@ -173,9 +173,16 @@ export function verifyMigration({ predecessorDocument, successorDocument, pinned
  * answer if it wrote down the predecessor's feeds while it could still read them. In an
  * uncooperative departure that is before the move, and there is no second chance.
  */
+/** Identity chains retained in a `MigrationStore` before `compact` runs. */
+export const MAX_TRACKED_CHAINS = 512;
+
 export class MigrationStore {
-  constructor({ now = () => Math.floor(Date.now() / 1000) } = {}) {
+  constructor({
+    now = () => Math.floor(Date.now() / 1000),
+    maxTrackedChains = MAX_TRACKED_CHAINS,
+  } = {}) {
     this.now = now;
+    this.maxTrackedChains = maxTrackedChains;
     this.chains = new Map();   // identity -> { feeds:Set, manifests:Set, identityDocument:string }
     this.forward = new Map();  // predecessor -> { successor, via, at }
     this.backward = new Map(); // successor -> predecessor
@@ -228,7 +235,65 @@ export class MigrationStore {
       held.document = recoveryPin(document);
     }
     this.chains.set(identity, held);
+    // Amortized at twice the cap, and retaining the identity just noted: `pinnedAncestorFor`
+    // is read immediately after this call, so evicting it here would make the record depend on
+    // whether the cap happened to be crossed on this read.
+    if (this.chains.size > this.maxTrackedChains * 2) this.compact({ retain: [identity] });
     return held;
+  }
+
+  /**
+   * Bound the chain inventory by dropping **whole identities**, and never a party to a migration.
+   *
+   * §13.4 sanctions the eviction; what it costs here is sharper than for a pin, because this
+   * record's whole value is that it **predates the event** — it is written while the
+   * predecessor is still readable, and §4.5 says outright there is no second chance. So the
+   * rule is not "keep it long enough" (nothing here knows how long that is) but "never drop a
+   * record something already refers to":
+   *
+   *  - Every party to a recorded migration — either side of `forward`, `backward`, or a
+   *    `contested` claim — is retained. That record is what `verifyMigration` resolves a
+   *    recovery co-signature against and what §7.5's canonical exception asks about, and it is
+   *    unreconstructible once the predecessor's host is gone.
+   *  - Identities the caller names in `retain`, since only the caller knows what it follows.
+   *
+   * Among the rest, the ones naming the fewest chains go first. A record listing no feeds and
+   * no manifests answers §7.5's exception with nothing — it is an identity seen once as an item
+   * author, which is exactly the class §13.4 describes — while one naming several is a
+   * publisher this consumer has actually read.
+   *
+   * Returns the number of chains evicted.
+   */
+  compact({ max = this.maxTrackedChains, retain = [] } = {}) {
+    if (this.chains.size <= max) return 0;
+    const keep = new Set();
+    for (const url of retain) keep.add(normalizeIdentityUrl(url));
+    for (const [predecessor, held] of this.forward) {
+      keep.add(normalizeIdentityUrl(predecessor));
+      if (held?.successor) keep.add(normalizeIdentityUrl(held.successor));
+    }
+    for (const [successor, predecessor] of this.backward) {
+      keep.add(normalizeIdentityUrl(successor));
+      if (predecessor) keep.add(normalizeIdentityUrl(predecessor));
+    }
+    for (const [predecessor, claims] of this.contested) {
+      keep.add(normalizeIdentityUrl(predecessor));
+      for (const claim of claims ?? []) {
+        if (claim?.successor) keep.add(normalizeIdentityUrl(claim.successor));
+      }
+    }
+    const evictable = [...this.chains.entries()]
+      .filter(([identity]) => !keep.has(identity))
+      .sort(([aId, a], [bId, b]) =>
+        (a.feeds.size + a.manifests.size) - (b.feeds.size + b.manifests.size)
+          || (aId < bId ? -1 : aId > bId ? 1 : 0));
+    let evicted = 0;
+    for (const [identity] of evictable) {
+      if (this.chains.size <= max) break;
+      this.chains.delete(identity);
+      evicted++;
+    }
+    return evicted;
   }
 
   /**

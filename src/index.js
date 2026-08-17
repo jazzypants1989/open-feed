@@ -84,13 +84,20 @@ export {
 } from './manifest.js';
 export {
   MigrationStore,
+  MAX_TRACKED_CHAINS,
   recoveryPin,
   verifyMigration,
   MigrationError,
   CompetingMigrations,
 } from './migration.js';
 export { Publisher, PublishError } from './publish.js';
-export { createReader, ObservationStore, normalizeUrlForCompare, ReaderError } from './reader.js';
+export {
+  createReader,
+  ObservationStore,
+  MAX_OBSERVED_IDENTITIES,
+  normalizeUrlForCompare,
+  ReaderError,
+} from './reader.js';
 export {
   encryptionKeyFor,
   slotTag,
