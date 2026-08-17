@@ -211,7 +211,7 @@ test('same-origin redirects are followed, up to the cap', async (t) => {
   await rejects(() => f.fetchDocument(`${base}/6.json`), 'too_many_redirects');
 });
 
-test('an identity document does not follow a cross-origin redirect', async (t) => {
+test('nothing this protocol defines follows a cross-origin redirect', async (t) => {
   // §3.3: a cross-origin redirect is never identity equivalence — migration is expressed
   // in-band (§3.4). Two loopback servers differ only by port, which is enough.
   const other = await serve(t, (req, res) => json(res, { url: 'https://evil.example/' }));
@@ -226,9 +226,17 @@ test('an identity document does not follow a cross-origin redirect', async (t) =
     () => f.fetchDocument(`${base}/openfeed.json`, { sameOriginRedirectsOnly: true }),
     'cross_origin_redirect',
   );
-  // The same redirect is fine for a document that is not an identity document.
-  const feed = await f.fetchDocument(`${base}/feed.json`, { kind: 'feed' });
-  assert.equal(feed.url, `${other}/openfeed.json`);
+  // The rule is not identity-specific, and reading it as though it were left the two chained
+  // documents a pin is *keyed on* redirectable. §5.3.1 compares observations of one URL, so
+  // letting that URL's bytes come from another origin is the substitution a pin exists to catch,
+  // arranged by the party being watched.
+  await rejects(() => f.fetchDocument(`${base}/feed.json`, { kind: 'feed' }), 'cross_origin_redirect');
+  await rejects(() => f.fetchDocument(`${base}/manifest.json`, { kind: 'manifest' }), 'cross_origin_redirect');
+
+  // `kind: 'json'` is the unclassified default — a URL this protocol does not define — where
+  // inventing a rule for somebody else's fetch would be overreach.
+  const loose = await f.fetchDocument(`${base}/whatever.json`);
+  assert.equal(loose.url, `${other}/openfeed.json`);
 });
 
 test('a redirect cannot escape the scheme or address policy', async (t) => {

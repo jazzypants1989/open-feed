@@ -352,13 +352,18 @@ export function createFetcher({
   /**
    * Fetch and parse one JSON document.
    *
-   * `sameOriginRedirectsOnly` implements §3.3 for identity documents: a cross-origin
-   * redirect is never identity equivalence, because migration is expressed in-band (§3.4).
+   * `sameOriginRedirectsOnly` implements §3.3, which binds every fetch this specification
+   * defines and not only the identity document: a cross-origin redirect is never identity
+   * equivalence, because migration is expressed in-band (§3.4), and the same reasoning covers
+   * a chained document whose URL a pin is keyed on — §5.3.1 compares observations of one URL,
+   * so letting that URL's bytes come from another origin is the substitution the pin exists to
+   * catch, arranged by the party being watched. `kind: 'json'` is the unclassified default and
+   * keeps the old behaviour for a caller fetching something this protocol does not define.
    */
   async function fetchDocument(rawUrl, {
     kind = 'json',
     maxBytes = SIZE_CAPS[kind] ?? SIZE_CAPS.json,
-    sameOriginRedirectsOnly = false,
+    sameOriginRedirectsOnly = kind !== 'json',
     budget = null,
     cache = negativeCache,
     // Chained documents are hashed by `prev`, by every pin, and by every skip anchor, all over

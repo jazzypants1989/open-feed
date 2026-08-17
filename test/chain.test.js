@@ -565,6 +565,29 @@ test('a manifest claiming an identity other than its signer is refused', async (
   );
 });
 
+test('a manifest chain commits one feed, and repointing it mid-chain is not a version (§9)', async () => {
+  // A manifest is *keyed* by its `feed_url` (§9), so a version naming a different one is a
+  // relocation — §9.3 invariant 5, which requires every live id to be carried forward — and not
+  // a new version of this chain. Unchecked, a publisher performs one by editing a field: the
+  // chain URL and the pin are unchanged, so §5.3.1 sees nothing, and the invariant written to
+  // stop content being discarded by renaming a file is skipped by renaming the other file.
+  const store = new DocumentStore();
+  const fx = identityFixture({ versions: 1, store });
+  const m = manifestFixture({ store, signer: fx.primary, versions: 2 });
+  m.chain.publish({
+    fields: { url: fx.identity, feed_url: 'https://owner.example/other-feed.json', items: {} },
+    signer: fx.primary,
+  });
+
+  await assert.rejects(
+    () => walkToPin({
+      url: m.manifestUrl, tip: m.chain.at(3), pin: pinOf(m.chain.at(1)),
+      fetchVersion: store.fetchVersion, policy: manifestChainPolicy(fx.chain.at(1)),
+    }),
+    (e) => e instanceof ChainError && /commits https:\/\/owner\.example\/other-feed\.json/.test(e.message),
+  );
+});
+
 // ---- §4.5 / §5.5 recovery and fork resolution ----
 
 function coSign(doc, key) {

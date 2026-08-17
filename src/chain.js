@@ -15,6 +15,7 @@ import {
   signingPayload,
   publicKeyFromJwk,
   normalizeIdentityUrl,
+  normalizeUrlForCompare,
   identityDocumentUrl,
   VerifyError,
 } from './jws.js';
@@ -588,12 +589,32 @@ export const identityChainPolicy = {
  */
 export function manifestChainPolicy(identityDocument, { now = () => Math.floor(Date.now() / 1000) } = {}) {
   const identity = normalizeIdentityUrl(identityDocument.url);
+  // The feed this chain commits, fixed at whatever the first version examined says. A manifest is
+  // *keyed* by its `feed_url` (§9), so a version naming a different one is not a new version of
+  // this chain — it is a relocation, which §9.3 invariant 5 governs and which requires carrying
+  // every live id forward. Left unchecked, a publisher performs one by editing a field: the pin
+  // and the chain URL are unchanged, so §5.3.1 sees nothing, and the invariant that exists to
+  // stop content being discarded by renaming a file is skipped by renaming the other one.
+  let feed = null;
   return {
     kind: 'manifest',
     allowSkipLinks: true,
     verifySignature(doc, { tip = false } = {}) {
       if (normalizeIdentityUrl(doc.url) !== identity) {
         throw new ChainError(`manifest at seq ${doc.seq} claims ${doc.url}, not ${identity}`, { seq: doc.seq });
+      }
+      let named;
+      try {
+        named = normalizeUrlForCompare(doc.feed_url);
+      } catch {
+        throw new ChainError(`manifest at seq ${doc.seq} has no usable feed_url`, { seq: doc.seq });
+      }
+      if (feed === null) feed = named;
+      else if (named !== feed) {
+        throw new ChainError(
+          `manifest at seq ${doc.seq} commits ${doc.feed_url}, but this chain commits ${feed} (§9, §9.3 invariant 5)`,
+          { seq: doc.seq },
+        );
       }
       // §9.1: a version reached by a `prev` hop or a skip landing MUST remain valid whatever
       // later happened to its signing key — its bytes are hash-committed by a tip a live key
