@@ -157,7 +157,10 @@ embed('B.3 manifest hash', manifestHash1, 'spec');
 // ---- B.3b manifest seq 2 (chained) ----
 // No `history` field: prior versions live at a derived URL (spec §5.4), so there is no
 // index document to name.
+// `_next_update` (§9.1.2) rides on the tip, which is where a consumer reads it: a declared
+// deadline the consumer caps with its own ceiling. 1742169600 is 30 days past `updated`.
 const manifest2 = {
+  _next_update: 1742169600,
   url: ID, feed_url:'https://test.example/feed.json', seq:2,
   prev: manifestHash1,
   updated:1739577600,
@@ -176,7 +179,10 @@ embed('B.3b manifest seq2 bytes', canonicalize(manifest2), 'spec');
 
 // ---- B.4 identity seq 1 ----
 // One `feeds` array (spec §3.2.1), each entry {url, manifest, rel}. No `history` field.
-const FEEDS = [{url:'https://test.example/feed.json', manifest:'https://test.example/manifest.json', rel:'primary'}];
+// `items: true` is the publisher's signed statement that it serves §7.6's derived item URLs —
+// a Level 2 MUST (§3.2.1), so a canonical vector without it is a publisher non-conformant with
+// the document it appears in.
+const FEEDS = [{url:'https://test.example/feed.json', manifest:'https://test.example/manifest.json', rel:'primary', items:true}];
 const id1 = {
   feeds: FEEDS,
   inbox:'https://test.example/inbox',
@@ -247,6 +253,8 @@ const pinItem = {
     { url:'https://test.example/openfeed.json', seq:1, hash:id1Hash,       observed:1739577600 },
     { url:'https://test.example/manifest.json', seq:1, hash:manifestHash1, observed:1739577600 }
     ],
+    // §10.6, opening this sender's stream to this recipient. `seq: 1` carries no `prev`.
+    delivery: { seq: 1 },
     rel: [ { type:'reply', to:'https://test.example/feed.json#urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6' } ],
     version: 1,
   },
@@ -260,6 +268,29 @@ console.log('== B.7 item carrying pins (full published canonical bytes) ==');
 console.log(' ', canonicalize(pinItem));
 console.log();
 embed('B.7 item-carried pins bytes', canonicalize(pinItem), 'spec');
+const pinItemHash = documentHash(pinItem);
+embed('B.7 item hash', pinItemHash, 'spec');
+
+// ---- B.7b second delivery in the same stream (§10.6) ----
+// `seq: 1` alone shows the field and proves nothing: a counter that never advances is
+// indistinguishable from a sender who restarts it. The link is the evidence, so the pair
+// (B.7, B.7b) is what a vector for §10.6 has to be — `prev` here is B.7's §5.1 hash.
+const pinItem2 = {
+  _openfeed: {
+    delivery: { seq: 2, prev: pinItemHash },
+    rel: [ { type:'reply', to:'https://test.example/feed.json#urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8' } ],
+    version: 1,
+  },
+  authors: [ { url: READER } ],
+  content_text: 'And this one too.',
+  date_published: '2025-02-16T09:30:00Z',
+  id: 'urn:uuid:1b4e28ba-2fa1-11d2-883f-0016d3cca427'
+};
+pinItem2._sig = sign(pinItem2, kReader.priv, READER_KID, { kind: 'item' });
+console.log('== B.7b second delivered item (full published canonical bytes) ==');
+console.log(' ', canonicalize(pinItem2));
+console.log();
+embed('B.7b delivery chain bytes', canonicalize(pinItem2), 'spec');
 
 // ---- B.8 identity document with extension fields (§3.2) ----
 // Standalone third identity so B.4/B.5's hashes (and everything chained to them) never move.
@@ -297,7 +328,7 @@ const MEMBER_ROOT_KID = MEMBER + '#member-root-1';
 const MEMBER_DEL_KID  = MEMBER + '#hub-key-1';
 
 const idMember = {
-  feeds:[{url:'https://member.example/feed.json', manifest:'https://member.example/manifest.json', rel:'primary'}],
+  feeds:[{url:'https://member.example/feed.json', manifest:'https://member.example/manifest.json', rel:'primary', items:true}],
   keys:[
     {crv:'Ed25519', iat:1736899200, kid:'member-root-1', kty:'OKP', x:kRoot.x},
     {crv:'Ed25519', iat:1736899200, kid:'hub-key-1', kty:'OKP', use:'delegated', x:kDel.x}
@@ -364,7 +395,7 @@ console.log();
 embed('B.10 enc reader identity bytes', canonicalize(idEncReader), 'spec');
 
 const idEncAuthor = {
-  feeds:[{url:'https://enc-author.example/feed.json', manifest:'https://enc-author.example/manifest.json', rel:'primary'}],
+  feeds:[{url:'https://enc-author.example/feed.json', manifest:'https://enc-author.example/manifest.json', rel:'primary', items:true}],
   keys:[{crv:'Ed25519', iat:1736899200, kid:'enc-author-1', kty:'OKP', x:kEncAuthor.x}],
   name:'Encrypting Author', seq:1, updated:1739577600, url:ENC_AUTHOR
 };
@@ -442,6 +473,8 @@ const checks = [
   ['B.3 item commit', manifest.items[ITEM_ID][0]===item._openfeed.version
                         && manifest.items[ITEM_ID][1]===documentHash(item)],
   ['B.3b manifest2',  verifies(manifest2) && manifest2.prev===manifestHash1],
+  // §9.1.2: a deadline is only a deadline if it postdates the version declaring it.
+  ['B.3b next_update', Number.isInteger(manifest2._next_update) && manifest2._next_update > manifest2.updated],
   ['B.3b commits',    manifest2.items[ITEM_ID][1]===documentHash(item)
                         && manifest2.items[ITEM2_ID][1]===documentHash(item2)],
   ['B.4 id seq1',     verifies(id1)],
@@ -451,6 +484,15 @@ const checks = [
   ['B.7 item pins',   verifies(pinItem)
                         && pinItem._openfeed.pins[0].hash===id1Hash && pinItem._openfeed.pins[1].hash===manifestHash1
                         && !("feed_url" in pinItem._openfeed)],
+  // §10.6: `prev` names the exact bytes of the previous delivery in this pair's stream, and
+  // neither item may carry `feed_url` — the field is delivered-only (§11.2).
+  ['B.7b delivery',   verifies(pinItem2)
+                        && pinItem._openfeed.delivery.seq===1 && !('prev' in pinItem._openfeed.delivery)
+                        && pinItem2._openfeed.delivery.seq===2
+                        && pinItem2._openfeed.delivery.prev===documentHash(pinItem)
+                        && !("feed_url" in pinItem2._openfeed)],
+  // §3.2.1 makes `items: true` a Level 2 MUST, so every vector that publishes a feed declares it.
+  ['items declared',  [id1, id2, idMember, idEncAuthor].every((d) => d.feeds.every((f) => f.items === true))],
   // an unknown `_` field carries no authority: verification must succeed with it treated as
   // opaque, and both entry forms (string, object) must be present in the signed bytes.
   ['B.8 extension id', verifies(id3)

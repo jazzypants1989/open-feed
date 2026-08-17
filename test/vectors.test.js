@@ -161,6 +161,40 @@ test('identity chain links by prev', () => {
   assert.equal(chain[1].doc.prev, documentHash(chain[0].doc), 'seq 2 prev does not name genesis bytes');
 });
 
+test('the delivered pair chains by delivery.prev', () => {
+  // §10.6, from the spec's own bytes. The link is the whole of the evidence — a `seq` that
+  // nothing commits to is a claim a sender can silently restart — so the vector is a pair
+  // and this is the check that makes the pair mean something.
+  const stream = signed
+    .filter((v) => v.doc._openfeed?.delivery)
+    .sort((a, b) => a.doc._openfeed.delivery.seq - b.doc._openfeed.delivery.seq);
+  assert.equal(stream.length, 2, `expected two vectors carrying _openfeed.delivery, got ${stream.length}`);
+  const [first, second] = stream;
+  assert.equal(first.doc._openfeed.delivery.seq, 1);
+  assert.equal(first.doc._openfeed.delivery.prev, undefined, 'seq 1 must carry no prev');
+  assert.equal(second.doc._openfeed.delivery.seq, 2);
+  assert.equal(second.doc._openfeed.delivery.prev, documentHash(first.doc),
+    'seq 2 prev does not name the first delivery\'s published bytes');
+  // §10.6 forbids the field on a published item, and §11.2 is why: the pair is only
+  // unambiguous because a delivered item has exactly one recipient.
+  for (const { doc } of stream) {
+    assert.equal(doc._openfeed.feed_url, undefined, 'a delivered item carries no feed_url');
+  }
+});
+
+test('every feeds entry in the spec declares items: true', () => {
+  // §3.2.1 makes the declaration a Level 2 MUST, and §7.6 makes §9.3's withholding verdict
+  // depend on it. A canonical vector without it publishes a non-conformant publisher.
+  let checked = 0;
+  for (const { doc } of identityDocs) {
+    for (const entry of doc.feeds ?? []) {
+      assert.equal(entry.items, true, `${doc.url} feeds entry ${entry.url} does not declare items`);
+      checked += 1;
+    }
+  }
+  assert.ok(checked >= 3, `expected at least 3 feeds entries, checked ${checked}`);
+});
+
 test('re-canonicalizing a published vector reproduces its bytes verbatim', () => {
   // The property the whole protocol rests on: parse then re-serialize must be a no-op,
   // or no hash any consumer holds would survive a round trip.
