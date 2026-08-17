@@ -8,7 +8,7 @@
 // Nothing here opens a socket or fetches anything. It is given documents and returns verdicts.
 
 import { documentHash, timingSafeEqualString } from './hash.js';
-import { effectiveSigningTime, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
+import { claimedAuthor, effectiveSigningTime, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
 
 export class ManifestError extends Error {
   constructor(message, { url, seq, id } = {}) {
@@ -26,9 +26,13 @@ export class ManifestError extends Error {
  * report a bad fetch.
  */
 export class InvariantViolation extends ManifestError {
-  constructor(message, { invariant, url, seq, id } = {}) {
+  constructor(message, { invariant, url, seq, id, retryable = false } = {}) {
     super(message, { url, seq, id });
     this.invariant = invariant;
+    // §9.3's graded response. A violation that compares signed bytes the consumer holds is
+    // conclusive; one that compares two objects fetched at two moments is not, because nothing
+    // makes those reads atomic. The second kind is surfaced and re-read, never frozen on.
+    this.retryable = retryable;
   }
 }
 
@@ -396,7 +400,20 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
     }
     if (version < committed.version) {
       // Invariant 3, first clause. Not lag — lag is the feed being *ahead*.
-      violate(`${id} is served at version ${version} but seq ${manifest.seq} commits version ${committed.version}`, { invariant: 3, id });
+      //
+      // `retryable`, and it is the only violation here that is. Every other one compares signed
+      // bytes the consumer holds — two versions of a chain, or an item against the entry that
+      // commits it — and is conclusive from them. This one compares **two objects fetched at two
+      // moments**, and nothing makes those reads atomic: a publisher writes the feed and the
+      // manifest separately, and any cache between them may hold one and not the other, which
+      // mid-publish on a multi-POP CDN is the ordinary steady state rather than an attack. The
+      // finding is real and must be surfaced; freezing a chain on one observation of it is a
+      // verdict that misfires against honest publishers, and §9.3 is explicit that such a verdict
+      // is one nobody keeps running. The caller re-reads before convicting (§9.3).
+      violate(
+        `${id} is served at version ${version} but seq ${manifest.seq} commits version ${committed.version}`,
+        { invariant: 3, id, retryable: true },
+      );
       continue;
     }
     if (version > committed.version) {
@@ -466,8 +483,19 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
  * Three tests, and none needs history (§9.3 invariant 3). An item dated ahead of this consumer's
  * clock by more than the skew allowance is not lag at all — see `FUTURE_SKEW_SECONDS` for why
  * that one has to be checked *first*, since the other two invert underneath it. A manifest whose
- * `updated` is later than the item's own signing time has demonstrably advanced past it. And
- * otherwise the consumer's own absolute ceiling applies, regardless of the publisher's rhythm.
+ * `updated` is later than the item's own signing time has demonstrably advanced past it, **where
+ * the item's signer and the manifest's owner are the same identity**. And otherwise the
+ * consumer's own absolute ceiling applies, regardless of the publisher's rhythm.
+ *
+ * That scope on the middle test is the load-bearing part. Effective signing time is self-reported
+ * *by the item's author* (§13.1), and a feed may carry several authors (§7.1) — so unscoped, the
+ * test convicts the manifest's publisher on a number somebody else chose. A contributor backdates
+ * an item, hands it to the board owner, and the owner's *already published* manifest tip is
+ * dated after it the moment it is served: a violation, at every consumer, treated like chain
+ * equivocation, against a publisher who has done nothing and could have done nothing. Where the
+ * signer owns the manifest that framing is impossible, because they are asserting the time
+ * themselves. For everyone else's items the ceiling below governs, which is the bound that does
+ * not depend on trusting an author about a publisher.
  */
 function describeLag(item, manifest, { now, ceiling, futureSkew = FUTURE_SKEW_SECONDS }) {
   let signedAt;
@@ -480,12 +508,21 @@ function describeLag(item, manifest, { now, ceiling, futureSkew = FUTURE_SKEW_SE
   if (signedAt > now + futureSkew) {
     return `it is dated ${signedAt}, more than ${futureSkew}s ahead of this consumer's clock`;
   }
-  if (manifest.updated > signedAt) {
-    return `the manifest advanced at ${manifest.updated}, after the item was signed at ${signedAt}`;
+  if (manifest.updated > signedAt && selfAuthored(item, manifest)) {
+    return `the manifest advanced at ${manifest.updated}, after its own publisher signed the item at ${signedAt}`;
   }
   const age = now - signedAt;
   if (age > ceiling) return `uncommitted for ${age}s, past the consumer's ceiling of ${ceiling}s`;
   return null;
+}
+
+/** Did the identity that owns this manifest (§9's `url`) sign this item (§6.6)? */
+function selfAuthored(item, manifest) {
+  try {
+    return claimedAuthor(item, { kind: 'item' }) === normalizeIdentityUrl(manifest.url);
+  } catch {
+    return false; // an item whose author binding does not resolve is nobody's evidence
+  }
 }
 
 // ---- §9.3 invariant 5: relocation does not reset the chain ----

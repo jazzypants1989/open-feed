@@ -954,7 +954,17 @@ export function createReader({
         copies: feed.copies,
       },
       findings: [
-        ...reconciled.violations.map((v) => ({ kind: 'invariant', invariant: v.invariant, message: v.message })),
+        // §9.3's graded response. A violation that compares signed bytes the consumer holds is
+        // conclusive and takes §5.3.1's answer; `retryable` marks the one that compares two
+        // objects fetched at two moments — a feed serving a revision below the manifest's —
+        // where nothing makes the reads atomic and a cache holding one and not the other is the
+        // ordinary steady state mid-publish. Surfaced under its own kind so it is reported and
+        // not silently tolerated, and so it does not carry the verdict that stops a chain.
+        ...reconciled.violations.map((v) => ({
+          kind: v.retryable ? 'feed_behind_manifest' : 'invariant',
+          invariant: v.invariant,
+          message: v.message,
+        })),
         // §9.1.2. A separate kind from `invariant` on purpose: staleness is unverified, not
         // equivocation, and collapsing the two would have an honest publisher's holiday read
         // like an attack. It is listed first among the non-violations because it colors every

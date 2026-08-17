@@ -106,6 +106,43 @@ test('an advance that demonstrably happened converts lag into a violation, befor
   assert.equal(reconcileFeed(notYet, [passedOver], { now: T0 + 120 }).violations.length, 0);
 });
 
+test('the passed-over test needs the manifest owner’s own signature, or it frames them (§9.3)', () => {
+  // Effective signing time is self-reported *by the item's author*, and §7.1 lets a feed carry
+  // several. So unscoped, this test convicts the manifest's publisher on a number somebody else
+  // chose: a contributor to a family board backdates an item, hands it over, and the board
+  // owner's *already published* manifest tip is dated after it the instant it is served — a
+  // violation, at every consumer, treated like chain equivocation, against a publisher who did
+  // nothing and could have done nothing. The framing is impossible where the signer owns the
+  // manifest, because then the publisher is asserting the time itself.
+  const contributor = makeKey('dad-1');
+  const backdated = {
+    id: 'a',
+    authors: [{ url: 'https://dad.example/' }],
+    _feed_url: FEED,
+    _version: 1,
+    content_text: 'planted',
+    date_published: new Date((T0 - 3600) * 1000).toISOString().replace('.000', ''),
+  };
+  backdated._sig = sign(backdated, contributor.privateKey, 'https://dad.example/#dad-1');
+
+  const advanced = manifest({ seq: 4, updated: T0 });
+  const framed = reconcileFeed(advanced, [backdated], { now: T0 + 120 });
+  assert.equal(framed.violations.length, 0, 'a contributor cannot manufacture a verdict about the board owner');
+  assert.equal(framed.states[0].state, 'pending');
+
+  // What still bounds it is the ceiling, which does not depend on trusting an author about a
+  // publisher — so withholding a contributor's item is caught, a week later instead of at once.
+  const later = reconcileFeed(advanced, [backdated], { now: T0 + 120, ceiling: 60 });
+  assert.equal(later.violations.length, 1);
+  assert.match(later.violations[0].message, /ceiling/);
+
+  // And the owner's own item is unchanged: they signed the time, so the advance past it is theirs.
+  const own = item({ id: 'b', at: T0 - 3600 });
+  const caught = reconcileFeed(advanced, [own], { now: T0 + 120 });
+  assert.equal(caught.violations.length, 1);
+  assert.match(caught.violations[0].message, /its own publisher signed/);
+});
+
 test('a future-dated item is a violation, not a permanently pending one (§9.3 invariant 3)', () => {
   // Both of invariant 3's other tests invert under a future-dated item, so a publisher stamping
   // next year escapes both at once: the manifest's `updated` cannot have advanced past a moment
