@@ -957,3 +957,31 @@ test('a stranger\'s id is not a routing token, and a previously accepted one is 
   })));
   assert.equal(nested.status, 202, 'the id half of an accepted item routes whatever its feed half says');
 });
+
+test('a blocked source cannot reset its own budget by churning fresh keys (§10.2, §13.9)', async (t) => {
+  // The default limiter evicts from the Map's head to stay under `rateLimitBuckets`. `set` on
+  // an existing key does not reposition it, so a bucket refreshed only on the *allowed* path
+  // keeps its original slot — and a blocked bucket, never refreshed, drifts to the head and is
+  // evicted first. An attacker at their limit then resets their own budget by churning fresh
+  // keys until their blocked bucket falls off the front. delete-then-set on both paths keeps a
+  // blocked bucket as freshly-positioned as an allowed one.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const inbox = inboxFor(t, site, { rateLimitPerMinute: 1, rateLimitBuckets: 4 });
+
+  const deliver = (name, i) => inbox.deliver(
+    body(item(gran, { id: `urn:uuid:${name}-${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] })),
+    { sourceIp: name },
+  );
+
+  // The attacker spends their one hit, then is blocked.
+  assert.equal((await deliver('attacker', 0)).status, 202);
+  assert.equal((await deliver('attacker', 1)).status, 429, 'over the per-minute limit');
+
+  // Now churn distinct source IPs past the bucket cap. If the blocked bucket held its slot the
+  // eviction loop never reaches it; if it drifted to the head, this frees it.
+  for (let i = 0; i < 12; i++) await deliver(`churn-${i}`, i);
+
+  assert.equal((await deliver('attacker', 2)).status, 429,
+    'still blocked: churning did not evict the attacker\'s own bucket first');
+});

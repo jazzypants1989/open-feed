@@ -407,7 +407,16 @@ export function createInbox({
     for (const key of [sourceIp && `ip:${sourceIp}`, author && `author:${author}`]) {
       if (!key) continue;
       const hits = (buckets.get(key) ?? []).filter((t) => at - t < 60);
-      if (hits.length >= rateLimitPerMinute) { buckets.set(key, hits); return false; }
+      // delete-then-set on BOTH paths, because the eviction below removes from the Map's head
+      // and `set` on an existing key does not reposition it. Refresh only the allowed path and
+      // a blocked bucket keeps its original insertion slot, drifts to the head as others are
+      // refreshed, and is evicted *first* — so an attacker at their limit resets their own
+      // budget by churning fresh keys, which is the inversion the module comment warns about.
+      if (hits.length >= rateLimitPerMinute) {
+        buckets.delete(key);
+        buckets.set(key, hits);
+        return false;
+      }
       hits.push(at);
       buckets.delete(key);
       buckets.set(key, hits);

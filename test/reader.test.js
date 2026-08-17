@@ -1155,3 +1155,27 @@ test('a declared cadence is a promise the publisher is held to, well inside the 
   assert.equal(stale.length, 1);
   assert.match(stale[0].message, /\(declared\)/);
 });
+
+test('one malformed author URL is one rejected item, not a dead read (§7.1)', async (t) => {
+  // `authors[0].url` is normalized per item, and a feed is unsigned at feed level, so any
+  // co-author on a §7.1 board — or the serving path — can drop in an item whose author URL does
+  // not parse. Thrown, that aborts the whole read and hands whoever injects one item a veto over
+  // everyone else's; classified, it is one entry in `rejected` and the rest of the feed reads.
+  const site = await newSite(t);
+  const signer = makeSigner();
+  const p = site.serve(familyPublisher(site.url, signer));
+  const me = consumer(t);
+
+  // Splice a poisoned item into the served page: a non-https author URL, which normalizeIdentityUrl
+  // refuses (§3.1). Signed by nobody — it never reaches verification, which is the point.
+  const poisoned = {
+    id: 'urn:uuid:poison', authors: [{ url: 'http://x/' }], _version: 1,
+    content_text: 'malformed', date_published: new Date(T0 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  };
+  site.replace('feed.json', { ...p.feed, items: [poisoned, ...p.feed.items] });
+
+  const result = await reader(me).read(site.url);
+  assert.equal(result.items.live.length, 6, 'every honest item still read');
+  assert.ok(result.feed.rejected.some((r) => r.item?.id === 'urn:uuid:poison' && /author url/.test(r.reason)),
+    'the poisoned item is classified, not thrown');
+});

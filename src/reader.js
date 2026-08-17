@@ -41,6 +41,7 @@ import {
   entryOf,
   LAG_CEILING_SECONDS,
   freshness,
+  InvariantViolation,
 } from './manifest.js';
 import { verifyDocument, normalizeIdentityUrl, normalizeUrlForCompare, VerifyError } from './jws.js';
 import { sha256, b64u, documentHash } from './hash.js';
@@ -648,8 +649,19 @@ export function createReader({
 
     for (const item of allItems) {
       const author = String(item?.authors?.[0]?.url ?? '');
+      // Classified, never thrown: a malformed author URL is one bad item, and §7.1 lets any
+      // co-author — or the serving path, since a feed is unsigned at feed level — put one in a
+      // page. Thrown from here it aborts the entire read, which hands whoever can inject one
+      // item a veto over everyone else's.
+      let foreignAuthor;
+      try {
+        foreignAuthor = !!author && normalizeIdentityUrl(author) !== normalizeIdentityUrl(identityDocument.url);
+      } catch (e) {
+        rejected.push({ item, reason: `unusable author url ${author}: ${e.message}` });
+        continue;
+      }
       let authorDocument = identityDocument;
-      if (author && normalizeIdentityUrl(author) !== normalizeIdentityUrl(identityDocument.url)) {
+      if (foreignAuthor) {
         // A migrated back catalog is signed by the **predecessor** identity — §3.4 forbids
         // re-signing it, so `authors[0].url` names the identity that has since moved, and §6.6
         // resolves the key there. The consumer holds that document from before the move, which
@@ -1144,7 +1156,16 @@ export function createReader({
       findings: [
         ...primary.findings,
         ...rest.flatMap((r) => (r.error
-          ? [{ kind: 'unreadable_feed', message: `${r.entry.url} (rel ${r.entry.rel ?? 'primary'}): ${r.error.message}` }]
+          // An equivocation or invariant violation on a listed feed is the same attack whether
+          // the feed is the headline one or an archive — a publisher that lists an equivocating
+          // chain as `rel: "archive"` must not have it read as a flaky host (exit 1 not 2). The
+          // finding keeps the severe kind; only a genuine fetch failure is `unreadable_feed`.
+          ? [{
+            kind: (r.error instanceof EquivocationError || r.error instanceof InvariantViolation)
+              ? 'invariant'
+              : 'unreadable_feed',
+            message: `${r.entry.url} (rel ${r.entry.rel ?? 'primary'}): ${r.error.message}`,
+          }]
           : r.findings)),
         ...skippedEntries.map((f) => ({
           kind: 'unread_feed',

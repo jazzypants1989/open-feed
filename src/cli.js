@@ -153,6 +153,12 @@ export async function run({
     stdout.write(args.json
       ? `${JSON.stringify(result, null, 2)}\n`
       : `${report(result, { pinFile: args.pins })}\n`);
+    // Exit 2 is "unverifiable" — equivocation, rollback, violation — and it is reached two
+    // ways: a chain that threw out of the read (the catch below), and a finding of that
+    // severity gathered from a *listed* feed whose failure did not abort the primary read. A
+    // publisher listing an equivocating archive must draw the same 2 as one equivocating on its
+    // headline feed, or the severe verdict is escapable by moving the attack one entry over.
+    if (result.findings.some((f) => f.kind === 'invariant')) return 2;
     return result.findings.length ? 1 : 0;
   } catch (e) {
     // A freeze or a refused walk is state worth keeping — §5.3.1's response is to hold the pin
