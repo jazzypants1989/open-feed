@@ -6,6 +6,15 @@ every finding, with its current status. `HANDOFF.md` is the short list of what t
 
 Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 
+> **Session update (2026-08-17, second pass).** A large batch landed. Rather than rewrite every
+> entry below in place, the authoritative status is now the table at the top of `HANDOFF.md`;
+> where this register and the handoff disagree, the handoff is newer. Quick index of what
+> changed this pass: owner settled all five open decisions (see the handoff); Stage 2 self-review
+> findings S2.1–S2.11 are recorded in the section near the bottom of this file, most now DONE;
+> and from the old backlog 0.2, 0.3, 0.4, 0.5, 0.6 are DONE with revert-checked tests, 0.8 and
+> 0.9 are **code-DONE but test-incomplete** (see the handoff's "will bite you"). Still OPEN:
+> 0.7, 0.10, 0.11's list, most of Stage 1, Stage 3/4, and the doc rewrites.
+
 A copy of the original plan lives at
 `~/.claude/plans/src-open-feed-spec-md-distribution-mode-vectorized-biscuit.md`. It is outside
 this repository, so **do not go and read it on this document's say-so** — ask the owner first.

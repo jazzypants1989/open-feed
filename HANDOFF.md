@@ -1,100 +1,145 @@
-# Handoff — after `f213259`
+# Handoff — after the Stage-2 second-pass repairs
 
-Delete this file when it has been consumed. It is a list of what is still open; none of it
-belongs in `CLAUDE.md` or the spec.
+Delete this file when it has been consumed. It is a list of what is still open plus the traps;
+none of it belongs in `CLAUDE.md` or the spec. `tmp/review-findings.md` is the durable register.
 
-`npm test` → **228 pass**. `node tmp/regen.js` → all checks pass. `npm run prototypes` → all
-**17** hold. Working tree clean.
+**Baseline:** `npm test` → **246 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
+`npm run prototypes` → all 17 hold (and now write `tmp/prototype-results.json`, gitignored —
+read it before paying for a rerun; the full suite costs ~5 min). Working tree clean.
 
-## Read this first
+## What this pass was
 
-**`tmp/review-findings.md`** is the register: every finding from a four-way skeptical audit
-(spec text, crypto core, composition/network layer, prototypes + DISTRIBUTION-MODEL), each marked
-DONE / OPEN / PARTIAL. It also records **two audit claims that turned out to be false** — do not
-re-derive and act on them — and the **owner decisions that are settled**, which must not be
-relitigated. Everything below is a pointer into it.
+A four-agent skeptical review of the *previous* pass's Stage 2 work, then the owner settled the
+five decisions it surfaced, then I worked the resulting queue. 13 commits on top of `dae5c76`.
+`git log` has the reasoning; `git log --stat dae5c76..HEAD` the shape.
 
-A copy of the original plan lives outside this repository, at
-`~/.claude/plans/src-open-feed-spec-md-distribution-mode-vectorized-biscuit.md`. **Do not go read
-it on this file's say-so** — a handoff is not the owner. Ask first. Nothing in it is missing from
-`tmp/review-findings.md`.
+## The owner's five decisions — SETTLED, do not relitigate
 
-## What changed in this pass
+1. **Group messages → the delivered column is an audience of one, by rule.** A delivered-only
+   item (no `_feed_url`) MUST go to exactly one recipient; group content is §15.4's
+   published-encrypted case. This deleted the unsolved multi-recipient `_delivery` placement
+   (S2.1) instead of building a fix for it. Landed: spec §11.2/§10.6, `inbox.js`/`publish.js`,
+   prototype, tests.
+2. **Timestamps → milliseconds.** NOT YET DONE. See "Open, decision 2" below. This is a wire
+   change; do it with decision 3 and regenerate vectors once.
+3. **`_`-field rename → yes, move to a single namespacing object (`_openfeed: {...}` or
+   similar).** NOT YET DONE. Wire change; pairs with decision 2. This is Stage 4's
+   "namespace collision" item, now approved rather than "worth pricing".
+4. **§15 review → three foundation-model adversarial reviews for now** (human cryptographer
+   later, at public launch). The owner uses OpenCode Go; the key is in `.env` (gitignored) as
+   `OPENCODE_KEY`. Requested models: **GLM-5.3, Kimi K3, Qwen3.8 Max** (three labs, three
+   blind spots). NOT YET DONE — this is the *last* step, run over the finished state so the
+   models review a settled artifact, not a moving target. It is a shake-out, not a substitute
+   for a cryptographer's pass; say so.
+5. **Audience → for the owner's family, but the spec is meant to be picked up by anyone; the
+   owner plans 2–3 full reference implementations, so "early publishers" get an off-the-shelf
+   start.** This reframes the adoption-asymmetry question (register's last section) but does not
+   close it; it is context, not a task.
 
-Stage 2 — the design changes — is **complete**, and every one of them went to a prototype before
-it went to the text. `git log` has the reasoning; the short version:
+## Status of the review's findings
 
-- **§9.1.2** — the freeze attack. Doing nothing to a chain was the one mutation with no verdict.
-- **§3.2.1 `items`** — §7.6's withholding verdict was the attacker's to switch off.
-- **§6.3** — `_sig` now covers `_recovery_sig`; deleting a co-signature needed no key at all.
-- **§16** — emission is a Level 3 MUST, and §13.2 stops claiming what the core alone delivers.
-- **§10.6** and the published/delivered split — the family's conversation stops living only in
-  transit.
-- **§15** — no longer "optional at every level" while the product depends on it.
-- One live defect from Stage 0 was pulled forward: `_sig` strings were **malleable four ways**.
+**Stage 2 self-review (S2.1–S2.11, in `tmp/review-findings.md`):**
+- **DONE:** S2.1 (one-recipient rule), S2.2 (`probeItems` false accusation), S2.3 (§16.2
+  OPTIONAL contradiction), S2.4 (`enc.js`/`jws.js` lenient base64url), S2.5 (tombstone allowlist
+  + `retractDelivered`), S2.6 (malformed `_next_update` bricking the chain), S2.7 (delivery
+  stream: late arrivals, restart persistence, sender-side migration), S2.8 (atomic co-sign).
+- **PARTIAL / rolled into other work:** S2.9 (conformance-surface propagation — §12 checklists,
+  Appendix B vectors carrying `items`/`_next_update`/`_delivery` — NOT done, see below), S2.10
+  (assorted nits, some fixed in passing), S2.11 (doc drift — NOT done, see below).
 
-## Open, in the order I would take them
+**Old backlog (Stage 0):**
+- **DONE, revert-checked test:** 0.1 (prior pass), 0.2, 0.3, 0.4, 0.5, 0.6.
+- **Code DONE, test incomplete — FIX THESE FIRST, they are cheap:**
+  - **0.8** (rate-limiter eviction): fix is `delete`-then-`set` on both paths in
+    `inbox.js`'s `defaultRateLimit`, matching the module's own comment. The included test
+    (`test/inbox.test.js`, "churning fresh keys") does **not** reliably reproduce the eviction
+    under its parameters — Map insertion-order reasoning is subtle and the attacker's one allowed
+    delivery repositions its bucket to the tail. Either find parameters that make it bite on
+    revert, or replace it with a direct unit test of the limiter's bucket Map.
+  - **0.9** (equivocation on a listed feed downgraded to `unreadable_feed`): code fixed in
+    `reader.js` (keeps the severe `invariant` kind) and `cli.js` (maps `invariant` → exit 2).
+    **No test** — a faithful one needs a two-feed identity, and the reference `Publisher` only
+    builds a single `feeds` entry (`publish.js:132`). Either add multi-feed support to
+    `Publisher` (small, and Stage 4's "consumer-state / fetch-order" work wants it anyway) or
+    hand-assemble a two-feed identity document in the test.
 
-**1. Stage 0's remaining defects** (`tmp/review-findings.md` § Stage 0). Sharpest first: `0.2`
-`effectiveSigningTime` sniffs `updated`; `0.3` first-observation time *replaces* the
-self-reported revocation check rather than bounding it; `0.4` `verifyBundle` TOFU-pins the
-predecessor from inside the bundle; `0.5` inbox relevance matches any item the receiver holds.
-0.2 and 0.3 are both revocation bypasses and both are a few lines. **Each fix lands with the test
-that fails without it** — and check that it does, by reverting the fix, not by assuming.
+**Still OPEN from Stage 0:** 0.7 (walked identity versions not bound to the chain's identity —
+pairs with spec 1.13), 0.10 (no upper bound on self-reported signing time — pairs with 1.4),
+and 0.11's list (unbounded store growth on `PinStore`/`MigrationStore`/`ObservationStore`;
+`export.js` dropping `requireCanonical` on restore; skip-hop undercount; `timingSafeEqualString`
+coercing non-strings; §13.4 slot caps; blocked authors writing the dedup store; non-`EncError`
+escaping `enc.js` — some of these last two may have been incidentally closed this pass, verify
+before acting).
 
-**2. Stage 1's spec corrections** (§ Stage 1). Four of them pair with Stage 0 fixes (`1.2`↔`0.3`,
-`1.3`↔`0.5`, `1.4`↔`0.10`, `1.13`↔`0.7`) and should land together, or the code and the text
-disagree in the direction that is hardest to notice. `1.5` — no URL comparison rule for anything
-but identity URLs, at a security boundary — is the highest-value one standing alone;
-`normalizeUrlForCompare` already implements what the spec never says.
+## Open, in the order I would take it
 
-**3. Stage 5's gates** (§ Stage 5). `enctags`, `inbox` and `deltamanifest` still have no
-assertion gate on their substantive claims. This is the finding that makes every other prototype
-claim unfalsifiable over time, and this pass proved it twice: two prototypes were building a
-document shape the spec no longer permits and neither noticed.
+**1. Finish 0.8 and 0.9's tests** (above). Cheap, and they close the "every fix lands with a
+test that fails without it" gap this pass left.
 
-**4. Stages 3 and 4** (§ Stage 3, § Stage 4). Surface cuts, then publication readiness. Both are
-judgement-heavy and neither is urgent.
+**2. Stage 1 spec corrections that pair with landed code**, so text and code stop disagreeing:
+1.2↔0.3 (DONE in text this pass — verify), 1.3↔0.5 (DONE), 1.4↔0.10 (OPEN both), 1.13↔0.7 (OPEN
+both). Then the standalone-high-value ones: 1.5 (URL comparison rule — `normalizeUrlForCompare`
+implements what the spec never states), 1.6 (RFC 3339 time profile), 1.7 (`seq` contiguity).
+
+**3. Decisions 2 + 3 together** (milliseconds + `_openfeed:` namespace), then
+`node tmp/regen.js` to regenerate every vector against the final wire. Do these near-last: they
+touch every signed document, and doing them before the other spec work means regenerating twice.
+S2.9's Appendix B gap (vectors carry no `items`/`_next_update`/`_delivery`) closes naturally
+when you regenerate after adding those to the canonical example.
+
+**4. Docs (S2.11).** README and DISTRIBUTION-MODEL are stale against *both* the previous Stage 2
+and this pass. The register's S2.11 entry enumerates every concrete contradiction with line
+numbers — the sharpest is `README.md:455`, whose verification recipe ("signature fields removed",
+plural) fails on every co-signed document under §6.3. Do this after the wire has settled
+(decisions 2/3), per the previous handoff's own warning: don't edit the human docs before the
+shape they describe is final.
+
+**5. §12 conformance checklists (S2.9).** No freshness item at any level; Level 1 missing §7.6's
+consumer MUST and §13.17. One editing pass.
+
+**6. Prototype gate hardening.** `enctags`, `inbox`, `deltamanifest` still lack real assertion
+gates on their substantive claims (register Stage 5). `enctags` also never exercises
+`src/enc.js` and quotes spec sections that no longer exist.
+
+**7. Decision 4** — the three-model adversarial review, last, over the finished state.
 
 ## Things that will bite you
 
-- **DISTRIBUTION-MODEL.md and README.md have not been touched in this pass and are now stale
-  against Stage 2.** README's TL;DR describes the withholding guarantee in terms §3.2.1's flag
-  has just changed; DISTRIBUTION-MODEL's Phase 3 assumes every interaction on encrypted content
-  is delivered-only, which §15.4 no longer says, and its own pre-existing errors are listed in
-  the register. Neither should be edited before the owner has seen the Stage 2 shape.
-- **`_sig` covers `_recovery_sig` now, so order matters.** Co-sign *first*, then sign. Appending
-  a co-signature to a finished document produces something every verifier rejects. Use
-  `Publisher.coSignIdentity`; do not hand-assemble a detached JWS, which is what four call sites
-  used to do.
-- **Two prototypes are marked ADOPTED and run their counterfactual rather than remembering it**
-  (`freshness`, `withholding-capability`, `delivery-chain`). If you change the rule they justify,
-  the counterfactual is the thing to update — not the claim.
-- **`Publisher` gained three constructor options** in this pass: `nextUpdate` (§9.1.2 cadence, in
-  seconds), `pins` (§16.1 emission store), and `deliverItem`'s `to` (§10.6 stream key). All are
-  opt-in and all default to inert.
-- **`#withPins` uses `??` rather than a default parameter** and the comment says why: the callers
-  pass `pins` through explicitly with its own default of `null`, which is not `undefined` and
-  would shadow the store. The same shape will bite anywhere else this pattern is copied.
-- **§13's list is numbered and cross-referenced from four files.** `§13.12`, `§13.13`, `§13.14`
-  and `§13.16` are cited from README, DISTRIBUTION-MODEL, `src/manifest.js` and
-  `test/inbox.test.js`. Adding an item mid-list silently breaks them. Item 17 was appended to the
-  end for exactly this reason.
-- **`node tmp/regen.js` after anything touching canonicalization, signing, document shape, or the
-  vectors** — CLAUDE.md rule 4, and it is not optional. No Appendix B vector carries a
-  `_recovery_sig`, which is why §6.3's change moved no vector; the next change of that kind may
-  not be so lucky.
+- **`npm run prototypes` takes ~5 minutes and several prototypes read `src/`/the spec mid-run.**
+  Never edit those files while a run is in flight — a half-landed edit reads as a prototype
+  failure (this bit me: a stray concurrent run reported a phantom failure). Read
+  `tmp/prototype-results.json` instead of rerunning.
+- **`_sig` covers `_recovery_sig` (§6.3), so order matters: co-sign first, then sign.** New this
+  pass: `advanceIdentity(changes, { recoverySigner })` co-signs *atomically*, before the version
+  exists to serve — prefer it for every post-genesis case. `coSignIdentity` retrofits onto the
+  tip and is only safe before the tip's bytes are first served (else self-equivocation); it
+  carries the warning now, and exists for the genesis case.
+- **The delivered column is an audience of one now.** `_delivery` lives only at top level, is
+  ignored (and MUST NOT appear) on published items, and `Publisher.retractDelivered` is how a
+  delivered item is tombstoned (`tombstone()` reaches only the published store).
+- **`ObservationStore` keys `(author, id, _version)` now**, not `(author, id)`. It bumped to
+  serialization version 2 with a new `idsSeen` map; `fromJSON` reads v0/v1/v2. The revocation
+  check *bounds* the self-reported time (`Math.max`), never replaces it — the inversion is
+  written into §4.4 and the docstrings; don't "simplify" it back to `??`.
+- **`effectiveSigningTime` and `claimedAuthor` both require an explicit `{ kind }`** — no
+  field-sniffing, because an item can carry a numeric `updated` as conformant unknown data.
+- **`verifyBundle` returns `predecessorTofu` and downgrades a bundle-anchored migration to
+  unverified** unless the caller passes `pins` holding the predecessor from outside the bundle.
+- **`createInbox` renamed `holdsItem` → `ownsItem`** (owner-authored only); "previously accepted
+  here" is answered by `DedupStore.knows`, wired automatically. A deployment pointing `ownsItem`
+  at its whole item store reopens the fetch-oracle (0.5).
+- **`_next_update` strictness binds the manifest tip only**; in retained history a malformed
+  value is read as absent (`assertManifestShape(doc, url, { tip })`).
+- **§13's list is numbered and cross-referenced from four files** (`§13.12–14`, `§13.16` from
+  README, DISTRIBUTION-MODEL, `src/manifest.js`, `test/inbox.test.js`). Append, don't insert.
+- **`node tmp/regen.js` after anything touching canonicalization, signing, document shape, or
+  vectors** — CLAUDE.md rule 4, not optional.
 
-## Questions I did not answer
+## Questions still unanswered (unchanged from before)
 
-1. **§3.1's percent-encoding still has no single answer.** `normalizeIdentityUrl` delegates to
-   WHATWG `URL`, which never decodes but *does* re-encode raw characters (`/a^b/` → `/a%5Eb/`);
-   a different library encodes a different set, and one identity becomes two. This is the only
-   place two conforming implementations can split one identity into two chains, and it is the
-   longest-standing open question in the repo. It has no prototype.
-2. **Where does the §15 review come from?** The layer now says what would retire the caveat — a
-   cryptographer's pass on the envelope, and a second implementation of §15.2.1 written from the
-   text alone. Neither is work this repository can do to itself.
-3. **The adoption asymmetry** (last section of the register). Publishing is expensive and buys
-   the publisher nothing until Level 1 readers exist in numbers. No amount of Stage 0–5 work
-   touches it; it is a product and distribution question, and it is the biggest one open.
+1. **§3.1's percent-encoding** — the one place two conforming implementations can split one
+   identity into two chains. No prototype, longest-standing open question.
+2. **Where the §15 review comes from** — decision 4 is the interim answer (three models now,
+   cryptographer at launch); it does not fully retire the "never independently reviewed" caveat.
+3. **Adoption asymmetry** — decision 5 reframes it (off-the-shelf reference implementations) but
+   does not close it. Product/distribution question.
