@@ -2,7 +2,7 @@
 
 A family journaling app with AI assistance, built as a conforming **Open Feed** implementation (see `open-feed-spec.md`, Version 0.1.0). Start simple, add complexity only when needed — but stay on-protocol from day one, so hub users and self-hosted members interoperate through the same signed formats rather than a private API that diverges from the spec.
 
-**Relationship to the spec:** This app is a Level 3 hub (spec §12). Every identity serves **one signed identity document** at `{identity_url}openfeed.json` — profile, keys, endpoints, and a tamper-evident version chain (spec §3.2, §4, §5). Content is published as signed JSON Feed items (spec §7), and a **separately-signed, chained manifest** commits each feed's contents so the host can't silently drop, reorder, or roll them back (spec §9). Interactions (replies, likes, reposts) **are** feed items carrying a `_rel` relation array (spec §8), delivered by POSTing the signed item to the recipient's inbox (spec §10). Content addressed to an **audience** is **published encrypted** to that audience in one form for every reader (spec §11.3, spec §15), wrapped to each member's own encryption key and decrypted in each member's client — on-hub and off-hub members alike. There is no gated feed and no second authorization mechanism — a document served in audience-varying forms is equivocation (spec §5.3.1). Until the encryption layer ships, audience entries are **not published at all** (see "What Gets Published"). Custody is **delegated by default** (spec §4.6, §12): the member's device generates the root signing key, the recovery key, and the encryption key; the hub holds only a delegated key, which signs items and manifests but can never advance the identity chain (see "Key custody"). Where this document previously described spec-divergent shortcuts, it has been brought into line; the app's own additions (AI companion, drafting flow) are layered on top and never replace the wire formats.
+**Relationship to the spec:** This app is a Level 3 hub (spec §12). Every identity serves **one signed identity document** at `{identity_url}openfeed.json` — profile, keys, endpoints, and a tamper-evident version chain (spec §3.2, §4, §5). Content is published as signed JSON Feed items (spec §7), and a **separately-signed, chained manifest** commits each feed's contents so the host can't silently drop, reorder, or roll them back (spec §9). Interactions (replies, likes, reposts) **are** feed items carrying a `_openfeed.rel` relation array (spec §8), delivered by POSTing the signed item to the recipient's inbox (spec §10). Content addressed to an **audience** — posts *and* the replies to them (spec §15.4) — is **published encrypted** to that audience in one form for every reader (spec §11.3, spec §15), wrapped to each member's own encryption key and decrypted in each member's client — on-hub and off-hub members alike. There is no gated feed and no second authorization mechanism — a document served in audience-varying forms is equivocation (spec §5.3.1), and spec §15 forbids restricting an audience by access control *at all*, which is why the audience tier does not exist in this product until the encryption layer ships (see "What Gets Published"). Custody is **delegated by default** (spec §4.6, §12): the member's device generates the root signing key, the recovery key, and the encryption key; the hub holds only a delegated key, which signs items and manifests but can never advance the identity chain (see "Key custody"). Where this document previously described spec-divergent shortcuts, it has been brought into line; the app's own additions (AI companion, drafting flow) are layered on top and never replace the wire formats.
 
 ---
 
@@ -32,10 +32,10 @@ Earlier drafts of this doc took spec-divergent shortcuts to save effort. Followi
 |------------------|--------------------|-----|
 | No signatures on hub content | **Sign all feed items** (spec §6, §7.2) | Signing on write is cheap (sign once, cache). It makes hub content portable and verifiable off-hub, and is required for a conforming feed. The hub's delegated key (spec §4.6) keeps it invisible to users. |
 | Separate JWKS + profile-HTML discovery | **One signed identity document** at `{identity}openfeed.json` (spec §3.2) | Keys, profile, and endpoints live in one signed, chained JSON file at a fixed path. No HTML parsing, no `<link rel="jwks">`, no cross-document key-ownership check — key ownership is structural (spec §4.2). |
-| Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix C) that ingests lower-trust `_unverified` copies. |
-| Standalone interaction objects (`type`/`target`/`target_item`) | **Interactions are items with a `_rel` array** (spec §8) | A comment = an item with `_rel:[{type:"reply", to:"{feed_url}#{item_id}"}]`; a reaction = an item with `_rel:[{type:"like",...}]` and `_emoji`. One schema, one verifier; publishing and delivering are the same bytes. |
-| Flat comments only | **Nested threading** via `_rel` `reply` + `root` entries (spec §8.1) | Store the parent reference; render flat *or* nested. Deep replies carry a `root` entry so the thread host's inbox accepts them. |
-| No feed-integrity commitment | **Publish + advance a signed, chained manifest** (spec §9) | The manifest proves *presence* (a host can't drop your content) and, via its chain, tamper-evidence against rollback/equivocation. `_feed_url` proves *exclusivity* (spec §7.5). |
+| Webmention instead of custom inbox | **Inbox is the sole core delivery path** (spec §10); Webmention is only an optional bridge | The signed inbox gives verified authorship and structured interactions. Webmention is demoted to an optional IndieWeb *gateway* (spec Appendix C) that ingests lower-trust `_openfeed.unverified` copies. |
+| Standalone interaction objects (`type`/`target`/`target_item`) | **Interactions are items with a `_openfeed.rel` array** (spec §8) | A comment = an item with `_openfeed.rel:[{type:"reply", to:"{feed_url}#{item_id}"}]`; a reaction = the same with `type:"like"` and an `_emoji`. One schema, one verifier; publishing and delivering are the same bytes. |
+| Flat comments only | **Nested threading** via `_openfeed.rel` `reply` + `root` entries (spec §8.1) | Store the parent reference; render flat *or* nested. Deep replies carry a `root` entry so the thread host's inbox accepts them. |
+| No feed-integrity commitment | **Publish + advance a signed, chained manifest** (spec §9) | The manifest proves *presence* (a host can't drop your content) and, via its chain, tamper-evidence against rollback/equivocation. `_openfeed.feed_url` proves *exclusivity* (spec §7.5). |
 | No key rotation/revocation | **Rotation + revocation via the identity chain** (spec §4.3, §4.4, §5) | Required for a real trust story and cheap to serve. The chain makes rotation and revocation tamper-evident. |
 | No recovery keys | **Support recovery keys** (spec §4.5) | Generated once at account creation, stored offline. Enables migration/recovery if the domain is lost (spec §3.4). |
 | Internal API as source of truth | **Internal API over spec storage** | Hub users hit a fast REST API, but every write produces the same signed identity document / feed item / manifest a self-hoster would produce. The API is a cache/convenience, not a fork of the model. |
@@ -103,7 +103,7 @@ interface User {
 
 Their identity URL is `https://mom.pence.family/`, and their machine-readable identity document is at `https://mom.pence.family/openfeed.json` (spec §3.2). The identity URL MAY also serve a human-readable HTML page, but nothing in the protocol reads it.
 
-**Decision: subdomains, not subpaths.** Hub members get identities at `https://{user}.pence.family/`, not `https://pence.family/~{user}/`. This is a Phase 1 decision because identity URLs are permanent — every signed item's `_feed_url` names the feed forever (spec §7.5), so switching later means exercising migration (spec §3.4) for every member. Three reasons, only one of which is Bluesky:
+**Decision: subdomains, not subpaths.** Hub members get identities at `https://{user}.pence.family/`, not `https://pence.family/~{user}/`. This is a Phase 1 decision because identity URLs are permanent — every signed item's `_openfeed.feed_url` names the feed forever (spec §7.5), so switching later means exercising migration (spec §3.4) for every member. Three reasons, only one of which is Bluesky:
 
 1. **Cross-protocol identity binding is domain-scoped** (README, "Aliases": WebFinger and did:web are README conventions). A Bluesky handle (`mom.pence.family`) binds via `_atproto` DNS TXT or `/.well-known/atproto-did`, and neither has a path form; a subpath identity has no Bluesky handle, permanently. Hostname-level `did:web` (the only kind atproto accepts) has the same shape.
 2. **Origin isolation.** Subpath members share one browser origin, so one member's compromised or malicious HTML page can reach another member's same-origin state (inbox auth cookies, storage), and spec §3.3's same-origin fetch rules bind at origin granularity. Subdomains give each member their own origin. For a hub whose threat model includes its own members, this stands on its own even if Bluesky support is never built.
@@ -130,7 +130,7 @@ interface Entry {
   visibility: 'public' | 'private' | 'unlisted'
             | { audience: string };  // an audience the author holds — "Family", "Work", …
   attachments?: Attachment[];    // Photos, files
-  version: number;               // Maps to _version; starts at 1, bumped on edit/delete
+  version: number;               // Maps to _openfeed.version; starts at 1, bumped on edit/delete
   publishedAt?: Date;            // null = draft
   modifiedAt?: Date;             // Maps to date_modified; set on re-sign/edit
   createdAt: Date;
@@ -143,17 +143,17 @@ interface Attachment {
   alt?: string;                  // Alt text for images
   width?: number;
   height?: number;
-  sha256: string;                // REQUIRED. Maps to _sha256 (spec §7.4); an attachment
+  sha256: string;                // REQUIRED. Maps to _openfeed.sha256 (spec §7.4); an attachment
                                  // without one is unverified content, not signed record
 }
 ```
 
-When published, an entry becomes a signed JSON Feed item carrying `id`, `date_published`, single-entry `authors` (author binding, spec §6.6), `_feed_url`, `_version`, and `_sig` (spec §7.2). Editing bumps `_version` and sets `date_modified`; deletion publishes a **tombstone** (spec §7.3).
+When published, an entry becomes a signed JSON Feed item carrying `id`, `date_published`, single-entry `authors` (author binding, spec §6.6), `_openfeed.feed_url`, `_openfeed.version`, and `_sig` (spec §7.2). Editing bumps `_openfeed.version` and sets `date_modified`; deletion publishes a **tombstone** (spec §7.3).
 
 | Visibility | Who can see it |
 |------------|----------------|
 | `public` | Anyone |
-| `{ audience }` | The identities on that list, via content **published encrypted** to them (spec §11.3, spec §15) — one form for every reader, decrypted in each member's own client with a key the hub never holds. **Not published in any form until the encryption layer ships** |
+| `{ audience }` | The identities on that list, via content **published encrypted** to them (spec §11.3, spec §15) — one form for every reader, decrypted in each member's own client with a key the hub never holds. **The tier is not offered at all until the encryption layer ships** — see below |
 | `private` | Only the author **and the hub operator** — see the note below |
 | `unlisted` | Anyone with the link (not in feeds) |
 
@@ -177,8 +177,23 @@ Four consequences worth building around from the start:
   membership and MUST NOT be presented as one. The UI says "Sending to: Family (4 people)", never
   "the Family group" — because every reply is scoped by the *author's* claim about who they wrapped
   to, which nobody can check (spec §15.5, item 2).
-- **Changing an item's audience is prospective for its thread.** Replies already delivered were
+- **Changing an item's audience is prospective for its thread.** Replies already published were
   wrapped to the old list and nothing re-wraps them, exactly as adding a member is prospective.
+- **Replies to an audience post are published, encrypted, like the post** (spec §15.4). They are not
+  delivered-only; that arrangement is what an earlier draft of this document assumed and what the
+  spec now rejects, for the reason set out under "Sending Interactions". The reply graph is public
+  and the reply bytes are not.
+
+**The tier cannot ship before the encryption does, and this is a MUST rather than a preference.**
+Spec §15's opening binds a whole deployment: offer audience-restricted content and you implement
+that layer in full, and you **MUST NOT offer such content by any other means**. Restricting an
+audience with an authenticated API and a database column is precisely the access-control substitute
+that sentence forbids — it builds spec §11.1's fifth cell, published-but-not-public, which does not
+exist. So until Phase 3 lands the envelope, this app offers `public`, `unlisted`, and
+not-shared-with-anyone, and the audience picker is absent rather than present-but-unpublished. The
+alternative reading of the same constraint is to move encryption into Phase 1; that is a scheduling
+call rather than a conformance one, and either answer is available — what is not available is
+shipping the tier without the layer.
 
 > **Do not label a tier `private` unless it is.** A `private` entry is stored in cleartext on the
 > hub so the app can show it back to its author, so the operator can read it — key custody has
@@ -192,13 +207,13 @@ Four consequences worth building around from the start:
 
 ### Comments
 
-A comment is a signed feed item with a `_rel` `reply` entry (spec §8). It is not a separate object type — it is an item like any other, whose `_rel` array names what it replies to:
+A comment is a signed feed item with a `_openfeed.rel` `reply` entry (spec §8). It is not a separate object type — it is an item like any other, whose `_openfeed.rel` array names what it replies to:
 
 ```typescript
 interface Comment {
   id: string;                    // UUID; the item id; permanent; no '#'
 
-  // Relation (maps to _rel entry, type "reply"):
+  // Relation (maps to an _openfeed.rel entry, type "reply"):
   replyToFeedUrl: string;        // Target feed URL
   replyToItemId: string;         // Target item id  → to: "{feedUrl}#{itemId}"
   rootFeedUrl?: string;          // For nested replies: thread root feed URL
@@ -213,7 +228,7 @@ interface Comment {
   authorAvatar?: string;         // Avatar URL (cached)
 
   contentText: string;           // Plain text; escape/sanitize before rendering
-  version: number;               // _version
+  version: number;               // _openfeed.version
   createdAt: Date;
   updatedAt: Date;
 }
@@ -223,13 +238,13 @@ Either `authorId` (hub user) or `authorUrl` (external) will be set, not both. Au
 
 ### Reactions
 
-A reaction is a signed feed item with a **content-less** `_rel` `like` entry carrying `_emoji` (spec §8):
+A reaction is a signed feed item with a **content-less** `_openfeed.rel` `like` entry carrying `_emoji` (spec §8):
 
 ```typescript
 interface Reaction {
   id: string;                    // item id
   likeOfFeedUrl: string;         // target feed URL
-  likeOfItemId: string;          // target item id  → _rel: [{type:"like", to:"{feed}#{id}", _emoji:"❤️"}]
+  likeOfItemId: string;          // target item id  → _openfeed.rel: [{type:"like", to:"{feed}#{id}", _emoji:"❤️"}]
 
   // For hub users:
   authorId?: string;
@@ -238,14 +253,14 @@ interface Reaction {
   authorUrl?: string;
   authorName?: string;
 
-  emoji: string;                 // Single emoji, carried as _emoji on the _rel entry
+  emoji: string;                 // Single emoji, carried as _emoji on the _openfeed.rel entry
   createdAt: Date;
 }
 ```
 
-**`Entry`, `Comment`, and `Reaction` above are view models, not the row of record.** Each is derived from a signed artifact whose `canonical_bytes` is the source of truth — see "Store the bytes, not just the fields" — so the real tables carry `canonical_bytes`, `sig`, and an `ext_json` bag for unknown `_` fields alongside these columns. Decomposing `_rel` into `replyToFeedUrl`/`replyToItemId` is fine as an index; reconstructing an item from those columns to re-verify or re-serve it is not, and will not reproduce the hash its manifest entry commits.
+**`Entry`, `Comment`, and `Reaction` above are view models, not the row of record.** Each is derived from a signed artifact whose `canonical_bytes` is the source of truth — see "Store the bytes, not just the fields" — so the real tables carry `canonical_bytes`, `sig`, and an `ext_json` bag for unknown `_` fields alongside these columns. Decomposing `_openfeed.rel` into `replyToFeedUrl`/`replyToItemId` is fine as an index; reconstructing an item from those columns to re-verify or re-serve it is not, and will not reproduce the hash its manifest entry commits.
 
-**Reactions are delivered, not published** (spec §8). A `like` has exactly one reader — the author of the thing liked — and the inbox already reaches them, so the item carries no `_feed_url` and never enters a feed or manifest. This is not a minor preference: reactions are the highest-volume object in a family app, and publishing them would both dominate manifest growth and write the family's reaction graph into a world-readable file that encryption does not cover (spec §11.4). The cost, which the UI should not paper over: a reaction count is the entry author's own tally from their inbox, not something another member can independently verify. Reposts and quotes are meant to be seen and are published normally; if the app ever publishes content-less relations, they go in a **separate activity feed** listed under `feeds` with its own manifest (spec §8, §3.2), so the primary feed stays clean for plain readers.
+**Reactions are delivered, not published** (spec §8). A `like` has exactly one reader — the author of the thing liked — and the inbox already reaches them, so the item carries no `_openfeed.feed_url` and never enters a feed or manifest. This is not a minor preference: reactions are the highest-volume object in a family app, and publishing them would both dominate manifest growth and write the family's reaction graph into a world-readable file that encryption does not cover (spec §11.4). The cost, which the UI should not paper over: a reaction count is the entry author's own tally from their inbox, not something another member can independently verify. Reposts and quotes are meant to be seen and are published normally; if the app ever publishes content-less relations, they go in a **separate activity feed** listed under `feeds` with its own manifest (spec §8, §3.2), so the primary feed stays clean for plain readers.
 
 ---
 
@@ -269,7 +284,7 @@ Session stored in HTTP-only cookie or bearer token.
 GET    /api/entries              # List entries (filtered by visibility)
 GET    /api/entries/:id          # Get single entry
 POST   /api/entries              # Create entry (or draft)
-PATCH  /api/entries/:id          # Update entry (bumps _version, re-signs, advances manifest)
+PATCH  /api/entries/:id          # Update entry (bumps _openfeed.version, re-signs, advances manifest)
 DELETE /api/entries/:id          # Delete entry (publishes tombstone, advances manifest)
 
 POST   /api/entries/:id/publish  # Publish a draft (sign item, advance manifest)
@@ -280,7 +295,7 @@ POST   /api/entries/:id/publish  # Publish a draft (sign item, advance manifest)
 ```
 GET    /api/entries/:id/comments     # List comments on entry
 POST   /api/entries/:id/comments     # Add comment (produces a signed reply item)
-PATCH  /api/comments/:id             # Edit comment (bump _version, re-sign)
+PATCH  /api/comments/:id             # Edit comment (bump _openfeed.version, re-sign)
 DELETE /api/comments/:id             # Delete comment (tombstone) (author or entry owner)
 ```
 
@@ -332,9 +347,9 @@ Keep it simple:
 
 ## Cross-Site Interactions (Self-Hosted Members)
 
-When family members self-host, they can't use `POST /api/comments`. The **sole core path** is the Open Feed **inbox** (spec §10): the self-hoster signs a feed item carrying a `_rel` `reply` entry and POSTs it, verbatim, to `mom.pence.family/inbox`; the hub runs the §10.2 verification (author binding, signature, revocation, dedup) and stores it as a verified comment.
+When family members self-host, they can't use `POST /api/comments`. The **sole core path** is the Open Feed **inbox** (spec §10): the self-hoster signs a feed item carrying a `_openfeed.rel` `reply` entry and POSTs it, verbatim, to `mom.pence.family/inbox`; the hub runs the §10.2 verification (author binding, signature, revocation, dedup) and stores it as a verified comment.
 
-Webmention is **not** part of the core. It is available only as an optional IndieWeb **bridge** (spec Appendix C), producing lower-trust `_unverified` content — see "Optional Webmention Bridge" below.
+Webmention is **not** part of the core. It is available only as an optional IndieWeb **bridge** (spec Appendix C), producing lower-trust `_openfeed.unverified` content — see "Optional Webmention Bridge" below.
 
 ### How It Works (Inbox)
 
@@ -347,13 +362,17 @@ Jesse (self-hosted) comments on Mom's post:
      "authors": [{ "url": "https://jessepence.com/" }],
      "content_text": "Those cookies were delicious!",
      "date_published": "2025-12-07T16:00:00Z",
-     "_version": 1,
-     "_rel": [{ "type": "reply",
-                "to": "https://mom.pence.family/feed.json#urn:uuid:550e8400-..." }],
-     "_sig": "..."
+     "_sig": "...",
+     "_openfeed": {
+       "version": 1,
+       "rel": [{ "type": "reply",
+                 "to": "https://mom.pence.family/feed.json#urn:uuid:550e8400-..." }],
+       "delivery": { "seq": 7, "prev": "vdS1bhnFd5XsIugXNLR0k-7UHDxRJi7DO6XRWF5l_gU" }
+     }
    }
-   (An inbox-only item omits _feed_url, spec §6.6/§8. If Jesse also publishes
-    the reply in his own feed, that copy carries his _feed_url.)
+   (An inbox-only item omits _openfeed.feed_url, spec §6.6/§8. If Jesse also publishes
+    the reply in his own feed, that copy carries his _openfeed.feed_url — and drops
+    _openfeed.delivery, which MUST NOT appear on a published item, spec §10.6.)
 
 2. POST it, verbatim, to Mom's inbox:  POST https://mom.pence.family/inbox
    Content-Type: application/json
@@ -361,8 +380,8 @@ Jesse (self-hosted) comments on Mom's post:
 3. Mom's hub verifies (spec §10.2), cheap local checks BEFORE any fetch:
    - size limit, parse JSON, reject duplicate keys (I-JSON)
    - required item fields present (§7.2)
-   - RELEVANCE: some _rel entry's `to` references Mom (her identity, feed,
-     or an item of hers) — one lookup over _rel, works for unknown types too.
+   - RELEVANCE: some _openfeed.rel entry's `to` references Mom (her identity, feed,
+     or an item of hers) — one lookup over _openfeed.rel, works for unknown types too.
      MATCH THE ID HALF, not just the feed half (spec §10.2)
    - timestamp bounds (≤7d past, ≤24h future)
    - dedup by (author, id) → version — READ ONLY at this point
@@ -373,12 +392,12 @@ Jesse (self-hosted) comments on Mom's post:
    ONLY NOW write the dedup store. Store as a verified comment.
 ```
 
-Item `content` is plain text (`content_text`); the hub derives `contentHtml` itself (escape, then optional autolinking) and **never** renders externally-supplied HTML as-is (spec §10.5). Content marked `_unverified` MUST be displayed distinctly.
+Item `content` is plain text (`content_text`); the hub derives `contentHtml` itself (escape, then optional autolinking) and **never** renders externally-supplied HTML as-is (spec §10.5). Content marked `_openfeed.unverified` MUST be displayed distinctly.
 
 **Two things in that pipeline are easy to get wrong and silent when wrong** (both measured in `tmp/inbox-prototype.js`):
 
 - **Never write the dedup store before verification succeeds** (spec §10.3, §13.9). The `author` is attacker-controlled until the signature checks out, so an early write lets anyone who knows a victim's identity URL and one item id — no key, no valid signature, one request — pin `(victim, id)` at a version the victim will never reach. Every genuine revision they sign afterwards is rejected as stale, forever. The forgery is rejected either way, which is exactly what makes the damage invisible: nothing is logged as an attack and nobody is notified.
-- **Match relevance and dedup on the item `id`, not on the feed or author URL alone.** Ids are globally unique and contain no `#`, so the id half of a `_rel` target is unambiguous by itself (spec §10.2). Get this wrong and migration breaks in two places: replies written before someone moved bounce as `not_relevant`, and — worse — a member who migrates can no longer retract anything they *delivered* beforehand, because the tombstone must name their new identity (spec §6.6), files under a new `(author, id)`, and is accepted as a brand-new item while the original stays live. The sender sees `202` and believes it landed.
+- **Match relevance and dedup on the item `id`, not on the feed or author URL alone.** Ids are globally unique and contain no `#`, so the id half of a `_openfeed.rel` target is unambiguous by itself (spec §10.2). Get this wrong and migration breaks in two places: replies written before someone moved bounce as `not_relevant`, and — worse — a member who migrates can no longer retract anything they *delivered* beforehand, because the tombstone must name their new identity (spec §6.6), files under a new `(author, id)`, and is accepted as a brand-new item while the original stays live. The sender sees `202` and believes it landed.
 
 ### Inbox Endpoint
 
@@ -399,28 +418,30 @@ Access-Control-Allow-Headers: Content-Type
 
 Statuses and error codes are spec §10.4 exactly; implement that table rather than a copy of it. Read the paragraph under it before choosing what this hub returns, because two of its rules are product decisions and not defaults. **Blocked authors get `202`** with the content discarded — a distinct status tells a harasser to make a new identity, and in a family app the harasser is frequently someone who knows exactly which account they are probing. And `404`/`409` are an unauthenticated existence oracle for `(author, id)` pairs; this app's ids are unguessable UUIDs, which is what makes them safe here, so the day something derives an id from anything guessable, those two statuses have to become `202`.
 
-Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliveries are recovered by polling the sender's feed — the feed is the source of truth; the inbox is a latency optimization (spec §10.4, §1).
+Senders retry 5xx/timeouts with exponential backoff for 24 hours. Missed deliveries of **published** items are recovered by polling the sender's feed — the feed is the source of truth; the inbox is a latency optimization (spec §10.4, §1). That route does not exist for a delivered-only item: it is in no feed to poll, committed by no manifest, and its loss is invisible to everyone but its sender's timeout. `_openfeed.delivery` (spec §10.6) is the substitute, and it is a detector rather than a repair — it tells the recipient something is missing, not what.
 
-**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in any thread-discovery or query endpoint if one is ever built (spec §11.1.1 binds every public projection), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
+**Never republish what arrives here (spec §11.1.1).** An inbox item with **no `_openfeed.feed_url`** was *delivered, not published* — its author deliberately kept it off the public web. The hub holds it as a custodian, so it MUST NOT appear in any public artifact: not in a member's published `feed.json`, not in a manifest, not in any thread-discovery or query endpoint if one is ever built (spec §11.1.1 binds every public projection), and not in a Webmention or ActivityPub bridge emission. Rendering it in the authenticated `/api/feed` for logged-in family is fine — that is the audience it was delivered to.
 
-This matters most for the case this product depends on. Family interactions on encrypted content are delivered rather than published precisely so the reply graph never lands in a world-readable file (spec §15.4). One helpful "let's publish the comment thread so it's complete" feature undoes that for the whole family, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._feed_url) return` on every path that writes to a published file.
+What still travels this way, after spec §15.4's split, is narrower than an earlier draft of this document assumed but not smaller in volume: every **reaction**, every **direct message**, and every gateway backfeed item. Reactions are the highest-volume object in the app, and a direct message is the one thing here with no public trace at all. One helpful "let's publish the reactions so the count is verifiable" feature writes the family's reaction graph into a world-readable file, silently, and nobody outside the hub can detect it. Gate it in code: a single `if (!item._openfeed?.feed_url) return` on every path that writes to a published file.
 
-The one scoped exception is gateway backfeed, and the bytes distinguish it: a delivered item carrying `_unverified: true` **and** an `external_url` came from an enrolled gateway conveying a *publicly-published* foreign reply, and MAY render on the entry's unsigned HTML page (never in any signed artifact) — see "POSSE and the syndication gateway" and spec Appendix C. A native family item carries neither marker, and the gate above applies to it absolutely.
+The one scoped exception is gateway backfeed, and the bytes distinguish it: a delivered item carrying `_openfeed.unverified: true` **and** an `external_url` came from an enrolled gateway conveying a *publicly-published* foreign reply, and MAY render on the entry's unsigned HTML page (never in any signed artifact) — see "POSSE and the syndication gateway" and spec Appendix C. A native family item carries neither marker, and the gate above applies to it absolutely.
 
 ### Threading (nested replies)
 
-A `reply` entry's `to` points at the **parent** item (spec §8.1). When the parent is not itself the thread root, the item SHOULD also carry a `root` entry pointing at the thread root, and the sender SHOULD deliver the nested reply to **both** the parent author's and the root author's inboxes. Without the `root` entry, the inbox relevance check (judged per `_rel` entry) would cause the thread host to reject a reply-to-a-reply as `not_relevant`. Clients build the tree by walking parents and SHOULD cap walk depth (malicious data can contain cycles).
+A `reply` entry's `to` points at the **parent** item (spec §8.1). When the parent is not itself the thread root, the item SHOULD also carry a `root` entry pointing at the thread root, and the sender SHOULD deliver the nested reply to **both** the parent author's and the root author's inboxes. Without the `root` entry, the inbox relevance check (judged per `_openfeed.rel` entry) would cause the thread host to reject a reply-to-a-reply as `not_relevant`. Clients build the tree by walking parents and SHOULD cap walk depth (malicious data can contain cycles).
 
 ### Sending Interactions (outbound)
 
 To comment on, like, or reply to another identity's item, a hub user's action produces a signed item and the hub POSTs it to the target's inbox:
 
-1. Build the item with the appropriate `_rel` entry/entries (`reply`, `like` + `_emoji`, `repost`, `quote`, plus `root` for nested replies)
+1. Build the item with the appropriate `_openfeed.rel` entry/entries (`reply`, `like` + `_emoji`, `repost`, `quote`, plus `root` for nested replies)
 2. Sign it with the hub's delegated key (spec §4.6; invisible to the user)
 3. Discover the recipient's inbox from their `openfeed.json` (`inbox` field)
 4. POST the signed item verbatim; retry with backoff on 5xx/timeout
-5. Publish the same item in the sender's own feed **only where its target is public**. On a `public` entry, relations meant to be seen (`reply`, `repost`, `quote`, `mention`) are published normally, so polling discovers them. On **audience** — that is, encrypted — content they are **delivered only**: `_rel[].to` stays cleartext even when the content does not (spec §11.4), so publishing such a reply writes that audience's reply graph into a world-readable file. That is exactly what the delivered column exists to prevent (spec §15.4) and exactly what "Never republish what arrives here" above is protecting; publishing your own reply undoes it just as completely as republishing someone else's. Likes stop at the inbox in every case — no `_feed_url`, no feed, no manifest (spec §8)
-6. On an audience entry, deliver the reply to **every identity the entry's declared audience names** (spec §15.2.2), wrapped to their encryption keys — each resolved from that member's own `openfeed.json`, never from the audience list, which names people and holds no keys (spec §15.1). Fan-out is per-inbox, so a member whose inbox is down recovers nothing by polling: these items are delivered, not published, and the feed cannot heal them. Retry per spec §10.4 and say so in the UI rather than showing a thread that is silently incomplete for one member
+5. Publish the same item in the sender's own feed wherever the relation is one meant to be *seen* — `reply`, `repost`, `quote`, `mention` — on a `public` entry **and on an audience entry alike**. On the audience entry the published reply is **encrypted**, wrapped to the same identities the parent declared (step 6). Likes stop at the inbox in every case — no `_openfeed.feed_url`, no feed, no manifest (spec §8) — and carry `_openfeed.delivery` for continuity (spec §10.6)
+6. On an audience entry, read the **declared audience** out of the parent's sealed plaintext (spec §15.2.2) and wrap the reply to exactly those identities, resolving each one's encryption key from **that member's own `openfeed.json`** — never from the audience list, which names people and holds no keys (spec §15.1). Then publish it in the replier's own feed and advance their manifest, like any other item. Two things the UI must say rather than imply: the replier is trusting a list they cannot check (spec §15.5 item 2), and a member added to the audience later cannot read this reply
+
+**Why replies are published and not delivered, since an earlier draft of this document had it the other way.** Sending every interaction down the delivered column bought metadata privacy for the reply graph — `_openfeed.rel[].to` stays cleartext even when the content does not (spec §11.4) — and paid for it with the whole of the §9 guarantee on exactly the traffic a family generates. A delivered reply is in no feed, no manifest, and no §7.6 URL; it is recoverable by nothing, exportable only from the two endpoints that hold it, and **droppable by the recipient's host without trace**. That is spec §13.2's hostile custodian handed the cheapest attack in the protocol on the one channel this product is about. A reply's *existence* was never the secret; its contents were, and encryption keeps those. So spec §15.4 splits on content rather than on channel: posts and replies published-encrypted, content-free reactions delivered. The cost is public and must be stated to members — *this member replied to that thread at that time* is visible to anyone, sitting beside a parent whose existence and timing §11.4 already publishes.
 
 ### Reactions (inbox)
 
@@ -431,11 +452,14 @@ A reaction is the same flow with a `like` relation and no content:
   "id": "urn:uuid:...",
   "authors": [{ "url": "https://jessepence.com/" }],
   "date_published": "2025-12-07T16:05:00Z",
-  "_version": 1,
-  "_rel": [{ "type": "like",
-             "to": "https://mom.pence.family/feed.json#urn:uuid:550e8400-...",
-             "_emoji": "😂" }],
-  "_sig": "..."
+  "_sig": "...",
+  "_openfeed": {
+    "version": 1,
+    "rel": [{ "type": "like",
+              "to": "https://mom.pence.family/feed.json#urn:uuid:550e8400-...",
+              "_emoji": "😂" }],
+    "delivery": { "seq": 8, "prev": "czai6zQ_04DBDS7NgdaOeaUCbA_f4YGR2bzuambgNa8" }
+  }
 }
 ```
 
@@ -447,7 +471,7 @@ When a family member self-hosts, their journal entries should appear in the fami
 
 **Option A: Poll their feed (simple)**
 - Hub periodically fetches each external member's `openfeed.json` (for keys/endpoints) and JSON Feed
-- Verify each item's `_sig` (spec §6.5) and enforce the canonical/copy rule (`_feed_url` must match the feed URL fetched, spec §7.5)
+- Verify each item's `_sig` (spec §6.5) and enforce the canonical/copy rule (`_openfeed.feed_url` must match the feed URL fetched, spec §7.5)
 - Pin and walk the member's manifest chain (spec §9.1); check each item against its manifest entry
 - Poll frequency: every 15-30 minutes
 
@@ -456,7 +480,7 @@ When a family member self-hosts, their journal entries should appear in the fami
 - Hub subscribes; gets notified immediately when they publish
 - MUST still verify item signatures — the WebSub hub is untrusted infrastructure
 
-Start with polling. Add WebSub later if latency matters. Polling also **heals missed inbox deliveries**: a reply found in a member's feed whose `_rel` targets a hub entry is reconciled against the inbox record (the feed is authoritative; the inbox is a cache).
+Start with polling. Add WebSub later if latency matters. Polling also **heals missed inbox deliveries**: a reply found in a member's feed whose `_openfeed.rel` targets a hub entry is reconciled against the inbox record (the feed is authoritative; the inbox is a cache).
 
 **External audience content (the two-self-hosters case):** when a relative runs their own hub, their feed is fetched like any other feed — a public, CORS-`*`, manifested file, some of whose items' *contents* are encrypted to an audience (spec §11.3). There is no authenticated fetch, no `401`, and no reader list: the hub polls it exactly as it polls a public feed. Decryption happens in the reading member's own client, since the hub holds no member's encryption key (see "Key custody") — the hub's job on this path is fetching, verifying, and handing over bytes it cannot read. This is why cross-hub audience sharing works at all without a second authorization mechanism — and why the encryption extension is a launch dependency rather than a nice-to-have.
 
@@ -475,7 +499,7 @@ interface ExternalMember {
 
 ### Optional Webmention Bridge
 
-Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix C). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
+Webmention is **not** a co-equal delivery path — it is an optional gateway for IndieWeb tools that can't speak the signed inbox (spec Appendix C). Content that arrives via Webmention cannot be a native signed Open Feed item (no one holds the sender's Open Feed key), so it MUST be marked `_openfeed.unverified: true` and displayed distinctly — **always, with no exception** (spec §7.5). It is signed by the hub acting as gateway; `external_url` names the foreign original. Treat it as lower-trust throughout; never present it as a native, verified identity.
 
 If you implement the bridge:
 
@@ -493,7 +517,7 @@ Hub:
     (the h-card is self-asserted; on a shared host, same-origin alone is
      insufficient — dad's subdomain must not claim to be mom's)
   - Verifies Jesse is in the family list
-  - Synthesizes an _unverified item (§7.5) and stores it, clearly marked
+  - Synthesizes an _openfeed.unverified item (§7.5) and stores it, clearly marked
 ```
 
 Response codes: `202` (queued), `400` (invalid source/target), `200` (processed).
@@ -551,10 +575,10 @@ Keys are JWK objects in the `keys` array of the identity document — there is *
 
 | Key | `use` | Generated | Held by | Signs / does |
 |---|---|---|---|---|
-| Root signing key | `sig` | Member's device | Member only | Every version of `openfeed.json` — keys, profile, endpoints, migration |
+| Root signing key | `sig` | Member's device | Member only | Every version of `openfeed.json` — keys, profile, endpoints, migration. **Also tombstones**, by this deployment's own choice below |
 | Recovery key | `recovery` | Member's device | Member, offline | Co-signs migration and fork resolution (spec §4.5) |
-| Encryption key | (extension, spec §15.1) | Member's device | Member only | Decrypts audience content — one key serves every audience |
-| Delegated key | `delegated` | Hub | Hub | Feed items, manifests, delivered items, **and tombstones** — never an identity-document version (spec §4.6) |
+| Encryption key | `enc` (extension, spec §15.1) | Member's device | Member only | Decrypts audience content — one key serves every audience |
+| Delegated key | `delegated` | Hub | Hub | Feed items, manifests, delivered items — never an identity-document version (spec §4.6), and here never a tombstone either |
 
 Day to day this is invisible: publishing an entry, batching a manifest, propagating a tombstone, POSTing an interaction — all of it runs on the delegated key with the member's device asleep. What changes is what the hub *cannot* do. It cannot add a key, un-revoke one, publish a `successor`, or edit the delegation itself, because every one of those is a version of the identity document and the hub never held a key that can sign one. The hostile-custodian adversary's cheapest identity attack — quietly adding a key of its own to the chain — stops being a thing this hub is trusted not to do and becomes a thing it cannot do.
 
@@ -562,7 +586,7 @@ Day to day this is invisible: publishing an entry, batching a manifest, propagat
 
 What delegation does **not** buy, stated plainly so the UI never overstates it: a hub holding a delegated key can impersonate a member's *content* until the member revokes the delegation, and revocation is itself a root-signed chain version, so the member must still be able to reach their root key. **Revoking the delegation is two artifacts, not one** (spec §9.1): the root-signed identity version that sets `revoked_at`, *and* a manifest version signed by a key that is still valid, because a manifest tip signed by a revoked key is rejected whatever its `updated` claims. Skip the second and the member has revoked the hub's authority and left their readers pinned to a chain nobody can now advance — which is safe, and is not what they asked for. Build the revocation ceremony to emit both. And where this hub also ships the client (it does), every client-side guarantee is bounded by that client — the out-of-band genesis comparison at onboarding step 3b is the one check that survives it (spec §13.2, delegated-custodian tier).
 
-**A tombstone is an item, so the delegated key can delete a member's journal** (spec §4.6). Not silently — spec §9.3 invariant 1 puts every removal in the manifest's `deleted` map under a signed tombstone every pinned reader sees — but not preventably either, and for a product whose value proposition is a decade of family archive that is the sharper capability of the two. **Sign tombstones with the member's root key, on their device.** A root key is an ordinary `sig` key, so signing an item touches no identity-document version and needs no ceremony beyond the on-device signing flow this hub already builds for chain versions; the hub still advances the manifest that commits the tombstone, so spec §9.2's "advance immediately for a tombstone" is unaffected. The cost is that a delete requires the member's device to be reachable, which is the correct thing to require of a delete and the wrong thing to require of a post — which is exactly why the two split here and not elsewhere.
+**A tombstone is an item, so a delegated key *could* delete a member's journal** (spec §4.6) — which is why the table above does not give this hub's delegated key that job. The spec permits it; this deployment declines it. Not silently — spec §9.3 invariant 1 puts every removal in the manifest's `deleted` map under a signed tombstone every pinned reader sees — but not preventably either, and for a product whose value proposition is a decade of family archive that is the sharper capability of the two. **Sign tombstones with the member's root key, on their device.** A root key is an ordinary `sig` key, so signing an item touches no identity-document version and needs no ceremony beyond the on-device signing flow this hub already builds for chain versions; the hub still advances the manifest that commits the tombstone, so spec §9.2's "advance immediately for a tombstone" is unaffected. The cost is that a delete requires the member's device to be reachable, which is the correct thing to require of a delete and the wrong thing to require of a post — which is exactly why the two split here and not elsewhere.
 
 **Root-key loss is better prevented than recovered.** A member MAY hold more than one active root `sig` key — phone and laptop — and any of them can advance the chain (spec §4.3), so a lost device is an ordinary rotation signed from the other one: no card to find, no relocation, nothing escalated. **A second *device*, though, not a second keypair.** At onboarding there is one device, and a spare generated there lives in the same place as the key it is meant to survive the loss of — so the honest flow is a prompt on the member's *second* device, whenever they first use one, signing a chain version from the device they still have. Offering it at signup is worth doing only as an exported spare the member stores like the recovery key, and it should be named that way rather than as device redundancy. Only where no second key exists does loss fall back to the recovery key: the member re-establishes at a new URL carrying `predecessor` with a recovery co-signature (spec §3.4, §4.5), which is the same path as domain loss and already on the Phase 1 list. Same-URL root replacement is deliberately not supported — a hub that could re-key a member's identity in place is the custodian this architecture exists to eliminate.
 
@@ -577,23 +601,27 @@ What delegation does **not** buy, stated plainly so the UI never overstates it: 
   "content_text": "Those cookies were amazing!",
   "date_published": "2025-12-07T16:00:00Z",
   "authors": [{ "url": "https://jessepence.com/" }],
-  "_feed_url": "https://jessepence.com/feed.json",
-  "_version": 1,
-  "_rel": [{ "type": "reply",
-             "to": "https://mom.pence.family/feed.json#urn:uuid:550e8400-..." }],
-  "_sig": "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vamVzc2VwZW5jZS5jb20vI2tleS0xIn0..base64sig"
+  "_sig": "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vamVzc2VwZW5jZS5jb20vI2tleS0xIiwidHlwIjoib3BlbmZlZWQtaXRlbStqc29uIn0..base64sig",
+  "_openfeed": {
+    "feed_url": "https://jessepence.com/feed.json",
+    "version": 1,
+    "rel": [{ "type": "reply",
+              "to": "https://mom.pence.family/feed.json#urn:uuid:550e8400-..." }]
+  }
 }
 ```
 
-Item author binding: the item-level `authors` array MUST contain **exactly one entry** whose `url` is the signer's identity (spec §6.6). Feed-level `authors` carry no authority. Items served in a feed MUST include `_feed_url`; inbox-only items omit it.
+Item author binding: the item-level `authors` array MUST contain **exactly one entry** whose `url` is the signer's identity (spec §6.6). Feed-level `authors` carry no authority. Items served in a feed MUST include `_openfeed.feed_url`; inbox-only items omit it.
 
 ### Signing and verifying
 
-Spec §6.2–§6.5 is the whole of it — header, canonicalization, signing, the eight verification steps — and `src/` in this repo is a working implementation of exactly that, so build against those two and do not transcribe either into app code from a summary. Three consequences do belong here, because they shape the app rather than the construction:
+Spec §6.2–§6.5 is the whole of it — header, canonicalization, signing, the nine verification steps — and `src/` in this repo is a working implementation of exactly that, so build against those two and do not transcribe either into app code from a summary. Five consequences do belong here, because they shape the app rather than the construction:
 
 - **Sign once on write, cache the signature.** Nothing re-signs on read. The cost of conformance is a one-time cost per version, which is why "sign everything" is affordable at all.
 - **No canonicalization library will do.** RFC 8785 has npm implementations, but spec §6.3's duplicate-member rejection is not something `JSON.parse` can express, so a strict parser is required regardless — and it may as well canonicalize too. `src/canonical.js` is both, in about 200 lines, with no dependencies.
-- **Revocation is checked against the time the hub learned of the content**, not the time the content claims: receipt time for inbox items, first-observed time for polled ones (spec §4.4). The timestamps are the sender's to write, so a revoked key backdating an item is the attack this closes.
+- **The header's `typ` is required and names the kind** (spec §6.2): `openfeed-identity+json`, `openfeed-manifest+json`, or `openfeed-item+json`. The signer picks it from what it is signing and the verifier checks it against the kind it took from *context*, never the other way round — context decides, `typ` confirms. It costs one field and closes cross-kind replay, which is otherwise prevented only by the shapes happening to disagree.
+- **A chained document must arrive as its own canonicalization** (spec §6.3), which is a serving requirement as much as a verifying one: keep the exact bytes the signer produced and write *those*. Re-serializing on the way out — a template, a pretty-printer, a build step appending a newline — makes the document unreadable rather than untidy, and does it silently.
+- **Revocation is checked against the time the hub learned of the content**, not the time the content claims: receipt time for inbox items, and for polled ones the time this exact revision was first seen committed in a signed manifest, keyed `(author, id, _openfeed.version)`. The observed time **bounds** the self-reported one — check against the later of the two — and does not replace it (spec §4.4). Replacing it inverts the mechanism: keyed on `(author, id)` alone, a thief publishing version 4 of an id first seen years ago gets the stale observation stood in for the fresh claim.
 
 ### The manifest (spec §9)
 
@@ -602,15 +630,16 @@ Signing an item is not enough — a host could silently drop or roll back your c
 - **Commit the bytes, not just the version.** The hash is SHA-256 over the item's exact published bytes. A version alone would let a key-holding hub show two family members different text under one `(id, version)` with identical manifests — which is precisely the hub this document is designing against.
 - **Publishing advances the manifest chain, never the identity chain.** The identity document commits to the manifest by **URL**, not by hash, so a decade of posting never re-signs `openfeed.json` and never wakes the member's device for a root signature. This is the split that makes delegated custody practical rather than theoretical.
 - **Emit `_skip` (spec §9.1.1) once a member's manifest passes ~100 KB.** It reads like a tuning knob and is not: without it, a family member who stops reading for a few weeks cannot reconnect their pin inside spec §13.4's fetch budget, and a conforming verifier must then treat the chain as unverifiable (spec §5.3). The hub would be stranding its own readers by omission.
-- **Serve each item at its §7.6 URL** — a Level 2 MUST, not a nicety. One immutable file per revision, named by the hash the manifest already commits. Without them a reader holding one page of a member's feed cannot tell "the hub is hiding this" from "that is older than the window I fetched", so spec §9.3's withholding verdict is unreachable against this hub and every reader is left asserting nothing — which sounds safe and means the completeness proof stops being checkable in the direction that matters. Measured on the ten-year journal (`tmp/manifestindex-prototype.js`): ~14,000 files and ~17 MB, against retained manifest history already in the gigabytes. It is the cheapest artifact the hub produces. Note the converse, which the hub is also bound by as a *reader*: it MUST NOT require them of an external member's feed (spec §7.6), so an item it cannot fetch from a self-hoster is reported as not yet seen, never as withheld.
+- **Serve each item at its §7.6 URL** — a Level 2 MUST, not a nicety. One immutable file per revision, named by the hash the manifest already commits. Without them a reader holding one page of a member's feed cannot tell "the hub is hiding this" from "that is older than the window I fetched", so spec §9.3's withholding verdict is unreachable against this hub and every reader is left asserting nothing — which sounds safe and means the completeness proof stops being checkable in the direction that matters. Measured on the ten-year journal (`tmp/manifestindex-prototype.js`): ~14,000 files and ~17 MB, against retained manifest history already in the gigabytes. It is the cheapest artifact the hub produces. **And declare it**, with `items: true` on that feed's `feeds` entry (spec §3.2.1) — the files without the declaration leave a reader unable to distinguish this hub from one that never served them, so the verdict stays unreachable and the work buys nothing. Note the converse, which the hub is also bound by as a *reader*: it MUST NOT require them of an external member's feed (spec §7.6). Against a self-hoster who declares nothing, an item it cannot fetch is reported as not yet seen; against one who declares `items: true` and then will not produce a committed revision, it is reported as **withheld**.
+- **Declare `_next_update`, and mean it** (spec §9.1.2). Everything above detects a *mutation*; the one attack that mutates nothing is a host that simply stops advancing a member's chain and goes on serving the last honest version. Every signature, pin, and invariant passes, and to that member's family "this hub has stopped publishing her" and "she has stopped writing" are the same observation — which is exactly the impression the attack is for. A deadline in the signed bytes lets a reader call the chain **stale**. Set it from the cadence the hub actually keeps, since it can only tighten a reader's own ceiling and never loosen it. State the reach rather than the feature: this binds a host that cannot sign. A key custodian advances an empty manifest on schedule and stays punctual while committing nothing.
 - **Serve the current version at its derived URL too, and write `manifest/{seq}.json` *before* `manifest.json`** (spec §5.4). One extra file gives a reader whose tip disagrees with its pin a retained copy to settle against at the `seq` consumers most often pin. The write order is not incidental: publish in reverse and there is a window where the tip and its derived copy disagree, which is the exact conflict the copy exists to resolve.
 
-Together with `_feed_url` (spec §7.5), the manifest closes both omission (a host can't drop your content) and injection (a host can't resurrect or inject content by copying it into its own feed).
+Together with `_openfeed.feed_url` (spec §7.5), the manifest closes both omission (a host can't drop your content) and injection (a host can't resurrect or inject content by copying it into its own feed).
 
 ### When to verify
 
 - **Always** verify signatures on inbound content: inbox items, and anything fetched from another feed
-- Enforce the canonical/copy rule (spec §7.5): an item is canonical only in the feed its `_feed_url` names; a copy is verifiable as *authored* but carries no liveness or manifest standing
+- Enforce the canonical/copy rule (spec §7.5): an item is canonical only in the feed its `_openfeed.feed_url` names; a copy is verifiable as *authored* but carries no liveness or manifest standing
 - Hub-hosted content is also signed at write time (conforming feeds require it); the hub can trust its own DB for internal reads, but the signature + manifest are what make that content portable and verifiable by everyone else
 
 ### Transient failures (spec §12)
@@ -642,24 +671,32 @@ The single signed source of discovery — profile, keys, and endpoints (spec §3
   "feeds": [
     { "url": "https://mom.pence.family/feed.json",
       "manifest": "https://mom.pence.family/manifest.json",
-      "rel": "primary" },
+      "rel": "primary",
+      "items": true },
     { "url": "https://mom.pence.family/activity.json",
       "manifest": "https://mom.pence.family/activity-manifest.json",
-      "rel": "activity" }
+      "rel": "activity",
+      "items": true }
   ],
   "inbox": "https://mom.pence.family/inbox",
   "seq": 7,
   "prev": "aNy3l73-Z_cRTwvLApVhCPi19Pxx3Kgn7XN-uw8vfk0",
   "updated": 1739577600,
   "keys": [
-    { "kid": "key-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "iat": 1736899200 },
-    { "kid": "recovery-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "use": "recovery", "iat": 1736899200 }
+    { "kid": "root-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "iat": 1736899200 },
+    { "kid": "recovery-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "use": "recovery", "iat": 1736899200 },
+    { "kid": "hub-1", "kty": "OKP", "crv": "Ed25519", "x": "...", "use": "delegated", "iat": 1736899200 },
+    { "kid": "enc-1", "kty": "OKP", "crv": "X25519", "x": "...", "use": "enc", "iat": 1736899200 }
   ],
   "_sig": "..."
 }
 ```
 
-Advance the identity chain (bump `seq`, set `prev`/`updated`, re-sign, and retain the old version at its derived URL, spec §5.4) only on **identity** changes — keys, profile, endpoints, migration links — not on content publication (spec §3.2, §5.2).
+**All four keys are here because the custody model puts them here** (see "Key custody"), and an example carrying only two would describe a hub that cannot publish on the member's behalf and a member nobody can encrypt to. The `_sig` on this document is the **root** key's — a delegated key may never sign a version of an identity document — while the feed items and manifests this document points at are signed by `hub-1`. The X25519 entry is an extension key (spec §15.1): core verifiers ignore its `crv` and `use` outright, which is exactly why the encryption layer needs no core change.
+
+`items: true` on both feed entries is the signed declaration that each serves its committed revisions at their derived URLs (spec §3.2.1, §7.6). It is a Level 2 MUST and it binds **every** listed feed, activity feed included — which is also why the file tree below gives the activity feed its own `/items/` directory.
+
+Advance the identity chain (bump `seq`, set `prev`/`updated`, re-sign with the member's **root key on their device**, and retain the old version at its derived URL, spec §5.4) only on **identity** changes — keys, profile, endpoints, migration links — not on content publication (spec §3.2, §5.2).
 
 ### JSON Feed (`feed.json`) — signed items
 
@@ -683,15 +720,17 @@ mom.pence.family/feed.json
       "content_html": "<p>The grandkids came over today...</p>",
       "date_published": "2025-12-07T14:30:00-05:00",
       "authors": [{ "url": "https://mom.pence.family/" }],
-      "_feed_url": "https://mom.pence.family/feed.json",
-      "_version": 1,
-      "_sig": "..."
+      "_sig": "...",
+      "_openfeed": {
+        "feed_url": "https://mom.pence.family/feed.json",
+        "version": 1
+      }
     }
   ]
 }
 ```
 
-Each item carries the single-entry `authors` binding, `_feed_url`, `_version`, and `_sig`. `id` is a permanent UUID/tag URI and MUST NOT contain `#` (ids appear as URI fragments in `_rel` targets). Serve feeds with `Content-Type: application/feed+json` (or `application/json`) and `Access-Control-Allow-Origin: *`. Carry at least the 50 most recent items; paginate via `next_url` (spec §7.4).
+Each item carries the single-entry `authors` binding, `_openfeed.feed_url`, `_openfeed.version`, and `_sig`. `id` is a permanent UUID/tag URI and MUST NOT contain `#` (ids appear as URI fragments in `_openfeed.rel` targets). Serve feeds with `Content-Type: application/feed+json` (or `application/json`) and `Access-Control-Allow-Origin: *`. Carry at least the 50 most recent items; paginate via `next_url` (spec §7.4).
 
 ### Manifest (`manifest.json`) — content commitment
 
@@ -707,7 +746,7 @@ Published and advanced on every content change (see "The manifest" above and spe
 mom.pence.family/activity.json  (+ mom.pence.family/activity-manifest.json)
 ```
 
-Likes/reposts (content-less `_rel` items) SHOULD go here, listed under `feeds` in `openfeed.json` with their own manifest (spec §8), so the primary feed stays clean for Level 0 readers.
+Likes/reposts (content-less `_openfeed.rel` items) SHOULD go here, listed under `feeds` in `openfeed.json` with their own manifest (spec §8), so the primary feed stays clean for Level 0 readers.
 
 ### HTML Page (optional, human-only)
 
@@ -781,15 +820,17 @@ Atom (not RSS 2.0) for maximum compatibility with plain feed readers (spec Level
 
 **The hub cannot render audience content, in any surface it serves.** Its items are encrypted to keys the hub never holds (see "Key custody"), so there is no plaintext on the server to put in an HTML page, an Atom entry, a search index, a notification digest that quotes text, or an OpenGraph card. This is not a policy the hub keeps; it is a capability it does not have. Every audience-content surface is therefore a client-side one, and that is a real scope item rather than a footnote — the entry page for an audience post is an app view, not a static file. Public and unlisted entries are unaffected and stay server-rendered.
 
-**One feed carries everything.** There is no separate feed per audience. A single `feed.json` and a single manifest chain per member hold cleartext and encrypted items side by side, which is what keeps the chain count at one no matter how many audiences a member has. The item's own `_enc` payload is the only thing that differs.
+**One feed carries everything.** There is no separate feed per audience. A single `feed.json` and a single manifest chain per member hold cleartext and encrypted items side by side, which is what keeps the chain count at one no matter how many audiences a member has. The item's own `_openfeed.enc` payload is the only thing that differs.
 
-**Before the encryption layer ships, audience entries are not published.** They live in the authenticated app and in the export bundle's `unpublished` slot (spec §14) — in no feed, no manifest, and no Atom mirror, the same treatment `private` gets. The tempting alternative, a cleartext feed behind a login wall, fails twice over: a feed listed in `feeds` that answers `401` is indistinguishable from withholding to every external consumer (spec §9.3) and forfeits the `Access-Control-Allow-Origin: *` that every published document carries (spec §12). And it is **irreversible in the direction that matters**: deletion is best-effort, and bytes already served openly may already be archived by anyone. Anything published cleartext now is permanently public, so Phase 1 ships audiences as a visibility the app honors, not as content it serves. This is the one scheduling decision in this document that cannot be corrected later.
+**Before the encryption layer ships, there is no audience tier** (see "Audiences"). Not "held back from the feed" — absent. Spec §15 forbids offering audience-restricted content by any means other than the layer itself, and an authenticated app view over a database column is that other means: the reader is admitted by access control, which is spec §11.1's fifth cell and does not exist. Two further reasons the login-wall shape fails on its own terms: a feed listed in `feeds` that answers `401` is indistinguishable from withholding to every external consumer (spec §9.3) and forfeits the `Access-Control-Allow-Origin: *` every published document carries (spec §12). And publishing cleartext now would be **irreversible in the direction that matters** — deletion is best-effort, and bytes served openly may already be archived by anyone.
+
+So the honest sequencing is one of two, and it is a scheduling decision rather than a design one: ship the encryption layer in Phase 1 alongside the audience picker, or ship Phase 1 without the picker and introduce the tier with the layer in Phase 3. This document takes the second. Either way, the thing that cannot be corrected later is offering the tier without the layer and calling the gap temporary.
 
 **No document is ever served in audience-varying forms.** Two views at one `seq` would be equivocation (spec §5.3), and that applies to feeds and manifests as much as to `openfeed.json`. The feed is a real signed JSON Feed with a real signed manifest, served to everyone, byte-identical — what differs is that some items' *content* is encrypted. Every reader can pin it, walk it, and gossip about it; only each audience can read its own posts.
 
 What this buys, versus the authenticated-fetch design it replaces: the feed stays statically hostable and CDN-cacheable, the completeness proof survives, the export bundle and migration cover it, and cross-reader equivocation detection works by construction rather than needing a separate commitment mechanism.
 
-What it costs, and users must be told: **the metadata is public.** Anyone can see that this identity posted, when, how often, and — from `_rel` — who replied to whom. Only the content is opaque. Where the interaction graph itself is sensitive, keep those items off the feed and deliver them to inboxes instead (spec §11.1). See also the honest bound on the guarantee: encrypted content is exactly as private as the recipient's key custody. Here every member holds their own encryption key, so this hub cannot read audience content — with the residual stated at "Key custody": the hub also ships the client that holds the key.
+What it costs, and users must be told: **the metadata is public.** Anyone can see that this identity posted, when, how often, and — from `_openfeed.rel` — who replied to whom. Only the content is opaque. Where the interaction graph itself is sensitive, keep those items off the feed and deliver them to inboxes instead (spec §11.1). See also the honest bound on the guarantee: encrypted content is exactly as private as the recipient's key custody. Here every member holds their own encryption key, so this hub cannot read audience content — with the residual stated at "Key custody": the hub also ships the client that holds the key.
 
 **A plain JSON Feed reader sees blanks, and the Atom mirror is where that is fixed.** An encrypted item carries `content_text: ""`, so a Level 0 JSON Feed reader renders an empty entry. It cannot be filtered out of `feed.json`: an item the manifest commits that the feed never yields reads as **withholding** to every verifying consumer (spec §9.3), which would make every honest member look like they were hiding something. The Atom mirror is derived, unsigned, and bound by no invariant, so it simply omits encrypted items — and since Atom is the compatibility surface this app recommends for plain readers, that is where the cost actually lands. Giving encrypted items a cleartext `title` ("🔒 Family post") is optional and discloses nothing beyond spec §11.4's existing list.
 
@@ -799,14 +840,14 @@ Visibility is not write-once. When an entry's visibility changes (or it is delet
 
 | Transition | Actions |
 |------------|---------|
-| any → `private` / deleted | Publish a signed **tombstone** (same `id`, bumped `_version`, `date_modified` set, `_deleted: true`, content removed); update the manifest (move the id from `items` to `deleted`); delete the static HTML; ping WebSub if enabled |
-| `public` → `{ audience }` | Bump `_version`, replace the content with an `_enc` payload wrapped to that audience, re-sign, advance the manifest. Same `id`, same feed. Remove the server-rendered HTML |
-| `{ audience }` → `public` | Bump `_version`, replace `_enc` with cleartext, re-sign, advance the manifest. Generate the HTML page |
-| `{ audience A }` → `{ audience B }` | Bump `_version`, re-wrap to B's identities, re-sign, advance the manifest |
+| any → `private` / deleted | Publish a signed **tombstone** (same `id`, bumped `_openfeed.version`, `date_modified` set, `_openfeed.deleted: true`, content removed); update the manifest (move the id from `items` to `deleted`); delete the static HTML; ping WebSub if enabled |
+| `public` → `{ audience }` | Bump `_openfeed.version`, replace the content with an `_openfeed.enc` payload wrapped to that audience, re-sign, advance the manifest. Same `id`, same feed. Remove the server-rendered HTML |
+| `{ audience }` → `public` | Bump `_openfeed.version`, replace `_openfeed.enc` with cleartext, re-sign, advance the manifest. Generate the HTML page |
+| `{ audience A }` → `{ audience B }` | Bump `_openfeed.version`, re-wrap to B's identities, re-sign, advance the manifest |
 
 **Every audience change is an ordinary edit, and that is the payoff of one feed.** With a feed per
 audience these would be tombstone-plus-republish, and a republished item needs a **fresh `id`**
-(spec §7.5 binds an `id` to one `_feed_url` forever) — so every `_rel` reply already delivered would
+(spec §7.5 binds an `id` to one `_openfeed.feed_url` forever) — so every `_openfeed.rel` reply already delivered would
 point at a tombstone and the whole thread would detach. Keeping one feed keeps the `id`, so the
 thread survives a visibility change. What does *not* survive: replies already delivered were wrapped
 to the old audience and nothing re-wraps them, so a thread that changes audience is readable forward
@@ -880,9 +921,9 @@ AI conversations are stored per-user and never shared with other users or their 
 - Disclose during onboarding that family-visible posts may be processed by a model on another member's behalf, and say which model runs where — on the hub, on that member's device, or at a provider that member chose
 - Provide a per-user opt-out (`ai_exclude` flag): excluded members' entries and comments never enter anyone else's AI context
 - Never include another member's `private` entries or drafts (already the rule above)
-- **Delivered-only items never enter AI context.** An interaction with no `_feed_url` is one its author deliberately kept off the public web (spec §11.1.1), and on encrypted content that is where every family reply lives by design (spec §15.4). Shipping it to the AI provider is not a §11.1.1 violation — an API call is not a publicly-readable artifact — but it is the same disclosure the sender declined, made on their behalf by the hub. Gate it on the field the republication gate already reads: `if (!item._feed_url) return`, on the context-assembly path as well as the publish path. A member's *own* client running over their *own* inbox is a different question and theirs to answer; this binds the hub
+- **Delivered-only items never enter AI context.** An interaction with no `_openfeed.feed_url` is one its author deliberately kept off the public web (spec §11.1.1) — after §15.4's split that is reactions, direct messages, and gateway backfeed, which is a narrower set than an earlier draft assumed and includes the most sensitive thing here. Shipping one to the AI provider is not a §11.1.1 violation — an API call is not a publicly-readable artifact — but it is the same disclosure the sender declined, made on their behalf by the hub. Gate it on the field the republication gate already reads: `if (!item._openfeed?.feed_url) return`, on the context-assembly path as well as the publish path. A member's *own* client running over their *own* inbox is a different question and theirs to answer; this binds the hub
 - Be precise about what `ai_exclude` is worth. On **encrypted** content it is a cryptographic fact: exclusion means "not in the wrap-list," and no server-side process could include them if it wanted to. On cleartext content the hub stores — `public` and `unlisted` entries, drafts, comments — it is a **policy promise** the hub keeps, enforceable only by the hub. Say which one applies to the content at hand rather than which one applies to the member
-- The underlying rule: **server-side AI and host-blind reading are mutually exclusive on the same content**, and this product has chosen host-blind for every audience. So the companion for audience content runs client-side — a scheduled Phase 3 item shipping alongside encryption, not a footnote. Until it ships, audience entries are not published at all (see "What Gets Published") and the AI works over cleartext the hub already holds; state plainly which tiers get which
+- The underlying rule: **server-side AI and host-blind reading are mutually exclusive on the same content**, and this product has chosen host-blind for every audience. So the companion for audience content runs client-side — a scheduled Phase 3 item shipping alongside encryption, not a footnote. Until it ships there is no audience tier at all (see "What Gets Published") and the AI works over cleartext the hub already holds; state plainly which tiers get which
 
 ### Daily Flow
 
@@ -910,6 +951,8 @@ The AI should:
 4. **Structure naturally** - Paragraphs, maybe a photo, maybe a quote
 
 **Disclosure**: Entries should include `_ai_assisted: true` in metadata (a preserved `_`-prefixed extension field, spec §3.2/§7.2). It is part of the signed bytes. Display is user preference (subtle footer, or nothing visible).
+
+It sits at the item's **top level, not inside `_openfeed`** — that object is the Open Feed specification's own one name in JSON Feed's shared extension space, and an unrelated extension writing into it is exactly the collision the namespacing exists to prevent. This app's own fields take their own `_`-prefixed names, or their own namespacing object if there ever get to be several.
 
 ---
 
@@ -980,11 +1023,11 @@ Start with in-app notifications. Add email/push later.
 
 A member must be able to leave without the operator's cooperation. This is a requirement, not a feature, and it is three things that only work together (spec §14):
 
-1. **Export.** `GET /api/export` returns the member's signed export bundle (spec §14): identity document and every retained prior version, feeds, manifests and their prior versions, delivered and received items, and attachment bytes — all **byte-verbatim as published**, so the hashes still chain. Available on demand, without admin approval, not rate-limited into uselessness. A decade of photographs will not fit in one streamable JSON document, so serve it as spec §14's archive container — `openfeed-export.json` plus the attachment bytes as files named by their `_sha256` — rather than degrading to a list of URLs pointing back at the hub the member is leaving. Measured on 2400 photos at 2.4 MB (`tmp/export-prototype.js`): the container is 5.6 GB and streams, inlining them as base64 is 7.5 GB through a single parse, and the URL-only fallback is a 5.4 KB file that verifies perfectly and contains nothing.
+1. **Export.** `GET /api/export` returns the member's signed export bundle (spec §14): identity document and every retained prior version, feeds, manifests and their prior versions, delivered and received items, and attachment bytes — all **byte-verbatim as published**, so the hashes still chain. Available on demand, without admin approval, not rate-limited into uselessness. A decade of photographs will not fit in one streamable JSON document, so serve it as spec §14's archive container — `openfeed-export.json` plus the attachment bytes as files named by their `_openfeed.sha256` — rather than degrading to a list of URLs pointing back at the hub the member is leaving. Measured on 2400 photos at 2.4 MB (`tmp/export-prototype.js`): the container is 5.6 GB and streams, inlining them as base64 is 7.5 GB through a single parse, and the URL-only fallback is a 5.4 KB file that verifies perfectly and contains nothing.
 
    **Include the predecessor's chain when this member is itself a successor.** If they arrived here by migrating from somewhere else, their bundle needs the *predecessor's* retained identity versions too — at minimum the one committing the recovery key their genesis co-signature resolves against (spec §14, §4.5). Without it the bundle verifies every signature, both chains, and every item, and still cannot demonstrate that this identity is the continuation of that one. The hub is holding those bytes because it verified the migration on the way in; hand them over.
 
-   **It MUST also carry the unpublished half** — every `private` and `unlisted` entry, every draft, and the member's AI conversations — in spec §14's `unpublished` slot. This is the part most likely to be skipped and the part that matters most here: the published feed is, by construction, the content the member already gave away. A journaling app whose export returns the public journal and withholds the private one has built a backup, not an exit. Sign private entries at rest with the ordinary construction and no `_feed_url` (spec §6) so they land in the bundle export-native rather than as a loose dump.
+   **It MUST also carry the unpublished half** — every `private` and `unlisted` entry, every draft, and the member's AI conversations — in spec §14's `unpublished` slot. This is the part most likely to be skipped and the part that matters most here: the published feed is, by construction, the content the member already gave away. A journaling app whose export returns the public journal and withholds the private one has built a backup, not an exit. Sign private entries at rest with the ordinary construction and no `_openfeed.feed_url` (spec §6) so they land in the bundle export-native rather than as a loose dump.
 2. **Re-establish elsewhere.** The member stands up a new identity at a URL they control, carrying `predecessor`, and co-signs it with the recovery key from onboarding step 3a — which this hub never held and therefore cannot forge a competing branch with.
 
    Delegated custody adds a lever before that one. The member's **root key** can revoke the hub's delegation and publish the departure directly, from their own device, with no card to find and nothing to reconstruct — and because the hub never held a key that can advance the identity chain, it cannot answer with a branch of its own. The recovery key is what remains for the harder cases: domain loss, or a root key the member no longer has.
@@ -1003,19 +1046,21 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] **Client-side key generation** (root + recovery + encryption on the member's device) and the on-device root-signing flow for identity-chain versions; the hub's per-member delegated key stored encrypted at rest (spec §4.6, §12; see "Key custody")
 - [ ] **Serve `openfeed.json`** per user (signed, chained; profile + keys + endpoints), retaining prior versions at `openfeed/{seq}.json` once `seq > 1` (spec §3.2, §5.4)
 - [ ] Entry CRUD
-- [ ] **Audience entries stay unpublished until Phase 3's encryption lands** — held in the app and in the export bundle's `unpublished` slot, never written to `feed.json`, `manifest.json`, or the Atom mirror. Cleartext published now behind a login wall cannot be taken back later (see "What Gets Published")
-- [ ] Canonicalization (RFC 8785 + I-JSON) + **signing on publish** (spec §6; sign once, cache)
-- [ ] Signed JSON Feed generation (single-entry item `authors` binding, `_feed_url`, `_version`)
-- [ ] **Publish + advance the signed, chained `manifest.json`** on every publish/edit/delete — committing each item as `[version, hash]` — retaining prior versions at `manifest/{seq}.json` once `seq > 1` (spec §9, §5.4). Advance immediately for tombstones; batching ordinary posts onto a cadence is allowed and bounds chain growth (spec §9.2)
+- [ ] **No audience tier until Phase 3's encryption lands** — no picker, no `{audience}` visibility value, no app view that admits a reader by access control. Spec §15 forbids offering audience-restricted content by any means but the layer, so "held back from the feed but visible in the app" is not a lighter version of the tier, it is the forbidden one (see "Audiences"). Phase 1 ships `public`, `unlisted`, and not-shared
+- [ ] Canonicalization (RFC 8785 + I-JSON) + **signing on publish** (spec §6; sign once, cache), with each header's `typ` naming the kind being signed — `openfeed-identity+json`, `openfeed-manifest+json`, `openfeed-item+json` (spec §6.2). It is one header field and it is not optional: a verifier rejects an absent or unrecognized one
+- [ ] Signed JSON Feed generation (single-entry item `authors` binding, `_openfeed.feed_url`, `_openfeed.version`; `date_published`/`date_modified` as RFC 3339 with `Z` or a numeric offset, spec §7.2 — not whatever the ORM's date serializer emits)
+- [ ] **Publish + advance the signed, chained `manifest.json`** on every publish/edit/delete — committing each item as `[version, hash]` — retaining prior versions at `manifest/{seq}.json` once `seq > 1` (spec §9, §5.4). Advance immediately for tombstones; batching ordinary posts onto a cadence is allowed and bounds chain growth (spec §9.2). Emit `_next_update` with the cadence the hub actually keeps (spec §9.1.2): without it, a hub that simply stops advancing a member's chain is indistinguishable, to that member's family, from a member who stopped writing
+- [ ] **Serve `/feed/items/{hash}.json` for every committed revision and declare `items: true`** on each `feeds` entry (spec §7.6, §3.2.1). Both halves, or neither counts — serving the files while saying nothing leaves a reader unable to tell this hub from one that never served them, so the withholding verdict stays unreachable against exactly the host it exists to catch
+- [ ] **Write order and caching** (spec §3.3.1, §9.3): feed before the manifest that commits it, `manifest/{seq}.json` before `manifest.json`; `immutable` on the derived and item URLs, short revalidation plus `ETag` on the three tips
 - [ ] Static HTML generation on publish (human page; not a discovery surface)
 - [ ] Atom feed generation (Level 0 readers)
-- [ ] Comments/reactions as signed items with `_rel` entries (internal API produces the same signed item the inbox path would; likes are delivered-only, spec §8)
+- [ ] Comments/reactions as signed items with `_openfeed.rel` entries (internal API produces the same signed item the inbox path would; likes are delivered-only, spec §8)
 - [ ] Basic family feed
 - [ ] **The three custody obligations** (spec §12), because Phase 1 is where this hub starts holding other people's keys: device-generated recovery keys (onboarding 3a), the genesis `(seq, hash)` + recovery-fingerprint disclosure and per-version chain receipts (onboarding 3b), and `GET /api/export` including the `unpublished` slot (§Leaving)
 
 **Do not defer these to Phase 3.** Spec §12 attaches them to *hosting identities for other people*, which is orthogonal to running an inbox — a Level 2 hub with no inbox holds members' keys and controls their exit exactly as a Level 3 one does. Identity URLs are permanent, so members onboarded before these land are members onboarded into a hub they cannot verifiably leave, and no later phase retroactively fixes a genesis nobody compared.
 
-**Test**: Can Mom post a signed entry, Dad comment on it (as a `_rel` reply item), Grandma subscribe in a plain reader, and an independent verifier confirm every signature *and* the manifest chain? Can Mom read her genesis hash off the screen, and export her whole journal — private entries included — while the admin refuses to help?
+**Test**: Can Mom post a signed entry, Dad comment on it (as a `_openfeed.rel` reply item), Grandma subscribe in a plain reader, and an independent verifier confirm every signature *and* the manifest chain? Can Mom read her genesis hash off the screen, and export her whole journal — private entries included — while the admin refuses to help?
 
 ### Phase 2: AI Integration
 
@@ -1030,15 +1075,19 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 ### Phase 3: Federation (Self-Hosted Members)
 
-- [ ] **Inbox endpoint (receive)** — the §10.2 verification pipeline (local checks → relevance over `_rel` → signature via `openfeed.json` → revocation vs receipt time), dedup by `(author, id)`, CORS, §10.4 responses, fetch-amplification guard (spec §13.9)
+- [ ] **Inbox endpoint (receive)** — the §10.2 verification pipeline (local checks → relevance over `_openfeed.rel` → signature via `openfeed.json` → revocation vs receipt time), dedup by `(author, id)`, CORS, §10.4 responses, fetch-amplification guard (spec §13.9)
 - [ ] Inbox sending (outbound signed items to others' inboxes; deliver nested replies to both parent- and root-author inboxes, spec §8.1)
+- [ ] **`_openfeed.delivery` on every delivered item, and the receiving half** (spec §10.6) — a per-`(sender, recipient)` counter plus the hash of the previous item sent down that pair, and on receipt a check that `seq` follows and `prev` names something held, surfaced as a finding. This is the only thing that makes a *selective* drop visible on the one channel nothing else commits: reactions and direct messages are in no feed and no manifest, so a recipient's host can drop one and the only signal anywhere is the sender's retry timeout. Both stores need `toJSON`/`fromJSON` — a receiver that forgets its streams on restart is back at first contact for everyone
+- [ ] **Emit item-carried pins** (spec §16.1) — a Level 3 MUST, not the Phase 4 nicety an earlier draft filed it as. A sender that already tracks a recipient's chains carries pins for them on the items it sends: about a hundred bytes on traffic already going out, and the *only* thing this hub produces that feeds spec §5.3.1's compare rule. Without emission, the equivocation detection §13.2 advertises is a rule nobody supplies evidence for. Heeding what arrives stays optional and can wait
 - [ ] External family member management + allowlist (authorization, since authorship is cryptographic)
-- [ ] Feed polling for external members — verify signatures, enforce `_feed_url` canonical/copy rule, pin + walk both the identity and manifest chains (spec §5.3, §7.5, §9.1), carry pins across a manifest relocation or migration (spec §9.3 invariant 5), and distinguish lag from **withholding** — an item the manifest commits that the feed never yields is a finding, not a pending fetch
-- [ ] Thread backfill during polling: reconcile external feed items whose `_rel` targets hub entries, healing replies whose inbox delivery was missed (the signed feed is the source of truth; the inbox is a latency optimization)
+- [ ] Feed polling for external members — verify signatures, enforce `_openfeed.feed_url` canonical/copy rule, pin + walk both the identity and manifest chains (spec §5.3, §7.5, §9.1), carry pins across a manifest relocation or migration (spec §9.3 invariant 5), and distinguish lag from **withholding** — an item the manifest commits that the feed never yields is a finding, not a pending fetch
+- [ ] Thread backfill during polling: reconcile external feed items whose `_openfeed.rel` targets hub entries, healing replies whose inbox delivery was missed (the signed feed is the source of truth; the inbox is a latency optimization)
 - [ ] External entries in family feed
-- [ ] **Encrypted content** (spec §15) for audience-addressed items — a **launch dependency** for cross-hub audiences, not an optional extra, and the gate on publishing them in any form at all (Phase 1 holds them back). Cross-hub *replies* work through the **declared audience** (spec §15.2.2): the entry names the identities it was wrapped to inside its own sealed plaintext, so a reading member's client can wrap a reply to the same people without anyone publishing a roster. Ship the two together — an encrypted post nobody outside the hub can reply to is the product's headline feature working in one direction only. Two things the UI must say rather than imply (spec §15.5, item 2): a replier is trusting the author's stated audience, which nobody can check, and adding a member is prospective — they will not be able to read the thread that came before them. What still needs a *published* membership document, and is permanently out of scope, is an audience somebody **other than the author** convenes (spec §11.2)
+- [ ] **Encrypted content** (spec §15) for audience-addressed items — a **launch dependency** for cross-hub audiences, not an optional extra, and the gate on offering the tier in any form at all (Phase 1 has no audience picker). Cross-hub *replies* are themselves **published, encrypted** (spec §15.4) and work through the **declared audience** (spec §15.2.2): the entry names the identities it was wrapped to inside its own sealed plaintext, so a reading member's client can wrap a reply to the same people without anyone publishing a roster. Ship the two together — an encrypted post nobody outside the hub can reply to is the product's headline feature working in one direction only. Two things the UI must say rather than imply (spec §15.5, item 2): a replier is trusting the author's stated audience, which nobody can check, and adding a member is prospective — they will not be able to read the thread that came before them. What still needs a *published* membership document, and is permanently out of scope, is an audience somebody **other than the author** convenes (spec §11.2)
 - [ ] **Client-side AI companion** — the other half of the encryption item above, and scoped rather than optional. Every member holds their own encryption key, so on audience content the hub is blind, and drafting and context assembly run in the member's client against content only that client can decrypt. Shipping encryption without this would quietly remove the product's headline feature from exactly the tier the product is about. Two viable engines: a local model on the member's device (increasingly plausible on ordinary hardware, and the version with no third party at all), or the member's own provider key called from their own client — in which case say plainly that the content reaches that provider, since the hub can no longer make that disclosure on their behalf
 - [ ] **Exit, re-tested across hosts** — the export bundle and recovery keys ship in Phase 1 (above); what Phase 3 adds is the other end, a consumer that follows a recovery-based migration from a pin with no cooperation from this hub (spec §3.4, §14)
+
+**This phase is not one phase.** Nine items sit above, and at least three of them — the inbox with its full verification pipeline, the encryption layer, and the client-side companion — are each a quarter of work on their own. Sequence them rather than planning them: the inbox and polling are one release, the encryption layer plus the client-side companion plus the audience picker are a second and must ship together (an encrypted post with no client that can read or draft one is not a feature), and pins plus delivery continuity ride along with whichever release touches the sending path. Naming that here is cheaper than discovering it at the end of a quarter.
 
 **Test**: Can Jesse (self-hosted) post a signed reply item to Mom's inbox and have his own signed entries appear verified (signature + manifest) in the family feed?
 
@@ -1047,11 +1096,11 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] Reactions polish (emoji via `_emoji` on `like` entries; activity feed only if reposts are published)
 - [ ] Key rotation + revocation UI via identity-chain versions (spec §4.3, §4.4, §5.2), including revoking the hub's delegation from the member's own device; migration/recovery flow (spec §3.4). Recovery-key generation is deliberately **not** listed here — it ships in Phase 1 with the other custody obligations, and a line item this far down the page is precisely how it gets deferred
 - [ ] Notifications (in-app)
-- [ ] Photo uploads with thumbnails (+ `_sha256` attachment integrity, spec §7.4)
+- [ ] Photo uploads with thumbnails (+ `_openfeed.sha256` attachment integrity, spec §7.4)
 - [ ] Profile customization (advances the identity chain)
 - [ ] Search (entries, comments)
 - [ ] Signing tools for self-hosters
-- [ ] Item-carried `_pins` (spec §16) for family-scale anti-equivocation and recovery propagation, plus the optional `_follows` document (a README convention, not a spec document) as the natural trust set for weighing them
+- [ ] **Heeding** item-carried pins — resolving a disagreeing entry against its derived URL rather than treating the entry itself as an observation (spec §16.2), ignoring entries naming chains this hub does not track, and surfacing what survives. Emission is a Phase 3 MUST above; heeding is the optional half and belongs here. The optional `_follows` document (a README convention, not a spec document) is the natural trust set for weighing what arrives
 
 **Test**: Does it feel good to use daily?
 
@@ -1061,7 +1110,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 - [ ] WebSub for real-time feed updates (JSON Feed `hubs`; README convention)
 - [ ] **Syndication gateway** (spec Appendix C, syndication class): outbound POSSE to members' own Mastodon/Bluesky accounts + inbound backfeed by inbox delivery — see "POSSE and the syndication gateway" below
 - [ ] `_accounts` in members' identity documents (README convention; spec §13.16 carries its warnings), with the HTML `rel="me"` links **generated from** the array at build time so one signed source feeds both surfaces
-- [ ] Optional Webmention bridge (spec Appendix C) — `_unverified` ingest only, mirroring class
+- [ ] Optional Webmention bridge (spec Appendix C) — `_openfeed.unverified` ingest only, mirroring class
 
 **Test**: Can Grandma get a daily email with the family's posts? Can Mom's post appear on her own Mastodon account with replies flowing back under her entry page?
 
@@ -1069,7 +1118,7 @@ If any one of the three is missing, there is no exit. Build all three, and test 
 
 ## Future: Broader Federation
 
-Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_unverified`, without exception** (spec §7.5, Appendix C).
+Self-hosted family members are covered in Phase 3. This section is for interoperating with the wider internet. All of these are **gateways** (trusted intermediaries), not transparent adapters — no bridge can hold a foreign author's Open Feed key, so **everything bridged in is `_openfeed.unverified`, without exception** (spec §7.5, Appendix C).
 
 **Two rival routes to the fediverse — pick one per network, per member.** The **zero-effort tier** is Bridgy Fed: the Atom mirror plus an h-card is enough for a third-party service to bridge a member into the fediverse with no gateway to operate, as `@mom.pence.family` — the identity URL itself. Nothing to build; weaker reach; the bridge operator sits in the middle. The **recommended tier** is the syndication gateway below: a real account (`@mom@mastodon.social`) the member holds, posted to by their own tooling. A member running *both* on one network has two presences with a split reply graph and followers who don't know which to follow — so the app should treat this as one choice per network, not a stack.
 
@@ -1079,18 +1128,18 @@ The **syndication class** of gateway (spec Appendix C) is the POSSE path: publis
 
 For hub members the gateway is naturally a hub-operated service; for self-hosters it is a client-side tool. Either way it is real work, not a checkbox: OAuth token management per member per platform, platform-specific reply polling (Bluesky replies are all public and can also be watched via the firehose, which is heavier infrastructure than polling Mastodon's REST API), mapping foreign replies home via the backlink each syndicated copy carries to the entry permalink, and tombstone propagation. Concretely, per spec Appendix C's backfeed rule:
 
-- **Delivery, never publication.** Foreign replies are POSTed to the member's inbox as `_unverified` items with no `_feed_url`, signed by the gateway (or a proxy identity, which is also the per-foreign-author rate-limit granularity). They never enter any feed, manifest, or public query surface.
-- **Enrollment.** A member enrolls the gateway explicitly (a field in the hub's family config, or accepted-gateway URLs alongside the member's identity); unenrolled gateways' `_unverified` deliveries are rejected or held for moderation. Gateway deliveries get their own, lower quota class.
-- **Timestamps and restarts.** `date_published` on a delivered item is the gateway's signing time (or the inbox's 7-day bound rejects backfill); the foreign creation time rides in an extension key on the `_rel` entry. The gateway persists its foreign-object → `(author, id)` mapping so a restart cannot orphan later tombstones.
+- **Delivery, never publication.** Foreign replies are POSTed to the member's inbox as `_openfeed.unverified` items with no `_openfeed.feed_url`, signed by the gateway (or a proxy identity, which is also the per-foreign-author rate-limit granularity). They never enter any feed, manifest, or public query surface.
+- **Enrollment.** A member enrolls the gateway explicitly (a field in the hub's family config, or accepted-gateway URLs alongside the member's identity); unenrolled gateways' `_openfeed.unverified` deliveries are rejected or held for moderation. Gateway deliveries get their own, lower quota class.
+- **Timestamps and restarts.** `date_published` on a delivered item is the gateway's signing time (or the inbox's 7-day bound rejects backfill); the foreign creation time rides in an extension key on the `_openfeed.rel` entry. The gateway persists its foreign-object → `(author, id)` mapping so a restart cannot orphan later tombstones.
 - **Deletion is best-effort.** A foreign delete observed by the gateway becomes a delivered tombstone; one it never observes leaves the copy in the member's inbox and export bundle. The enrollment flow states this.
 
-**What renders under a post.** Beneath an entry page, the app shows three bands with distinct provenance: verified family replies (signed, published or delivered by known family); `_unverified` backfeed from enrolled gateways, rendered on the **entry's HTML page only** — the unsigned, revocable surface spec Appendix C and §11.1.1 permit, which honors a later foreign deletion — clearly marked as from Mastodon/Bluesky and never entering any signed artifact; and delivered-private family content, which renders **only** in the authenticated family view, never on the public page. These three MUST NOT share a "verified" badge (spec §13.16).
+**What renders under a post.** Beneath an entry page, the app shows three bands with distinct provenance: verified family replies (signed, published or delivered by known family); `_openfeed.unverified` backfeed from enrolled gateways, rendered on the **entry's HTML page only** — the unsigned, revocable surface spec Appendix C and §11.1.1 permit, which honors a later foreign deletion — clearly marked as from Mastodon/Bluesky and never entering any signed artifact; and delivered-private family content, which renders **only** in the authenticated family view, never on the public page. These three MUST NOT share a "verified" badge (spec §13.16).
 
 ### ActivityPub (Mastodon/Fediverse) — mirroring class
 
-The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (README, "vs ActivityPub").
+The brid.gy model: a stateful actor proxy polls the feed and fans out `Create`/`Like`/`Announce`, mirroring AP replies into the inbox as `_openfeed.unverified` items. Consider using a bridge service (like fed.brid.gy) instead of implementing directly. **FEP-8b32 is not a shortcut** — its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs different bytes, so no signature is reusable (README, "vs ActivityPub").
 
-Two things this bridge MUST NOT do, both of which a naive implementation does by default (spec §11.1.1, F.2): emit an item with no `_feed_url` (delivered, not published — the family comment threads), and emit anything derived from an encrypted item, **including a placeholder**. Encrypted posts are skipped entirely, not announced as "encrypted post."
+Two things this bridge MUST NOT do, both of which a naive implementation does by default (spec §11.1.1, F.2): emit an item with no `_openfeed.feed_url` (delivered, not published — the family comment threads), and emit anything derived from an encrypted item, **including a placeholder**. Encrypted posts are skipped entirely, not announced as "encrypted post."
 
 ### Public Discovery
 
@@ -1107,7 +1156,7 @@ If a family member moves from hub to self-hosted:
 1. Establish the new identity (new `openfeed.json`) with `"predecessor": "https://mom.pence.family/"`
 2. **Cooperative** (old domain still controlled): the old `openfeed.json` publishes a new chain version adding `"successor": "https://mom.example/"`. Consumers follow the cross-signed pair
 3. **Recovery** (old domain lost): the new `openfeed.json` additionally carries `_recovery_sig`, a co-signature by the offline recovery key committed in a pinned ancestor (spec §4.5)
-4. **Republish the back catalog byte-verbatim** at the new feed — same bytes, same signatures, same `_feed_url` naming the *old* feed — and commit those bytes in the new feed's manifest. Do **not** re-sign: rewriting every item would invalidate every hash any consumer or peer has pinned over the member's history. A consumer that has verified the migration treats an item whose `_feed_url` names a predecessor feed as canonical at the successor feed; because nothing is re-signed, the id/feed binding is never breached and needs no exception (spec §3.4, §7.5)
+4. **Republish the back catalog byte-verbatim** at the new feed — same bytes, same signatures, same `_openfeed.feed_url` naming the *old* feed — and commit those bytes in the new feed's manifest. Do **not** re-sign: rewriting every item would invalidate every hash any consumer or peer has pinned over the member's history. A consumer that has verified the migration treats an item whose `_openfeed.feed_url` names a predecessor feed as canonical at the successor feed; because nothing is re-signed, the id/feed binding is never breached and needs no exception (spec §3.4, §7.5)
 5. **Carry the catalog completely, and check it on the way in.** The successor's genesis manifest must account for every id live in the predecessor's last manifest — in `items` or in `deleted` (spec §9.3 invariant 5). A new manifest URL is a new chain and a fresh trust-on-first-observation, so without this a migration silently launders content deletion: no tombstone, no fork, nothing for a pinned consumer to notice. When *this hub* is the consumer — following a member who left for their own domain — enforce it, and surface a shortfall rather than re-pinning through it
 
 Redirects are **not** identity equivalence — a cross-origin redirect is never followed for an identity document (spec §3.3). Portability across domain loss is the family-scale trade-off recovery keys + `pins` mitigate, not a full fix.
@@ -1128,12 +1177,14 @@ To participate in the family network, a self-hosted site needs at least spec con
 | `openfeed/{seq}.json` | Retained prior identity-document versions, derived path (spec §5.4) | Yes (once rotated) | 2 |
 | Signed JSON Feed | Machine-readable, signed items (hub polls this) | Yes | 2 |
 | `manifest.json` (signed, chained) + retained versions | Commitment to feed contents; proves presence, freshness, and exact bytes | Yes (for every listed feed) | 2 |
+| `feed/items/{hash}.json` + `items: true` on the entry | Each committed revision individually addressable, and the signed declaration that it is (spec §7.6, §3.2.1) | Yes, both halves, for every listed feed | 2 |
 | Atom Feed | For plain feed readers (Level 0) | Recommended | 0 |
 | Inbox sending | POST signed items to others' inboxes | Yes | 2 |
 | Inbox receiving | Accept signed items from others | Recommended | 3 |
-| Encrypted content (serve) | Publish audience-addressed items off-hub (extension, spec §11.3) | Required for cross-hub audiences | 3 |
+| Item-carried pins on what you send | Supplies the second observation the compare rule needs (spec §16.1) | Yes, once you run an inbox | 3 |
+| Encrypted content | Any audience-restricted content at all, on-hub or off (spec §15) | Required if you offer the tier; forbidden to substitute access control for it | — (binds a deployment, not a level) |
 | Export bundle | Let a member leave with everything (spec §14) | Required if you host anyone but yourself | — (custody, not a level) |
-| Webmention bridge | Optional IndieWeb interop only (`_unverified`) | Optional | — |
+| Webmention bridge | Optional IndieWeb interop only (`_openfeed.unverified`) | Optional | — |
 
 (Sending interactions requires Level 2 — you need a published `openfeed.json` so anyone can verify you.)
 
@@ -1189,16 +1240,16 @@ external_members (id, identity_url, feed_url, manifest_url, display_name, avatar
 
 -- Journal entries (hub users only; external entries are fetched, not stored permanently)
 -- canonical_bytes = the exact signed bytes; ext_json preserves every unknown member, `_`-prefixed or not
--- (_ai_assisted, _pins, _enc, …) that have no column of their own
+-- (_ai_assisted at top level; _openfeed members with no column) that have no column of their own
 entries (id, author_id, title, content_html, content_text, visibility, attachments_json,
          ext_json, version, published_at, modified_at, canonical_bytes, item_hash, sig,
          deleted, created_at, updated_at)
 
--- Interaction items: comments (reply), reactions (like), etc. — one table, distinguished by _rel
+-- Interaction items: comments (reply), reactions (like), etc. — one table, distinguished by _openfeed.rel
 interactions (id, author_id, author_url, author_name, author_avatar,
               rel_json, content_text, ext_json, date_published, feed_url, version,
               canonical_bytes, item_hash, sig, deleted, created_at, updated_at)
-              -- rel_json holds the _rel array (type + to [+ _emoji …])
+              -- rel_json holds the _openfeed.rel array (type + to [+ _emoji …])
               -- feed_url NULL = delivered-only; the §11.1.1 republication gate reads this
 
 -- Manifest chain versions (per feed)
@@ -1241,6 +1292,7 @@ This is a cache, not source of truth. Re-fetch from their feed if stale — but 
     /activity.json           # Optional activity feed (published reposts; likes are delivered-only)
     /activity-manifest.json  # Its manifest (every listed feed is manifested)
     /activity-manifest/1.json
+    /activity/items/{hash}.json  # §7.6 binds EVERY listed feed, not just the primary one
     /feed.xml                # Atom (optional) — omits encrypted items; see "What Gets Published"
     /avatar.jpg
     /2025/12/07
@@ -1259,7 +1311,7 @@ audiences they keep. Audience entries have no static HTML page — the hub has n
 | Resource | Limit |
 |----------|-------|
 | Identity document (`openfeed.json`) | 100 KB / 100 keys |
-| Manifest | 1 MB (~10k live items at ~96 B per `[version, hash]` entry). Past ~10k live items, rotate to a new feed with `rel: "archive"` (spec §9.2) |
+| Manifest | 1 MB (~10k live items at ~96 B per `[version, hash]` entry). Past ~10k live items, rotate: open a **new** feed with its own manifest, make that one `rel: "primary"`, and leave the retiring feed listed and served as `rel: "archive"` (spec §9.2). Never repoint an existing entry's `manifest` URL — that is a relocation, and §9.3 invariant 5 then makes the new chain carry forward every id the old one held, which is the exact cost rotation exists to avoid. Note that `deleted` counts against the ceiling and never comes back, so a member who edits and deletes often reaches the rotation point with far fewer live items than 10k |
 | Feed page | 10 MB / 1000 items |
 | Inbox body | 100 KB |
 | Chain versions walked per update | 1000 |
@@ -1274,12 +1326,17 @@ Open Feed scales **across identities**, not in items-per-identity; the manifest 
 
 ### Caching
 
+Two classes, and the split is the same immutable/mutable line the rest of the design uses (spec §3.3.1) — not a performance knob.
+
 | Resource | Cache |
 |----------|-------|
-| `openfeed.json` | ≤ 1 hour (spec Level 1) |
+| `openfeed/{seq}.json`, `manifest/{seq}.json`, `feed/items/{hash}.json` | Long lifetime + `immutable`. Each names its own content by `seq` or by hash and may never change (spec §5.4). This is where a reader's traffic actually goes |
+| `openfeed.json`, `feed.json`, `manifest.json` | Short lifetime + `ETag`. These are the publisher's *current* claim; a consumer deciding a verdict revalidates rather than answering from cache |
+| `openfeed.json`, consumer side | ≤ 1 hour (spec §12). This is a bound on **revocation**, not on staleness: a key revoked after the entry was written stays accepted for the life of that entry |
 | Static HTML | Until updated |
-| JSON Feed / manifest | Until updated |
 | API responses | No cache (dynamic) |
+
+The manifest tip is the one where caching becomes correctness. A cache holding a manifest newer than the feed beside it manufactures a spec §9.3 finding against an honest publisher — which is why the hub **writes the feed before the manifest that commits it**, and why that clause is the one §9.3 grades down rather than treating as equivocation.
 
 ---
 
@@ -1309,7 +1366,7 @@ What this hub can actually offer that person is **exit** — a recovery key it n
 
 ### Input Validation & Untrusted Content
 - Item content from anyone but the local user is untrusted — **whether it arrives by inbox or by polling a feed** (spec §10.5). Render only escaped `content_text`, or aggressively sanitize `content_html` through an allowlist (`p`, `a`, `em`, `strong`, `blockquote`, `code`, `ul`, `ol`, `li`, `img`). Never render untrusted HTML as-is
-- Content marked `_unverified` (bridged/Webmention) MUST be displayed distinctly and never cached as verified
+- Content marked `_openfeed.unverified` (bridged/Webmention) MUST be displayed distinctly and never cached as verified
 - Validate file uploads (type, size); escape user content in templates
 - Reject JSON with duplicate keys (I-JSON) everywhere you parse signed documents
 
@@ -1363,22 +1420,22 @@ To keep scope manageable:
 
 This section captures decisions and context that may be useful for future work.
 
-### Interactions & Threading (`_rel`)
+### Interactions & Threading (`_openfeed.rel`)
 
-Interactions are items with a `_rel` array (spec §8); build the model around that from the start:
+Interactions are items with a `_openfeed.rel` array (spec §8); build the model around that from the start:
 
-1. Store the `_rel` array (JSON) on the interaction row: each entry is `{type, to [, _emoji, …]}`
+1. Store the `_openfeed.rel` array (JSON) on the interaction row: each entry is `{type, to [, _emoji, …]}`
 2. `type` is a registered token (`reply`, `like`, `repost`, `quote`, `mention`, `root`) or an absolute URL for custom relations; preserve unknown types
 3. `to` is `{feed_url}#{item_id}` for items — the only permitted form for an Open Feed target (receivers split at the last `#`); an identity URL for `mention`; a bare URL only where the target is outside the protocol. Multiplicity is expressed with multiple entries, never an array in `to`
 4. Threading: a `reply` entry points at the parent; add a `root` entry pointing at the thread root for nested replies (spec §8.1). Store as an adjacency list, build the tree client-side, render flat *or* nested, and cap walk depth (cycles possible in malicious data)
-5. `like` items are delivered to the inbox and never published — no `_feed_url`, no feed row, no manifest entry (spec §8). A published content-less relation (`repost`) goes in the **activity feed**, not the primary feed
+5. `like` items are delivered to the inbox and never published — no `_openfeed.feed_url`, no feed row, no manifest entry (spec §8). A published content-less relation (`repost`) goes in the **activity feed**, not the primary feed
 
 ### Signing Hub Content (default)
 
 Hub content is signed on write (spec §6, §6.6):
 
 1. Generate a **delegated** keypair per hub user (spec §4.6) and store the private half encrypted at rest. The member's **root**, **recovery**, and **encryption** keys are generated on their own device and never reach the hub (spec §4.5, §12) — the hub stores only their public JWKs. **Never remove a public key from `openfeed.json`**, even long after rotation: revocation ends a key's authority, delisting ends verifiability of every item it ever signed, and verifiers resolve a `kid` against the *current* document (spec §4.3, §6.5)
-2. Add `_sig` to each feed item on publish; include the single-entry `authors` binding and `_feed_url`
+2. Add `_sig` to each feed item on publish; include the single-entry `authors` binding and `_openfeed.feed_url`
 3. Advance and re-sign the **manifest** on every publish/edit/delete (spec §9)
 4. Keys live in `openfeed.json`; `kid` = `{identity_url}#{kid}` (no separate JWKS)
 5. Sign once on write and cache the signature (don't re-sign on read)
@@ -1397,8 +1454,8 @@ Current design uses polling for external feeds. For real-time:
 Treat it as a **gateway** (spec Appendix C), not a transparent adapter:
 1. A stateful actor proxy per user, polling the feed and fanning out `Create`/`Like`/`Announce`
 2. HTTP Signatures (different from JWS — Mastodon's requirement)
-3. Mirror inbound AP replies into the Open Feed inbox as `_unverified` items
-4. Watch **FEP-8b32** (`eddsa-jcs-2022` = Ed25519 over RFC 8785) as a convergence seam
+3. Mirror inbound AP replies into the Open Feed inbox as `_openfeed.unverified` items
+4. **FEP-8b32 is not a convergence seam**, tempting as it looks: its `eddsa-jcs-2022` shares Open Feed's curve and canonicalization but signs a 64-byte pair of hashes where Open Feed signs the JWS signing input, so no signature crosses in either direction (README, "vs ActivityPub"). What *can* be shared is a key
 
 Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 
@@ -1425,7 +1482,8 @@ Consider using a bridge service (fed.brid.gy) instead of implementing directly.
 If you need to add custom fields to JSON objects:
 
 - Prefix with `_` (underscore): `_ai_assisted`, `_emoji`, etc.
-- Preserve unknown **members** when re-serializing, `_`-prefixed or not (don't strip them) — **signatures depend on it** (spec §7.2). The prefix is a convention for avoiding collisions, not the test for what to keep; an extension field that skipped it, or a field a later JSON Feed revision adds, is inside the signed bytes just the same
+- **Do not put them inside `_openfeed`.** That object is the *specification's* single name in JSON Feed's shared extension space, holding `feed_url`, `version`, `rel`, `deleted`, `enc`, `pins`, `delivery`, `unverified` and an attachment's `sha256` (spec §7.2). Writing an app field there is the collision the namespacing exists to prevent, and because these members sit inside the signed bytes the failure is a signature over a value somebody else's code did not mean. This app's fields sit at top level beside `_sig`, which is where `_openfeed` itself is not
+- Preserve unknown **members** when re-serializing, `_`-prefixed or not, inside `_openfeed` as much as outside it (don't strip them) — **signatures depend on it** (spec §7.2). The prefix is a convention for avoiding collisions, not the test for what to keep; an extension field that skipped it, or a field a later JSON Feed revision adds, is inside the signed bytes just the same
 - For relation *types*, use a registered token or a namespaced absolute URL (not a new field name), spec §8
 - Document any new fields you add
 
@@ -1445,4 +1503,4 @@ These belong **only** to the optional Webmention/IndieWeb bridge (spec Appendix 
 | `u-like-of` | URL being liked |
 | `u-photo` | Avatar/photo URL |
 
-Bridge-testing helpers: [webmention.io](https://webmention.io) (hosted endpoint), [webmention.rocks](https://webmention.rocks) (sender testing), [indiewebify.me](https://indiewebify.me) (h-entry validation). Again: bridged content is `_unverified` and lower-trust — never treat it as a native, verified identity.
+Bridge-testing helpers: [webmention.io](https://webmention.io) (hosted endpoint), [webmention.rocks](https://webmention.rocks) (sender testing), [indiewebify.me](https://indiewebify.me) (h-entry validation). Again: bridged content is `_openfeed.unverified` and lower-trust — never treat it as a native, verified identity.
