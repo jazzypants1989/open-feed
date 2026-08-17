@@ -44,6 +44,21 @@ export class InvariantViolation extends ManifestError {
 export const LAG_CEILING_SECONDS = 7 * 24 * 3600;
 
 /**
+ * The other end of the same bound (§9.3 invariant 3): how far ahead of this consumer's clock an
+ * item's effective signing time may sit before it is a violation rather than lag. 24 hours, the
+ * figure §10.2 applies to a delivered item, because it answers the same question about the same
+ * self-reported number.
+ *
+ * Both of invariant 3's other tests **invert** under a future-dated item, which is why this one
+ * is not redundant with them: a manifest's `updated` cannot have advanced past a moment that has
+ * not arrived, and the item's age against the ceiling is negative. So without this a publisher
+ * stamping next year holds its entire feed in permanent `pending` — the standing window in which
+ * it may serve an item to one reader and not another with no evidence produced anywhere, which is
+ * exactly what the ceiling exists to close, obtained for free and for as long as it likes.
+ */
+export const FUTURE_SKEW_SECONDS = 24 * 3600;
+
+/**
  * §9.1.2. Is this chain stale — has its publisher missed the deadline it undertook to meet?
  *
  * The one attack on a chain that produces no other verdict is doing nothing to it. Every check
@@ -341,7 +356,7 @@ export const ITEM_STATES = ['live', 'deleted', 'pending', 'withheld', 'absent', 
  * available passes nothing and gets `absent` throughout — which is why §9.3 says the verdict
  * is close to unreachable on the pull path without it.
  */
-export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS, url, partial = false, unobtainable = new Set() } = {}) {
+export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1000), ceiling = LAG_CEILING_SECONDS, futureSkew = FUTURE_SKEW_SECONDS, url, partial = false, unobtainable = new Set() } = {}) {
   assertManifestShape(manifest, url ?? manifest.url);
 
   const states = new Map();
@@ -369,7 +384,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
 
     if (!committed) {
       // Absent from the manifest entirely: lag, or the manifest passed it over.
-      const passedOver = describeLag(item, manifest, { now, ceiling });
+      const passedOver = describeLag(item, manifest, { now, ceiling, futureSkew });
       if (passedOver) violate(`${id} is served live but absent from seq ${manifest.seq}: ${passedOver}`, { invariant: 3, id });
       else record(id, 'pending', { reason: 'newer than the manifest commits (§9.3 invariant 3)' });
       continue;
@@ -385,7 +400,7 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
       continue;
     }
     if (version > committed.version) {
-      const passedOver = describeLag(item, manifest, { now, ceiling });
+      const passedOver = describeLag(item, manifest, { now, ceiling, futureSkew });
       if (passedOver) violate(`${id} version ${version} is uncommitted at seq ${manifest.seq}: ${passedOver}`, { invariant: 3, id });
       else record(id, 'pending', { reason: `committed at version ${committed.version}, served at ${version}` });
       continue;
@@ -448,18 +463,22 @@ export function reconcileFeed(manifest, items, { now = Math.floor(Date.now() / 1
 /**
  * Why an uncommitted item is a violation rather than lag, or `null` if it is still lag.
  *
- * Two tests, and neither needs history (§9.3 invariant 3). A manifest whose `updated` is later
- * than the item's own signing time has demonstrably advanced past it, so lag is not the
- * explanation. Otherwise the consumer's own absolute ceiling applies, regardless of the
- * publisher's rhythm.
+ * Three tests, and none needs history (§9.3 invariant 3). An item dated ahead of this consumer's
+ * clock by more than the skew allowance is not lag at all — see `FUTURE_SKEW_SECONDS` for why
+ * that one has to be checked *first*, since the other two invert underneath it. A manifest whose
+ * `updated` is later than the item's own signing time has demonstrably advanced past it. And
+ * otherwise the consumer's own absolute ceiling applies, regardless of the publisher's rhythm.
  */
-function describeLag(item, manifest, { now, ceiling }) {
+function describeLag(item, manifest, { now, ceiling, futureSkew = FUTURE_SKEW_SECONDS }) {
   let signedAt;
   try {
     signedAt = effectiveSigningTime(item, { kind: 'item' });
   } catch (e) {
     if (e instanceof VerifyError) return 'the item carries no usable timestamp';
     throw e;
+  }
+  if (signedAt > now + futureSkew) {
+    return `it is dated ${signedAt}, more than ${futureSkew}s ahead of this consumer's clock`;
   }
   if (manifest.updated > signedAt) {
     return `the manifest advanced at ${manifest.updated}, after the item was signed at ${signedAt}`;

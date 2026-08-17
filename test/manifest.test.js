@@ -106,6 +106,33 @@ test('an advance that demonstrably happened converts lag into a violation, befor
   assert.equal(reconcileFeed(notYet, [passedOver], { now: T0 + 120 }).violations.length, 0);
 });
 
+test('a future-dated item is a violation, not a permanently pending one (§9.3 invariant 3)', () => {
+  // Both of invariant 3's other tests invert under a future-dated item, so a publisher stamping
+  // next year escapes both at once: the manifest's `updated` cannot have advanced past a moment
+  // that has not arrived, and the age against the ceiling is negative. What it buys is precisely
+  // the standing window the ceiling exists to close — serve this item to one reader and not
+  // another, indefinitely, with nothing forged and no verdict produced anywhere.
+  const m = manifest({ seq: 3, updated: T0 });
+  const nextYear = item({ id: 'a', at: T0 + 365 * DAY });
+
+  // The control: the two older tests, run against this item, both say "lag".
+  assert.equal(m.updated > T0 + 365 * DAY, false, 'the manifest cannot have advanced past it');
+  assert.ok(T0 + 120 - (T0 + 365 * DAY) < LAG_CEILING_SECONDS, 'and its age is negative, not stale');
+
+  const { violations, states } = reconcileFeed(m, [nextYear], { now: T0 + 120 });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].invariant, 3);
+  assert.match(violations[0].message, /ahead of this consumer's clock/);
+  assert.equal(states.length, 1);
+  assert.notEqual(states[0].state, 'pending');
+
+  // The allowance is real, and it is the consumer's own like the ceiling: an item a few minutes
+  // ahead is ordinary clock skew between two honest machines, not an attack.
+  const skewed = item({ id: 'b', at: T0 + 600 });
+  assert.equal(reconcileFeed(m, [skewed], { now: T0 + 120 }).violations.length, 0);
+  assert.equal(reconcileFeed(m, [skewed], { now: T0 + 120, futureSkew: 60 }).violations.length, 1);
+});
+
 // ---- §9.3 invariants 1 and 2 ----
 
 test('content cannot silently vanish: removal requires a signed tombstone', () => {
