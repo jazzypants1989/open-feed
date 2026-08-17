@@ -6,6 +6,38 @@ every finding, with its current status. `HANDOFF.md` is the short list of what t
 
 Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 
+> **Session update (2026-08-17, sixth pass — four items off the handoff's list).** Baseline now
+> **265 pass**, regen clean, all 17 prototypes hold. What a later pass most needs from this one:
+>
+> - **S2.9 is DONE and Stage 0 is CLOSED.** §12's Level 1 gained the six rules it was relying on
+>   without naming (§3.1's comparators, §7.2's RFC 3339 profile, §7.6's consumer MUST, §13.4's
+>   "enforce a bound", §7.4's walk bound, §9.1.2's staleness check); Level 2 gained
+>   `_next_update`. Appendix B gained `items: true` on every publishing vector — **the
+>   specification's own canonical publisher did not conform to the specification** — plus
+>   `_next_update` on the manifest tip and a B.7/B.7b delivery-chain pair. The store-growth item
+>   is closed: both stores evict by **identity, never by age**, because §4.4's record is a lower
+>   bound and the oldest entries are the strongest. §13.4 now states that rule.
+> - **A prototype with no gate is checking that the file still runs, and this pass proved it.**
+>   `inbox-prototype.js` had been failing *every scene* since the `_openfeed` rename and exiting
+>   0: its `signItem` replaced `_openfeed` rather than merging, so every item failed §10.2 step 2
+>   and the happy path returned 400. Four commits of "all 17 prototypes hold" covered it. Gating
+>   also killed a claim that could not fail — S1's zero-fetch measurement was being satisfied by
+>   §10.3's stale check rather than by relevance. `enctags` printed LEAK as data, never touched
+>   `src/enc.js`, and still argued against a §15.2 and a §15.5.7 its own adopted recommendation
+>   had replaced. All three fixed and each gate revert-checked.
+> - **Stage 4's first item is BLOCKED by owner decision**, and the block is informed. Three
+>   extraction mechanisms were put to the owner and all three declined: the spec is felt to be
+>   bloated and nothing may expand it. `tmp/rules.js` was built instead and says why that
+>   instinct is right — **431 RFC 2119 keywords over 338 sentences and 64 sections, and two echo
+>   pairs.** The document does not repeat itself, so an index is a second copy of things stated
+>   once, and compression has nothing to take. One of the two echoes was a live contradiction
+>   (§5.2's "the continuity key MAY be dropped later" against §4.3's permanent-retention MUST);
+>   `publish.js` already followed §4.3. Fixed by deleting the restatement.
+> - **Still OPEN:** Stage 3 (now the only lever that shortens the document), Stage 4's remaining
+>   items, Stage 5's remainder, and owner decisions 4 and 7. Appendix C is the largest single
+>   finding of the new tool: 13 MUSTs, ~15% of the binding weight, and nothing in `src/` or
+>   `test/` cites it.
+>
 > **Session update (2026-08-17, fifth pass — the docs).** S2.11 is **DONE**: README and
 > DISTRIBUTION-MODEL now match the spec, including every `_openfeed` name. What a later pass most
 > needs from this one:
@@ -132,6 +164,12 @@ or reverse. Revisit any of them with an argument; do not revisit them by acciden
   content; still required by no conformance level).
 - Two delivery-receipt designs were priced and **rejected**; see §10.6 and
   `tmp/delivery-chain-prototype.js`. Do not re-propose them.
+- DISTRIBUTION-MODEL's **phase boundaries are not a release schedule** — every phase is built
+  before anyone outside sees the specification, so "which phase does the audience tier land in"
+  is moot and the document's current text stands.
+- **Stage 4's three extraction mechanisms are rejected.** Index appendix, requirements table,
+  blockquote convention: all declined, on the ground that nothing may expand the document. The
+  ambitious alternative is the owner's to define and is question 4 in `HANDOFF.md`.
 
 ---
 
@@ -217,10 +255,16 @@ false and `now - signedAt > ceiling` is negative, so a publisher stamping a year
 whole feed in permanent `pending` and can serve an item to one reader and not another
 indefinitely. Needs a clock-skew guard plus the spec sentence at 1.4.
 
-**0.11 Smaller. PARTIAL.**
+**0.11 Smaller. DONE.**
 - `publish.js` could not emit `_recovery_sig` at all — **DONE**, `Publisher.coSignIdentity`.
-- **OPEN:** unbounded `PinStore` / `MigrationStore` / `ObservationStore` growth despite §13.4
-  explicitly sanctioning eviction (`chain.js:141`, `migration.js:179`, `reader.js:79`).
+- **DONE (sixth pass):** unbounded `PinStore` / `MigrationStore` / `ObservationStore` growth
+  despite §13.4 explicitly sanctioning eviction. `PinStore` already had `compact`; the other two
+  now do, and both evict **whole identities and never by age** — §4.4's record is a *lower*
+  bound on when a key could have signed, so the oldest observations are the strongest and an
+  age-ranked evictor destroys what it is bounding. Retained without being asked: an identity
+  owning a feed the observation store tracks, and either side of a recorded or contested
+  migration (§3.4's inventory is written before the event because there is no second chance).
+  §13.4 carries both rules now. Six tests, each revert-checked against the policy it names.
 - **OPEN:** `export.js:256` drops `requireCanonical` on the restore path.
 - **OPEN:** skip hops undercount against the version cap — a skip iteration is two fetches but
   one `++hops` (`chain.js:791`); `followSkipAnchor` never checks `above.updated < current.updated`.
@@ -389,10 +433,15 @@ Named with what breaks. All still open; none were touched.
 
 ## Stage 4 — publication readiness. OPEN.
 
-- **Normative/rationale separation.** ~240 MUSTs across 1175 dense lines with rules and
-  justification interleaved sentence by sentence. Keep the justification (CLAUDE.md is right that
-  it is load-bearing) but make the rules extractable. Biggest lever on "an outside implementer
-  reads it cold"; deletes nothing.
+- **Normative/rationale separation. BLOCKED — owner decision 7, and the block is informed.**
+  Three mechanisms were put to the owner (an index appendix, a requirements table, finishing the
+  half-applied `>` blockquote convention) and all three were declined: the specification is felt
+  to be bloated and nothing may expand it. `tmp/rules.js` was built instead of guessing, and it
+  supports the instinct — **431 RFC 2119 keywords across 338 rule-bearing sentences and 64
+  sections, with two echo pairs.** The document does not repeat itself, so an index would be a
+  second copy of things stated exactly once, and compression has nothing to take. The only levers
+  that shorten it are removing mechanisms (Stage 3) and removing conformance surface. See
+  `HANDOFF.md`'s sketch. Original finding, whose count was ~240 and is now measured at 431:
 - **A consumer-state section.** Pin store, recovery pins, first-observation records, dedup store,
   delivery streams (§10.6), migration records, identity cache, frozen/retired chain state —
   specified in seven places with different keying rules and no summary. An implementer cannot
@@ -426,17 +475,23 @@ Named with what breaks. All still open; none were touched.
 
 ## Stage 5 — evidence base and DISTRIBUTION-MODEL. PARTIAL.
 
-- **Gates.** `migration-prototype.js` and `export-prototype.js` **DONE** (both gained real gates,
-  both verified by breaking a claim). **OPEN:** `enctags`, `inbox`, and `deltamanifest` still have
-  no assertion gate on their substantive claims — `enctags-prototype.js:155` literally prints
-  `LEAK` as data and exits 0, so a regression breaking §15.2's blinded-tag scheme would still
-  report "ok". `deltamanifest`'s two `process.exit` calls are inside `selfCheck()` and cover byte
-  arithmetic only.
-- **Supersession markers. PARTIAL.** The three new prototypes and `migration`/`export` are
-  current. **OPEN:** `enctags-prototype.js`'s entire framing quotes §15.2 text and a `§15.5.7`
-  that no longer exist — it is a proposal against a superseded spec, and its recommendation was
-  adopted wholesale. `inbox-prototype.js` I1/I2 still narrate as open what spec:730 and
-  spec:611-613 closed. `itemurls-prototype.js`'s header block is the right template.
+- **Gates. DONE.** `migration-prototype.js` and `export-prototype.js` gained real gates in an
+  earlier pass; `enctags`, `inbox` and `deltamanifest` in the sixth, each revert-checked by
+  breaking the claim it names. **What the gates found is the finding.** `inbox-prototype.js` had
+  been failing every scene since the `_openfeed` rename and exiting 0 — `signItem` replaced
+  `_openfeed` instead of merging it, so every item failed §10.2 step 2 as `missing_field` and the
+  "happy path" returned 400 through four commits of "all 17 prototypes hold". Gating also killed
+  a claim that *could not* fail: S1's "an irrelevant sender buys zero fetches" reused an accepted
+  id, so §10.3's stale check stopped it at step 5 and the measurement passed with relevance
+  switched off entirely. `enctags` printed `LEAK` as data and never touched `src/enc.js` at all;
+  it now runs `seal`/`open` and gates on the shipped envelope *being* scheme C.
+- **Supersession markers. DONE (sixth pass).** `enctags-prototype.js` now opens ADOPTED (§15.2)
+  and says what its own recommendation replaced, including the deleted §15.5.7 it still measures
+  against on purpose — the three-scheme table is the reason the shared ephemeral and the tags are
+  welded together, which is not visible from the shipped construction. `inbox-prototype.js`'s I1
+  and I2 are marked CLOSED with what closed them, and S4's scene still runs the failure because
+  the clause is a rule about the receiver's own store. `itemurls-prototype.js`'s header block was
+  the template.
 - **OPEN: `syndication-prototype.js` recommends a shape it never measured** — the verdict is an
   *unchained* signed document; the B it priced was chained, and chaining is what its costs
   measured.
@@ -545,7 +600,15 @@ same `(url, seq)` — §5.3.1 equivocation committed by the honest producer. Not
 chain.js:932-935's docstring still describes the pre-fix symmetric construction ("sign identical
 bytes") — a future editor matching code to comment reintroduces the strip attack.
 
-**S2.9 Conformance surface not fully propagated. OPEN.** §12 has no freshness item at any level
+**S2.9 Conformance surface not fully propagated. DONE (sixth pass).** Level 1 gained six rules
+it was relying on without naming — §3.1's two comparators, §7.2's RFC 3339 profile, §7.6's
+consumer MUST, §13.4's "enforce a bound" with the unverifiable/violation distinction, §7.4's walk
+bound next to the pagination SHOULD it is conditional on, and §9.1.2's staleness check (§13.17's).
+Level 2 gained the `_next_update` SHOULD. Appendix B gained `items: true` on B.4/B.5/B.9/B.10's
+author, `_next_update` on B.3b, and a B.7/B.7b pair for §10.6 — a lone `seq: 1` shows the field
+and proves nothing, since §10.6's own argument is that a counter is what a sender can silently
+restart. Gated in `regen.js` and in `vectors.test.js` against the spec's own bytes. Original
+finding follows. §12 has no freshness item at any level
 (Level 2 SHOULD "emit `_next_update`", Level 1 staleness handling — spec:720-744); Level 1's
 list also omits §7.6's new consumer MUST (spec:448) and §13.17's check. Appendix B vectors carry
 no `items: true` though §3.2.1 makes it a Level 2 MUST — the spec's own canonical publisher is
