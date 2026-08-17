@@ -40,8 +40,16 @@ function makeIdentity(url, kid, { revoked_at } = {}) {
   return { url, kid, jwk, privateKey, document: doc };
 }
 
-function signItem(identity, fields) {
-  const item = { authors: [{ url: identity.url }], _openfeed: { version: 1 }, date_published: iso(T0 - 3600), ...fields };
+function signItem(identity, { _openfeed, ...fields } = {}) {
+  // MERGED, never replaced. `{ ...item, _openfeed: { rel } }` silently drops `version`, and
+  // every item this file signs then fails §10.2 step 2 as `missing_field` — which is exactly
+  // what it did, through the whole `_openfeed` rename, because nothing here asserted anything.
+  const item = {
+    authors: [{ url: identity.url }],
+    date_published: iso(T0 - 3600),
+    ...fields,
+    _openfeed: { version: 1, ..._openfeed },
+  };
   item._sig = sign(item, identity.privateKey, `${identity.url}#${identity.kid}`, { kind: 'item' });
   return item;
 }
@@ -194,7 +202,14 @@ for (const t of r1.trace) say(`    ${t}`);
 // The same, from an unknown author with a bad signature: how much work did they buy?
 const forged = { ...reply, id: 'urn:uuid:aaaa-0002', _sig: reply._sig };
 const r2 = await inbox.post(JSON.stringify(forged));
-const junk = await inbox.post(JSON.stringify({ ...reply, _openfeed: { rel: [{ type: 'reply', to: 'https://elsewhere.example/feed.json#x' }] } }));
+// A distinct `id`, deliberately: reusing the accepted one made this land on §10.3's stale
+// check at step 5 and cost zero fetches for a reason that has nothing to do with relevance —
+// so the measurement below read as a pass with the relevance check switched off entirely.
+const junk = await inbox.post(JSON.stringify({
+  ...reply,
+  id: 'urn:uuid:aaaa-0009',
+  _openfeed: { ...reply._openfeed, rel: [{ type: 'reply', to: 'https://elsewhere.example/feed.json#x' }] },
+}));
 
 say();
 say(`  a forged signature costs the receiver: ${r2.fetches - r1.fetches} fetch, status ${r2.status}`);
@@ -216,6 +231,7 @@ scene(2, 'The §10.3 write-before-verify attack');
 // NOT **write** it until verification succeeds ... recording an unverified (author, id) ->
 // version lets anyone pin a victim's item at a version it will never reach."
 
+const poisonRuns = {};
 for (const writeBeforeVerify of [true, false]) {
   const victimInbox = makeInbox({ ownedIds: new Set([MY_ITEM]), writeBeforeVerify });
 
@@ -239,6 +255,7 @@ for (const writeBeforeVerify of [true, false]) {
   });
   const genuine = await victimInbox.post(JSON.stringify(real));
 
+  poisonRuns[String(writeBeforeVerify)] = { poisoned, genuine };
   say(`  writeBeforeVerify = ${String(writeBeforeVerify).padEnd(5)}  ` +
       `Eve's forgery: ${poisoned.status} ${poisoned.error ?? ''}   ` +
       `Dad's real reply: ${genuine.status} ${genuine.error ?? ''}`);
@@ -254,8 +271,9 @@ verdict(
   'The MUST earns its place, and the failure is silent in both directions. Note what the\n' +
   'attack needs: a victim identity URL and an item id — no key, no access, no signature. It\n' +
   'is the cheapest denial in the protocol and its cost to the attacker is one HTTP request.\n' +
-  'Worth a line in §13 alongside §13.9, since §10.3 currently states the rule where only an\n' +
-  'implementer of the dedup store will read it.',
+  'ADOPTED: §13.9 now carries it, beside the fetch amplification it is cheaper than. §10.3\n' +
+  'still states the rule, but it no longer states it only where a dedup-store implementer\n' +
+  'would find it.',
 );
 
 // =========================================================================================
@@ -290,10 +308,12 @@ const nested = signItem(dad, {
 const nestedWithRoot = signItem(dad, {
   id: 'urn:uuid:dddd-0003',
   content_text: 'I helped make them!',
-  _rel: [
-    { type: 'reply', to: `${gran.url}feed.json#urn:uuid:aaaa-0001` },
-    { type: 'root', to: `${MOM_FEED}#${MY_ITEM}` },
-  ],
+  _openfeed: {
+    rel: [
+      { type: 'reply', to: `${gran.url}feed.json#urn:uuid:aaaa-0001` },
+      { type: 'root', to: `${MOM_FEED}#${MY_ITEM}` },
+    ],
+  },
 });
 const n1 = await withIdHalf.post(JSON.stringify(nested));
 const n2 = await withIdHalf.post(JSON.stringify(nestedWithRoot));
@@ -364,17 +384,19 @@ say(`  Nothing here is a signature failure, a relevance failure, or a version co
 say(`  check passed and the retraction did not retract.`);
 
 verdict(
-  'A sixth site for predecessor equivalence, and nobody named it. §3.4 lists the consequences\n' +
-  'it closes — §4.4, §7.5, §9, §9.3 invariant 5, §10.2 — and §10.3 is not among them, so\n' +
-  'dedup keys a migrated author as a stranger. The result: after exercising your exit you can\n' +
+  'A sixth site for predecessor equivalence, which nothing named when this was measured. §3.4\n' +
+  'listed the consequences it closes — §4.4, §7.5, §9, §9.3 invariant 5, §10.2 — and §10.3 was\n' +
+  'not among them, so dedup keyed a migrated author as a stranger. After exercising your exit you\n' +
   'no longer EDIT or RETRACT anything you delivered before it. For a delivered-only item that\n' +
   'is the only copy in existence outside your own export bundle, and the recipient holds it.\n' +
   '\n' +
   'This is worse than the bouncing replies §3.4 already worries about, because it fails\n' +
   'CLOSED-looking and OPEN-behaving: the sender gets a 202 and believes the retraction landed.\n' +
   '\n' +
-  '-> §10.3 states that its `(author, id)` is subject to predecessor equivalence, exactly as\n' +
-  '   §4.4 already says of its own record — one clause, and the rule already exists.',
+  '-> ADOPTED. §10.3 now states that the `author` half is subject to predecessor equivalence,\n' +
+  '   "exactly as §4.4\'s identically-shaped record is". The scene above still runs the failure\n' +
+  '   because the clause is a rule about the receiver\'s own store: `src/inbox.js` takes an\n' +
+  '   `equivalent` predicate, and a deployment that supplies none reproduces exactly this.',
 );
 
 // =========================================================================================
@@ -419,17 +441,56 @@ say(`
     S3  id-half relevance and §8.1's root entry both work, and the first needs no state
     S5  §10.4's oracle behaves exactly as documented and is bounded by id guessability
 
-  Findings
+  Findings — BOTH ADOPTED. They are kept because the measurements below them are what the
+  clauses rest on, and a rule whose evidence has been deleted is a rule nobody can re-check.
     I1  §10.3's write-before-verify defect is the cheapest denial in the protocol — a victim
         URL and an item id, no key — and it is silent to both the victim and the receiver.
-        §10.3 states the rule; §13 never lists the attack next to §13.9's cousin.
-        -> add it to §13.9, where an implementer reading about the inbox will find it.
-    I2  §10.3's dedup key is not migration-aware, though §4.4's identically-shaped key
-        explicitly is. After migrating you cannot edit or retract anything you delivered
+        §10.3 stated the rule where only an implementer of the dedup store would read it.
+        -> CLOSED. §13.9 now carries it, beside the fetch-amplification attack it is cheaper
+           than, and says why the damage is invisible: the forgery is rejected either way.
+    I2  §10.3's dedup key was not migration-aware, though §4.4's identically-shaped key
+        explicitly was. After migrating you could not edit or retract anything you delivered
         before migrating: the tombstone arrives under a new (author, id), is accepted as a
         NEW item, and the original stays live. Sender sees 202.
-        -> §10.3 is the sixth site of predecessor equivalence. One clause.
+        -> CLOSED. §10.3's first paragraph now states that the \`author\` half is subject to
+           predecessor equivalence (§3.4), "exactly as §4.4's identically-shaped record is".
 
-  Both findings are about state the inbox keeps rather than bytes it checks, which is the
-  half of §10 with the least normative text and the most implementation freedom.
+  Both findings were about state the inbox keeps rather than bytes it checks, which is the
+  half of §10 with the least normative text and the most implementation freedom. S4's scene
+  still runs the failure, because what closed it is one clause and nothing enforces it here:
+  the equivalence lives in the receiver's own store, which is why \`src/inbox.js\` takes an
+  \`equivalent\` predicate rather than assuming one.
 `);
+
+// ---- gate ---------------------------------------------------------------------------------
+// This file had no assertion gate on any of it. §10.2's ordering and §10.3's write-before-verify
+// rule are exactly the properties that return the SAME STATUS CODE whether obeyed or not — which
+// is this prototype's opening argument for measuring rather than reading, and was also the
+// reason nothing here could fail.
+const claims = [
+  ['S1 a relevant delivery costs exactly one outbound fetch', r1.fetches === 1],
+  ['S1 no outbound fetch happens before step 7 (§10.2 numbering is normative)',
+    r1.fetchesBeforeStep7 === 0],
+  ['S1 an irrelevant sender costs zero outbound fetches', junk.fetches === r2.fetches],
+  ['S1 a forged signature still costs exactly one, and no more', r2.fetches - r1.fetches === 1],
+  ['S2 the forgery is rejected whichever order the store is written in',
+    poisonRuns.true.poisoned.status >= 400 && poisonRuns.false.poisoned.status >= 400],
+  ['S2 write-before-verify is what denies the victim their own later revisions',
+    poisonRuns.true.genuine.status >= 400 && poisonRuns.false.genuine.status < 300],
+  ['S3 an id-half match reaches an inbox a feed-URL match cannot (C1)',
+    a.status < 300 && b.status >= 400],
+  ['S3 §8.1: a nested reply reaches the thread host only via a `root` entry',
+    n1.status >= 400 && n2.status < 300],
+  ['S4 a post-migration retraction files as a NEW item, leaving the original live',
+    retracted.status < 300 && receiving.dedup.size === 2],
+  ['S5 §10.4 distinguishes a stored pair from an unstored one with no key',
+    known.status !== unknown.status],
+];
+const broken = claims.filter(([, ok]) => !ok);
+if (broken.length) {
+  say();
+  say('FAIL — these claims no longer hold:');
+  for (const [label] of broken) say(`  ${label}`);
+  say('Either the prototype is stale or the property it measures is. Both are findings.');
+  process.exit(1);
+}

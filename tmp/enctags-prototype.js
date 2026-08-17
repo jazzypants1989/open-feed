@@ -1,31 +1,34 @@
-// §15.2's untagged recipients: what does trial decryption actually cost, and is there a
-// construction that keeps the privacy property and deletes the cost?
+// ADOPTED (§15.2). Read the framing below as history, and the gate at the bottom as the part
+// that is still live.
 //
-// §15.2 keeps JWE recipients untagged — "a per-recipient header carries `alg` and `epk` and
-// MUST NOT carry `kid`, so the audience is not disclosed by the item and a reader
-// trial-decrypts each slot until one opens." §15.5.7 then has to bound the consequence with a
-// MUST: cap the trial decryptions (RECOMMENDED 1024), "and the expensive case is the common
-// one, since a non-recipient — anyone at all, on a world-readable encrypted feed — pays the
-// full product on every item and never exits early."
+// **What this file argued against no longer exists.** It was written against a §15.2 that gave
+// every recipient its own ephemeral and left the slots untagged, and against a §15.5.7 that
+// bounded the resulting cost with a trial-decryption cap (RECOMMENDED 1024) and a
+// "SHOULD attempt keys newest-`iat` first". Scheme C below was adopted wholesale: §15.2 now
+// specifies one shared `epk` in the JWE protected header and a blinded per-recipient `_tag`,
+// and §15.5.7 was deleted along with its magic number. Nothing here proposes anything.
 //
-// The candidate: a blinded per-slot tag `t_i = KDF(ECDH(esk, pk_i))`. A recipient computes
-// ECDH(sk_i, epk) and finds its slot by comparison; an observer holding no private key computes
-// nothing, and the tag is keyed by the per-item ephemeral so it is unlinkable across items —
-// which is the exact property banning `kid` was protecting.
+// **Why it is kept rather than retired.** The measurement is the reason the two halves are
+// welded together, and that reason is not visible from the shipped construction: a shared
+// ephemeral *alone* is not a win (it forces keys-outer/slots-inner, so a wrong key costs a full
+// sweep of unwraps), and tags *alone* cannot be computed without the per-slot ECDH they were
+// meant to replace. So the three schemes are still measured — A as originally specified, B to
+// isolate the ephemeral change, C as shipped — because "why not just do one of them" is the
+// question a later editor will ask, and the answer is a table rather than an argument.
 //
-// DESIGNING THIS SURFACED THE REAL COST DRIVER, and it is not tagging. §15.2 gives every
-// recipient its OWN ephemeral. With per-recipient ephemerals a tag cannot help: computing
-// t_i still needs ECDH(sk, epk_i), one per slot, so tags would save only the AES unwrap — the
-// cheap half. The win requires ONE SHARED ephemeral, and that change alone is most of it.
-// So this measures three schemes, not two:
+//   A  the original §15.2  — per-recipient epk, untagged, trial decrypt
+//   B  shared epk          — untagged, trial decrypt (isolates the ephemeral change)
+//   C  shared epk + tags   — what §15.2 now specifies
 //
-//   A  as specified today   — per-recipient epk, untagged, trial decrypt
-//   B  shared epk           — untagged, trial decrypt (isolates the ephemeral change)
-//   C  shared epk + tags    — the proposal
-//
-// Owner decision: measure, do not edit §15.2 until the numbers are in.
+// **And it exercises `src/enc.js`.** It did not, which meant the shipped §15 had no prototype
+// behind it and this file could go on measuring a scheme C that had drifted from the one in the
+// repository. The section before the verdict runs `seal`/`open` and gates on the shipped
+// envelope actually being C: one shared `epk`, a per-recipient `_tag`, no `kid` anywhere, and a
+// tag a recipient reproduces from its own private half.
 
 import crypto from 'node:crypto';
+
+import { seal, open, slotTag, TAG_LABEL, encryptionKeyFor, EncError } from '../src/enc.js';
 
 const say = (s = '') => console.log(s);
 const rule = (t) => { say(); say('='.repeat(78)); say(t); say('='.repeat(78)); };
@@ -89,7 +92,7 @@ function encrypt(plaintext, recipientPubs, { scheme }) {
 
 // A reader holding K private encryption keys. §15.1 makes K grow monotonically and never
 // shrink — "a rotated-out encryption key MUST be retained by its owner indefinitely" — so K is
-// a decade of rotations, and the cost §15.5.7 caps is the PRODUCT with slot count.
+// a decade of rotations, and the cost the deleted §15.5.7 capped is the PRODUCT with slot count.
 function decrypt(jwe, myKeys, { scheme }) {
   let ecdh = 0, unwraps = 0, compares = 0;
 
@@ -140,6 +143,9 @@ const PLAINTEXT = JSON.stringify({ id: 'urn:uuid:0001', content_text: 'The grand
 const audience = Array.from({ length: 12 }, () => encKeypair());
 const stranger = encKeypair();
 
+// Recorded rather than only printed. This loop used to print the word LEAK as data and exit 0,
+// so a regression that opened an envelope for a stranger reported "ok" like everything else.
+const correctness = {};
 for (const scheme of ['A', 'B', 'C']) {
   const jwe = encrypt(PLAINTEXT, audience.map((k) => k.pub), { scheme });
   const first = decrypt(jwe, [audience[0]], { scheme });
@@ -152,9 +158,10 @@ for (const scheme of ['A', 'B', 'C']) {
     d.setAuthTag(Buffer.from(jwe.tag, 'base64url'));
     return Buffer.concat([d.update(Buffer.from(jwe.ciphertext, 'base64url')), d.final()]).toString() === PLAINTEXT;
   };
-  say(`  ${scheme}: first recipient ${opens(first) ? 'opens' : 'FAILS'}, ` +
-      `last recipient ${opens(last) ? 'opens' : 'FAILS'}, ` +
-      `stranger ${out.cek === null ? 'locked out' : 'LEAK'}`);
+  correctness[scheme] = { first: opens(first), last: opens(last), lockedOut: out.cek === null };
+  say(`  ${scheme}: first recipient ${correctness[scheme].first ? 'opens' : 'FAILS'}, ` +
+      `last recipient ${correctness[scheme].last ? 'opens' : 'FAILS'}, ` +
+      `stranger ${correctness[scheme].lockedOut ? 'locked out' : 'LEAK'}`);
 }
 
 // The privacy property, stated as what an observer can actually compute.
@@ -165,17 +172,19 @@ say(`  documents — and the ephemeral public key from the envelope. To test mem
 say(`  need ECDH(esk, pk_i), which requires one of the two private halves. They have neither.`);
 say(`  Tags are unlinkable across items because esk is fresh per item:`);
 const again = encrypt(PLAINTEXT, audience.map((k) => k.pub), { scheme: 'C' });
-say(`    same audience, two items — any tag repeated: ` +
-    `${probe.recipients.some((r) => again.recipients.some((s) => s.header._tag === r.header._tag))}`);
+const tagsRelink = probe.recipients.some((r) => again.recipients.some((s) => s.header._tag === r.header._tag));
+say(`    same audience, two items — any tag repeated: ${tagsRelink}`);
 
 // ---- size ------------------------------------------------------------------------------------
 
 rule('Size — bytes on the wire, which the manifest then commits and retains forever');
 
+const sizes = {};
 say(`  N     A (per-recipient epk)   B (shared epk)      C (shared epk + tag)`);
 for (const N of [10, 30, 1024]) {
   const pubs = Array.from({ length: N }, () => encKeypair().pub);
   const [a, b, c] = ['A', 'B', 'C'].map((s) => Buffer.byteLength(JSON.stringify(encrypt(PLAINTEXT, pubs, { scheme: s }))));
+  sizes[N] = { a, b, c };
   const fmt = (n) => `${(n / 1024).toFixed(1)} KB`.padEnd(20);
   say(`  ${String(N).padEnd(6)}${fmt(a)}${fmt(b)}${fmt(c)}`);
   if (N === 30) {
@@ -189,7 +198,7 @@ say(`  X25519 public key from every slot (~60 B of JSON); an 8-byte tag costs ~2
 
 // ---- speed -----------------------------------------------------------------------------------
 
-rule('Speed — operations and wall clock, at the sizes §15.2 and §15.5.7 name');
+rule('Speed — operations and wall clock, at the sizes §15.2 and the old §15.5.7 named');
 
 function bench(fn, iterations) {
   const t = process.hrtime.bigint();
@@ -223,9 +232,122 @@ for (const K of [1, 10]) {
   }
 }
 
+// ---- the shipped implementation -----------------------------------------------------------
+//
+// Everything above is this file's own re-derivation of three envelopes. That is what a
+// prototype is for, and it is also how a prototype goes on holding after the thing it
+// describes has moved: scheme C here could drift from scheme C in `src/enc.js` and nothing
+// would say so. So this section runs the shipped code and checks it *is* C.
+
+rule('The shipped §15 — is `src/enc.js` scheme C, or only described as it?');
+
+function encIdentity(url, key) {
+  return {
+    url,
+    seq: 1,
+    updated: 1739577600,
+    keys: [{ crv: 'X25519', iat: 1736899200, kid: 'enc-1', kty: 'OKP', use: 'enc', x: key.x }],
+  };
+}
+
+const shippedKeys = Array.from({ length: 6 }, () => encKeypair());
+const shippedDocs = shippedKeys.map((k, i) => encIdentity(`https://r${i}.example/`, k));
+const outsiderKey = encKeypair();
+
+const carrier = {
+  id: 'urn:uuid:9d1f0a2b-3c4d-4e5f-8091-a2b3c4d5e6f7',
+  authors: [{ url: 'https://author.example/' }],
+  _openfeed: { feed_url: 'https://author.example/feed.json', version: 1 },
+  content_text: '',
+  date_published: '2025-02-20T12:00:00Z',
+};
+const envelope = seal({
+  item: carrier,
+  content: { content_text: 'The grandkids came over.' },
+  recipients: shippedDocs,
+});
+const sealed = { ...carrier, _openfeed: { ...carrier._openfeed, enc: envelope } };
+
+const protectedHeader = JSON.parse(Buffer.from(envelope.protected, 'base64url').toString('utf8'));
+const sharedEpk = typeof protectedHeader?.epk?.x === 'string';
+const slotEpks = envelope.recipients.filter((r) => r.header.epk !== undefined).length;
+const slotTags = envelope.recipients.filter((r) => typeof r.header._tag === 'string').length;
+const slotKids = envelope.recipients.filter((r) => r.header.kid !== undefined).length;
+
+say(`  one shared \`epk\` in the protected header : ${sharedEpk}`);
+say(`  per-recipient \`epk\` slots (scheme A's shape): ${slotEpks} of ${envelope.recipients.length}`);
+say(`  per-recipient \`_tag\` slots                 : ${slotTags} of ${envelope.recipients.length}`);
+say(`  per-recipient \`kid\` slots (§15.2 MUST NOT) : ${slotKids}`);
+say(`  the recipient list appears nowhere on the wire: ` +
+    `${!JSON.stringify(envelope).includes('r0.example')}`);
+
+// A recipient reproduces its own tag from its own private half, which is the whole privacy
+// claim — and it is checked against `slotTag` rather than against a re-derivation here, so a
+// change to the label or the truncation is a failure rather than a divergence nobody notices.
+const epkPub = crypto.createPublicKey({
+  key: { kty: 'OKP', crv: 'X25519', x: protectedHeader.epk.x }, format: 'jwk',
+});
+const mine = slotTag(crypto.diffieHellman({ privateKey: shippedKeys[3].priv, publicKey: epkPub }));
+const tagFound = envelope.recipients.some((r) => r.header._tag === mine);
+say(`  recipient 3 finds its slot by computing its own tag: ${tagFound}`);
+say(`  the tag's domain separator is ${JSON.stringify(TAG_LABEL)}`);
+
+// Caught rather than allowed to propagate: a broken construction should come out of the gate
+// below as a named claim, not as a stack trace whose reader has to work out which claim it was.
+let shippedOpens = false;
+let openError = null;
+try {
+  shippedOpens = open(sealed, { privateKeys: [shippedKeys[3].priv] }).content_text === 'The grandkids came over.';
+} catch (e) { openError = e.message; }
+let shippedShuts = false;
+try { open(sealed, { privateKeys: [outsiderKey.priv] }); }
+catch (e) { shippedShuts = e instanceof EncError; }
+say(`  a recipient opens it: ${shippedOpens}${openError ? ` (${openError})` : ''}` +
+    `    an outsider is refused: ${shippedShuts}`);
+
+// §15.1's resolution rule, exercised because this file's own `encrypt` takes raw public keys
+// and therefore cannot show it: the shipped seal takes identity *documents*, so "resolve the
+// key from the recipient's own document" is structural rather than a rule a caller remembers.
+let revokedRefused = false;
+try {
+  encryptionKeyFor({
+    url: 'https://retired.example/',
+    keys: [{ ...shippedDocs[0].keys[0], revoked_at: 1739577600 }],
+  }, { now: 1740000000 });
+} catch (e) { revokedRefused = e instanceof EncError; }
+say(`  a revoked encryption key is refused to a new sender (§15.1): ${revokedRefused}`);
+
+// ---- gate ---------------------------------------------------------------------------------
+// This file had no assertion gate: the correctness line printed the word LEAK as data and the
+// process exited 0, so a regression breaking the blinded-tag scheme reported exactly what a
+// working one did. `npm run prototypes` was checking that this file still ran.
+const claims = [
+  ['C opens for its recipients and locks out a stranger',
+    correctness.C.first && correctness.C.last && correctness.C.lockedOut],
+  ['A and B do too — the comparison is between working schemes',
+    correctness.A.first && correctness.A.lockedOut && correctness.B.first && correctness.B.lockedOut],
+  ['tags do not relink a recipient across two items (the property banning `kid` protected)',
+    tagsRelink === false],
+  ['C is no larger than A on the wire at family scale', sizes[30].c <= sizes[30].a],
+  ['the shipped envelope carries one shared `epk`, not one per slot', sharedEpk && slotEpks === 0],
+  ['every shipped slot carries a `_tag` and no slot carries a `kid`',
+    slotTags === envelope.recipients.length && slotKids === 0],
+  ['a recipient finds its shipped slot by computing `slotTag` from its own private half', tagFound],
+  ['the shipped envelope opens for a recipient and refuses an outsider', shippedOpens && shippedShuts],
+  ['§15.1: a revoked encryption key is refused to a new sender', revokedRefused],
+];
+const broken = claims.filter(([, ok]) => !ok);
+if (broken.length) {
+  say();
+  say('FAIL — these claims no longer hold:');
+  for (const [label] of broken) say(`  ${label}`);
+  say('Either the prototype is stale or the construction it measures is. Both are findings.');
+  process.exit(1);
+}
+
 // ---- verdict ----------------------------------------------------------------------------------
 
-rule('VERDICT');
+rule('VERDICT (adopted — §15.2)');
 say(`
   The cost driver in §15.2 is the PER-RECIPIENT EPHEMERAL, not the absence of tags — and the
   two changes only work TOGETHER. Neither hypothesis going in survived the measurement.
@@ -243,12 +365,12 @@ say(`
     C (share the ephemeral AND tag the slots) is the one that holds everywhere. The tag makes
       the inner sweep a byte comparison instead of an unwrap, so the loop order stops
       mattering: K ECDH plus at most N x K comparisons, flat. Every case measured stays under
-      a millisecond regardless of N, including the case §15.5.7 calls the common one — a
+      a millisecond regardless of N, including the case the old §15.5.7 called the common one — a
       NON-RECIPIENT, who under A pays hundreds of milliseconds per item and never exits early.
 
     Tags cannot be adopted without the shared ephemeral either: with per-recipient ephemerals
     a reader must do the ECDH before it can compute any tag, so tagging alone would save only
-    the AES unwrap, the cheap half. The pair is the proposal; neither half is.
+    the AES unwrap, the cheap half. The pair was the proposal; neither half was.
 
   Privacy is unchanged in both. The audience stays undisclosed: an observer holds every
   recipient's published X25519 key and the ephemeral public key and still cannot compute a tag
@@ -261,18 +383,20 @@ say(`
   statement about the encrypting client's memory hygiene, not about anything on the wire, and
   it is the same exposure the CEK itself already has in that process.
 
-  Recommended shape for §15.2, if adopted — as ONE change, not two:
+  Adopted as ONE change rather than two, and this is what §15.2 now says — confirmed against
+  \`src/enc.js\` in the section above rather than assumed:
     - one \`epk\` in the JWE protected header rather than one per recipient
     - a per-recipient \`_tag\`, 8 bytes, domain-separated from the KEK derivation
-    - §15.5.7's trial-decryption cap MUST becomes unnecessary and is deleted, and so does its
-      "Recipients SHOULD attempt keys newest-\`iat\` first", which exists only to make the K
-      dimension tolerable and stops mattering once cost is flat
+    - §15.5.7 is gone, and with it both the trial-decryption cap MUST and the "Recipients
+      SHOULD attempt keys newest-\`iat\` first" that existed only to make K tolerable
   Net effect: one field added, one MUST, one SHOULD and one magic number removed, and the
   envelope is ~30% smaller at family scale.
 
-  Weighed against it: §15 is marked "never independently reviewed" and is OPTIONAL, so this is
-  churn in the layer with the least scrutiny behind it. Both pieces are standard — a shared
-  ephemeral is how multi-recipient ECDH-ES is ordinarily done, and blinded recipient tags are a
-  known construction — but standard is not reviewed, and nobody outside this repository has
-  looked at any of §15 yet.
+  The caveat weighed against adopting it has not gone away, and §15 has since been *promoted* —
+  required of any deployment offering audience-restricted content — which raises what is riding
+  on it rather than settling anything. Both pieces are standard: a shared ephemeral is how
+  multi-recipient ECDH-ES is ordinarily done, and blinded recipient tags are a known
+  construction. But standard is not reviewed, and nobody outside this repository has looked at
+  any of §15. Everything above is a measurement, and no quantity of measurement substitutes for
+  a cryptographer.
 `);

@@ -335,6 +335,10 @@ for (const s of SCENARIOS) {
 //                regime the O(total changes) claim is about.
 // =========================================================================================
 console.log('=== Q5: is the storage win really available at rest, with no wire change? ===\n');
+// Hoisted out of the block so the gate at the bottom can read them. Q5 is the measurement the
+// whole recommendation rests on — "the storage win is available at rest" — and it was the one
+// number in this file that nothing checked.
+const q5 = {};
 {
   const S = { versions: 365, addsPerVersion: 3 };
   const live = new Map();
@@ -371,6 +375,8 @@ console.log('=== Q5: is the storage win really available at rest, with no wire c
   // Model B's total for the same shape.
   const { b: bSeries } = measure({ versions: S.versions, addsPerVersion: S.addsPerVersion, snapshotEvery: SNAPSHOT_EVERY });
   const deltaTotal = sum(bSeries.map((v) => v.size));
+
+  Object.assign(q5, { raw, perFileGzip, wholeGzip, wholeBrotli, wholeZstd, deltaTotal });
 
   const line = (label, n) => console.log(`    ${label.padEnd(34)} ${mb(n).padStart(9)}   ${(raw / n).toFixed(1)}x`);
   console.log(`  365 versions, ${live.size} live items at the end, serialized for real:\n`);
@@ -469,3 +475,33 @@ So the trade is: a publisher-side storage cost, removable at rest by choosing th
 compressor, against a permanent complexity cost on every verifier plus a weakening of invariant
 1 and of what §5.3.1 observers hold in common. That is a bad trade at this scale, and it would
 still be a bad trade if B+\`_skip\` were faster — which it is.`);
+
+// ---- gate ---------------------------------------------------------------------------------
+// `selfCheck()` above exits non-zero, but only on the byte arithmetic — it confirms this file
+// can count, not that anything it concludes still holds. Every claim the recommendation is
+// actually made of went ungated, so the file could go on printing a verdict whose numbers had
+// inverted. Directional rather than exact: the magnitudes drift with hardware and with the
+// scenario table, the *directions* are what the argument uses.
+const claims = [
+  ['Q1 B wins retained storage by a large factor in every scenario', Math.min(...ratios) >= 10],
+  ['Q2 for a short absence a delta chain beats A + `_skip`', day.delta < day.skip],
+  ['Q3 for a long absence it inverts — a delta chain has no shortcut in it', year.delta > year.skip],
+  ['Q3 and it inverts far enough to breach §13.4\'s budget, which is `_skip`\'s own case',
+    year.delta > year.budgetB && year.skip <= year.budgetA],
+  ['Q3 B + `_skip` dominates both, which is why the verdict is not "A is cheaper"',
+    year.deltaSkip < year.skip && year.deltaSkip < year.delta],
+  ['Q5 a large-window compressor reaches an actual delta encoding at rest — the claim §13.4 makes',
+    q5.wholeBrotli <= q5.deltaTotal],
+  ['Q5 plain gzip does NOT, whole-set or not: its window is smaller than one version',
+    q5.wholeGzip > q5.deltaTotal * 2 && q5.wholeGzip > q5.wholeBrotli],
+  ['Q5 a static host serving precompressed files gets the per-file column, which is the worse one',
+    q5.perFileGzip > q5.wholeBrotli],
+];
+const broken = claims.filter(([, ok]) => !ok);
+if (broken.length) {
+  console.log();
+  console.log('FAIL — these claims no longer hold:');
+  for (const [label] of broken) console.log(`  ${label}`);
+  console.log('Either the prototype is stale or the verdict above is. Both are findings.');
+  process.exit(1);
+}
