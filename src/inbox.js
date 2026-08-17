@@ -86,7 +86,14 @@ export const RESPONSES = {
  */
 export class DeliveryStore {
   constructor({ equivalent = (a, b) => normalizeIdentityUrl(a) === normalizeIdentityUrl(b) } = {}) {
-    this.bySender = new Map(); // normalized author -> { seq, hash }
+    // normalized author -> { seq, hash, missing: Map<seq, claimedHash|null>, held: Map<seq, hash> }
+    //
+    // `missing` is the receiver's open findings: seqs the stream has jumped over, each holding
+    // the sender's own claim of that item's hash where a later item's `prev` supplied one.
+    // `held` is one 43-character hash per accepted delivery, kept so a late arrival's linkage is
+    // checkable — smaller than the dedup record and the item bytes a receiver already retains,
+    // and prunable under the same local policy (§13.4).
+    this.bySender = new Map();
     this.equivalent = equivalent;
   }
 
@@ -102,8 +109,9 @@ export class DeliveryStore {
    * verification because it writes nothing — §10.3's write-before-verify rule governs the
    * companion `record` below for the same reason it governs the dedup store.
    *
-   * `null` means nothing to report: no `_delivery` (the field is a SHOULD), or a first delivery
-   * from this sender, or an unbroken continuation.
+   * `null` means nothing to report: no `_delivery` (the field is a SHOULD), a first delivery
+   * from this sender, an unbroken continuation — or a late arrival that fills a recorded gap,
+   * which §10.4's 24-hour retry window makes an ordinary event rather than a replay.
    */
   check(author, item) {
     const d = item?._delivery;
@@ -112,22 +120,45 @@ export class DeliveryStore {
     // be true of them all — receivers MUST ignore `_delivery` where `_feed_url` is present.
     if (typeof item._feed_url === 'string') return null;
     const holder = this.#holder(author);
-    if (holder === null) return null; // first contact: nothing to be continuous with
-    const last = this.bySender.get(holder);
-    if (d.seq <= last.seq) {
-      return { kind: 'delivery_replay', expected: last.seq + 1, got: d.seq, missingHash: null };
-    }
-    if (d.seq > last.seq + 1) {
+    if (holder === null) {
+      // First contact at seq 1 is the ordinary genesis. First contact deeper into a stream is
+      // a gap like any other: either this receiver lost its state or a prefix was dropped, and
+      // §10.6 has no third reading for "the stream began mid-way".
+      if (d.seq === 1) return null;
       return {
-        kind: 'delivery_gap', expected: last.seq + 1, got: d.seq,
+        kind: 'delivery_gap', expected: 1, got: d.seq,
+        missingHash: typeof d.prev === 'string' ? d.prev : null,
+      };
+    }
+    const st = this.bySender.get(holder);
+    if (d.seq <= st.seq) {
+      if (st.missing.has(d.seq)) {
+        // A gap-filler. Two linkage checks, both against the sender's own signed claims: the
+        // later item that revealed the gap may have named this seq's hash in its `prev`, and
+        // this item's `prev` must match the neighbor the receiver holds.
+        const claimed = st.missing.get(d.seq);
+        if (claimed && !timingSafeEqualString(claimed, documentHash(item))) {
+          return { kind: 'delivery_broken_link', expected: d.seq, got: d.seq, missingHash: claimed };
+        }
+        const neighbor = st.held.get(d.seq - 1);
+        if (typeof d.prev === 'string' && neighbor && !timingSafeEqualString(d.prev, neighbor)) {
+          return { kind: 'delivery_broken_link', expected: d.seq, got: d.seq, missingHash: d.prev };
+        }
+        return null;
+      }
+      return { kind: 'delivery_replay', expected: st.seq + 1, got: d.seq, missingHash: null };
+    }
+    if (d.seq > st.seq + 1) {
+      return {
+        kind: 'delivery_gap', expected: st.seq + 1, got: d.seq,
         // The hash the sender named is the bytes of the item immediately before this one. Where
         // more than one is missing it names only the last of them, which is still a signed claim
         // about bytes this receiver does not hold.
         missingHash: typeof d.prev === 'string' ? d.prev : null,
       };
     }
-    if (typeof d.prev === 'string' && !timingSafeEqualString(d.prev, last.hash)) {
-      return { kind: 'delivery_broken_link', expected: last.seq + 1, got: d.seq, missingHash: d.prev };
+    if (typeof d.prev === 'string' && !timingSafeEqualString(d.prev, st.hash)) {
+      return { kind: 'delivery_broken_link', expected: st.seq + 1, got: d.seq, missingHash: d.prev };
     }
     return null;
   }
@@ -135,15 +166,56 @@ export class DeliveryStore {
   /** Only after verification succeeds (§10.3's rule, same reasoning). */
   record(author, item) {
     const d = item?._delivery;
-    if (!d || !Number.isInteger(d.seq)) return null;
+    if (!d || !Number.isInteger(d.seq) || d.seq < 1) return null;
     if (typeof item._feed_url === 'string') return null; // same §10.6 rule as `check`
 
     const holder = this.#holder(author) ?? normalizeIdentityUrl(author);
-    const last = this.bySender.get(holder);
-    if (last && d.seq <= last.seq) return last;      // a replay never moves the stream
-    const next = { seq: d.seq, hash: documentHash(item) };
-    this.bySender.set(holder, next);
-    return next;
+    const st = this.bySender.get(holder);
+    const hash = documentHash(item);
+    const prevClaim = typeof d.prev === 'string' ? d.prev : null;
+
+    if (!st) {
+      const fresh = { seq: d.seq, hash, missing: new Map(), held: new Map([[d.seq, hash]]) };
+      for (let k = 1; k < d.seq; k++) fresh.missing.set(k, k === d.seq - 1 ? prevClaim : null);
+      this.bySender.set(holder, fresh);
+      return fresh;
+    }
+    if (d.seq <= st.seq) {
+      if (st.missing.has(d.seq)) {           // a late arrival closes its finding
+        st.missing.delete(d.seq);
+        st.held.set(d.seq, hash);
+      }
+      return st;                             // a replay never moves the stream
+    }
+    for (let k = st.seq + 1; k < d.seq; k++) st.missing.set(k, k === d.seq - 1 ? prevClaim : null);
+    st.held.set(d.seq, hash);
+    st.seq = d.seq;
+    st.hash = hash;
+    return st;
+  }
+
+  /** Streams outlive processes: a receiver restart that forgot them would read every sender as
+   * first contact and every dropped prefix as nothing (same shape as `DedupStore`'s pair). */
+  toJSON() {
+    return Object.fromEntries([...this.bySender].map(([sender, st]) => [sender, {
+      seq: st.seq,
+      hash: st.hash,
+      missing: Object.fromEntries(st.missing),
+      held: Object.fromEntries(st.held),
+    }]));
+  }
+
+  static fromJSON(raw, options) {
+    const store = new DeliveryStore(options);
+    for (const [sender, st] of Object.entries(raw ?? {})) {
+      store.bySender.set(sender, {
+        seq: st.seq,
+        hash: st.hash,
+        missing: new Map(Object.entries(st.missing ?? {}).map(([k, v]) => [Number(k), v])),
+        held: new Map(Object.entries(st.held ?? {}).map(([k, v]) => [Number(k), v])),
+      });
+    }
+    return store;
   }
 }
 

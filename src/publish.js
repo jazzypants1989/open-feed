@@ -59,6 +59,10 @@ export class Publisher {
     // a caller has to remember at every send is one a deployment satisfies until the day it
     // adds a code path, and the failure is invisible because nothing about the item looks wrong.
     pins = null,
+    // §10.6 / §3.4: both halves of the pair key are subject to predecessor equivalence, and this
+    // is the *recipient* half — a correspondent who migrates is not a new stream. Without it the
+    // sender restarts them at seq 1, which their receiver rightly reports as a replay.
+    equivalent = (a, b) => normalizeIdentityUrl(a) === normalizeIdentityUrl(b),
   }) {
     this.identity = normalizeIdentityUrl(identity);
     this.feedUrl = feedUrl ?? `${this.identity}feed.json`;
@@ -83,6 +87,7 @@ export class Publisher {
     this.pinStore = pins;
     // §10.6: recipient identity URL -> { seq, hash } of the last item delivered to them.
     this.deliveries = new Map();
+    this.equivalent = equivalent;
 
     this.identityVersions = [];
     this.manifestVersions = [];
@@ -357,7 +362,7 @@ export class Publisher {
     // is this item's full published bytes (§5.1) — signature included, like every other hash in
     // this protocol.
     if (to && signed._delivery) {
-      this.deliveries.set(normalizeIdentityUrl(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
+      this.deliveries.set(this.#deliveryKey(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
     }
     return signed;
   }
@@ -382,10 +387,17 @@ export class Publisher {
    * No `to`, no field: §10.6 is a SHOULD and a sender that does not track streams emits nothing
    * rather than a counter that restarts at 1 and means nothing.
    */
+  /** The stream a recipient URL resolves to, honoring predecessor equivalence (§3.4, §10.6). */
+  #deliveryKey(to) {
+    const me = normalizeIdentityUrl(to);
+    if (this.deliveries.has(me)) return me;
+    for (const held of this.deliveries.keys()) if (this.equivalent(held, me)) return held;
+    return me;
+  }
+
   #withDelivery(item, to) {
     if (!to) return item;
-    const key = normalizeIdentityUrl(to);
-    const last = this.deliveries.get(key) ?? null;
+    const last = this.deliveries.get(this.#deliveryKey(to)) ?? null;
     const entry = { seq: (last?.seq ?? 0) + 1 };
     if (last) entry.prev = last.hash;
     const withEntry = { ...item, _delivery: entry };
@@ -486,7 +498,7 @@ export class Publisher {
     if (original._unverified !== undefined) doc._unverified = original._unverified; // §7.5
     const signed = this.#signDocument(this.#withDelivery(doc, to));
     if (to && signed._delivery) {
-      this.deliveries.set(normalizeIdentityUrl(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
+      this.deliveries.set(this.#deliveryKey(to), { seq: signed._delivery.seq, hash: documentHash(signed) });
     }
     return signed;
   }

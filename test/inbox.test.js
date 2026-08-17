@@ -738,8 +738,8 @@ test('`_delivery` on a published item is ignored, never a stream (§10.6, §11.2
   // The real stream is untouched: the genuine first delivery is still seq 1, no gap, no replay.
   assert.equal(deliveries.check(gran.url, dm), null);
   deliveries.record(gran.url, dm);
-  assert.deepEqual(deliveries.bySender.get(normalizeIdentityUrl(gran.url)),
-    { seq: 1, hash: documentHash(dm) });
+  const st = deliveries.bySender.get(normalizeIdentityUrl(gran.url));
+  assert.deepEqual({ seq: st.seq, hash: st.hash }, { seq: 1, hash: documentHash(dm) });
 });
 
 test('a delivered retraction carries its own place in the stream, and the allowlist admits it (§7.3, §8.2, §10.6)', async (t) => {
@@ -770,6 +770,155 @@ test('a delivered retraction carries its own place in the stream, and the allowl
   const got = await inbox.deliver(canonicalBytes(retraction));
   assert.equal(got.status, 202, 'the allowlist admits `_delivery` on a delivered tombstone');
   assert.equal(got.deliveryChain, null, 'and the stream reads it as an unbroken continuation');
-  assert.deepEqual(deliveries.bySender.get(normalizeIdentityUrl(gran.url)),
-    { seq: 2, hash: documentHash(retraction) });
+  const st = deliveries.bySender.get(normalizeIdentityUrl(gran.url));
+  assert.deepEqual({ seq: st.seq, hash: st.hash }, { seq: 2, hash: documentHash(retraction) });
+});
+
+test('a late delivery fills its gap instead of reading as a replay (§10.4 retries, §10.6)', async (t) => {
+  // §10.4 has senders retry for 24 hours, so item 4 arriving after item 5 is an ordinary event.
+  // A store that only kept the tip would report a permanent gap for 4 and then label the
+  // genuine late arrival a replay — two standing false findings manufactured out of a retry.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+  const sent = [];
+  for (let i = 1; i <= 5; i++) {
+    sent.push(sender.deliverItem(
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { at: T0 - 500 + i, to: MOM },
+    ));
+  }
+  const deliveries = new DeliveryStore();
+  const inbox = inboxFor(t, site, { deliveries });
+
+  for (const item of [sent[0], sent[1], sent[2]]) {
+    assert.equal((await inbox.deliver(canonicalBytes(item))).status, 202);
+  }
+  // 5 arrives before 4: a gap, correctly, and it names item 4's exact bytes via `prev`.
+  const early = await inbox.deliver(canonicalBytes(sent[4]));
+  assert.equal(early.deliveryChain.kind, 'delivery_gap');
+  assert.equal(early.deliveryChain.missingHash, documentHash(sent[3]));
+
+  // Then 4 lands late. Not a replay: it fills the gap, and its linkage is checked both ways —
+  // against the hash item 5 claimed for it, and against item 3, its neighbor the receiver holds.
+  const late = await inbox.deliver(canonicalBytes(sent[3]));
+  assert.equal(late.status, 202);
+  assert.equal(late.deliveryChain, null, 'a gap-filler is an ordinary event');
+  const st = deliveries.bySender.get(normalizeIdentityUrl(gran.url));
+  assert.equal(st.missing.size, 0, 'the finding closes when the item arrives');
+  assert.equal(st.seq, 5, 'and the tip never moved backwards');
+
+  // A genuine replay of an already-held item is still a replay at the store — the inbox
+  // pipeline never even reaches it, because §10.3's dedup rejects the same bytes at step 5.
+  assert.equal(deliveries.check(gran.url, sent[1]).kind, 'delivery_replay');
+  assert.equal((await inbox.deliver(canonicalBytes(sent[1]))).status, 409);
+});
+
+test('a forged gap-filler is caught by the hash the real stream already committed (§10.6)', async (t) => {
+  // The gap names item 4's exact bytes (item 5's `prev`). A "filler" whose bytes differ —
+  // here, the sender's own item re-signed at the missing seq, which is what a host that
+  // dropped the real item 4 would have to forge if it could sign at all — breaks the link.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+  const sent = [];
+  for (let i = 1; i <= 5; i++) {
+    sent.push(sender.deliverItem(
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { at: T0 - 500 + i, to: MOM },
+    ));
+  }
+  const deliveries = new DeliveryStore();
+  for (const item of [sent[0], sent[1], sent[2], sent[4]]) deliveries.record(gran.url, item);
+
+  const impostor = { ...sent[3], content_text: 'not what was sent' };
+  const verdict = deliveries.check(gran.url, impostor);
+  assert.equal(verdict.kind, 'delivery_broken_link');
+  assert.equal(verdict.missingHash, documentHash(sent[3]), 'the claim it fails against is the sender\'s own');
+});
+
+test('first contact deep into a stream is a gap, and streams survive a restart (§10.6)', async (t) => {
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+  const sent = [];
+  for (let i = 1; i <= 3; i++) {
+    sent.push(sender.deliverItem(
+      { id: `urn:uuid:note-${i}`, content_text: `note ${i}`, _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+      { at: T0 - 500 + i, to: MOM },
+    ));
+  }
+
+  // A brand-new store meeting seq 3 first: either the receiver lost its state or a prefix was
+  // dropped, and §10.6 has no third reading for "the stream began mid-way".
+  const fresh = new DeliveryStore();
+  const deep = fresh.check(gran.url, sent[2]);
+  assert.equal(deep.kind, 'delivery_gap');
+  assert.deepEqual({ expected: deep.expected, got: deep.got }, { expected: 1, got: 3 });
+  assert.equal(deep.missingHash, documentHash(sent[1]));
+
+  // Persistence is what keeps that verdict honest: a restart that forgot the streams would
+  // read every sender as first contact — and a dropped prefix as nothing at all.
+  const before = new DeliveryStore();
+  before.record(gran.url, sent[0]);
+  before.record(gran.url, sent[1]);
+  const after = DeliveryStore.fromJSON(JSON.parse(JSON.stringify(before.toJSON())));
+  assert.equal(after.check(gran.url, sent[2]), null, 'the restarted store continues the stream');
+  const st = after.bySender.get(normalizeIdentityUrl(gran.url));
+  assert.deepEqual({ seq: st.seq, hash: st.hash }, { seq: 2, hash: documentHash(sent[1]) });
+});
+
+test('migration moves one half of the pair key and neither half restarts the stream (§3.4, §10.6)', () => {
+  // §10.6: "both halves are subject to predecessor equivalence (§3.4)". The receiver half
+  // already had it; the sender half is the same rule seen from the other chair — a
+  // correspondent who migrates is not a new stream, or the sender restarts them at seq 1 and
+  // their receiver rightly reports the restart as a replay.
+  const GRAN_OLD = 'https://gran.example/';
+  const GRAN_NEW = 'https://gran.new/';
+  const MOM_NEW = 'https://mom.new/';
+  const same = (a, b) => a === b
+    || (a.includes('gran') && b.includes('gran'))
+    || (a.includes('mom') && b.includes('mom'));
+
+  // Sender half: Mom migrates between Gran's second and third deliveries.
+  const gran = new Publisher({
+    identity: GRAN_OLD, signer: makeSigner('gran-1'), now: () => T0, equivalent: same,
+  });
+  const fields = (n) => ({ id: `urn:uuid:pair-${n}`, content_text: `note ${n}` });
+  const one = gran.deliverItem(fields(1), { at: T0 + 1, to: MOM });
+  const two = gran.deliverItem(fields(2), { at: T0 + 2, to: MOM });
+  const three = gran.deliverItem(fields(3), { at: T0 + 3, to: MOM_NEW });
+  assert.deepEqual(one._delivery, { seq: 1 });
+  assert.deepEqual(three._delivery, { seq: 3, prev: documentHash(two) },
+    'the recipient\'s new address continues the stream her old address carried');
+
+  // Receiver half: Gran migrates; her successor carries the stream state out in the exit
+  // bundle and Mom's store, given the verified equivalence, reads the new signer's next
+  // delivery as an unbroken continuation.
+  const successor = new Publisher({
+    identity: GRAN_NEW, signer: makeSigner('gran-2'), now: () => T0,
+  });
+  successor.deliveries.set(normalizeIdentityUrl(MOM), { seq: 3, hash: documentHash(three) });
+  const four = successor.deliverItem(fields(4), { at: T0 + 4, to: MOM });
+  assert.deepEqual(four._delivery, { seq: 4, prev: documentHash(three) });
+
+  const store = new DeliveryStore({ equivalent: same });
+  for (const item of [one, two, three]) store.record(GRAN_OLD, item);
+  assert.equal(store.check(GRAN_NEW, four), null, 'one stream across the move');
+  store.record(GRAN_NEW, four);
+  const st = store.bySender.get(normalizeIdentityUrl(GRAN_OLD));
+  assert.deepEqual({ seq: st.seq, hash: st.hash }, { seq: 4, hash: documentHash(four) },
+    'recorded against the stream\'s original holder, exactly as DedupStore keys its pairs');
+
+  // And without the equivalence the same bytes read as an attack on Gran — the false
+  // accusation the predicate exists to prevent.
+  const naive = new DeliveryStore();
+  for (const item of [one, two, three]) naive.record(GRAN_OLD, item);
+  assert.equal(naive.check(GRAN_NEW, four).kind, 'delivery_gap');
 });
