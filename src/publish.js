@@ -54,6 +54,11 @@ export class Publisher {
     // §9.1.2's freshness cadence, in seconds, or `null` for a publisher that declares none.
     // A number here is a promise every reader can hold this identity to, so it is opt-in.
     nextUpdate = null,
+    // §16.1's emission half, a Level 3 MUST. Held on the publisher rather than passed per call
+    // so that a deployment which tracks its correspondents emits by construction: an obligation
+    // a caller has to remember at every send is one a deployment satisfies until the day it
+    // adds a code path, and the failure is invisible because nothing about the item looks wrong.
+    pins = null,
   }) {
     this.identity = normalizeIdentityUrl(identity);
     this.feedUrl = feedUrl ?? `${this.identity}feed.json`;
@@ -75,6 +80,7 @@ export class Publisher {
     this.skipLinks = skipLinks;
     this.itemUrls = itemUrls;
     this.nextUpdate = nextUpdate;
+    this.pinStore = pins;
 
     this.identityVersions = [];
     this.manifestVersions = [];
@@ -332,11 +338,14 @@ export class Publisher {
   /**
    * §16.1's **emission** half, which is the side nothing else in this repository supplies.
    *
-   * "A publisher that already tracks a recipient's chains SHOULD carry pins for them on the
-   * interaction items it sends: emission is the supply side of §5.3.1's Level 1 MUST, and a
-   * compare rule nobody feeds is evidence collected and thrown away." A `PinStore` and the
-   * identity documents of whoever this item is addressed to are exactly what that needs, and a
-   * publisher that verifies the people it talks to already holds both.
+   * §12 makes this a **Level 3 MUST**: a sender that already tracks a recipient's chains carries
+   * pins for them on the items it sends them. The asymmetry is why. A consumer's own comparisons
+   * cover only what it fetched itself, so a host serving each reader a consistent private branch
+   * is caught by no reader alone — §5.3.1's compare rule is a Level 1 MUST that the core gives a
+   * consumer nothing to compare against, and emission is the only thing in the protocol that
+   * supplies the second observation. A `PinStore` and the identity documents of whoever this item
+   * is addressed to are exactly what that needs, and a publisher that verifies the people it
+   * talks to already holds both.
    *
    * Scoping is by construction rather than by check. `pinsForRecipients` draws only from chains
    * the recipients own, so every entry satisfies §16.1's publication rule even on a published
@@ -345,13 +354,18 @@ export class Publisher {
    * wanting to gossip about a third party may pass that party's document, and it is admissible
    * only on a delivered item; that judgement is the receiver's (`admissibleItemPins`).
    *
-   * An explicit `_pins` in `fields` wins, and nothing is emitted when there is nothing to say —
-   * §16 is OPTIONAL and an empty array is noise inside signed bytes.
+   * An explicit `_pins` in `fields` wins, and nothing is emitted when there is nothing to say:
+   * the MUST binds a sender that *already* holds the recipient's pins, so a publisher with no
+   * store, no named recipients, or no tracked chain among them owes nothing, and an empty array
+   * would be noise inside signed bytes.
    */
-  #withPins(item, { recipients = [], pins = null, _pins } = {}) {
+  #withPins(item, { recipients = [], pins, _pins } = {}) {
     if (_pins !== undefined) return item;
-    if (!pins || !recipients.length) return item;
-    const entries = pinsForRecipients(pins, recipients);
+    // `??` rather than a default parameter: the callers pass `pins` through explicitly and its
+    // own default is `null`, which is not `undefined` and would therefore shadow the store.
+    const store = pins ?? this.pinStore;
+    if (!store || !recipients.length) return item;
+    const entries = pinsForRecipients(store, recipients);
     return entries.length ? { ...item, _pins: entries } : item;
   }
 

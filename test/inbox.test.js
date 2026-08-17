@@ -593,3 +593,38 @@ test('a publisher\'s emitted pins are the ones this inbox heeds — §16.1 end t
     'agreement corroborates; disagreement is a reason to check, never a freeze on a stranger\'s word',
   );
 });
+
+test('a publisher holding pins emits them by construction, not by remembering to', async (t) => {
+  // §16.1's emission half is a Level 3 MUST now, and the reason the store is held on the
+  // publisher rather than passed per call is that an obligation a caller re-supplies at every
+  // send is one a deployment meets until the day it adds a code path. Nothing about the item
+  // looks wrong when it is missed — the pin is simply absent, and the compare rule it exists to
+  // feed goes on reporting nothing, which is the failure mode §13.2's teeth are made of.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const momDocument = { url: MOM, feeds: [{ url: MOM_FEED, manifest: MOM_MANIFEST }] };
+
+  const pins = new PinStore({ now: () => T0 - 600 });
+  pins.advance(`${MOM}openfeed.json`, 4, 'mom-identity-4');
+
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`,
+    now: () => T0 - 600, pins,
+  });
+  const reply = sender.publishItem(
+    { id: 'urn:uuid:by-construction', content_text: 'lovely', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { recipients: [momDocument] },   // no `pins` option: the publisher already holds the store
+  );
+  assert.deepEqual(reply._pins.map((e) => `${e.url}@${e.seq}`), [`${MOM}openfeed.json@4`]);
+
+  // The MUST binds a sender that ALREADY tracks the recipient's chains, never one that would
+  // have to go and read them first — so a publisher with no store owes nothing and emits nothing.
+  const stranger = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`, now: () => T0 - 600,
+  });
+  const bare = stranger.publishItem(
+    { id: 'urn:uuid:owes-nothing', content_text: 'hi', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] },
+    { recipients: [momDocument] },
+  );
+  assert.equal(bare._pins, undefined);
+});
