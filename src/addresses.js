@@ -117,9 +117,13 @@ export function isPublicIPv6(groups) {
   if (groups.every((g) => g === 0)) return false;                    // ::   unspecified
   if (groups.slice(0, 7).every((g) => g === 0) && g7 === 1) return false; // ::1 loopback
 
-  // ::ffff:a.b.c.d — IPv4-mapped. Also ::a.b.c.d, the deprecated IPv4-compatible form.
-  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0) {
-    if (g5 === 0xffff || g5 === 0) return isPublicIPv4(embedded(g6, g7));
+  // ::ffff:a.b.c.d — IPv4-mapped. Also ::a.b.c.d, the deprecated IPv4-compatible form, and
+  // ::ffff:0:a.b.c.d — the IPv4-*translated* form (RFC 2765), which puts the `ffff` one group
+  // earlier and was the one this check missed: `::ffff:0:7f00:1` reaches loopback and fell
+  // through to `return true`.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0) {
+    if (g4 === 0 && (g5 === 0xffff || g5 === 0)) return isPublicIPv4(embedded(g6, g7));
+    if (g4 === 0xffff && g5 === 0) return isPublicIPv4(embedded(g6, g7));
   }
   // 64:ff9b::/96 and 64:ff9b:1::/48 — NAT64 well-known prefixes.
   if (g0 === 0x0064 && g1 === 0xff9b) return isPublicIPv4(embedded(g6, g7));
@@ -131,6 +135,12 @@ export function isPublicIPv6(groups) {
   if ((g0 & 0xff00) === 0xff00) return false; // ff00::/8   multicast
   if (g0 === 0x0100 && g1 === 0) return false; // 100::/64  discard-only
   if (g0 === 0x2001 && g1 === 0x0db8) return false; // 2001:db8::/32 documentation
+  // The IETF protocol-assignments block, 2001::/23, of which three sub-blocks are addresses no
+  // fetch should reach: Teredo tunnels an arbitrary IPv4 destination — including a private one —
+  // through an address whose own prefix looks routable, and ORCHID names hashes rather than hosts.
+  if (g0 === 0x2001 && g1 === 0) return false;             // 2001::/32     Teredo
+  if (g0 === 0x2001 && (g1 & 0xfff0) === 0x0010) return false; // 2001:10::/28 ORCHID (deprecated)
+  if (g0 === 0x2001 && (g1 & 0xfff0) === 0x0020) return false; // 2001:20::/28 ORCHIDv2
   return true;
 }
 

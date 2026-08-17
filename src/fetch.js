@@ -48,6 +48,20 @@ export const SIZE_CAPS = {
   json: 1024 * 1024,
 };
 
+/**
+ * §13.4's *slot* caps, which the byte caps above do not imply: an identity document well inside
+ * 100 KB can list thousands of keys, and a feed page well inside 10 MB can carry tens of
+ * thousands of items — each key a resolution attempt, each item a signature check and possibly
+ * an identity fetch. §13.4 names both figures and nothing enforced them.
+ *
+ * Breaching one is `unverifiable` and never a violation: the consumer ran out of budget, and the
+ * publisher may have done nothing (§13.4).
+ */
+export const SLOT_CAPS = {
+  identity: 100,   // keys
+  feed: 1000,      // items per page
+};
+
 export const TIMEOUT_MS = 10_000;
 export const MAX_REDIRECTS = 5;
 export const MAX_SOCKETS_PER_ORIGIN = 10;
@@ -172,6 +186,18 @@ export class NegativeCache {
 
   recordSuccess(url) {
     this.entries.delete(url);
+  }
+}
+
+/** §13.4's per-document slot cap, applied to the array whose length is the fan-out. */
+function assertSlotCap(doc, kind, maxSlots, url) {
+  if (maxSlots === null) return;
+  const slots = kind === 'identity' ? doc?.keys : kind === 'feed' ? doc?.items : null;
+  if (Array.isArray(slots) && slots.length > maxSlots) {
+    throw new FetchError(
+      `${url} carries ${slots.length} ${kind === 'identity' ? 'keys' : 'items'}, past this consumer's cap of ${maxSlots} (§13.4)`,
+      { code: 'too_many_slots', url },
+    );
   }
 }
 
@@ -364,6 +390,7 @@ export function createFetcher({
     kind = 'json',
     maxBytes = SIZE_CAPS[kind] ?? SIZE_CAPS.json,
     sameOriginRedirectsOnly = kind !== 'json',
+    maxSlots = SLOT_CAPS[kind] ?? null,
     budget = null,
     cache = negativeCache,
     // Chained documents are hashed by `prev`, by every pin, and by every skip anchor, all over
@@ -452,6 +479,9 @@ export function createFetcher({
             throw new FetchError(e.message, { code: 'not_canonical', url: parsed.href });
           }
         }
+
+        // §13.4's slot caps, which the byte cap above does not imply — see `SLOT_CAPS`.
+        assertSlotCap(doc, kind, maxSlots, parsed.href);
 
         cache?.recordSuccess(startUrl.href);
         return {

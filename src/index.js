@@ -42,6 +42,7 @@ export {
   ByteBudget,
   FetchError,
   SIZE_CAPS,
+  SLOT_CAPS,
   TIMEOUT_MS,
   MAX_REDIRECTS,
   MAX_SOCKETS_PER_ORIGIN,

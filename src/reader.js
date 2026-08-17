@@ -984,6 +984,19 @@ export function createReader({
           id: a.id,
           message: `${a.id}: attachment ${a.url ?? '(no url)'} carries no _sha256, so its bytes are unverified (§7.4)`,
         })),
+        // §7.5's gateway marker, surfaced rather than left for a caller to notice. §10.5 makes
+        // distinct display a MUST and §13.6 says never to attribute unsigned content — and an
+        // `_unverified` item passes every check in this reader, because it *is* validly signed:
+        // by the gateway, about somebody else. Nothing else in the result distinguishes it, so a
+        // client building on `items.live` alone would render a bridged assertion exactly as it
+        // renders a native one, which is the one display rule the core states twice.
+        ...[...feed.canonical, ...feed.copies]
+          .filter((c) => c.item?._unverified === true)
+          .map((c) => ({
+            kind: 'unverified_content',
+            id: c.item.id,
+            message: `${c.item.id}: signed by ${c.info.identityUrl} as bridged content (_unverified, §7.5) — display distinctly and attribute to no one else (§10.5, §13.6)`,
+          })),
       ],
     };
   }

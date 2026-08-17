@@ -236,7 +236,14 @@ export function open(item, { privateKeys = [] } = {}) {
   }
   if (header.enc !== ENC) throw new EncError(`unsupported enc ${header.enc}`);
   if (header.epk?.crv !== 'X25519') throw new EncError('the protected header carries no X25519 epk (§15.2)');
-  const epk = publicFromJwk(header.epk);
+  let epk;
+  try {
+    epk = publicFromJwk(header.epk);
+  } catch (e) {
+    // The `epk` is attacker-chosen bytes, and this function's contract is `EncError` — a bare
+    // key-import exception is one a caller did not sign up for and will not have a branch for.
+    throw new EncError(`the protected header's epk is not an importable X25519 key: ${e.message}`);
+  }
   const nonce = b64uStrict(envelope.iv, 'JWE iv');
   if (nonce.length !== 12) throw new EncError('JWE iv is not 96 bits');
   const authTag = b64uStrict(envelope.tag, 'JWE tag');

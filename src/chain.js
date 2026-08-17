@@ -843,18 +843,25 @@ export async function walkToPin({
   let contiguous = true;
 
   while (current.seq > pin.seq) {
-    if (++hops > maxVersions) {
+    // The policy decides whether skipping is sound at all; the caller may only decline it
+    // further. A policy that says nothing gets no skipping, which is the fail-closed default
+    // for anything defined outside this module.
+    const skipping = useSkipLinks && policy.allowSkipLinks === true;
+    const anchor = skipping ? chooseSkipAnchor(current, pin.seq) : null;
+
+    // A skip iteration fetches **two** versions — the landing and the `seq+1` companion that
+    // corroborates it (§9.1.1) — so counting it as one hop understates the walk's cost against
+    // §13.4 by a factor of two, and the cap is a bound on work rather than on progress. It is
+    // the same arithmetic §13.4 already spells out for the *byte* budget ("a skip jump costs
+    // two full versions"), applied to the version count that sits beside it.
+    hops += anchor ? 2 : 1;
+    if (hops > maxVersions) {
       throw new ChainError(
         `${url} needs more than ${maxVersions} versions to reach the pin at seq ${pin.seq}`,
         { url, seq: current.seq },
       );
     }
 
-    // The policy decides whether skipping is sound at all; the caller may only decline it
-    // further. A policy that says nothing gets no skipping, which is the fail-closed default
-    // for anything defined outside this module.
-    const skipping = useSkipLinks && policy.allowSkipLinks === true;
-    const anchor = skipping ? chooseSkipAnchor(current, pin.seq) : null;
     if (anchor) {
       const landing = await followSkipAnchor({ url, current, anchor, fetchVersion, policy, record });
       versions.push(...landing.versions);
@@ -947,6 +954,10 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
       { url, seq: anchor.seq },
     );
   }
+  // The landing is below `current`, so its companion is too: §5.2 step 2's monotonicity has to
+  // hold across the jump as well, or a publisher can date a skip landing after the version that
+  // anchored it and §9.3 invariant 3 reads a chain that never advanced as one that did.
+  assertUpdatedAdvances(current, above, url);
   policy.verifySignature(above, { url });
   record(above, aboveHash);
   versions.push(above);

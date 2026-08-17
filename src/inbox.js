@@ -620,12 +620,22 @@ export function createInbox({
     }
 
     // ---- accepted: only now is any store written (§10.3) ----
-    dedup.write(normalizedAuthor, item.id, item._version);
-    // §10.6. The verdict was computed before verification because reading is free and this
-    // pipeline reads the dedup store there too; the *write* waits, for §10.3's reason exactly —
-    // the author is attacker-controlled until step 7, and a forged delivery that advanced this
-    // stream would let anyone break a real sender's chain for this receiver permanently.
-    if (deliveries) deliveries.record(normalizedAuthor, item);
+    //
+    // §10.4: a blocked author gets `202` with the content discarded. Computed *here*, before the
+    // writes, because "discarded" has to mean discarded. A blocked sender whose deliveries still
+    // landed in the dedup store got two things the block was meant to take away: unbounded state
+    // in the receiver, one entry per id they cared to invent; and — sharper — a **routing token**,
+    // since §10.2's relevance check reads `dedup.knows(id)`, so every id a blocked harasser filed
+    // becomes an id anyone else can name to reach this inbox.
+    const discard = blocked.has(normalizedAuthor);
+    if (!discard) {
+      dedup.write(normalizedAuthor, item.id, item._version);
+      // §10.6. The verdict was computed before verification because reading is free and this
+      // pipeline reads the dedup store there too; the *write* waits, for §10.3's reason exactly —
+      // the author is attacker-controlled until step 7, and a forged delivery that advanced this
+      // stream would let anyone break a real sender's chain for this receiver permanently.
+      if (deliveries) deliveries.record(normalizedAuthor, item);
+    }
 
     // §16.1, heeded after verification like everything else that trusts the item's contents.
     // Scoping first (`admissibleItemPins` — a published item's third-party entries are ignored
@@ -647,9 +657,8 @@ export function createInbox({
       };
     }
 
-    // §10.4: a blocked author gets `202` with the content discarded. A distinct status tells a
-    // harasser to make a new identity and confirms the account exists.
-    const discard = blocked.has(normalizedAuthor);
+    // §10.4: a blocked author gets `202`, indistinguishable from acceptance. A distinct status
+    // tells a harasser to make a new identity and confirms the account exists.
     return {
       ...RESPONSES.accepted,
       message: null,
