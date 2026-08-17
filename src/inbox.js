@@ -225,6 +225,11 @@ export class DedupStore {
     this.equivalent = equivalent;
   }
 
+  /** §10.2's "previously accepted here" — any author, because the question is routing. */
+  knows(id) {
+    return this.byId.has(id);
+  }
+
   /**
    * What this store holds for `(author, id)`, honoring predecessor equivalence.
    *
@@ -316,14 +321,19 @@ export function renderable(item, { trusted = false } = {}) {
  * A Level 3 inbox for one identity.
  *
  * `owner` is the identity URL this inbox belongs to; `feedUrls` are that identity's feeds, both
- * used only by the relevance check. `holdsItem(id)` answers whether this receiver holds an item
- * with that id — §10.2's id-half rule, which is what makes a pre-migration reply relevant with no
- * state that has to survive the move.
+ * used only by the relevance check. `ownsItem(id)` answers whether the **owner authored** an
+ * item with that id — that scope, and not "anything this deployment holds", is §10.2's id-half
+ * rule. The other half of the rule, items previously accepted into this inbox, is answered by
+ * the dedup store this function already keeps, so a deployment wires nothing extra for it — and
+ * a deployment that wires `ownsItem` to its whole item store (everything it ever polled out of
+ * anyone's feed) hands every public id on the internet to strangers as a routing token: scrape
+ * a feed the owner follows, take an id, sign your own item naming it, and the unauthenticated
+ * steps pass while step 7 dials an origin the sender chose (§13.9).
  */
 export function createInbox({
   owner,
   feedUrls = [],
-  holdsItem = () => false,
+  ownsItem = () => false,
   dedup = new DedupStore(),
   fetcher = createFetcher(),
   now = () => Math.floor(Date.now() / 1000),
@@ -424,10 +434,11 @@ export function createInbox({
     if (!Array.isArray(item._rel)) return false;
     for (const rel of item._rel) {
       const { feed, id } = splitTarget(rel?.to);
-      // An entry whose **id half** names an item this receiver holds is relevant whatever its
-      // feed half says (§10.2). Ids are globally unique and contain no `#`, so the id half alone
-      // is unambiguous — and that is predecessor equivalence with nothing recorded.
-      if (id && holdsItem(id)) return true;
+      // An entry whose **id half** names an item of the owner's, or one previously accepted
+      // into this inbox, is relevant whatever its feed half says (§10.2). Ids are globally
+      // unique and contain no `#`, so the id half alone is unambiguous — and that is
+      // predecessor equivalence with nothing recorded beyond the dedup store §10.3 requires.
+      if (id && (ownsItem(id) || dedup.knows(id))) return true;
       if (!feed) continue;
       let asIdentity = null;
       try { asIdentity = normalizeIdentityUrl(feed); } catch { /* a feed URL is not an identity */ }
@@ -596,7 +607,7 @@ export function createInbox({
     // ---- 9: OPTIONAL target existence, after step 7 and never before ----
     if (confirmTarget) {
       const targets = (item._rel ?? []).map((r) => splitTarget(r?.to).id).filter(Boolean);
-      if (targets.length && !targets.some((id) => holdsItem(id))) return out('target_not_found');
+      if (targets.length && !targets.some((id) => ownsItem(id) || dedup.knows(id))) return out('target_not_found');
     }
 
     // ---- accepted: only now is any store written (§10.3) ----

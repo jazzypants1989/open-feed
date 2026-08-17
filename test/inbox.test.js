@@ -63,7 +63,7 @@ function inboxFor(t, site, extra = {}) {
   return createInbox({
     owner: MOM,
     feedUrls: [MOM_FEED],
-    holdsItem: (id) => held.has(id),
+    ownsItem: (id) => held.has(id),
     fetcher: me.fetcher,
     now: () => T0,
     ...extra,
@@ -921,4 +921,39 @@ test('migration moves one half of the pair key and neither half restarts the str
   const naive = new DeliveryStore();
   for (const item of [one, two, three]) naive.record(GRAN_OLD, item);
   assert.equal(naive.check(GRAN_NEW, four).kind, 'delivery_gap');
+});
+
+test('a stranger\'s id is not a routing token, and a previously accepted one is (§10.2)', async (t) => {
+  // §10.2's id-half rule is scoped to items of the owner's and items previously accepted into
+  // this inbox — never "anything this deployment holds". A deployment's item store may well
+  // hold items polled from strangers' feeds; consult it for relevance and every public id on
+  // the internet becomes a routing token: scrape a feed the owner follows, take an id, sign
+  // your own item naming it, and the unauthenticated steps pass while step 7 dials an origin
+  // the sender chose.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const eve = identityAt(site, 'eve');
+  const dedup = new DedupStore();
+  const inbox = inboxFor(t, site, { dedup });
+
+  const scraped = await inbox.deliver(body(item(eve, {
+    id: 'urn:uuid:eve-1',
+    _rel: [{ type: 'reply', to: 'https://stranger.example/feed.json#urn:uuid:scraped-id' }],
+  })));
+  assert.equal(scraped.status, 400);
+  assert.equal(scraped.error, 'not_relevant');
+  assert.equal(scraped.fetches, 0, 'and Eve\'s chosen origin was never dialled');
+
+  // The other half of the rule, needing nothing recorded beyond the dedup store §10.3 already
+  // requires: a nested reply naming an id accepted here, under a feed half nobody recognizes —
+  // predecessor equivalence's exact shape after the thread's author migrates.
+  const first = await inbox.deliver(body(item(gran, {
+    id: 'urn:uuid:gran-reply', _rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+  })));
+  assert.equal(first.status, 202);
+  const nested = await inbox.deliver(body(item(eve, {
+    id: 'urn:uuid:eve-2',
+    _rel: [{ type: 'reply', to: 'https://moved.example/feed.json#urn:uuid:gran-reply' }],
+  })));
+  assert.equal(nested.status, 202, 'the id half of an accepted item routes whatever its feed half says');
 });
