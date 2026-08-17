@@ -732,21 +732,18 @@ export function createReader({
 
     const control = Object.keys(manifest.items).find((id) => servedIds.has(id));
     const controlServed = !!control && !!await fetchItem(feedUrl, manifest.items, control);
-    if (!controlServed) {
-      // §3.2.1's `items: true`, and this is the case the declaration exists for. Without it the
-      // control probe's failure is ambiguous — a static host that never heard of §7.6 and a
-      // hostile one that 404s the tree on purpose look identical — so the reader has to give
-      // the benefit of the doubt, which hands the adversary an off switch for §9.3's only
-      // pull-path verdict. With it, the publisher has signed a statement that these revisions
-      // are individually addressable, so failing to yield them is not an unexplained absence.
-      if (!declared) return idle;
-      return {
-        unobtainable: new Set(missing.slice(0, maxItemProbes)),
-        obtained: [], offered: true, declined: true,
-        probed: Math.min(missing.length, maxItemProbes), missing: missing.length,
-      };
-    }
+    // §3.2.1's `items: true`, and this is the case the declaration exists for. Without it a
+    // failed control probe is ambiguous — a static host that never heard of §7.6 and a hostile
+    // one that 404s the tree on purpose look identical — so the reader gives the benefit of the
+    // doubt and stops, which would otherwise hand the adversary an off switch for §9.3's only
+    // pull-path verdict. With it, the publisher has signed a statement that these revisions are
+    // individually addressable, so a refusal below is not an unexplained absence.
+    if (!controlServed && !declared) return idle;
 
+    // The declaration decides whose absence is *accusable*, never which requests were made:
+    // §9.3 scopes withholding to bytes this consumer actually asked for, so even against a
+    // declaring publisher whose control failed, every id marked unobtainable below was refused
+    // at its own URL — not presumed refused because a sibling was.
     const unobtainable = new Set();
     const obtained = [];
     for (const id of missing.slice(0, maxItemProbes)) {
@@ -754,7 +751,11 @@ export function createReader({
       if (got) obtained.push(got);
       else unobtainable.add(id);
     }
-    return { unobtainable, obtained, offered: true, probed: Math.min(missing.length, maxItemProbes), missing: missing.length };
+    return {
+      unobtainable, obtained, offered: true,
+      ...(controlServed ? {} : { declined: true }),
+      probed: Math.min(missing.length, maxItemProbes), missing: missing.length,
+    };
   }
 
   /**
@@ -858,8 +859,8 @@ export function createReader({
     // there are exactly two ways to have tried. Following `next_url` to its end is one, and
     // `partial` says whether that happened. Asking for a specific revision at its §7.6 URL is
     // the other, and it is the one that works against a publisher serving a window: `probe`
-    // returns only ids whose own URL declined to yield them, on an origin that demonstrably
-    // serves item URLs at all.
+    // returns only ids whose own URL declined to yield them, on an origin that either
+    // demonstrably serves item URLs or signed a declaration that it does (§3.2.1).
     const reconciled = reconcileFeed(manifest.manifest, feed.canonical.map((c) => c.item), {
       now: now(),
       ceiling: lagCeiling,

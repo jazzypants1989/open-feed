@@ -290,6 +290,29 @@ test('a publisher that declared item URLs and then serves none is withholding', 
   assert.equal(result.findings.filter((f) => f.kind === 'withheld').length, 1);
 });
 
+test('a declaration never substitutes for a request: an empty page over a serving tree is not withheld', async (t) => {
+  // §9.3 scopes withholding to bytes the consumer actually tried to obtain — "for an item it
+  // *requested* and did not get" — and the declaration decides whose absence is *accusable*,
+  // never which requests were made. The sharp case: the feed page yields no committed item at
+  // all, so there is no control to probe, but the /items/ tree is intact and serving. A reader
+  // that let `items: true` stand in for the requests would convict this publisher after zero
+  // item fetches; the honest reader asks, is answered, and finds everything obtainable.
+  const site = await newSite(t);
+  const p = familyPublisher(site.url, makeSigner());
+  site.serve(p);
+  const me = consumer(t);
+
+  assert.equal(p.identityDocument.feeds[0].items, true);
+  // Every committed item vanishes from the page; the tree stays. A CDN serving a stale-empty
+  // page in front of a healthy origin is this exact shape.
+  site.replace('feed.json', { ...p.feed, items: [] });
+
+  const result = await reader(me).read(site.url);
+  assert.deepEqual(result.items.withheld, [], 'every probe was answered, so nothing is withheld');
+  assert.equal(result.items.live.length > 0, true, 'probed revisions join the live set');
+  assert.deepEqual(result.findings.filter((f) => f.kind === 'withheld'), []);
+});
+
 test('an item uncommitted past the consumer ceiling stops being lag', async (t) => {
   const site = await newSite(t);
   const p = familyPublisher(site.url, makeSigner());
