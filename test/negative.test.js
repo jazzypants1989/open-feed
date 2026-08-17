@@ -309,6 +309,29 @@ test('a _sig is not malleable: only the canonical base64url spelling verifies', 
   assert.ok(verifyDocument(item, { identityDocument: identity, kind: 'item' }));
 });
 
+test('a signing key whose x is a non-canonical spelling is refused (§5.1 names key x)', () => {
+  // §5.1's one-spelling rule lists key `x` explicitly, and Node's JWK import is where it would
+  // silently stop holding: `createPublicKey` accepts `x` padded and in the standard alphabet,
+  // so two conforming verifiers could disagree about whether one identity document is readable.
+  const item = signedItem();
+  const withX = (x) => ({
+    ...identity,
+    keys: [{ ...identity.keys[0], x }],
+  });
+  for (const [x, why] of [
+    [k1.x + '=', 'padded'],
+    [k1.x.replace(/-/g, '+').replace(/_/g, '/'), 'standard alphabet'],
+    [Buffer.alloc(31, 7).toString('base64url'), 'a 31-byte point'],
+  ]) {
+    if (x === k1.x) continue; // an alphabet swap on a key with nothing to swap proves nothing
+    assert.throws(
+      () => verifyDocument(item, { identityDocument: withX(x), kind: 'item' }),
+      throwsVerify(/canonical base64url|impossible base64url|32-byte/),
+      why,
+    );
+  }
+});
+
 test('deleting a recovery co-signature breaks the _sig over it', () => {
   // §6.3: `_sig` strips only itself; the co-signature strips both. So `_sig` covers
   // `_recovery_sig`, and the party this protects against holds no key at all.

@@ -131,7 +131,7 @@ const BASE64URL = /^[A-Za-z0-9_-]+$/;
  * So: alphabet, length class, and a re-encode round-trip. The round-trip is what closes the
  * trailing-bits case, which the first two checks cannot see.
  */
-function decodeBase64url(segment, what) {
+export function decodeBase64url(segment, what) {
   if (!BASE64URL.test(segment)) {
     throw new VerifyError(`${what} is not canonical base64url`);
   }
@@ -220,6 +220,12 @@ export function publicKeyFromJwk(jwk) {
   if (jwk?.kty !== 'OKP' || jwk?.crv !== 'Ed25519') {
     // The alg alone does not fix the curve (spec §6.2).
     throw new VerifyError(`not an Ed25519 signing key: kty=${jwk?.kty} crv=${jwk?.crv}`);
+  }
+  // §5.1's one-spelling rule names key `x` explicitly, and Node's JWK import is lenient — it
+  // accepts padding and the standard alphabet — so the strictness lives here, not in the import.
+  const raw = decodeBase64url(String(jwk?.x ?? ''), `key ${jwk?.kid ?? '(unnamed)'} x`);
+  if (raw.length !== 32) {
+    throw new VerifyError(`key ${jwk?.kid ?? '(unnamed)'} x is not a 32-byte Ed25519 point`);
   }
   try {
     return crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: jwk.x }, format: 'jwk' });

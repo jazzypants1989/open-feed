@@ -35,7 +35,7 @@ import crypto from 'node:crypto';
 
 import { canonicalBytes, parseIJSON } from './canonical.js';
 import { b64u, sha256, timingSafeEqualString } from './hash.js';
-import { normalizeIdentityUrl } from './jws.js';
+import { normalizeIdentityUrl, decodeBase64url } from './jws.js';
 
 export class EncError extends Error {
   constructor(message) {
@@ -85,7 +85,28 @@ export function encryptionKeyFor(identityDocument, { kid, now = Math.floor(Date.
   return found;
 }
 
-const publicFromJwk = (jwk) => crypto.createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: jwk.x }, format: 'jwk' });
+// §5.1's one-spelling rule applies "everywhere this specification writes base64url", this layer
+// included, and Node's lenient decoders are how the rule silently stops holding: a JWK import
+// accepts padded and standard-alphabet spellings, and `Buffer.from(x, 'base64url')` accepts
+// nearly anything. Both strict paths live in jws.js; this converts their failures to this
+// module's contract.
+function b64uStrict(value, what) {
+  try {
+    return decodeBase64url(String(value ?? ''), what);
+  } catch (e) {
+    throw new EncError(e.message);
+  }
+}
+
+function publicFromJwk(jwk) {
+  const raw = b64uStrict(jwk?.x, 'X25519 key x');
+  if (raw.length !== 32) throw new EncError('X25519 key x is not a 32-byte point');
+  try {
+    return crypto.createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: jwk.x }, format: 'jwk' });
+  } catch (e) {
+    throw new EncError(`unusable X25519 key: ${e.message}`);
+  }
+}
 
 /** RFC 7518 §4.6.2's Concat KDF, one SHA-256 round because keydatalen is 256 bits. */
 function concatKdf(z, algorithm) {
@@ -205,10 +226,22 @@ export function seal({ item, content, recipients, audience, ephemeral, cek, iv }
 export function open(item, { privateKeys = [] } = {}) {
   const envelope = item?._enc;
   if (!envelope || typeof envelope !== 'object') throw new EncError('no _enc envelope on this item');
-  const header = parseIJSON(Buffer.from(String(envelope.protected ?? ''), 'base64url').toString('utf8'));
+  const protectedB64 = String(envelope.protected ?? '');
+  const headerBytes = b64uStrict(protectedB64, 'JWE protected header');
+  let header;
+  try {
+    header = parseIJSON(headerBytes.toString('utf8'));
+  } catch (e) {
+    throw new EncError(`JWE protected header is not valid I-JSON: ${e.message}`);
+  }
   if (header.enc !== ENC) throw new EncError(`unsupported enc ${header.enc}`);
   if (header.epk?.crv !== 'X25519') throw new EncError('the protected header carries no X25519 epk (§15.2)');
   const epk = publicFromJwk(header.epk);
+  const nonce = b64uStrict(envelope.iv, 'JWE iv');
+  if (nonce.length !== 12) throw new EncError('JWE iv is not 96 bits');
+  const authTag = b64uStrict(envelope.tag, 'JWE tag');
+  if (authTag.length !== 16) throw new EncError('JWE tag is not 128 bits');
+  const ciphertext = b64uStrict(envelope.ciphertext, 'JWE ciphertext');
 
   const slots = Array.isArray(envelope.recipients) ? envelope.recipients : [];
   // A hostile envelope's slot count is otherwise bounded only by the document caps upstream of
@@ -218,7 +251,14 @@ export function open(item, { privateKeys = [] } = {}) {
     throw new EncError(`envelope carries ${slots.length} recipient slots; refusing past ${MAX_RECIPIENT_SLOTS}`);
   }
   for (const key of privateKeys) {
-    const z = crypto.diffieHellman({ privateKey: key, publicKey: epk });
+    let z;
+    try {
+      z = crypto.diffieHellman({ privateKey: key, publicKey: epk });
+    } catch (e) {
+      // A hostile `epk` (a low-order or malformed point) fails here, from a function whose
+      // contract is EncError — never a bare crypto exception a caller did not sign up for.
+      throw new EncError(`key agreement failed against the envelope's epk: ${e.message}`);
+    }
     const mine = slotTag(z);
     const kek = concatKdf(z, ALG);
     for (const slot of slots) {
@@ -233,26 +273,31 @@ export function open(item, { privateKeys = [] } = {}) {
       try {
         const unwrap = crypto.createDecipheriv('id-aes256-wrap', kek, KW_IV);
         contentKey = Buffer.concat([
-          unwrap.update(Buffer.from(slot.encrypted_key, 'base64url')),
+          // Strict inside the try on purpose: a non-canonical `encrypted_key` in a slot whose
+          // tag happened to match reads as the collision it resembles — keep scanning.
+          unwrap.update(decodeBase64url(String(slot.encrypted_key ?? ''), 'JWE encrypted_key')),
           unwrap.final(),
         ]);
       } catch {
         continue;   // an 8-byte tag collides; keep scanning rather than deciding
       }
 
-      const decipher = crypto.createDecipheriv('aes-256-gcm', contentKey, Buffer.from(envelope.iv, 'base64url'));
-      decipher.setAAD(Buffer.from(String(envelope.protected), 'ascii'));
-      decipher.setAuthTag(Buffer.from(envelope.tag, 'base64url'));
+      const decipher = crypto.createDecipheriv('aes-256-gcm', contentKey, nonce);
+      // The alphabet check above is what makes 'ascii' sound here: every char is single-byte.
+      decipher.setAAD(Buffer.from(protectedB64, 'ascii'));
+      decipher.setAuthTag(authTag);
       let plaintextBytes;
       try {
-        plaintextBytes = Buffer.concat([
-          decipher.update(Buffer.from(envelope.ciphertext, 'base64url')),
-          decipher.final(),
-        ]);
+        plaintextBytes = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       } catch {
         continue;
       }
-      const plaintext = parseIJSON(plaintextBytes.toString('utf8'));
+      let plaintext;
+      try {
+        plaintext = parseIJSON(plaintextBytes.toString('utf8'));
+      } catch (e) {
+        throw new EncError(`sealed plaintext is not valid I-JSON: ${e.message}`);
+      }
       assertCarrierBinding(plaintext, item);
       return plaintext;
     }
@@ -320,7 +365,8 @@ export function sealAttachment(bytes, { key = crypto.randomBytes(32), iv = crypt
 
 export function openAttachment(ciphertext, { key, iv }) {
   const raw = Buffer.isBuffer(ciphertext) ? ciphertext : Buffer.from(ciphertext);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key, 'base64url'), Buffer.from(iv, 'base64url'));
+  const decipher = crypto.createDecipheriv('aes-256-gcm',
+    b64uStrict(key, 'attachment key'), b64uStrict(iv, 'attachment iv'));
   decipher.setAuthTag(raw.subarray(raw.length - 16));
   return Buffer.concat([decipher.update(raw.subarray(0, raw.length - 16)), decipher.final()]);
 }

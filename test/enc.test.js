@@ -1,6 +1,7 @@
-// Encrypted content (§15). OPTIONAL, marked "never independently reviewed" in the specification,
-// and until now with no reference implementation at all — while `DISTRIBUTION-MODEL.md` treats it
-// as a launch dependency for cross-hub audiences.
+// Encrypted content (§15). Required by no core level and REQUIRED in full of any deployment
+// offering audience-restricted content; marked "never independently reviewed" in the
+// specification — while `DISTRIBUTION-MODEL.md` treats it as a launch dependency for cross-hub
+// audiences.
 //
 // The claim this layer makes about the core is that it does not touch it: an encrypted item is an
 // ordinary signed item whose content happens to be opaque, and the core neither defines nor
@@ -371,4 +372,54 @@ test('§11.4\'s metadata is cleartext by construction, and the test says so out 
   assert.ok(wire.includes(p.feedUrl), '_feed_url');
   assert.ok(wire.includes('gran.example'), '_rel targets — the interaction graph');
   assert.ok(!wire.includes('secret'), 'and only the content is opaque');
+});
+
+// ---- §5.1's one spelling of base64url reaches this layer too ----
+
+test('the envelope is §5.1-strict: a non-canonical spelling is an EncError, never an acceptance', () => {
+  // The sharp case is `tag` (or `ciphertext`, or `encrypted_key`): pad it with `=` and a
+  // lenient decoder recovers the same bytes, so the envelope OPENS — the layer accepts a
+  // spelling §5.1 forbids, and two implementations disagree about what the document even is.
+  const item = encryptedItem(mom, {
+    id: 'urn:uuid:strict', recipients: [dad], content: { content_text: 'x' },
+  });
+  assert.equal(openEnvelope(item, { privateKeys: [dad.encPrivate] }).content_text, 'x',
+    'the honest spelling opens');
+
+  const mutated = (field, change) =>
+    ({ ...item, _enc: { ...item._enc, [field]: change(item._enc[field]) } });
+  for (const [field, change] of [
+    ['tag', (v) => v + '='],
+    ['ciphertext', (v) => v + '=='],
+    ['iv', (v) => v + '='],
+    ['protected', (v) => v + '='],
+  ]) {
+    assert.throws(
+      () => openEnvelope(mutated(field, change), { privateKeys: [dad.encPrivate] }),
+      (e) => e instanceof EncError && /canonical base64url|impossible base64url/.test(e.message),
+      `${field} padded must be refused as a spelling, not decoded leniently`,
+    );
+  }
+});
+
+test('a hostile epk fails inside the module contract: EncError, never a bare crypto exception', () => {
+  const item = encryptedItem(mom, {
+    id: 'urn:uuid:epk', recipients: [dad], content: { content_text: 'x' },
+  });
+  const withEpkX = (x) => {
+    const protectedB64 = Buffer.from(
+      JSON.stringify({ enc: 'A256GCM', epk: { crv: 'X25519', kty: 'OKP', x } }),
+    ).toString('base64url');
+    return { ...item, _enc: { ...item._enc, protected: protectedB64 } };
+  };
+  // A truncated point, a padded spelling, and garbage: each is the attacker choosing the epk,
+  // and each must surface as this module's own error before any key agreement is attempted.
+  const short = Buffer.alloc(31, 7).toString('base64url');
+  for (const x of [short, dad.encPublic.export({ format: 'jwk' }).x + '=', 'not base64url!!']) {
+    assert.throws(
+      () => openEnvelope(withEpkX(x), { privateKeys: [dad.encPrivate] }),
+      (e) => e instanceof EncError,
+      `epk x ${JSON.stringify(x.slice(0, 12))}… must be an EncError`,
+    );
+  }
 });
