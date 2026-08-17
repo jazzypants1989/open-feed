@@ -112,7 +112,11 @@ export class Publisher {
     const doc = {
       url: this.identity,
       ...profile,
-      feeds: [{ url: this.feedUrl, manifest: this.manifestUrl, rel: 'primary' }],
+      // §3.2.1's `items`, a Level 2 MUST alongside actually serving the tree (§7.6). Serving
+      // the URLs while declaring nothing leaves a reader unable to tell this publisher from
+      // one that never served them, which is the whole of what the declaration is for — so
+      // the flag tracks `itemUrls` rather than being separately settable.
+      feeds: [{ url: this.feedUrl, manifest: this.manifestUrl, rel: 'primary', ...(this.itemUrls ? { items: true } : {}) }],
       seq: 1,
       updated: this.now(),
       keys: [this.signer.jwk, ...recoveryKeys],

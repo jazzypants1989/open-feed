@@ -34,7 +34,7 @@ import {
 } from '../src/index.js';
 
 /** Six days of posting, one edit, two identity-chain versions. */
-function familyPublisher(origin, signer, { days = 6 } = {}) {
+function familyPublisher(origin, signer, { days = 6, ...rest } = {}) {
   const p = new Publisher({
     identity: origin,
     feedUrl: `${origin}feed.json`,
@@ -43,6 +43,7 @@ function familyPublisher(origin, signer, { days = 6 } = {}) {
     signer,
     profile: { name: 'Mom', bio: 'Grandmother, gardener, cat enthusiast.' },
     now: () => T0,
+    ...rest,
   });
   for (let day = 0; day < days; day++) {
     p.publishItem({ id: `urn:uuid:day-${day}`, content_text: `day ${day}` }, { at: T0 + day * DAY });
@@ -247,11 +248,16 @@ test('probing is inert against a publisher that offers no item URLs', async (t) 
   // silent entirely: the committed-but-unserved item is `absent`, the state that accuses
   // nobody, because a feed with no further pages may be a complete catalog or a recency
   // window and §9.3 scopes withholding to bytes actually tried for.
+  //
+  // `itemUrls: false` from construction, not swapped in at serve time: a publisher that
+  // predates the rule serves no tree AND declares none (§3.2.1), and the two together are what
+  // earn it the benefit of the doubt. One that declares and then declines is the next test.
   const site = await newSite(t);
-  const p = familyPublisher(site.url, makeSigner());
-  site.serve(new Proxy(p, { get: (t_, k) => (k === 'itemUrls' ? false : t_[k]) }));
+  const p = familyPublisher(site.url, makeSigner(), { itemUrls: false });
+  site.serve(p);
   const me = consumer(t);
 
+  assert.equal(p.identityDocument.feeds[0].items, undefined, 'and it claims nothing');
   site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i.id !== 'urn:uuid:day-4') });
 
   const result = await reader(me).read(site.url);
@@ -259,6 +265,29 @@ test('probing is inert against a publisher that offers no item URLs', async (t) 
   assert.deepEqual(result.items.withheld, [], 'no probe, no accusation');
   assert.deepEqual(result.items.absent.map((s) => s.id), ['urn:uuid:day-4']);
   assert.match(result.items.absent[0].reason, /not yielded by the pages read/);
+});
+
+test('a publisher that declared item URLs and then serves none is withholding', async (t) => {
+  // §3.2.1's `items: true` and the reason it exists. The previous test's publisher and this one
+  // are byte-identical on the wire except for one boolean inside signed bytes — same manifest
+  // commitment, same missing item, same 404 beneath /items/ — and they get opposite verdicts,
+  // which is the point. Without the declaration a hostile host suppresses §9.3's only pull-path
+  // verdict by declining to serve a directory, and is indistinguishable from a static host.
+  const site = await newSite(t);
+  const p = familyPublisher(site.url, makeSigner());
+  site.serve(p);
+  const me = consumer(t);
+
+  assert.equal(p.identityDocument.feeds[0].items, true, 'a Level 2 publisher declares it');
+  // Now behave like the host that would rather the verdict were unreachable: the whole tree
+  // goes, including the control the reader probes first.
+  for (const path of [...site.files.keys()]) if (path.startsWith('feed/items/')) site.remove(path);
+  site.replace('feed.json', { ...p.feed, items: p.feed.items.filter((i) => i.id !== 'urn:uuid:day-4') });
+
+  const result = await reader(me).read(site.url);
+  assert.deepEqual(result.items.absent, [], 'the benefit of the doubt was spent by the declaration');
+  assert.deepEqual(result.items.withheld.map((s) => s.id), ['urn:uuid:day-4']);
+  assert.equal(result.findings.filter((f) => f.kind === 'withheld').length, 1);
 });
 
 test('an item uncommitted past the consumer ceiling stops being lag', async (t) => {

@@ -532,7 +532,7 @@ export function createReader({
    * consumer that threw one away would be discarding the ingredient that lets a follower serve
    * a cached feed when its origin is down.
    */
-  async function readFeed(feedUrl, { identityDocument, resolveIdentity, firstSeenHere = new Set(), owner, manifest = null }) {
+  async function readFeed(feedUrl, { identityDocument, resolveIdentity, firstSeenHere = new Set(), owner, manifest = null, itemUrlsDeclared = false }) {
     const fetched = await laddered(feedUrl, () => fetcher.fetchDocument(feedUrl, { kind: 'feed' }));
     const feed = fetched.doc;
     if (!Array.isArray(feed?.items)) {
@@ -572,7 +572,9 @@ export function createReader({
     // way of *reading more of the feed*, one item at a time, so anything it obtains joins the
     // list below and is verified exactly like a page item — the URL guarantees the bytes, never
     // the authorship, and §6.5 is still the only thing that says who wrote them.
-    const probe = manifest ? await probeItems(feedUrl, manifest, new Set(allItems.map((i) => i?.id))) : null;
+    const probe = manifest
+      ? await probeItems(feedUrl, manifest, new Set(allItems.map((i) => i?.id)), { declared: itemUrlsDeclared })
+      : null;
     if (probe) allItems.push(...probe.obtained);
 
     const canonicalUrl = normalizeUrlForCompare(feedUrl);
@@ -721,7 +723,7 @@ export function createReader({
    * A returned body is checked against the hash that named it before it counts as obtained.
    * That check needs no signature, no manifest lookup, and no identity: the URL *is* the hash.
    */
-  async function probeItems(feedUrl, manifest, servedIds) {
+  async function probeItems(feedUrl, manifest, servedIds, { declared = false } = {}) {
     const idle = { unobtainable: new Set(), obtained: [], offered: false, probed: 0, missing: 0 };
     if (maxItemProbes <= 0) return idle;
 
@@ -729,7 +731,21 @@ export function createReader({
     if (missing.length === 0) return idle;
 
     const control = Object.keys(manifest.items).find((id) => servedIds.has(id));
-    if (!control || !await fetchItem(feedUrl, manifest.items, control)) return idle;
+    const controlServed = !!control && !!await fetchItem(feedUrl, manifest.items, control);
+    if (!controlServed) {
+      // §3.2.1's `items: true`, and this is the case the declaration exists for. Without it the
+      // control probe's failure is ambiguous — a static host that never heard of §7.6 and a
+      // hostile one that 404s the tree on purpose look identical — so the reader has to give
+      // the benefit of the doubt, which hands the adversary an off switch for §9.3's only
+      // pull-path verdict. With it, the publisher has signed a statement that these revisions
+      // are individually addressable, so failing to yield them is not an unexplained absence.
+      if (!declared) return idle;
+      return {
+        unobtainable: new Set(missing.slice(0, maxItemProbes)),
+        obtained: [], offered: true, declined: true,
+        probed: Math.min(missing.length, maxItemProbes), missing: missing.length,
+      };
+    }
 
     const unobtainable = new Set();
     const obtained = [];
@@ -825,7 +841,12 @@ export function createReader({
       firstSeenHere: manifest.firstSeenHere,
       owner: identity.identity,
       manifest: manifest.manifest,
-      // §7.1: a feed MAY carry items from multiple authors — a family board — since every item
+      // §3.2.1 / §7.6. Read out of the *signed* identity document, never out of the feed or a
+      // header: it is the publisher's own statement that this feed's revisions are individually
+      // addressable, and a statement taken from anywhere the serving path can write is a
+      // statement the serving path can withdraw.
+      itemUrlsDeclared: entry.items === true,
+      // §7.1: a feed MAY contain items from multiple authors — a family board — since every item
       // is independently signed and attributed by its own single-entry `authors`. Without a
       // resolver every such item is unverifiable, which reads as a defect in an ordinary
       // arrangement the specification explicitly permits. One fetch per distinct author,

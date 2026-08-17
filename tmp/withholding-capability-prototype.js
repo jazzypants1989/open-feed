@@ -1,5 +1,10 @@
 // §7.6 and the withholding verdict: does the mechanism reach the adversary it was built for?
 //
+// STATUS: ADOPTED. §3.2.1 now carries an `items` declaration, §7.6 and §9.3 carry the rule it
+// enables, and `src/reader.js` implements it — so Q3 below drives the SHIPPED reader rather
+// than modelling the check beside it, and Q1's counterfactual is a publisher that genuinely
+// declares nothing rather than a remembered version of one.
+//
 // §9.3's withholding state is the one pull-path attack the manifest exists to detect — "the
 // consumer knows an exact revision exists, knows its hash, and cannot obtain the bytes." §12
 // makes §7.6 a Level 2 MUST specifically to make that verdict reachable, because a paginated
@@ -171,42 +176,23 @@ function declareItemUrls(documents) {
   return out;
 }
 
-// The consumer half: with a declaration in hand, a control probe that fails is the finding.
-// `probeItems` already refuses to accuse when a control item cannot be fetched; the declaration
-// is what turns that refusal into evidence rather than into silence.
-async function readWithDeclaration(documents) {
-  const result = await read(documents);
-  const entry = result.identity.document.feeds.find((f) => f.url === result.entry.url);
-  if (entry?.items !== true) return result;
-  const committed = Object.keys(result.manifest.manifest.items);
-  const control = committed[committed.length - 1];
-  const hash = result.manifest.manifest.items[control][1];
-  let served = true;
-  try {
-    await host(documents).fetchDocument(derivedItemUrl(result.entry.url, hash));
-  } catch { served = false; }
-  if (served) return result;
-  return {
-    ...result,
-    findings: [...result.findings, {
-      kind: 'withheld',
-      message: `${result.entry.url}: the identity document declares §7.6 item URLs for this feed and none are served; ${result.items.absent.length} committed revision(s) this reader could not obtain are withheld, not merely unseen`,
-    }],
-  };
-}
-
-const q3read = await readWithDeclaration(declareItemUrls(q1.documents));
+// The shipped reader, unmodified. The declaration is read out of the signed identity document
+// by `readOneFeed` and handed to `probeItems`, which is where the control probe's failure stops
+// being ambiguous.
+const q3read = await read(declareItemUrls(q1.documents));
 const q3findings = q3read.findings.filter((f) => f.kind === 'withheld');
-say(`  same declining host, now declaring \`items: true\`: ${q3findings.length} withholding finding(s)`);
+say(`  same declining host, now declaring \`items: true\`: ${q3findings.length} withholding finding(s), ${q3read.items.withheld.length} withheld, ${q3read.items.absent.length} absent`);
 say(`    ${q3findings[0]?.message ?? '(none)'}`);
 say();
-const q3honest = await readWithDeclaration(q1.documents);
-say(`  a publisher that never declares (the static host, the pre-rule publisher): ${q3honest.findings.filter((f) => f.kind === 'withheld').length} findings`);
+const q3honest = await read(q1.documents);
+say(`  a publisher that never declares (the static host, the pre-rule publisher): ${q3honest.findings.filter((f) => f.kind === 'withheld').length} withholding finding(s), ${q3honest.items.absent.length} absent`);
 say('  — read exactly as before, accusing nobody. The asymmetry §7.6 wanted is preserved;');
 say('  what changes is that declining is now a thing a publisher does rather than a thing');
 say('  a consumer cannot distinguish from silence.');
-check('Q3 the declaration makes the verdict reachable against the adversary', q3findings.length === 1);
-check('Q3 and an undeclared publisher is still read as before', q3honest.findings.filter((f) => f.kind === 'withheld').length === 0);
+check('Q3 the declaration makes the verdict reachable against the adversary',
+  q3findings.length === 1 && q3read.items.withheld.length === 1);
+check('Q3 and an undeclared publisher is still read as before',
+  q3honest.findings.filter((f) => f.kind === 'withheld').length === 0 && q3honest.items.absent.length === 1);
 
 // ==========================================================================================
 say();
