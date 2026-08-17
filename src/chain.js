@@ -931,8 +931,10 @@ async function followSkipAnchor({ url, current, anchor, fetchVersion, policy, re
  * every revocation published since — a recovery key retired years ago would still count.
  *
  * The co-signature is computed over the canonical document with **both** signature fields
- * removed, which `signingPayload` already does (§6.3) — so the signer and the recovery
- * co-signer sign identical bytes.
+ * removed, which `signingPayload({ recovery: true })` does (§6.3). The signer and the co-signer
+ * do NOT sign identical bytes: `_sig` strips only itself, so it covers `_recovery_sig` — the
+ * asymmetry that stops a keyless serving-path attacker deleting the co-signature. "Fixing"
+ * either payload to match the other reintroduces that strip attack.
  */
 export function verifyRecoverySignature(doc, { pinnedAncestor }) {
   const identity = normalizeIdentityUrl(pinnedAncestor.url);

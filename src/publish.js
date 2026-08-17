@@ -150,7 +150,7 @@ export class Publisher {
    * have been valid in the *previous* version — so `rotateKey` adds the new key in one version
    * and only then makes it the signer.
    */
-  advanceIdentity(changes = {}, { updated } = {}) {
+  advanceIdentity(changes = {}, { updated, recoverySigner = null, kidIdentity = this.identity } = {}) {
     const previous = this.identityDocument;
     const next = { ...previous, ...changes };
     delete next._sig;
@@ -158,9 +158,26 @@ export class Publisher {
     next.seq = previous.seq + 1;
     next.prev = documentHash(previous);
     next.updated = this.#assertDated(updated ?? this.now(), previous, 'identity document');
-    const signed = this.#signDocument(next);
+    // A version that needs a co-signature gets it *here*, before the version exists to serve —
+    // the safe path. `coSignIdentity` can retrofit one, but only until the tip's bytes have
+    // been served to anyone (see its warning).
+    const signed = recoverySigner
+      ? this.#coSigned(next, recoverySigner, kidIdentity)
+      : this.#signDocument(next);
     this.identityVersions.push(signed);
     return signed;
+  }
+
+  /** §6.3's order made structural: co-sign the unsigned version, then sign over the result. */
+  #coSigned(version, recoverySigner, kidIdentity) {
+    if (recoverySigner?.jwk?.use !== 'recovery') {
+      throw new PublishError(`${recoverySigner?.kid} is not a recovery key (§4.5)`);
+    }
+    version._recovery_sig = sign(
+      version, recoverySigner.privateKey, `${normalizeIdentityUrl(kidIdentity)}#${recoverySigner.kid}`,
+      { recovery: true },
+    );
+    return this.#signDocument(version);
   }
 
   /**
@@ -185,19 +202,18 @@ export class Publisher {
    *
    * The tip is replaced rather than appended: a co-signature changes the version's bytes, so
    * doing this to anything but the newest version would break the `prev` of everything above it.
+   * **And the replacement MUST happen before the tip's bytes are first served.** Two documents
+   * at one `(url, seq)` is §5.3.1's definition of equivocation, and a pinned reader who saw the
+   * un-co-signed spelling will freeze this chain on its honest author. For any version after
+   * genesis, prefer `advanceIdentity(changes, { recoverySigner })`, which co-signs before the
+   * version exists to serve; this method is for the genesis, which the constructor builds
+   * before a migration's co-signer is necessarily at hand.
    */
   coSignIdentity(recoverySigner, { kidIdentity = this.identity } = {}) {
-    if (recoverySigner?.jwk?.use !== 'recovery') {
-      throw new PublishError(`${recoverySigner?.kid} is not a recovery key (§4.5)`);
-    }
     const version = { ...this.identityDocument };
     delete version._sig;
     delete version._recovery_sig;
-    version._recovery_sig = sign(
-      version, recoverySigner.privateKey, `${normalizeIdentityUrl(kidIdentity)}#${recoverySigner.kid}`,
-      { recovery: true },
-    );
-    const signed = this.#signDocument(version);
+    const signed = this.#coSigned(version, recoverySigner, kidIdentity);
     this.identityVersions[this.identityVersions.length - 1] = signed;
     return signed;
   }

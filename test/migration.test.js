@@ -404,3 +404,34 @@ test('without the migration record, a carried back catalog reads as withheld', a
   assert.equal(fixed.items.withheld.length, 0);
   assert.equal(fixed.items.live.length, 3);
 });
+
+// ---- §6.3's order, made safe to hold ----
+
+test('advanceIdentity co-signs atomically, and matches the retrofit byte for byte (§5.5, §6.3)', () => {
+  // `coSignIdentity` replaces the current tip in place, which is only safe before the tip's
+  // bytes have been served — after that, two documents exist at one (url, seq), which is
+  // §5.3.1's equivocation committed by an honest author. The atomic path co-signs the version
+  // before it exists to serve. Deterministic signing means the two paths must agree to the
+  // byte: the difference between them is only *when* each is safe to use.
+  const recovery = makeSigner('recovery-1', { use: 'recovery' });
+  const hubKey = makeSigner('hub-1'); // one key: Ed25519 is deterministic, so the paths must agree
+  const atomicHub = established('https://safe.example/', hubKey, recovery);
+  const retrofitHub = established('https://safe.example/', hubKey, recovery);
+
+  const atomic = atomicHub.advanceIdentity({}, { updated: T0 + 10 * DAY, recoverySigner: recovery });
+  retrofitHub.advanceIdentity({}, { updated: T0 + 10 * DAY });
+  const retrofit = retrofitHub.coSignIdentity(recovery);
+
+  assert.deepEqual(atomic, retrofit, 'one construction, two call shapes');
+  assert.equal(typeof atomic._recovery_sig, 'string');
+  assert.equal(documentHash(atomic), documentHash(retrofit));
+
+  // And the covering relation holds on the atomic path exactly as §6.3 requires: stripping the
+  // co-signature changes both the document's hash (a pin distinguishes it) and the `_sig`
+  // payload (a verifier rejects it — negative.test.js holds that half in place).
+  const stripped = { ...atomic };
+  delete stripped._recovery_sig;
+  assert.notEqual(documentHash(stripped), documentHash(atomic), 'a pin distinguishes the strip');
+  assert.notDeepEqual(signingPayload(stripped), signingPayload(atomic),
+    '_sig was computed over bytes that name the co-signature');
+});
