@@ -50,7 +50,7 @@ function signedItem({ _openfeed: openfeed, ...overrides } = {}) {
     // Merged, not replaced (§7.2) — an override naming one member keeps the others.
     _openfeed: { feed_url: 'https://test.example/feed.json', version: 1, ...openfeed },
   };
-  item._sig = sign(item, k1.priv, KID);
+  item._sig = sign(item, k1.priv, KID, { kind: 'item' });
   return item;
 }
 
@@ -231,6 +231,48 @@ test('header deviations are rejected', () => {
   assert.throws(() => verifyDocument(rewrite({ b64: true }), { identityDocument: identity, kind: 'item' }), throwsVerify(/b64 must be false/));
   assert.throws(() => verifyDocument(rewrite({ crit: [] }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unsupported crit/));
   assert.throws(() => verifyDocument(rewrite({ crit: ['b64', 'x'] }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unsupported crit/));
+
+  // §6.2's `typ`: absent, unrecognized, or naming a kind other than the one being verified.
+  assert.throws(() => verifyDocument(rewrite({ typ: undefined }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unrecognized typ/));
+  assert.throws(() => verifyDocument(rewrite({ typ: 'JWT' }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unrecognized typ/));
+  assert.throws(() => verifyDocument(rewrite({ typ: 'application/openfeed-item+json' }), { identityDocument: identity, kind: 'item' }), throwsVerify(/unrecognized typ/));
+});
+
+test('an item signed as an item cannot be read as a chained document, or the reverse', () => {
+  // 1.17's last clause, and the reason it is a rule rather than an accident. §6.6 picks the
+  // author carrier by kind and §6.5 step 7 picks the revocation clock the same way, so one set
+  // of signed bytes means two different things to two verifiers that disagree about what they
+  // hold. Nothing about the *shapes* keeps them apart: §3.2 and §7.2 both oblige a document to
+  // carry unknown members intact, so the crossover document below is conformant data.
+  const crossover = {
+    id: 'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
+    authors: [{ url: ID }],
+    content_text: 'hello',
+    date_published: '2025-01-15T12:00:00Z',
+    // Everything a chained document needs, carried by an item as conformant unknown data.
+    url: ID,
+    seq: 1,
+    updated: 1736899200,
+    _openfeed: { feed_url: 'https://test.example/feed.json', version: 1 },
+  };
+  crossover._sig = sign(crossover, k1.priv, KID, { kind: 'item' });
+
+  // Read as what it was signed as, it verifies.
+  assert.ok(verifyDocument(crossover, { identityDocument: identity, kind: 'item' }));
+
+  // Read as an identity document, every other check still passes — the `url` binding resolves,
+  // `updated` is a usable clock, the signature is over these exact bytes — and `typ` is the
+  // only thing that refuses it.
+  assert.equal(claimedAuthor(crossover, { kind: 'identity' }), ID, 'the url binding resolves');
+  assert.equal(effectiveSigningTime(crossover, { kind: 'identity' }), 1736899200, 'and so does the clock');
+  assert.throws(
+    () => verifyDocument(crossover, { identityDocument: identity, kind: 'identity' }),
+    throwsVerify(/typ openfeed-item\+json is not the identity/),
+  );
+  assert.throws(
+    () => verifyDocument(crossover, { identityDocument: identity, kind: 'manifest' }),
+    throwsVerify(/typ openfeed-item\+json is not the manifest/),
+  );
 });
 
 test('the protected header is held to I-JSON too', () => {
@@ -352,14 +394,14 @@ test('deleting a recovery co-signature breaks the _sig over it', () => {
 
   // Co-sign first, then sign: the order the coverage forces.
   const doc = { ...withRecovery };
-  doc._recovery_sig = sign(doc, recovery.priv, `${ID}#recovery-1`, { recovery: true });
-  doc._sig = sign(doc, k1.priv, KID);
-  assert.ok(verifyDocument(doc, { identityDocument: withRecovery, kind: 'document' }), 'the honest document verifies');
+  doc._recovery_sig = sign(doc, recovery.priv, `${ID}#recovery-1`, { recovery: true, kind: 'identity' });
+  doc._sig = sign(doc, k1.priv, KID, { kind: 'identity' });
+  assert.ok(verifyDocument(doc, { identityDocument: withRecovery, kind: 'identity' }), 'the honest document verifies');
 
   const stripped = { ...doc };
   delete stripped._recovery_sig;
   assert.throws(
-    () => verifyDocument(stripped, { identityDocument: withRecovery, kind: 'document' }),
+    () => verifyDocument(stripped, { identityDocument: withRecovery, kind: 'identity' }),
     throwsVerify(/signature does not verify/),
     'a keyless attacker can no longer delete the co-signature',
   );
@@ -368,10 +410,10 @@ test('deleting a recovery co-signature breaks the _sig over it', () => {
   // something every verifier rejects, which is what makes "co-sign first" a rule rather than
   // advice a producer can quietly skip.
   const appended = { ...withRecovery };
-  appended._sig = sign(appended, k1.priv, KID);
-  appended._recovery_sig = sign(appended, recovery.priv, `${ID}#recovery-1`, { recovery: true });
+  appended._sig = sign(appended, k1.priv, KID, { kind: 'identity' });
+  appended._recovery_sig = sign(appended, recovery.priv, `${ID}#recovery-1`, { recovery: true, kind: 'identity' });
   assert.throws(
-    () => verifyDocument(appended, { identityDocument: withRecovery, kind: 'document' }),
+    () => verifyDocument(appended, { identityDocument: withRecovery, kind: 'identity' }),
     throwsVerify(/signature does not verify/),
   );
 });
@@ -387,7 +429,7 @@ test('author binding failures are rejected', () => {
   // Multi-entry authors: exactly one entry, or there is no binding.
   assert.throws(() => claimedAuthor({ authors: [{ url: ID }, { url: 'https://eve.example/' }] }, { kind: 'item' }), /exactly one entry/);
   assert.throws(() => claimedAuthor({ authors: [] }, { kind: 'item' }), /exactly one entry/);
-  assert.throws(() => claimedAuthor({}, { kind: 'document' }), /no author binding/);
+  assert.throws(() => claimedAuthor({}, { kind: 'identity' }), /no author binding/);
 });
 
 test('an item permalink is not an author binding', () => {
@@ -480,7 +522,7 @@ test('receipt time bounds self-reported time for revocation', () => {
   // took delivery, so inbox items check revocation against the later of the two.
   //
   // The backdate has to land between the key's iat and its revoked_at to be interesting.
-  // Backdating past the iat is already caught by §6.5 step 6 (next test), so `iat` is
+  // Backdating past the iat is already caught by §6.5 step 7 (next test), so `iat` is
   // itself a partial backdating defence — it bounds how far a thief can reach back.
   const backdated = signedItem({ date_published: '2025-01-20T00:00:00Z' }); // 1737331200
   const revoked = { ...identity, keys: [{ ...identity.keys[0], revoked_at: 1739577600 }] };
@@ -493,7 +535,7 @@ test('receipt time bounds self-reported time for revocation', () => {
 });
 
 test('an item smuggling a numeric `updated` cannot choose its own revocation clock (§6.5, §7.2)', () => {
-  // §6.5 step 6 selects the time carrier by document *kind*; §7.2 obliges consumers to
+  // §6.5 step 7 selects the time carrier by document *kind*; §7.2 obliges consumers to
   // preserve unknown members, so an item carrying `"updated": <number>` is conformant data.
   // A verifier that sniffed fields instead of taking the kind would read the revocation clock
   // out of a field the signer chose freely: a holder of a key revoked at T signs an item
@@ -600,13 +642,13 @@ test('an authors field on a chained document does not displace its url binding',
     // An extension field a publisher is entitled to carry, naming somebody else.
     authors: [{ url: 'https://impostor.example/' }],
   };
-  manifest._sig = sign(manifest, k1.priv, KID);
+  manifest._sig = sign(manifest, k1.priv, KID, { kind: 'manifest' });
 
-  assert.equal(claimedAuthor(manifest, { kind: 'document' }), ID);
+  assert.equal(claimedAuthor(manifest, { kind: 'manifest' }), ID);
   assert.throws(() => claimedAuthor(manifest), /must say what kind/);
 
   // Told the kind, the manifest verifies against its own `url`.
-  assert.ok(verifyDocument(manifest, { identityDocument: identity, kind: 'document' }));
+  assert.ok(verifyDocument(manifest, { identityDocument: identity, kind: 'manifest' }));
   // There is no guessing path. A verifier that does not say what it is verifying is refused
   // outright: any inference reads the binding out of a field the signer chose freely, and a
   // document whose `authors` happened to name its own identity would have slipped through it.
@@ -696,7 +738,7 @@ test('a forged tip does not freeze the chain against its own owner', async () =>
   const evil = makeKey('evil-1');
   evil.identity = fx.identity;
   const forged = { url: fx.identity, name: 'Owner', keys: [evil.jwk], seq: 5, updated: 1737000000, prev: 'AAAA' };
-  forged._sig = sign(forged, evil.privateKey, `${fx.identity}#evil-1`);
+  forged._sig = sign(forged, evil.privateKey, `${fx.identity}#evil-1`, { kind: 'identity' });
 
   await assert.rejects(
     () => walk(forged, pins.pin(fx.url)),
@@ -722,7 +764,7 @@ test('rewriting a retained version still freezes the chain', async () => {
   // the copy at the **derived** URL moves it is the publisher's own record that changed — which
   // only the publisher serves. That is equivocation and §5.3.1 fires.
   const rewritten = { ...fx.chain.at(5), name: 'Rewritten' };
-  rewritten._sig = sign(rewritten, fx.primary.privateKey, `${fx.identity}#key-1`);
+  rewritten._sig = sign(rewritten, fx.primary.privateKey, `${fx.identity}#key-1`, { kind: 'identity' });
   fx.store.replaceVersion(fx.url, 5, rewritten);
 
   await assert.rejects(
@@ -761,7 +803,7 @@ function memberItem(signer, kid) {
     content_text: 'hello',
     date_published: '2025-02-20T10:00:00Z',
   };
-  item._sig = sign(item, signer.priv, MEMBER + '#' + kid);
+  item._sig = sign(item, signer.priv, MEMBER + '#' + kid, { kind: 'item' });
   return item;
 }
 
@@ -791,7 +833,7 @@ test('a delegated key signs items; recovery and unrecognized-use keys cannot', (
 test('a delegated key MUST NOT sign an identity-document version', () => {
   // At genesis / a fresh tip, where there is no predecessor to judge continuity against:
   const genesis = { url: MEMBER, keys: memberKeys, seq: 1, updated: 1736899200 };
-  genesis._sig = sign(genesis, kDel.priv, MEMBER + '#hub-key-1');
+  genesis._sig = sign(genesis, kDel.priv, MEMBER + '#hub-key-1', { kind: 'identity' });
   assert.throws(
     () => identityChainPolicy.verifySignature(genesis, { url: `${MEMBER}openfeed.json` }),
     (e) => e instanceof ChainError && /delegated key .* MUST NOT sign identity-document versions/.test(e.message),
@@ -799,7 +841,7 @@ test('a delegated key MUST NOT sign an identity-document version', () => {
 
   // And as a continuity key across a hop (§5.2 step 3):
   const successor = { url: MEMBER, keys: memberKeys, seq: 2, updated: 1739577600, prev: 'AAAA' };
-  successor._sig = sign(successor, kDel.priv, MEMBER + '#hub-key-1');
+  successor._sig = sign(successor, kDel.priv, MEMBER + '#hub-key-1', { kind: 'identity' });
   assert.throws(
     () => assertContinuityKey(successor, memberIdentity),
     (e) => e instanceof ChainError && /delegated key/.test(e.message),
@@ -807,7 +849,7 @@ test('a delegated key MUST NOT sign an identity-document version', () => {
 
   // The root key signing the same version is fine — the exclusion is the delegation, not the hop.
   const honest = { url: MEMBER, keys: memberKeys, seq: 2, updated: 1739577600, prev: 'AAAA' };
-  honest._sig = sign(honest, kRoot.priv, MEMBER + '#member-root-1');
+  honest._sig = sign(honest, kRoot.priv, MEMBER + '#member-root-1', { kind: 'identity' });
   assert.doesNotThrow(() => assertContinuityKey(honest, memberIdentity));
 });
 

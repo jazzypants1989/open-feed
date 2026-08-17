@@ -60,7 +60,10 @@ export class DocumentStore {
 
 /** Builds successive versions of one chained document, handling seq, prev, and signing. */
 export class ChainBuilder {
-  constructor({ url, store, updatedStart = 1736899200, interval = 86400 }) {
+  // `kind` is §6.2's `typ`, and a builder that produces one chain's versions knows which
+  // chain it is. Per-call override exists so a test can forge a cross-kind signature.
+  constructor({ url, store, updatedStart = 1736899200, interval = 86400, kind = 'identity' }) {
+    this.kind = kind;
     this.url = url;
     this.store = store;
     this.versions = [];
@@ -81,12 +84,12 @@ export class ChainBuilder {
    * body. `mutate` runs after seq/prev/updated are set and before signing, which is how a
    * test forges an anchor or a shape.
    */
-  publish({ fields, signer, updated, mutate } = {}) {
+  publish({ fields, signer, updated, mutate, kind = this.kind } = {}) {
     const seq = this.versions.length + 1;
     const doc = { ...fields, seq, updated: updated ?? this.updatedStart + (seq - 1) * this.interval };
     if (seq > 1) doc.prev = documentHash(this.tip);
     mutate?.(doc, this);
-    doc._sig = sign(doc, signer.privateKey, `${signer.identity}#${signer.kid}`);
+    doc._sig = sign(doc, signer.privateKey, `${signer.identity}#${signer.kid}`, { kind });
     this.versions.push(doc);
     this.store.publish(this.url, doc);
     return doc;
@@ -152,7 +155,7 @@ export function manifestFixture({
   versions = 1,
   skipLinks = false,
 } = {}) {
-  const chain = new ChainBuilder({ url: manifestUrl, store });
+  const chain = new ChainBuilder({ url: manifestUrl, store, kind: 'manifest' });
   for (let i = 0; i < versions; i++) {
     chain.publish({
       fields: { url: identity, feed_url: feedUrl, items: {} },

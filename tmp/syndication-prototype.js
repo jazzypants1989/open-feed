@@ -56,7 +56,7 @@ function tombstone(item){
   const carried = item._openfeed ?? {};
   if ("feed_url" in carried) t._openfeed.feed_url = carried.feed_url;
   if ("rel" in carried) t._openfeed.rel = carried.rel;
-  t._sig = sign(t, k.priv, KID);
+  t._sig = sign(t, k.priv, KID, { kind: 'item' });
   return t;
 }
 
@@ -65,7 +65,7 @@ function makeItem(i, extra={}){
   const item = { id:`urn:uuid:post-${i}`, url:permalink(i),
     authors:[{url:ID}], content_text:`post ${i}`, date_published:"2026-01-01T00:00:00Z", ...rest,
     _openfeed:{ feed_url:FEED, version:1, ...of } };
-  item._sig = sign(item, k.priv, KID);
+  item._sig = sign(item, k.priv, KID, { kind: 'item' });
   return item;
 }
 
@@ -78,7 +78,7 @@ class ManifestChain {
     const m = { url:ID, feed_url:this.feedUrl, seq:this.seq, updated:1767225600+this.seq,
       items:Object.fromEntries(Object.entries(this.items).map(([id,it])=>[id,[it._openfeed?.version, docHash(it)]])) };
     if (this.prevHash) m.prev = this.prevHash;
-    m._sig = sign(m, k.priv, KID);
+    m._sig = sign(m, k.priv, KID, { kind: 'manifest' });
     this.prevHash = docHash(m);
     this.retainedBytes += Buffer.byteLength(canon(m),'utf8');
     this.versions++;
@@ -121,7 +121,7 @@ const shapes = {};
     docSeq++;
     const d = { url:ID, seq:docSeq, updated:1767225600+docSeq, syndication:structuredClone(map) };
     if (docPrev) d.prev = docPrev;
-    d._sig = sign(d, k.priv, KID); signs++;
+    d._sig = sign(d, k.priv, KID, { kind: 'item' }); signs++;
     docPrev = docHash(d); docBytes += Buffer.byteLength(canon(d),'utf8');
     return d;
   };
@@ -154,7 +154,7 @@ const shapes = {};
         content_text:"", date_published:"2026-01-01T01:00:00Z",
         _openfeed:{ feed_url:ACTIVITY, version:1,
           rel:[{ type:"https://openfeed.example/rel/syndicated", to:`${FEED}#${item.id}`, external_uri:fake(i,t) }] } };
-      r._sig = sign(r, k.priv, KID); signs++;
+      r._sig = sign(r, k.priv, KID, { kind: 'item' }); signs++;
       activity.set(r.id, r); actMan.commit(r);
     }
   }

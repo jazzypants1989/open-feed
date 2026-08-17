@@ -100,7 +100,7 @@ function buildChain(anchorFn){
       for (const a of anchorFn(seq)) sk[String(a)] = chain[a-1].hash;
       if (Object.keys(sk).length) m._skip = sk;
     }
-    m._sig = sign(m, k.priv, KID);
+    m._sig = sign(m, k.priv, KID, { kind: 'manifest' });
     const bytes = bytesOf(m);
     const hash = b64u(sha256(bytes));
     chain.push({ obj: m, bytes, hash });
@@ -243,12 +243,12 @@ const forged = buildChain(anchorsAbsolute);
 const victimSeq = 256;
 const fake = { ...forged[victimSeq-1].obj,
   items: { 'urn:uuid:deadbeef-0000-4000-8000-000000000000': [1, b64u(sha256(Buffer.from('forged')))] } };
-delete fake._sig; fake._sig = sign(fake, k.priv, KID);
+delete fake._sig; fake._sig = sign(fake, k.priv, KID, { kind: 'manifest' });
 const fakeHash = hashOf(fake);
 forged[victimSeq-1] = { obj: fake, bytes: bytesOf(fake), hash: fakeHash };
 const headV = forged[VERSIONS-1];                       // point the head's anchor at the fake
 headV.obj._skip[String(victimSeq)] = fakeHash;
-delete headV.obj._sig; headV.obj._sig = sign(headV.obj, k.priv, KID);
+delete headV.obj._sig; headV.obj._sig = sign(headV.obj, k.priv, KID, { kind: 'manifest' });
 headV.bytes = bytesOf(headV.obj); headV.hash = b64u(sha256(headV.bytes));
 // seq 257 is untouched: its `prev` still names the REAL seq 256. That is the contradiction.
 

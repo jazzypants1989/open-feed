@@ -374,7 +374,7 @@ try {
   const forged = { ...pinnedAncestor, seq: pinnedAncestor.seq + 1, prev: documentHash(pinnedAncestor) };
   delete forged._sig;
   forged.updated = tick();
-  forged._sig = sign(forged, recovery.privateKey, `${HUB}#${recovery.kid}`);
+  forged._sig = sign(forged, recovery.privateKey, `${HUB}#${recovery.kid}`, { kind: 'identity' });
   identityChainPolicy.verifySignature(forged);
   forgedChainVersion = 'ACCEPTED';
 } catch (e) {
@@ -490,7 +490,7 @@ const stripped = { ...declinedGenesis };
 delete stripped._recovery_sig;
 let stripVerdict;
 try {
-  verifyDocument(stripped, { identityDocument: declined.identityVersions[0], kind: 'document' });
+  verifyDocument(stripped, { identityDocument: declined.identityVersions[0], kind: 'identity' });
   stripVerdict = 'ACCEPTED';
 } catch (e) { stripVerdict = `REJECTED — ${e.message}`; }
 say(`  strip \`_recovery_sig\` from the migration genesis, then verify \`_sig\`: ${stripVerdict}`);

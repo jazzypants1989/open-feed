@@ -110,11 +110,53 @@ export function parseKid(kid) {
 
 // ---- header (spec §6.2) ----
 
-export function buildHeader(kid) {
-  return { alg: 'EdDSA', b64: false, crit: ['b64'], kid };
+/**
+ * §6.2's `typ`, per kind. RFC 7515 §4.1.9 values are media types, and that section recommends
+ * omitting the `application/` prefix — so these are exactly what appears in a header, and the
+ * full types are in Appendix A.
+ *
+ * `kind` is this codebase's word for the same three things throughout (`effectiveSigningTime`,
+ * `claimedAuthor`, `fetchDocument`), so the map is keyed on it rather than on a fourth spelling.
+ */
+export const TYP = {
+  identity: 'openfeed-identity+json',
+  manifest: 'openfeed-manifest+json',
+  item: 'openfeed-item+json',
+};
+const KNOWN_TYP = new Set(Object.values(TYP));
+
+/**
+ * The three kinds, and the one vocabulary for them.
+ *
+ * It used to be two — `'item'` and `'document'`, the latter covering identity documents and
+ * manifests together, which was enough because the only question `kind` answered was *which
+ * field carries the author and the signing time* and both chained kinds answer that the same
+ * way (`url`, `updated`). §6.2's `typ` asks a question they answer differently, so the union
+ * had to be split rather than kept beside a second vocabulary.
+ */
+export const KINDS = ['identity', 'manifest', 'item'];
+/** True for the two chained kinds, whose author carrier is `url` and whose clock is `updated`. */
+export const isChainedKind = (kind) => kind === 'identity' || kind === 'manifest';
+
+function assertKind(kind, where) {
+  if (!KINDS.includes(kind)) {
+    throw new VerifyError(`caller must say what kind of document this is — ${KINDS.map((k) => `'${k}'`).join(', ')} (${where}), got ${JSON.stringify(kind)}`);
+  }
 }
 
-function enforceHeader(header) {
+export function buildHeader(kid, kind) {
+  const typ = TYP[kind];
+  if (!typ) throw new VerifyError(`buildHeader needs a document kind (§6.2), got ${JSON.stringify(kind)}`);
+  return { alg: 'EdDSA', b64: false, crit: ['b64'], kid, typ };
+}
+
+/**
+ * `kind`, when supplied, is the kind the *caller* took from context, and `typ` is checked to
+ * agree with it (§6.5 step 3). The direction matters and §6.6 states it: context decides, `typ`
+ * confirms. Letting the header select the kind would hand that choice to whoever wrote it, which
+ * is the confusion the field exists to close.
+ */
+function enforceHeader(header, kind) {
   if (!header || typeof header !== 'object' || Array.isArray(header)) {
     throw new VerifyError('signature header is not a JSON object');
   }
@@ -125,6 +167,10 @@ function enforceHeader(header) {
     throw new VerifyError(`unsupported crit: ${JSON.stringify(header.crit)}`);
   }
   if (typeof header.kid !== 'string' || !header.kid) throw new VerifyError('kid missing');
+  if (!KNOWN_TYP.has(header.typ)) throw new VerifyError(`unrecognized typ: ${JSON.stringify(header.typ)} (§6.2)`);
+  if (kind !== undefined && header.typ !== TYP[kind]) {
+    throw new VerifyError(`typ ${header.typ} is not the ${kind} this verifier is reading (§6.5 step 3)`);
+  }
   return header;
 }
 
@@ -164,8 +210,15 @@ export function decodeBase64url(segment, what) {
   return bytes;
 }
 
-/** Split `header-b64 || '..' || sig-b64` and enforce §6.2 on the header. */
-export function parseDetachedSig(sig) {
+/**
+ * Split `header-b64 || '..' || sig-b64` and enforce §6.2 on the header.
+ *
+ * `kind` is optional here and required at `verifyDocument`: this function is also how a caller
+ * *reads* a signature it has not yet decided the kind of (`parseKid` on an unopened document),
+ * and imposing the check at both ends would make that impossible while adding nothing — §6.5's
+ * step 3 belongs to verification.
+ */
+export function parseDetachedSig(sig, { kind } = {}) {
   if (typeof sig !== 'string') throw new VerifyError('signature must be a string');
   const parts = sig.split('.');
   if (parts.length !== 3 || parts[1] !== '') {
@@ -185,7 +238,7 @@ export function parseDetachedSig(sig) {
   } catch {
     throw new VerifyError('signature header is not valid I-JSON');
   }
-  return { headerB64, header: enforceHeader(header), signature };
+  return { headerB64, header: enforceHeader(header, kind), signature };
 }
 
 // ---- signing input (spec §6.1, §6.4) ----
@@ -253,9 +306,14 @@ export function publicKeyFromJwk(jwk) {
   }
 }
 
-/** Sign a document, returning the `_sig` value. Present so tests can build negative vectors. */
-export function sign(doc, privateKey, kid, { recovery = false } = {}) {
-  const headerB64 = Buffer.from(JSON.stringify(buildHeader(kid)), 'utf8').toString('base64url');
+/**
+ * Sign a document, returning the `_sig` value. Present so tests can build negative vectors.
+ *
+ * `kind` is required (§6.2's `typ`) and deliberately has no default: a default would be a guess
+ * about what is being signed, made in the one place that is supposed to be asserting it.
+ */
+export function sign(doc, privateKey, kid, { recovery = false, kind } = {}) {
+  const headerB64 = Buffer.from(JSON.stringify(buildHeader(kid, kind)), 'utf8').toString('base64url');
   const sig = crypto.sign(null, signingInput(headerB64, signingPayload(doc, { recovery })), privateKey);
   return `${headerB64}..${Buffer.from(sig).toString('base64url')}`;
 }
@@ -275,9 +333,7 @@ export function sign(doc, privateKey, kid, { recovery = false } = {}) {
  * which is the confusion §6.2's fixed header exists to prevent about keys.
  */
 export function claimedAuthor(doc, { kind } = {}) {
-  if (kind !== 'item' && kind !== 'document') {
-    throw new VerifyError(`caller must say what kind of document this is — 'item' or 'document' (§6.6), got ${kind}`);
-  }
+  assertKind(kind, '§6.6');
   if (kind === 'item') {
     const authors = doc.authors;
     if (!Array.isArray(authors) || authors.length !== 1) {
@@ -328,7 +384,7 @@ export function parseTimestamp(stamp) {
 }
 
 /**
- * Effective signing time in Unix seconds (spec §6.5 step 6): `updated` for manifests and
+ * Effective signing time in Unix seconds (spec §6.5 step 7): `updated` for manifests and
  * identity documents, `date_modified` else `date_published` for items. Chain fields are
  * Unix seconds (JOSE), content fields RFC 3339 (§7.2).
  *
@@ -340,10 +396,8 @@ export function parseTimestamp(stamp) {
  * `T` plus `"updated": T - 1`, and the sniffing verifier reads `T - 1` and passes it.
  */
 export function effectiveSigningTime(doc, { kind } = {}) {
-  if (kind !== 'item' && kind !== 'document') {
-    throw new VerifyError(`caller must say what kind of document this is — 'item' or 'document' (§6.5), got ${kind}`);
-  }
-  if (kind === 'document') {
+  assertKind(kind, '§6.5');
+  if (isChainedKind(kind)) {
     if (typeof doc.updated !== 'number') throw new VerifyError('chained document carries no updated');
     return doc.updated;
   }
@@ -400,7 +454,10 @@ export function verifyDocument(doc, { identityDocument, sigField = '_sig', signe
   const sig = doc[sigField];
   if (typeof sig !== 'string') throw new VerifyError(`document has no ${sigField}`);
 
-  const { headerB64, header, signature } = parseDetachedSig(sig);
+  // §6.5 step 3, and it runs before anything is fetched because every step below reads a
+  // different field depending on the kind. `claimedAuthor` and `effectiveSigningTime` already
+  // demand an explicit `kind`; this is what stops the *signer's* idea of it from differing.
+  const { headerB64, header, signature } = parseDetachedSig(sig, { kind });
   const { identityUrl, keyId } = parseKid(header.kid);
 
   // Author binding: the kid's identity MUST equal the author named in the signed bytes.

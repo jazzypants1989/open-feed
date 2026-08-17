@@ -201,7 +201,7 @@ const item = {
   id: ITEM_ID,
   _openfeed: { feed_url: 'https://test.example/feed.json', version: 1, enc: jwe },
 };
-item._sig = sign(item, author.priv, KID);
+item._sig = sign(item, author.priv, KID, { kind: 'item' });
 
 // ---- CLAIM 1 & 2: signs and verifies with the UNCHANGED construction ----
 const sigOk = verify(item, author.x);
@@ -214,7 +214,7 @@ const manifest = {
   updated: 1739577600,
   items: { [item.id]: item._openfeed?.version },
 };
-manifest._sig = sign(manifest, author.priv, KID);
+manifest._sig = sign(manifest, author.priv, KID, { kind: 'manifest' });
 const manOk = verify(manifest, author.x) && manifest.items[item.id] === item._openfeed?.version;
 
 // ---- CLAIM 4: recipients decrypt; stranger does not ----
@@ -242,7 +242,7 @@ const relayed = {
     enc: item._openfeed.enc,                     // Mom's sealed bytes, verbatim
   },
 };
-relayed._sig = sign(relayed, eve.priv, EVE_KID);
+relayed._sig = sign(relayed, eve.priv, EVE_KID, { kind: 'item' });
 const relaySigValid = verify(relayed, eve.x);        // the forgery is a VALID signed item
 const relayOpened   = openBound(relayed, dadEnc.priv);
 const relayRejected = relayOpened && relayOpened.rejected === 'carrier-binding mismatch';
@@ -289,7 +289,7 @@ const reply = {
   _openfeed: { rel: [{ type: 'reply', to: 'https://test.example/feed.json#' + ITEM_ID }], enc: replyJwe },
 };
 const dadSigner = edKeyFromLabel('dad-sig');
-reply._sig = sign(reply, dadSigner.priv, DAD + '#dad-key-1');
+reply._sig = sign(reply, dadSigner.priv, DAD + '#dad-key-1', { kind: 'item' });
 
 const replySigOk = verify(reply, dadSigner.x);
 const kidReadsReply = openBound(reply, kidEnc.priv);      // the whole point: a non-author reads it

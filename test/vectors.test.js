@@ -49,7 +49,7 @@ const identityDocs = signed.filter((v) => Array.isArray(v.doc.keys));
 
 /**
  * Identity documents by URL, keeping the HIGHEST `seq` — the tip of each identity's chain.
- * This is the document §6.5 step 5 resolves a `kid` against, so it is the only one that puts
+ * This is the document §6.5 step 6 resolves a `kid` against, so it is the only one that puts
  * revocation in scope. Resolving against genesis instead would accept a signature by a key
  * the identity has since revoked.
  */
@@ -90,7 +90,7 @@ test('every signed vector verifies against its author\'s current identity docume
   for (const { doc } of signed) {
     // §6.6: the carrier is selected by document kind, supplied from context — here the
     // vectors' own construction: every chained document carries an integer `seq`, no item does.
-    const kind = Number.isInteger(doc.seq) ? 'document' : 'item';
+    const kind = Number.isInteger(doc.seq) ? (Array.isArray(doc.keys) ? 'identity' : 'manifest') : 'item';
     const author = claimedAuthor(doc, { kind });
     const identityDocument = currentByUrl.get(author);
     assert.ok(identityDocument, `no identity document published for ${author}`);
@@ -108,10 +108,10 @@ test('every vector was signed inside its key\'s validity window', () => {
   // defect: a reply vector signed nine hours after B.5 revoked the key that signed it. A
   // sound Ed25519 signature is not enough — §4.4 bounds it at both ends.
   for (const { doc } of signed) {
-    const identityDocument = currentByUrl.get(claimedAuthor(doc, { kind: Number.isInteger(doc.seq) ? 'document' : 'item' }));
+    const identityDocument = currentByUrl.get(claimedAuthor(doc, { kind: Number.isInteger(doc.seq) ? (Array.isArray(doc.keys) ? 'identity' : 'manifest') : 'item' }));
     const { keyId } = parseKid(parseDetachedSig(doc._sig).header.kid);
     const key = findKey(identityDocument, keyId);
-    const when = effectiveSigningTime(doc, { kind: Number.isInteger(doc.seq) ? 'document' : 'item' });
+    const when = effectiveSigningTime(doc, { kind: Number.isInteger(doc.seq) ? (Array.isArray(doc.keys) ? 'identity' : 'manifest') : 'item' });
     assert.ok(key.iat <= when, `${keyId} signed at ${when}, before its iat ${key.iat}`);
     if (typeof key.revoked_at === 'number') {
       // Equality is valid: §5.2's normal rotation revokes the continuity key in the very

@@ -464,7 +464,7 @@ export function createInbox({
   }
 
   /**
-   * §6.5 step 6's effective signing time, as a verdict rather than a throw.
+   * §6.5 step 7's effective signing time, as a verdict rather than a throw.
    *
    * Delegates to `jws.js` rather than recomputing it. A second implementation of one comparison
    * is two answers that must agree, and these two did not: the local one read

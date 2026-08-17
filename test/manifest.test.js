@@ -47,7 +47,7 @@ function item({ id, version = 1, at = T0, text = 'hello', deleted = false } = {}
       date_published: new Date(at * 1000).toISOString().replace('.000', ''),
       ...(version > 1 ? { date_modified: new Date(at * 1000).toISOString().replace('.000', '') } : {}),
     };
-  doc._sig = sign(doc, owner.privateKey, `${IDENTITY}#key-1`);
+  doc._sig = sign(doc, owner.privateKey, `${IDENTITY}#key-1`, { kind: 'item' });
   return doc;
 }
 
@@ -119,7 +119,7 @@ test('the passed-over test needs the manifest owner’s own signature, or it fra
     content_text: 'planted',
     date_published: new Date((T0 - 3600) * 1000).toISOString().replace('.000', ''),
   };
-  backdated._sig = sign(backdated, contributor.privateKey, 'https://dad.example/#dad-1');
+  backdated._sig = sign(backdated, contributor.privateKey, 'https://dad.example/#dad-1', { kind: 'item' });
 
   const advanced = manifest({ seq: 4, updated: T0 });
   const framed = reconcileFeed(advanced, [backdated], { now: T0 + 120 });

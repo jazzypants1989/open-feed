@@ -65,7 +65,7 @@ function momManifest(seq, prev, itemIds){
   for (const id of itemIds) items[id] = [1, b64u(sha256(Buffer.from(id)))];
   const m = { url: MOM, feed_url: MOM + 'feed.json', seq, updated: T0 + seq*3600, items };
   if (prev) m.prev = prev;
-  m._sig = sign(m, momK.priv, MOM + '#key-1');
+  m._sig = sign(m, momK.priv, MOM + '#key-1', { kind: 'manifest' });
   return m;
 }
 
@@ -95,7 +95,7 @@ function dadReply({ published, pins, id = 'urn:uuid:dad-reply-1' }){
       ...(pins ? { pins } : {}),
     },
   };
-  item._sig = sign(item, dadK.priv, DAD + '#key-1');
+  item._sig = sign(item, dadK.priv, DAD + '#key-1', { kind: 'item' });
   return item;
 }
 // Dad's client pins what the hub served HIM, and names only Mom's chains.
@@ -162,7 +162,7 @@ console.log('\nCLAIM 4 — reach when the delivered channel runs through the adv
 const dadManifest = (() => {
   const m = { url: DAD, feed_url: DAD_FEED, seq: 12, updated: T0 + 5000,
     items: { [reply.id]: [1, hashOf(reply)] } };
-  m._sig = sign(m, dadK.priv, DAD + '#key-1');
+  m._sig = sign(m, dadK.priv, DAD + '#key-1', { kind: 'manifest' });
   return m;
 })();
 const granSees = dadManifest.items[reply.id][1] === hashOf(reply) && verify(reply, dadK.pub);

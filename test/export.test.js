@@ -147,7 +147,7 @@ test('the bundle says which of its halves it cannot prove complete', async () =>
     date_published: new Date((T0 + DAY) * 1000).toISOString().replace('.000', ''),
     _openfeed: { version: 1 },
   };
-  inbound._sig = sign(inbound, gran.privateKey, 'https://gran.example/#gran-1');
+  inbound._sig = sign(inbound, gran.privateKey, 'https://gran.example/#gran-1', { kind: 'item' });
 
   const full = bundleOf(p, { received: [inbound], delivered: [], unpublished: [{ draft: 'unsent' }] });
   const trimmed = bundleOf(p, { received: [], delivered: [], unpublished: [] });
@@ -178,7 +178,7 @@ test('received items are carried verbatim, extension fields and all', async () =
     _some_future_field: { nested: [1, 2, 3] },
     _openfeed: { pins: [{ url: `${HUB}openfeed.json`, seq: 1, hash: 'x'.repeat(43), observed: T0 }] },
   };
-  foreign._sig = sign(foreign, gran.privateKey, 'https://gran.example/#gran-1');
+  foreign._sig = sign(foreign, gran.privateKey, 'https://gran.example/#gran-1', { kind: 'item' });
 
   const bundle = bundleOf(published(), { received: [foreign] });
   const roundTripped = JSON.parse(canonicalBytes(bundle).toString('utf8'));

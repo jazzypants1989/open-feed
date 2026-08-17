@@ -6,7 +6,7 @@
 // any code in this repo) is what actually guards the canonicalizer against itself.
 //
 // Verification goes through `verifyDocument` against each author's CURRENT identity
-// document, which is what a conforming verifier resolves (§6.5 step 5). An earlier version
+// document, which is what a conforming verifier resolves (§6.5 step 6). An earlier version
 // checked raw Ed25519 signatures only, and so did not notice that a vector was signed by a
 // key the current identity document had already revoked.
 
@@ -77,21 +77,29 @@ console.log();
 embed('B.2 item canonical bytes', itemCanon, 'spec');
 embed('B.2 item sha256 (hex)', itemHashHex, 'spec');
 
-const headerB64 = b64u(Buffer.from(JSON.stringify(buildHeader(KID1)),'utf8'));
+// §6.2's header now varies by kind, so B.1 shows all three rather than one "header for
+// every _sig below" — the base64url segment differs, and an implementer checking a vector by
+// hand needs the one that matches what it is verifying.
+const headerB64Of = (kind) => b64u(Buffer.from(JSON.stringify(buildHeader(KID1, kind)),'utf8'));
+const headerB64 = headerB64Of('item');
 
 console.log('== B.1 keys (x, base64url) ==');
 console.log('  test-key-1 :', k1.x);
 console.log('  recovery-1 :', kR.x);
 console.log('  test-key-2 :', k2.x);
-console.log('  header b64 :', headerB64);
+console.log('  header b64 (identity) :', headerB64Of('identity'));
+console.log('  header b64 (manifest) :', headerB64Of('manifest'));
+console.log('  header b64 (item)     :', headerB64);
 console.log();
 embed('B.1 test-key-1 x', k1.x, 'spec');
 embed('B.1 recovery-1 x', kR.x, 'spec');
 embed('B.1 test-key-2 x', k2.x, 'spec');
-embed('B.1 header b64', headerB64, 'spec');
+embed('B.1 header b64 identity', headerB64Of('identity'), 'spec');
+embed('B.1 header b64 manifest', headerB64Of('manifest'), 'spec');
+embed('B.1 header b64 item', headerB64, 'spec');
 
 // ---- B.2 item ----
-item._sig = sign(item, k1.priv, KID1);
+item._sig = sign(item, k1.priv, KID1, { kind: 'item' });
 const itemFullBytes = canonicalize(item);
 const itemFullHash = documentHash(item);   // what the manifest commits to (spec §9)
 console.log('== B.2 item _sig ==');
@@ -108,7 +116,7 @@ embed('B.2 item full hash', itemFullHash, 'spec');
 // commit to rather than a phantom id.
 //
 // date_published sits BEFORE test-key-1's revocation at 1739577600 (B.5). It has to:
-// §6.5 step 5 resolves a kid against the current identity document, so a reply signed by
+// §6.5 step 6 resolves a kid against the current identity document, so a reply signed by
 // test-key-1 after that instant is one a conforming verifier must reject (§4.4).
 const item2 = {
   _openfeed:{
@@ -120,7 +128,7 @@ const item2 = {
   date_published:'2025-02-10T09:00:00Z',
   id:'urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8'
 };
-item2._sig = sign(item2, k1.priv, KID1);
+item2._sig = sign(item2, k1.priv, KID1, { kind: 'item' });
 const item2FullBytes = canonicalize(item2);
 const item2FullHash = documentHash(item2);
 console.log('== B.2b relation item (full published canonical bytes) ==');
@@ -137,7 +145,7 @@ const manifest = {
   url: ID, feed_url:'https://test.example/feed.json', seq:1, updated:1736899200,
   items:{'urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6':[1, itemFullHash]}
 };
-manifest._sig = sign(manifest, k1.priv, KID1);
+manifest._sig = sign(manifest, k1.priv, KID1, { kind: 'manifest' });
 const manifestBytes1 = canonicalize(manifest);
 const manifestHash1 = documentHash(manifest);
 console.log('== B.3 manifest (full published canonical bytes) ==');
@@ -158,7 +166,7 @@ const manifest2 = {
     'urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8':[1, item2FullHash]
   }
 };
-manifest2._sig = sign(manifest2, k1.priv, KID1);
+manifest2._sig = sign(manifest2, k1.priv, KID1, { kind: 'manifest' });
 console.log('== B.3b manifest seq 1 hash (= seq 2 prev) ==');
 console.log(' ', manifestHash1);
 console.log('== B.3b manifest seq 2 (full published canonical bytes) ==');
@@ -179,7 +187,7 @@ const id1 = {
   name:'Test Identity',
   seq:1, updated:1736899200, url:ID
 };
-id1._sig = sign(id1, k1.priv, KID1);
+id1._sig = sign(id1, k1.priv, KID1, { kind: 'identity' });
 const id1Bytes = canonicalize(id1);
 const id1Hash = documentHash(id1);
 console.log('== B.4 identity seq 1 (full published canonical bytes) ==');
@@ -201,7 +209,7 @@ const id2 = {
   name:'Test Identity',
   prev:id1Hash, seq:2, updated:1739577600, url:ID
 };
-id2._sig = sign(id2, k1.priv, KID1);
+id2._sig = sign(id2, k1.priv, KID1, { kind: 'identity' });
 const id2Bytes = canonicalize(id2);
 console.log('== B.5 identity seq 2 (full published canonical bytes) ==');
 console.log(' ', id2Bytes);
@@ -223,7 +231,7 @@ const idReader = {
   name:'Reader',
   seq:1, updated:1739577600, url:READER
 };
-idReader._sig = sign(idReader, kReader.priv, READER_KID);
+idReader._sig = sign(idReader, kReader.priv, READER_KID, { kind: 'identity' });
 console.log('== B.6 reader identity document (full published canonical bytes) ==');
 console.log(' ', canonicalize(idReader));
 console.log();
@@ -247,7 +255,7 @@ const pinItem = {
   date_published: '2025-02-15T12:00:00Z',
   id: 'urn:uuid:7c9e6679-7425-40de-944b-e07fc1f90ae7'
 };
-pinItem._sig = sign(pinItem, kReader.priv, READER_KID);
+pinItem._sig = sign(pinItem, kReader.priv, READER_KID, { kind: 'item' });
 console.log('== B.7 item carrying pins (full published canonical bytes) ==');
 console.log(' ', canonicalize(pinItem));
 console.log();
@@ -270,7 +278,7 @@ const id3 = {
   name:'POSSE Identity',
   seq:1, updated:1739577600, url:POSSE
 };
-id3._sig = sign(id3, kPosse.priv, POSSE_KID);
+id3._sig = sign(id3, kPosse.priv, POSSE_KID, { kind: 'identity' });
 console.log('== B.8 identity with extension fields (full published canonical bytes) ==');
 console.log(' ', canonicalize(id3));
 console.log();
@@ -297,7 +305,7 @@ const idMember = {
   name:'Delegated Member',
   seq:1, updated:1736899200, url:MEMBER
 };
-idMember._sig = sign(idMember, kRoot.priv, MEMBER_ROOT_KID);
+idMember._sig = sign(idMember, kRoot.priv, MEMBER_ROOT_KID, { kind: 'identity' });
 console.log('== B.9 member identity document (full published canonical bytes) ==');
 console.log(' ', canonicalize(idMember));
 console.log();
@@ -311,7 +319,7 @@ const delItem = {
   date_published:'2025-02-20T10:00:00Z',
   id: DEL_ITEM_ID
 };
-delItem._sig = sign(delItem, kDel.priv, MEMBER_DEL_KID);
+delItem._sig = sign(delItem, kDel.priv, MEMBER_DEL_KID, { kind: 'item' });
 console.log('== B.9 delegated-signed item (full published canonical bytes) ==');
 console.log(' ', canonicalize(delItem));
 console.log();
@@ -321,7 +329,7 @@ const delManifest = {
   url: MEMBER, feed_url:'https://member.example/feed.json', seq:1, updated:1740045600,
   items:{ [DEL_ITEM_ID]:[1, documentHash(delItem)] }
 };
-delManifest._sig = sign(delManifest, kDel.priv, MEMBER_DEL_KID);
+delManifest._sig = sign(delManifest, kDel.priv, MEMBER_DEL_KID, { kind: 'manifest' });
 console.log('== B.9 delegated-signed manifest (full published canonical bytes) ==');
 console.log(' ', canonicalize(delManifest));
 console.log();
@@ -349,7 +357,7 @@ const idEncReader = {
   ],
   name:'Encrypted Reader', seq:1, updated:1739577600, url:ENC_READER
 };
-idEncReader._sig = sign(idEncReader, kEncReader.priv, ENC_READER + '#enc-reader-1');
+idEncReader._sig = sign(idEncReader, kEncReader.priv, ENC_READER + '#enc-reader-1', { kind: 'identity' });
 console.log('== B.10 recipient identity document, publishing an X25519 key (§15.1) ==');
 console.log(' ', canonicalize(idEncReader));
 console.log();
@@ -360,7 +368,7 @@ const idEncAuthor = {
   keys:[{crv:'Ed25519', iat:1736899200, kid:'enc-author-1', kty:'OKP', x:kEncAuthor.x}],
   name:'Encrypting Author', seq:1, updated:1739577600, url:ENC_AUTHOR
 };
-idEncAuthor._sig = sign(idEncAuthor, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1');
+idEncAuthor._sig = sign(idEncAuthor, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1', { kind: 'identity' });
 console.log('== B.10 author identity document ==');
 console.log(' ', canonicalize(idEncAuthor));
 console.log();
@@ -384,7 +392,7 @@ encItem._openfeed.enc = seal({
   cek: crypto.createHash('sha256').update('open-feed-v0.6 cek-1').digest(),
   iv: crypto.createHash('sha256').update('open-feed-v0.6 iv-1').digest().subarray(0,12),
 });
-encItem._sig = sign(encItem, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1');
+encItem._sig = sign(encItem, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1', { kind: 'item' });
 console.log('== B.10 encrypted item (full published canonical bytes) ==');
 console.log(' ', canonicalize(encItem));
 console.log();
@@ -394,7 +402,7 @@ const encManifest = {
   url: ENC_AUTHOR, feed_url:'https://enc-author.example/feed.json', seq:1, updated:1740045600,
   items:{ [ENC_ITEM_ID]:[1, documentHash(encItem)] }
 };
-encManifest._sig = sign(encManifest, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1');
+encManifest._sig = sign(encManifest, kEncAuthor.priv, ENC_AUTHOR + '#enc-author-1', { kind: 'manifest' });
 console.log('== B.10 manifest committing the ciphertext (§15: the core commits opaque bytes) ==');
 console.log(' ', canonicalize(encManifest));
 console.log();
@@ -410,7 +418,7 @@ const CURRENT = { [ID]: id2, [READER]: idReader, [POSSE]: id3, [MEMBER]: idMembe
 function verifies(doc){
   // §6.6: the carrier is selected from context, never sniffed — here from the vectors' own
   // construction: every chained document carries an integer `seq`, no item does.
-  const kind = Number.isInteger(doc.seq) ? 'document' : 'item';
+  const kind = Number.isInteger(doc.seq) ? (Array.isArray(doc.keys) ? 'identity' : 'manifest') : 'item';
   const author = claimedAuthor(doc, { kind });
   const identityDocument = CURRENT[author];
   if (!identityDocument) { console.log('    no identity document published for ' + author); return false; }
@@ -494,6 +502,32 @@ for (const {label, str, file} of embedded){
   console.log('  ' + label.padEnd(26) + ':', present ? 'ok' : 'MISSING from ' + file);
   if (!present) ok = false;
 }
+// The cross-check above is "is this string present somewhere", which is not enough on its own
+// and quietly was not: a hash quoted in Appendix B's *prose* also appears inside the manifest
+// vector that commits it, so a stale prose copy left the substring test satisfied by the fresh
+// JSON line beside it. Both of B.2's and B.2b's commitments were wrong that way and every
+// check still said ok. So: every hash-shaped literal inside Appendix B must be one this run
+// produced. Presence is checked above; this is the other direction, and it needs no anchors.
+console.log();
+console.log('APPENDIX B STALENESS (every hash-shaped literal there is one of this run\'s):');
+const appendixB = docs.spec.slice(docs.spec.indexOf('## Appendix B'));
+const known = new Set(embedded.map((e) => e.str));
+// Every base64url hash and every hex digest this run computed, wherever it appears — including
+// values that only ever show up nested inside a vector, like a manifest entry's commitment.
+for (const { str } of embedded) {
+  for (const m of str.matchAll(/[A-Za-z0-9_-]{43}|[0-9a-f]{64}/g)) known.add(m[0]);
+}
+const stale = [];
+for (const m of appendixB.matchAll(/`([A-Za-z0-9_-]{43}|[0-9a-f]{64})`/g)) {
+  if (!known.has(m[1])) stale.push(m[1]);
+}
+if (stale.length) {
+  ok = false;
+  for (const s of stale) console.log('  STALE: ' + s + ' appears in Appendix B and in no vector');
+} else {
+  console.log('  none');
+}
+
 console.log();
 console.log(ok ? 'ALL CHECKS PASS' : 'FAILURES PRESENT');
 process.exit(ok ? 0 : 1);

@@ -43,7 +43,7 @@ function member(url, name) {
     updated: T0 - 30 * DAY,
     keys: [signer.jwk, { crv: 'X25519', iat: T0 - 30 * DAY, kid: `${name}-enc-1`, kty: 'OKP', use: 'enc', x }],
   };
-  document._sig = sign(document, signer.privateKey, `${url}#${signer.kid}`);
+  document._sig = sign(document, signer.privateKey, `${url}#${signer.kid}`, { kind: 'identity' });
   return { url, name, signer, document, encPrivate: enc.privateKey, encPublic: enc.publicKey };
 }
 
@@ -65,7 +65,7 @@ function encryptedItem(author, { id, feedUrl, recipients, audience, content }) {
   };
   // Sealed against the item as it stands, then the envelope joins the same object (§7.2, §15.2.1).
   item._openfeed.enc = seal({ item, content, recipients: recipients.map((r) => r.document), audience });
-  item._sig = sign(item, author.signer.privateKey, `${author.url}#${author.signer.kid}`);
+  item._sig = sign(item, author.signer.privateKey, `${author.url}#${author.signer.kid}`, { kind: 'item' });
   return item;
 }
 
@@ -224,7 +224,7 @@ test('a relayed ciphertext is refused, and the relayer never had to be in the au
     date_published: iso(T0 + 60),
     _openfeed: { enc: original._openfeed?.enc, rel: [{ type: 'quote', to: 'https://mom.pence.family/feed.json#urn:uuid:private' }] },
   };
-  relayed._sig = sign(relayed, eve.signer.privateKey, `${eve.url}#${eve.signer.kid}`);
+  relayed._sig = sign(relayed, eve.signer.privateKey, `${eve.url}#${eve.signer.kid}`, { kind: 'item' });
 
   // The core is satisfied. That is the point: the core commits to opaque bytes and has one
   // construction, so this check belongs at the decrypting client and nowhere else.

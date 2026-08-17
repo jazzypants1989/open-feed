@@ -171,7 +171,7 @@ function declareItemUrls(documents) {
     feeds: doc.feeds.map((f) => (f.url === `${ORIGIN}feed.json` ? { ...f, items: true } : f)),
   };
   delete next._sig;
-  next._sig = sign(next, signer.privateKey, `${ORIGIN}#${signer.kid}`);
+  next._sig = sign(next, signer.privateKey, `${ORIGIN}#${signer.kid}`, { kind: 'identity' });
   out.set(url, next);
   return out;
 }
@@ -209,7 +209,7 @@ tampered.set(`${ORIGIN}openfeed.json`, {
 let stripVerdict = 'accepted — the declaration is strippable';
 try {
   verifyDocument(tampered.get(`${ORIGIN}openfeed.json`), {
-    identityDocument: idDoc, kind: 'document',
+    identityDocument: idDoc, kind: 'identity',
   });
 } catch (e) {
   stripVerdict = e instanceof VerifyError ? 'REJECTED (signature)' : `REJECTED (${e.constructor.name})`;

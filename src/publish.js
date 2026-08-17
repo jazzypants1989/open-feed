@@ -109,10 +109,15 @@ export class Publisher {
 
   // ---- §3.2, §5.2: the identity chain ----
 
-  #signDocument(doc) {
+  /**
+   * §6.2: `kind` is not optional and is not inferred from `doc`. It is what the header `typ`
+   * asserts, and a producer that guessed it from field presence would be making exactly the
+   * inference §6.6 forbids a verifier from making.
+   */
+  #signDocument(doc, kind) {
     const signed = { ...doc };
     delete signed._sig;
-    signed._sig = sign(signed, this.signer.privateKey, `${this.identity}#${this.signer.kid}`);
+    signed._sig = sign(signed, this.signer.privateKey, `${this.identity}#${this.signer.kid}`, { kind });
     return signed;
   }
 
@@ -162,7 +167,7 @@ export class Publisher {
     };
     // Genesis omits `prev` — it names nothing, and a walk that accepted one would hold a
     // seq 1 it believes is linked to something.
-    this.identityVersions.push(this.#signDocument(doc));
+    this.identityVersions.push(this.#signDocument(doc, 'identity'));
   }
 
   get identityDocument() {
@@ -194,7 +199,7 @@ export class Publisher {
     // been served to anyone (see its warning).
     const signed = recoverySigner
       ? this.#coSigned(next, recoverySigner, kidIdentity)
-      : this.#signDocument(next);
+      : this.#signDocument(next, 'identity');
     this.identityVersions.push(signed);
     return signed;
   }
@@ -206,9 +211,9 @@ export class Publisher {
     }
     version._recovery_sig = sign(
       version, recoverySigner.privateKey, `${normalizeIdentityUrl(kidIdentity)}#${recoverySigner.kid}`,
-      { recovery: true },
+      { recovery: true, kind: 'identity' },
     );
-    return this.#signDocument(version);
+    return this.#signDocument(version, 'identity');
   }
 
   /**
@@ -331,7 +336,7 @@ export class Publisher {
       }
     }
     const signed = this.#signDocument(
-      this.#withPins(item, { recipients, pins, explicitPins: fields._openfeed?.pins }),
+      this.#withPins(item, { recipients, pins, explicitPins: fields._openfeed?.pins }), 'item',
     );
     this.items.set(id, signed);
     return signed;
@@ -372,7 +377,7 @@ export class Publisher {
       throw new PublishError(`${id} carries neither content_text nor content_html (§7.2)`);
     }
     const signed = this.#signDocument(
-      this.#withDelivery(this.#withPins(item, { recipients, pins, explicitPins: fields._openfeed?.pins }), to),
+      this.#withDelivery(this.#withPins(item, { recipients, pins, explicitPins: fields._openfeed?.pins }), to), 'item',
     );
     // Advance the stream only once the bytes exist, because what the *next* delivery commits to
     // is this item's full published bytes (§5.1) — signature included, like every other hash in
@@ -481,7 +486,7 @@ export class Publisher {
       ...(carried.rel !== undefined ? { rel: carried.rel } : {}),            // routing (§8.2)
       ...(carried.unverified !== undefined ? { unverified: carried.unverified } : {}), // §7.5
     });
-    const signed = this.#signDocument(doc);
+    const signed = this.#signDocument(doc, 'item');
     this.items.set(id, signed);
     return signed;
   }
@@ -518,7 +523,7 @@ export class Publisher {
       ...(carried.rel !== undefined ? { rel: carried.rel } : {}),            // routing (§8.2)
       ...(carried.unverified !== undefined ? { unverified: carried.unverified } : {}), // §7.5
     });
-    const signed = this.#signDocument(this.#withDelivery(doc, to));
+    const signed = this.#signDocument(this.#withDelivery(doc, to), 'item');
     if (to && signed._openfeed?.delivery) {
       this.deliveries.set(this.#deliveryKey(to), { seq: signed._openfeed?.delivery.seq, hash: documentHash(signed) });
     }
@@ -582,7 +587,7 @@ export class Publisher {
       if (Object.keys(skip).length) doc._skip = skip;
     }
 
-    const signed = this.#signDocument(doc);
+    const signed = this.#signDocument(doc, 'manifest');
     assertManifestShape(signed, this.manifestUrl);
     this.manifestVersions.push(signed);
     return signed;

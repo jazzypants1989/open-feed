@@ -240,7 +240,7 @@ test('an identity served without ACAO is reported as non-conforming, not refused
   // document the reader could not resolve is unverifiable rather than invalid.
   const stranger = { ...p.items.get('urn:uuid:day-0'), authors: [{ url: 'https://stranger.example/' }] };
   delete stranger._sig;
-  stranger._sig = sign(stranger, signer.privateKey, `${site.url}#${signer.kid}`);
+  stranger._sig = sign(stranger, signer.privateKey, `${site.url}#${signer.kid}`, { kind: 'identity' });
   site.replace('feed.json', { ...p.feed, items: [stranger, ...p.feed.items] });
 
   const mixed = await cli(t, ['verify', site.url]);

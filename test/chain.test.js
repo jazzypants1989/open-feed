@@ -123,7 +123,7 @@ test('a rollback below the pin is refused', async () => {
 test('a broken prev link is refused', async () => {
   const fx = identityFixture({ versions: 3 });
   const forged = { ...fx.chain.at(2), name: 'Not Owner' };
-  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`);
+  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`, { kind: 'identity' });
   fx.store.replaceVersion(fx.url, 2, forged);
 
   await assert.rejects(
@@ -149,7 +149,7 @@ test('seq is contiguous: a version that skips a number is not a chain (§5.3 ste
   // answering to a seq that is not its own.
   const fx = identityFixture({ versions: 2 });
   const jumped = { ...fx.chain.at(2), seq: 5 };
-  jumped._sig = sign(jumped, fx.primary.privateKey, `${fx.identity}#key-1`);
+  jumped._sig = sign(jumped, fx.primary.privateKey, `${fx.identity}#key-1`, { kind: 'identity' });
   fx.store.byUrl.set(fx.url, jumped);
   fx.store.byUrl.set(derivedVersionUrl(fx.url, 4), fx.chain.at(2));
 
@@ -468,7 +468,7 @@ test('a forged anchor is caught by the version immediately above it', async () =
 
   const tip = m.chain.at(16);
   const forged = { ...tip, _skip: { ...tip._skip, 8: 'an-anchor-nobody-published' } };
-  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`);
+  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`, { kind: 'manifest' });
 
   await assert.rejects(
     () => walkToPin({
@@ -488,7 +488,7 @@ test('a relative anchor is ignored rather than followed', async () => {
 
   const tip = m.chain.at(12);
   const forged = { ...tip, _skip: { 9: documentHash(m.chain.at(9)) } }; // 9 is not an anchor of 12
-  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`);
+  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`, { kind: 'manifest' });
 
   const result = await walkToPin({
     url: m.manifestUrl, tip: forged, pin: pinOf(m.chain.at(1)),
@@ -528,7 +528,7 @@ test('a forged identity tip cannot be spliced onto an honest history with a copi
     prev: 'this-is-not-the-hash-of-seq-12',
     _skip: { ...fx.chain.tip._skip },
   };
-  forged._sig = sign(forged, attacker.privateKey, `${fx.identity}#key-1`);
+  forged._sig = sign(forged, attacker.privateKey, `${fx.identity}#key-1`, { kind: 'identity' });
 
   await assert.rejects(
     () => walk(fx, forged, pinOf(fx.chain.at(1))),
@@ -592,7 +592,7 @@ test('a manifest chain commits one feed, and repointing it mid-chain is not a ve
 
 function coSign(doc, key) {
   const { _sig, _recovery_sig, ...rest } = doc;
-  return { ...doc, _recovery_sig: sign(rest, key.privateKey, `${key.identity}#${key.kid}`) };
+  return { ...doc, _recovery_sig: sign(rest, key.privateKey, `${key.identity}#${key.kid}`, { recovery: true, kind: 'identity' }) };
 }
 
 test('a recovery co-signature verifies against the key committed in the pinned ancestor', async () => {
@@ -758,7 +758,7 @@ test('the continuity rule is four checks, and each fails on its own', () => {
   const resign = (doc, key) => {
     const next = { ...doc };
     delete next._sig;
-    next._sig = sign(next, key.privateKey, `${fx.identity}#${key.kid}`);
+    next._sig = sign(next, key.privateKey, `${fx.identity}#${key.kid}`, { kind: 'identity' });
     return next;
   };
 
@@ -824,7 +824,7 @@ test('a skip map keyed by anything but a canonical seq is ignored, not misread',
 
   const tip = m.chain.at(12);
   const forged = { ...tip, _skip: { '08': documentHash(m.chain.at(8)), ' 8': documentHash(m.chain.at(8)) } };
-  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`);
+  forged._sig = sign(forged, fx.primary.privateKey, `${fx.identity}#key-1`, { kind: 'manifest' });
 
   return walkToPin({
     url: m.manifestUrl, tip: forged, pin: pinOf(m.chain.at(1)),
@@ -946,7 +946,11 @@ test('§5.5 resolution runs before a divergence is called unresolved compromise'
   const tip = rival.publish({ fields: body, signer: fx.primary });
 
   const headerB64 = Buffer.from(
-    JSON.stringify({ alg: 'EdDSA', b64: false, crit: ['b64'], kid: `${fx.identity}#${recovery.kid}` }),
+    JSON.stringify({
+      alg: 'EdDSA', b64: false, crit: ['b64'],
+      kid: `${fx.identity}#${recovery.kid}`,
+      typ: 'openfeed-identity+json',   // §6.2: a co-signature is over an identity-chain version
+    }),
     'utf8',
   ).toString('base64url');
   const { signingPayload, signingInput } = await import('../src/index.js');

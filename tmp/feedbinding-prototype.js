@@ -20,7 +20,7 @@
 //   > `authors[0].url` when absent.
 //
 // Both halves are already in signed bytes, both are identity URLs, and identity URLs already
-// go through predecessor equivalence for key resolution (§6.5 step 5) — so a migrated back
+// go through predecessor equivalence for key resolution (§6.5 step 6) — so a migrated back
 // catalog would be canonical at its new home by a rule the verifier already runs, rather than
 // by an exception written for it.
 //
@@ -114,7 +114,7 @@ function item(authorId, signer, fields) {
     ...(fields.feedUrl ? { _openfeed: { feed_url: fields.feedUrl  }} : {}),
     ...(fields.feedOwner ? { _feed_owner: fields.feedOwner } : {}),
   };
-  doc._sig = sign(doc, signer.privateKey, `${authorId}#${signer.kid}`);
+  doc._sig = sign(doc, signer.privateKey, `${authorId}#${signer.kid}`, { kind: 'identity' });
   return doc;
 }
 
@@ -199,7 +199,7 @@ say('              consumes — the set of feed URLs every verified predecessor 
 say('              consumer can only record BEFORE the move (§4.5). A second carve-out in §9');
 say('              stops a verifier rejecting the manifest that commits those same items.');
 say('    proposed  nothing. `_feed_owner` is an identity URL and identity URLs already go');
-say('              through predecessor equivalence to resolve a signing key (§6.5 step 5), so');
+say('              through predecessor equivalence to resolve a signing key (§6.5 step 6), so');
 say('              the back catalog is canonical by a comparison the verifier already runs.');
 
 // ---------------------------------------------------------------------------------------

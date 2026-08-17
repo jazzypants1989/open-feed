@@ -53,7 +53,8 @@ function makeKey(kid, use) {
 
 /** A detached co-signature over §6.3's co-signing bytes, by `key`, naming `identity`. */
 function coSign(doc, key, identity) {
-  const headerB64 = Buffer.from(JSON.stringify(buildHeader(`${identity}#${key.kid}`)), 'utf8').toString('base64url');
+  // §6.2's `typ`: a recovery co-signature is only ever over an identity-chain version.
+  const headerB64 = Buffer.from(JSON.stringify(buildHeader(`${identity}#${key.kid}`, 'identity')), 'utf8').toString('base64url');
   const sig = crypto.sign(null, signingInput(headerB64, signingPayload(doc)), key.privateKey);
   return `${headerB64}..${Buffer.from(sig).toString('base64url')}`;
 }
@@ -82,7 +83,7 @@ const predecessorOpen = {
   // §4.5 forecloses, in its most plausible form.
   _recovery_threshold: 2,
 };
-predecessorOpen._sig = sign(predecessorOpen, root.privateKey, `${OLD}#root-1`);
+predecessorOpen._sig = sign(predecessorOpen, root.privateKey, `${OLD}#root-1`, { kind: 'identity' });
 
 // The thief holds exactly ONE of the three cards, and mints a migration with one co-signature.
 const stolenOne = {
@@ -90,7 +91,7 @@ const stolenOne = {
   predecessor: OLD,
   keys: [thiefRoot.jwk],
 };
-stolenOne._sig = sign(stolenOne, thiefRoot.privateKey, `${THIEF}#thief-1`);
+stolenOne._sig = sign(stolenOne, thiefRoot.privateKey, `${THIEF}#thief-1`, { kind: 'identity' });
 stolenOne._recovery_sig = coSign(stolenOne, openKeys[0], OLD);
 
 const pinOpen = recoveryPin(predecessorOpen);
@@ -126,14 +127,14 @@ const predecessorClosed = {
   keys: [root.jwk, ...closedKeys.map((k) => k.jwk)],
   _recovery_threshold: 2,
 };
-predecessorClosed._sig = sign(predecessorClosed, root.privateKey, `${OLD}#root-1`);
+predecessorClosed._sig = sign(predecessorClosed, root.privateKey, `${OLD}#root-1`, { kind: 'identity' });
 const pinClosed = recoveryPin(predecessorClosed);
 
 // (a) The thief, again holding one card, tries the same trick under the new shape.
 const stolenClosed = {
   url: THIEF, seq: 1, updated: T0 + 30 * DAY, predecessor: OLD, keys: [thiefRoot.jwk],
 };
-stolenClosed._sig = sign(stolenClosed, thiefRoot.privateKey, `${THIEF}#thief-1`);
+stolenClosed._sig = sign(stolenClosed, thiefRoot.privateKey, `${THIEF}#thief-1`, { kind: 'identity' });
 stolenClosed._recovery_sigs = [coSign(stolenClosed, closedKeys[0], OLD)];
 
 const thiefClosed = verifyMigration({
@@ -144,7 +145,7 @@ const thiefClosed = verifyMigration({
 const genuine = {
   url: NEW, seq: 1, updated: T0 + 30 * DAY, predecessor: OLD, keys: [newRoot.jwk],
 };
-genuine._sig = sign(genuine, newRoot.privateKey, `${NEW}#new-root-1`);
+genuine._sig = sign(genuine, newRoot.privateKey, `${NEW}#new-root-1`, { kind: 'item' });
 genuine._recovery_sigs = [coSign(genuine, closedKeys[0], OLD), coSign(genuine, closedKeys[1], OLD)];
 
 const genuineOld = verifyMigration({
@@ -157,7 +158,7 @@ const smuggled = { ...genuine };
 delete smuggled._sig;
 smuggled.url = THIEF;
 smuggled.keys = [thiefRoot.jwk];
-smuggled._sig = sign(smuggled, thiefRoot.privateKey, `${THIEF}#thief-1`);
+smuggled._sig = sign(smuggled, thiefRoot.privateKey, `${THIEF}#thief-1`, { kind: 'identity' });
 smuggled._recovery_sig = coSign(smuggled, closedKeys[0], OLD);   // one signature, in the old field
 const smuggledResult = verifyMigration({
   predecessorDocument: predecessorClosed, successorDocument: smuggled, pinnedAncestor: pinClosed,

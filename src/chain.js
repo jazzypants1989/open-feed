@@ -559,7 +559,7 @@ export const identityChainPolicy = {
         { url, seq: doc.seq },
       );
     }
-    const info = verifyDocument(doc, { identityDocument: doc, kind: 'document' });
+    const info = verifyDocument(doc, { identityDocument: doc, kind: 'identity' });
     // §4.6's exclusion has to hold at genesis and at a freshly-fetched tip too, where
     // there is no predecessor for assertContinuityKey to judge against.
     if (info.key.use === 'delegated') {
@@ -622,7 +622,7 @@ export function manifestChainPolicy(identityDocument, { now = () => Math.floor(D
       // `iat`/`revoked_at` comparisons: a publisher that backdates `revoked_at` to before a
       // compromise must not thereby make its own retained history unwalkable, which would
       // retroactively unpublish everything the rotated key ever committed.
-      const info = verifyDocument(doc, { identityDocument, kind: 'document', timeChecks: tip });
+      const info = verifyDocument(doc, { identityDocument, kind: 'manifest', timeChecks: tip });
 
       // §9.1: the tip's signing key MUST NOT be revoked, whatever its `updated` says.
       //
@@ -1017,7 +1017,9 @@ export function verifyRecoverySignature(doc, { pinnedAncestor }) {
 
   try {
     if (typeof doc._recovery_sig !== 'string') throw new VerifyError('no recovery co-signature');
-    const { headerB64, header, signature } = parseDetachedSig(doc._recovery_sig);
+    // A recovery co-signature is only ever over an identity-chain version (§4.5, §5.5), so the
+    // kind is fixed rather than taken from a caller.
+    const { headerB64, header, signature } = parseDetachedSig(doc._recovery_sig, { kind: 'identity' });
     const { identityUrl, keyId } = parseKid(header.kid);
     // Author binding holds for co-signatures too: the kid names *this* identity, even when
     // someone else holds the private half (§4.5).

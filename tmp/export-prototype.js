@@ -100,7 +100,7 @@ mom.advanceIdentity({ bio: 'Grandmother, gardener, cat enthusiast.' }, { updated
 const granSigner = makeSigner('gran-1');
 const granIdentity = (() => {
   const doc = { url: STRANGER, keys: [granSigner.jwk], name: 'Gran', seq: 1, updated: 1736899200 };
-  doc._sig = sign(doc, granSigner.privateKey, `${STRANGER}#gran-1`);
+  doc._sig = sign(doc, granSigner.privateKey, `${STRANGER}#gran-1`, { kind: 'identity' });
   return doc;
 })();
 const receivedReply = (() => {
@@ -112,7 +112,7 @@ const receivedReply = (() => {
     _openfeed: { version: 1, rel: [{ type: 'reply', to: `${HUB}feed.json#urn:uuid:0001-cookies`, _mood: 'warm' }] },
     _gran_client: { version: '3.1', theme: 'large-print' },
   };
-  item._sig = sign(item, granSigner.privateKey, `${STRANGER}#gran-1`);
+  item._sig = sign(item, granSigner.privateKey, `${STRANGER}#gran-1`, { kind: 'item' });
   return item;               // no _openfeed: { feed_url: delivered }, not published (§11.1.1)
 })();
 
@@ -125,7 +125,7 @@ const deliveredNote = (() => {
     date_published: '2025-02-16T09:00:00Z',
     _openfeed: { version: 1, rel: [{ type: 'mention', to: STRANGER }] },
   };
-  item._sig = sign(item, hubSigner.privateKey, `${HUB}#hub-1`);
+  item._sig = sign(item, hubSigner.privateKey, `${HUB}#hub-1`, { kind: 'item' });
   return item;
 })();
 

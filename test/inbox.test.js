@@ -38,7 +38,7 @@ function identityAt(site, name, { revoked_at } = {}) {
   const jwk = { ...signer.jwk };
   if (revoked_at) jwk.revoked_at = revoked_at;
   const doc = { url, keys: [jwk], name, seq: 1, updated: T0 - 30 * DAY };
-  doc._sig = sign(doc, signer.privateKey, `${url}#${signer.kid}`);
+  doc._sig = sign(doc, signer.privateKey, `${url}#${signer.kid}`, { kind: 'identity' });
   site.files.set(`${name}/openfeed.json`, canonicalBytes(doc));
   return { url, signer, document: doc };
 }
@@ -53,7 +53,7 @@ function item(who, { _openfeed: openfeed, ...fields } = {}) {
     // the default rather than replacing it — `{ _openfeed: { rel } }` must not drop `version`.
     _openfeed: { version: 1, ...openfeed },
   };
-  doc._sig = sign(doc, who.signer.privateKey, `${who.url}#${who.signer.kid}`);
+  doc._sig = sign(doc, who.signer.privateKey, `${who.url}#${who.signer.kid}`, { kind: 'item' });
   return doc;
 }
 

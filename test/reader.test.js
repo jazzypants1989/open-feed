@@ -131,7 +131,7 @@ test('an item dropped from the manifest without a tombstone is an invariant viol
     prev: documentHash(p.manifest),
     items: Object.fromEntries(Object.entries(p.manifest.items).filter(([id]) => id !== 'urn:uuid:day-2')),
   };
-  seq7._sig = sign(seq7, signer.privateKey, `${site.url}#${signer.kid}`);
+  seq7._sig = sign(seq7, signer.privateKey, `${site.url}#${signer.kid}`, { kind: 'manifest' });
   site.replace('manifest.json', seq7);
   site.replace('manifest/7.json', seq7);
 
@@ -353,7 +353,7 @@ test('an item whose _feed_url names another feed is a copy, verified and unrejec
     content_text: 'canonical somewhere else',
     date_published: new Date((T0 + 2 * DAY) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
   };
-  copy._sig = sign(copy, signer.privateKey, `${site.url}#${signer.kid}`);
+  copy._sig = sign(copy, signer.privateKey, `${site.url}#${signer.kid}`, { kind: 'item' });
   site.serve(p);
   site.replace('feed.json', { ...p.feed, items: [copy, ...p.feed.items] });
 
@@ -511,7 +511,7 @@ test('an identity listing no feeds is unreadable rather than empty', async (t) =
   const site = await newSite(t);
   const signer = makeSigner();
   const doc = { url: site.url, name: 'Mom', keys: [signer.jwk], seq: 1, updated: T0 };
-  doc._sig = sign(doc, signer.privateKey, `${site.url}#${signer.kid}`);
+  doc._sig = sign(doc, signer.privateKey, `${site.url}#${signer.kid}`, { kind: 'identity' });
   site.replace('openfeed.json', doc);
   site.replace('openfeed/1.json', doc);
 
@@ -606,7 +606,7 @@ test('an attachment with no _sha256 is unverified content inside a verified item
     attachments: [{ url: `${site.url}more.jpg`, mime_type: 'image/jpeg', _openfeed: { sha256: 'y'.repeat(43)  }}],
   }, { at: T0 + 60 });
   delete hashless.attachments[0]._openfeed?.sha256;
-  hashless._sig = sign(hashless, signer.privateKey, `${site.url}#key-1`);
+  hashless._sig = sign(hashless, signer.privateKey, `${site.url}#key-1`, { kind: 'item' });
   p.items.set('urn:uuid:hashless', hashless);
   p.advanceManifest({ updated: T0 + 3600 });
   site.serve(p);
@@ -947,9 +947,9 @@ test('an item that fails verification writes nothing into the first-observation 
     date_published: new Date(T0 * 1000).toISOString(),
   });
   const genuine = asGran('urn:uuid:gran-contributed', 'a real contribution');
-  genuine._sig = sign(genuine, guest.privateKey, `${board.url}#guest-1`);
+  genuine._sig = sign(genuine, guest.privateKey, `${board.url}#guest-1`, { kind: 'item' });
   const forged = asGran('urn:uuid:gran-never-published', 'she never wrote this');
-  forged._sig = sign(forged, signer.privateKey, `${board.url}#guest-1`);   // Mom's key, Gran's kid
+  forged._sig = sign(forged, signer.privateKey, `${board.url}#guest-1`, { kind: 'item' });   // Mom's key, Gran's kid
 
   site.replace('feed.json', { ...owner.feed, items: [...owner.feed.items, genuine, forged] });
 
@@ -1095,7 +1095,7 @@ test('a peer pin can fire §5.3.1 on evidence the consumer collected itself', as
   // this identity looks wrong until two observations of seq 2 are put side by side.
   const branch = { ...p.identityDocument, name: 'Mom (for you only)' };
   delete branch._sig;
-  branch._sig = sign(branch, signer.privateKey, `${site.url}#${signer.kid}`);
+  branch._sig = sign(branch, signer.privateKey, `${site.url}#${signer.kid}`, { kind: 'identity' });
   site.replace('openfeed/2.json', branch);
 
   await assert.rejects(
