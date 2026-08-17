@@ -1034,7 +1034,7 @@ Canonical bytes (no `_sig`; `ö` is NFC U+00F6, wave is U+1F44B), then the resul
 
 ```
 {"_openfeed":{"feed_url":"https://test.example/feed.json","version":1},"authors":[{"url":"https://test.example/"}],"content_text":"Hello, wörld! 👋","date_published":"2025-01-15T12:00:00Z","id":"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6"}
-eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIn0..MnPQcvR9PB4E_pJ1YZTggDoRwu0_uOcPegHfebTbKpdtzv8k4O8tbLtnk4VNDyjGa3mWLc15wtkMRK7nTVcoDQ
+eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il0sImtpZCI6Imh0dHBzOi8vdGVzdC5leGFtcGxlLyN0ZXN0LWtleS0xIiwidHlwIjoib3BlbmZlZWQtaXRlbStqc29uIn0..GopWUyURdSxdUA473-_w-JLsuq8FTuI5-AcvnD7KahZbTBUiLQ2XFvt_OmHEXWU313QLwVicCwLk1NKZyFVdBg
 ```
 
 SHA-256 of those canonical bytes (hex): `cbf8bddd3412094c6d45ea5a92fff788abe29814d2a7be7d2f74390839c4fd70`

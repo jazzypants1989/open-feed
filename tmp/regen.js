@@ -509,7 +509,7 @@ for (const {label, str, file} of embedded){
 // check still said ok. So: every hash-shaped literal inside Appendix B must be one this run
 // produced. Presence is checked above; this is the other direction, and it needs no anchors.
 console.log();
-console.log('APPENDIX B STALENESS (every hash-shaped literal there is one of this run\'s):');
+console.log('APPENDIX B STALENESS (every hash- and signature-shaped literal there is one of this run\'s):');
 const appendixB = docs.spec.slice(docs.spec.indexOf('## Appendix B'));
 const known = new Set(embedded.map((e) => e.str));
 // Every base64url hash and every hex digest this run computed, wherever it appears — including
@@ -517,9 +517,19 @@ const known = new Set(embedded.map((e) => e.str));
 for (const { str } of embedded) {
   for (const m of str.matchAll(/[A-Za-z0-9_-]{43}|[0-9a-f]{64}/g)) known.add(m[0]);
 }
+// Detached `_sig` values need the same direction, and for a sharper reason: a signature quoted
+// on a line of its own also appears inside the full-published-bytes line under it, so the
+// presence test above is satisfied by the fresh copy while the standalone one goes stale. That
+// is what `typ` did to B.2 — one line carried a pre-`typ` signature through a passing run.
+for (const { str } of embedded) {
+  for (const m of str.matchAll(/[A-Za-z0-9_-]{20,}\.\.[A-Za-z0-9_-]{20,}/g)) known.add(m[0]);
+}
 const stale = [];
 for (const m of appendixB.matchAll(/`([A-Za-z0-9_-]{43}|[0-9a-f]{64})`/g)) {
   if (!known.has(m[1])) stale.push(m[1]);
+}
+for (const m of appendixB.matchAll(/[A-Za-z0-9_-]{20,}\.\.[A-Za-z0-9_-]{20,}/g)) {
+  if (!known.has(m[0])) stale.push(m[0]);
 }
 if (stale.length) {
   ok = false;
