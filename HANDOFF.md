@@ -78,7 +78,10 @@ not because it repeats itself (measured: 427 RFC 2119 keywords, 336 rule-bearing
 echo pair, and that pair is the Abstract summarizing §11.3, which is what an abstract does). So
 compression has nothing to take and an index would be a second copy of things stated once. The
 only thing that shortens the document is deleting a mechanism. The five candidates are in the
-register. **This is the whole game and nobody has measured any of it.**
+register. **This is the whole game and nobody has measured any of it.** One qualification, from
+"Where the words actually are" below: a quarter of the prose sits in paragraphs carrying no rule
+at all, and that pile has never been assessed as a pile. It is not a fifth of a mechanism, but it
+is not nothing either.
 
 **2. Stage 5's leftovers.** `syndication-prototype.js` recommends a design it never measured —
 its verdict is an *unchained* signed document, but the option it priced was chained, and the
@@ -108,6 +111,58 @@ measurement — see `tmp/sketches-review.md`, and don't re-cost them:
   two; Appendix C was examined this pass and kept (`tmp/appendix-c-case.md`).
 - **The third idea survived and is now built**: `npm run rules:gate` fails if a section carrying a
   MUST is cited by neither `src/` nor `test/`. It would have caught §3.3.1 the day it was written.
+
+### Where the words actually are
+
+Measured this pass, Appendix B excluded throughout to match `rules.js`. Method for the third row:
+paragraphs split on blank lines, fences and headings dropped, a paragraph counted as rule-bearing
+if it contains any RFC 2119 keyword anywhere in it. That is coarse — a whole table counts as one
+paragraph — and **it is not tooled, so it will go stale like everything else here.** Re-derive.
+
+| | |
+| --- | --- |
+| Prose | 40,775 words. Fenced examples are ~395 — a base64 vector is one word, so examples are not the weight |
+| Binding keywords | 284 MUST / MUST NOT; 427 keywords over 336 sentences (`npm run rules`) |
+| Paragraphs carrying no RFC 2119 keyword at all | 9,881 words — **26% of the prose** |
+
+Three readings, in descending confidence:
+
+**1. ~140 words per hard requirement is not by itself bloat.** This is the same finding as item 1
+above, arrived at from the other side: the length tracks the requirement count, so the document is
+long because it requires 284 things. "Minimal" here has always meant *small surface* — one
+construction per job — and the spec is genuinely optimized on that axis. Word count is a different
+axis and has never been optimized at all. Both can be true, and treating the second as evidence
+against the first is the mistake.
+
+**2. The 26% is the only pile compression could touch, and nobody has looked at it as a pile.**
+Every pass so far has judged justification one paragraph at a time, which is a contest each
+paragraph wins. 9,881 words assessed together is a different question and has never been asked.
+
+**3. CLAUDE.md's editing rule 3 cannot be applied as written.** "Justification sitting next to a
+MUST is load-bearing" — with 284 binding keywords across 1,246 lines, *every* paragraph is next to
+one. As stated it licenses keeping everything, and the failure it predicts (a future implementer
+weakens the rule) is one that no test catches. By this repo's own standard that is a claim, not
+evidence. Keep the rule — it is protecting something real — but it needs a form that can fail, and
+`tmp/prove.js` is the nearest thing to one. **This is the trap for whoever takes Stage 3:** you
+will be asked to cut, you will invoke rule 3, and you will stop. It is not a reason, it is a
+reflex, and it has the shape of every other row in the table at the top of this file.
+
+**A correction to a claim I made before measuring**, since raw section size does not locate the
+problem the way I said it did:
+
+| Section | words | MUST | w/MUST |
+| --- | --- | --- | --- |
+| §3 Identity | 3,717 | 39 | 95 |
+| §7 Feeds and Items | 3,421 | 33 | 104 |
+| §15 Encrypted Content | 3,606 | 33 | 109 |
+| §9 The Manifest | 5,012 | 29 | **173** |
+
+§9 is the longest section in the spec and I read that as a design smell. On the ratio it is much
+milder: 173 w/MUST against a 95–110 baseline for the other mechanism sections — a real outlier,
+worth a look under Stage 3, but a modest one. And §3+§4+§5, which I called one concept split three
+ways, is 9,573 words carrying 82 MUSTs — 117 w/MUST, i.e. baseline. That length is rules, not
+seams, and cutting there would cost mechanisms. (§8, §11 and §13 run 285–448 w/MUST and *should*;
+they are the discursive sections. Do not aim this ratio at them.)
 
 **The finding those three missed**, and the most useful thing to come out of the pass: **§12's
 conformance checklist reaches only about half the spec's MUSTs.** It lists *behaviors* ("fetch and
