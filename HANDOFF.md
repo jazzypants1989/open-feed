@@ -1,247 +1,210 @@
-# Handoff — after the register pass
+# Handoff
 
-Delete this file when it has been consumed. It is a list of what is still open plus the traps;
-none of it belongs in `CLAUDE.md` or the spec. `tmp/review-findings.md` is the durable register.
+Delete this file when you have consumed it. It is what is still open, plus the traps that have
+already bitten someone. `tmp/review-findings.md` is the permanent record; this is orientation.
 
-**Baseline:** `npm test` → **266 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
-`npm run prototypes` → **all 17 hold**, re-run this pass; see `tmp/prototype-results.json`
-(gitignored; read it before paying for a rerun, the full suite costs ~5 min). Working tree clean.
+**Baseline:** `npm run check` → 266 tests pass, test vectors regenerate clean, the rules gate
+passes. `npm run prototypes` → all 17 hold (~5 min; it writes `tmp/prototype-results.json`, so
+read that before paying for a rerun). Working tree clean.
 
-## The owner's decisions — SETTLED, do not relitigate
+---
 
-1. **Group messages → the delivered column is an audience of one, by rule.** DONE.
-2. **Timestamps → milliseconds. WITHDRAWN**, by the owner. Superseded by `(updated, seq)` with
-   `updated` non-decreasing, which is DONE and closes 1.8. **The reason is load-bearing and is
-   why this must not come back:** `iat` on a JWK is not an Open Feed invention borrowing a JWT
-   convention — it is a *registered* JOSE parameter (IANA "JSON Web Key Parameters"; change
-   controller OpenID Foundation; OpenID Federation 1.0 §8.7.2), defined as RFC 7519's `iat`, a
-   NumericDate, **in seconds**. Milliseconds there is a registered public parameter carrying the
-   wrong unit, which no library that knows the name would catch. Scoping the move to Open Feed's
-   own fields is worse in a different way: it puts the unit seam exactly on §6.5's revocation
-   comparison and §16.1's `observed` check. One unit protocol-wide.
-3. **`_`-field rename → a single namespacing object.** DONE — `_openfeed`, items and attachments
-   only, `_sig` staying at top level in every kind. See `d5ddc03` for the scope argument.
-4. **§15 review → three foundation-model adversarial reviews** (human cryptographer later, at
-   public launch). The owner uses OpenCode Go; the key is in `.env` (gitignored) as
-   `OPENCODE_KEY`. Requested models: **GLM-5.3, Kimi K3, Qwen3.8 Max**. NOT DONE — this is the
-   *last* step, run over the finished state. It is a shake-out, not a substitute for a
-   cryptographer's pass; say so.
-5. **Audience → the owner's family first, but the spec is for anyone; 2–3 reference
-   implementations planned.** Context, not a task.
-6. **DISTRIBUTION-MODEL's phase boundaries are not a release schedule.** Asked whether the
-   `{audience}` tier should wait for §15 in Phase 3 or move §15 forward, the owner's answer was
-   that **all phases will be built before anyone outside sees the specification**. So the
-   question is moot and the document's current text stands: no audience tier until the layer
-   ships. Do not spend another pass rearranging phases.
-7. **Stage 4's extraction mechanisms are REJECTED — all three.** An index appendix, a
-   requirements table, and finishing the blockquote convention were each put to the owner and
-   each declined: *"we need to be more ambitious… the spec has gotten really bloated at this
-   point, and I definitely don't want to do anything that expands that bloat in any way."* The
-   owner is still working out what the ambitious version is. **Do not implement any of the
-   three.** The sketch below is what this pass could contribute to that thinking.
+## Read this first, if you read nothing else
 
-## What this pass was
+This project keeps finding the same bug in different costumes: **something was written down once,
+nobody ever checked it again, and it quietly stopped being true.** Four instances so far.
 
-Four items off the previous handoff's list, in its order. `git log` has the reasoning per change.
+| What went stale | How long | What caught it |
+| --- | --- | --- |
+| A prototype that had been failing every check while printing "ok" | 4 commits | adding an assertion to it |
+| §3.3.1, a rule `src/` never implemented — with a live security bug underneath | life of the reader | `tmp/rules.js`, by accident |
+| "Appendix C is ~15% of the spec" — it is 4.5%, and the number nearly deleted the appendix | 4 passes | recomputing it |
+| §5.2 contradicting §4.3 about key retention | unknown | `tmp/rules.js`'s echo check |
 
-1. **§12's checklists and Appendix B's coverage** (closes S2.9). Six rules Level 1 was relying on
-   without naming; `_next_update` at Level 2; and Appendix B stopped publishing a publisher that
-   was non-conformant with its own document — no vector carried `items: true`.
-2. **The store-growth evictor** (closes Stage 0). `ObservationStore` and `MigrationStore` bound
-   themselves now, by identity and never by age, with §13.4 stating the rule.
-3. **Prototype gates** for `enctags`, `inbox`, `deltamanifest`.
-4. **`tmp/rules.js`**, a normative inventory — the instrument for Stage 4 rather than an answer
-   to it, since every proposed answer made the document longer.
+So the working rule here is: **if you are about to act on a number or a claim, re-derive it
+first.** Most of the tooling in `tmp/` exists because someone didn't.
 
-**The thing worth carrying forward from 3:** `inbox-prototype.js` had been failing every scene
-since the `_openfeed` rename and reporting `ok`, because nothing in it asserted anything. Its
-`signItem` replaced `_openfeed` instead of merging it, so every item failed §10.2 step 2 and the
-"happy path" returned 400. Four commits of "all 17 prototypes hold" covered it. That is the
-third time this class has survived a green run.
+---
+
+## The owner's decisions — settled, do not reopen
+
+1. **Group messages:** a delivered item goes to exactly one recipient, by rule. Done.
+2. **Timestamps stay in whole seconds.** Milliseconds was proposed and the owner withdrew it.
+   *Why it must not come back:* `iat` on a key is a **registered** JOSE parameter (IANA "JSON Web
+   Key Parameters"), defined as RFC 7519's `iat` — a NumericDate, in seconds. Using milliseconds
+   there means publishing a standard field with the wrong unit, which no library would catch.
+   Using milliseconds only in Open Feed's own fields is worse in a different way: it puts a
+   unit boundary right on the revocation comparison in §6.5. One unit everywhere.
+3. **Extension fields are namespaced** under a single `_openfeed` object on items and
+   attachments. `_sig` stays at top level in all three document kinds. See `d5ddc03`.
+4. **The §15 encryption review** is three adversarial reviews by foundation models, then a human
+   cryptographer at public launch. The owner uses OpenCode Go; the key is in `.env` (gitignored)
+   as `OPENCODE_KEY`. Models: GLM-5.3, Kimi K3, Qwen3.8 Max. **Not done — do this last**, over
+   the finished spec, and say plainly that it is a shake-out and not a cryptographer's review.
+5. **Audience:** the owner's family first, but the spec is for anyone. 2–3 reference
+   implementations planned. Context, not a task.
+6. **DISTRIBUTION-MODEL's phases are not a release schedule.** Everything gets built before
+   anyone outside sees the spec, so "which phase does feature X land in" is moot. Don't rearrange
+   them again.
+7. **Three ways of extracting the spec's rules were all rejected** — an index appendix, a
+   requirements table, and a blockquote convention. The owner's words: *"the spec has gotten
+   really bloated at this point, and I definitely don't want to do anything that expands that
+   bloat in any way."* **Do not implement any of the three.** What the ambitious alternative is
+   remains open; see "Where the length question actually stands" below.
+
+---
 
 ## Status
 
-**Stage 0 (`src/` defects): CLOSED — and read that as "the enumerated list is done", not as
-"`src/` is clean".** The seventh pass found a Stage 0-class defect after the close (register 0.13),
-and what found it was a tool built to measure something else.
-**Stage 1 (spec corrections): CLOSED.**
-**Stage 2: CLOSED**, S2.9 included.
-**S2.11 (docs): DONE.** README and DISTRIBUTION-MODEL both match the spec.
-**Stage 5 (prototype gates):** the three named gates are DONE. Its other bullets are open —
-see "Open, 3".
-**Stage 3 (surface-area cuts):** untouched, and now the highest-value stage — see the sketch.
-**Stage 4 (publication readiness):** its first item is BLOCKED on decision 7. Its other items
-(consumer-state section, fetch-order section, discovery, README honesty bullets) are untouched
-and every one of them *adds* text, so hold them until decision 7 resolves.
+- **Stage 0 (bugs in `src/`): closed** — but read that as "the list we wrote down is done", not
+  "`src/` is clean". A Stage 0-class bug was found *after* the close (register 0.13), by a tool
+  built to measure something else.
+- **Stage 1 (spec corrections): closed.**
+- **Stage 2 (design changes): closed.**
+- **Stage 3 (removing mechanisms): untouched, and it is the only remaining way to make the spec
+  meaningfully shorter.** Five candidates are listed in the register with what each one breaks.
+  None has been measured. Each needs a prototype or a real argument, not a preference.
+- **Stage 4 (publication readiness):** its first item is blocked by decision 7. Its other items
+  (a consumer-state section, a fetch-order section, discovery, README honesty notes) all *add*
+  text, so they wait.
+- **Stage 5 (evidence): partly done.** See "What's open", item 2.
 
-## Open, in the order I would take it
+---
 
-**1. Stage 3, which is now the whole game.** The owner's concern is length; `tmp/rules.js` says
-the length is not repetition (below), so the only lever that shortens the document is removing
-mechanisms. Stage 3's five candidates are in the register with what each one breaks. Nothing has
-been measured for any of them and each needs a prototype or an argument, not a preference.
+## What's open, in the order I would take it
 
-**2. The shortlist `tmp/rules.js` produced.** Run `node tmp/rules.js` — it is a report, it
-changes nothing, and it takes a second:
-- **Appendix C carries 13 MUSTs and nothing in `src/` or `test/` cites it.** Put to the owner and
-  written up in `tmp/appendix-c-case.md`; read that before acting. Two things in the entry as
-  originally written are wrong and are corrected there. **"~15% of the specification's binding
-  weight" was never measured and is off by a factor of three** — Appendix C is 4.5% of MUSTs and
-  4.5% of words, i.e. exactly proportional, and it ranks second in `rules.js`'s table only because
-  it is one large section where comparable material is split (§3.2 + §3.2.1 = 22). And it is
-  **UNBACKED for scope, not neglect**: `src/` implements no gateway. The recommendation is to keep
-  it — four core sections scope their own MUSTs by pointing at it, §11.1.1's only exception among
-  them — and take a smaller cut of the three weak rules.
-- **§3.3.1 — ANSWERED, and the answer was yes. DONE**, see `b0b4be2` and register 0.13. It could,
-  and there were two defects stacked in the one path. §3.3.1 has left the UNBACKED column by
-  being implemented. **The transferable part is the shape:** §12's "MAY cache … MUST NOT hold one
-  for longer than 1 h" is a permission written next to a bound, it reads as an instruction, and
-  the MUST that actually governed it lived in a section nothing cited.
-- **§10.1 is orphaned but backed** — nothing points at it, everything implements it. Benign.
+**1. Stage 3 — removing mechanisms.** The spec is long because it has a lot of distinct content,
+not because it repeats itself (measured: 427 RFC 2119 keywords, 336 rule-bearing sentences, one
+echo pair, and that pair is the Abstract summarizing §11.3, which is what an abstract does). So
+compression has nothing to take and an index would be a second copy of things stated once. The
+only thing that shortens the document is deleting a mechanism. The five candidates are in the
+register. **This is the whole game and nobody has measured any of it.**
 
-**3. Stage 5's remainder.** `syndication-prototype.js` still recommends a shape it never measured
-(the verdict is an *unchained* signed document; the B it priced was chained). Six prototypes
-still re-derive `canon`/`sign` by hand rather than importing `src/`. `inbox-prototype.js`'s
-supersession markers were fixed this pass; `enctags`'s were too.
+**2. Stage 5's leftovers.** `syndication-prototype.js` recommends a design it never measured —
+its verdict is an *unchained* signed document, but the option it priced was chained, and the
+chaining is what its cost numbers measured. Separately, six prototypes hand-roll their own
+canonicalization and signing instead of importing `src/`, so they can agree with each other while
+disagreeing with the shipped code.
 
-**4. Decision 4** — the three-model adversarial review, last, over the finished state.
+**3. Decision 4** — the three-model review, last, over the finished spec.
 
-## Sketch — what "more ambitious" could mean (decision 7)
+**4. The claims ledger, if you want the ambitious answer.** See below.
 
-Offered as material for the owner's thinking, not as a plan. The one hard input is a
-measurement, so start there.
+---
 
-**The measurement changes the problem.** `tmp/rules.js` on the current text: **431 RFC 2119
-keywords across 338 rule-bearing sentences and 64 sections, with two echo pairs** — and one of
-those two was a live contradiction, now fixed, while the other is the Abstract summarising §11.3,
-which is what an abstract is for. **The document does not repeat itself.** Its length is distinct
-content. Three consequences, and they are what rule out the easy answers:
+## Where the length question actually stands (decision 7)
 
-- *Compression has nothing to take.* There is no fat to trim; every paragraph is carrying a
-  different rule or the reason one is not weaker.
-- *Any index, table, or extraction appendix is pure addition.* You would be indexing a document
-  with no duplication, so the index is a second copy of things stated exactly once — the shadow
-  copy CLAUDE.md warns goes stale and then contradicts its source. This is the measured argument
-  against the three mechanisms decision 7 rejected, and it agrees with the rejection.
-- *The only levers that shorten it are removing mechanisms and removing conformance surface.*
+Three ideas were sketched for "what the ambitious answer to length is." Two are now closed by
+measurement — see `tmp/sketches-review.md`, and don't re-cost them:
 
-**Sketch A — generate the coverage claim, not the prose.** The tempting inversion is to make each
-rule a first-class object in `src/` (keyword, section, the check that enforces it, the test that
-falsifies it) and assemble the document from them. It fails for a reason worth stating so nobody
-re-proposes it: the spec's value is its *argument* — why this rule and not the weaker one — and
-arguments do not decompose into rule objects. You would get a generated catalogue plus a
-hand-written companion holding all the reasoning, which is the split CLAUDE.md forbids, with
-extra machinery. **What survives the objection is the checkable half.** Promote `tmp/rules.js`'s
-UNBACKED column from a report to a gate: every binding section must be cited by at least one
-`src/` comment and one test, or CI fails. That adds *nothing to the document*, makes "is this
-rule real?" answerable mechanically, and would have caught §3.3.1 the day it was written. It is
-the tractable piece of the ambitious idea and it is cheap.
+- **Merging §5 and §9 into one "chained document" section: dead.** §9.1 already opens *"Producing
+  and verifying a manifest version follow §5.2 and §5.3 exactly, with these substitutions"* and
+  gives the table. That *is* the merge. And 87% of §9 has no §5 counterpart — skip links,
+  freshness, cadence, and §9.3's invariants are manifest-only. All of the risk, none of the gain.
+- **Cutting "conformance surface" by aiming with the weight table: dead.** The weight table ranks
+  by absolute count, so one big section outranks the same material split in three — that is how
+  Appendix C got called 15% when it is 4.5%. The real question is which sections bind somebody no
+  conformance level requires, and that has three answers: Appendix C, §15, §16. The owner settled
+  two; Appendix C was examined this pass and kept (`tmp/appendix-c-case.md`).
+- **The third idea survived and is now built**: `npm run rules:gate` fails if a section carrying a
+  MUST is cited by neither `src/` nor `test/`. It would have caught §3.3.1 the day it was written.
 
-**Sketch B — cut conformance surface, using the weight table to aim.** The inventory ranks
-sections by binding weight: §12 (14), Appendix C (13), §16.1 (12), then §3.2, §3.2.1, §9.3,
-§7.6, §15.1 at 11 each. Two of the top three are questions rather than facts of nature —
-Appendix C above, and §16.1, which carries 12 MUSTs for a mechanism §16.2 makes optional to heed.
-Note also that **§12 is already a shadow copy by design**: its 14 MUSTs are restatements of rules
-that live elsewhere, which is exactly the extraction surface Stage 4 asks for, already built and
-already maintained by hand. Leaning into it and deleting it are both coherent; maintaining it
-while adding a second one is not.
+**The finding those three missed**, and the most useful thing to come out of the pass: **§12's
+conformance checklist reaches only about half the spec's MUSTs.** It lists *behaviors* ("fetch and
+parse identity documents") and never restates the *shapes* those behaviors act on — §3.2, §4.1,
+§5.1, §5.4. An implementer could satisfy every line of §12 and not be conformant. §12 now says so
+in a short paragraph, which is the cheap fix; whether anything more is wanted is open.
 
-**Sketch B and Sketch C are CLOSED** — measured in `tmp/sketches-review.md`, read that before
-re-costing either. C's premise is false: §9.1 *is* the unification it proposes, already built as a
-four-row substitution table, and 87% of §9 has no §5 analog at all. B's instrument is miscalibrated
-(the weight table ranked Appendix C #2 for a section-size artifact) and its real shortlist is one
-item, which was examined this pass and kept. The same document carries the finding they missed —
-**§12's checklist reaches only half the specification's MUSTs**, the other half being object
-shapes it silently assumes — and three alternatives none of the sketches contain.
+**Still unbuilt, and the best remaining idea:** a **claims ledger**. Executable claims are gated
+(prototypes) and normative ones are now gated (`rules:gate`). **Numbers and "this is the only
+place X happens" claims are gated by nothing**, and those are exactly the two that have cost the
+most — a number nobody rechecked nearly deleted Appendix C. A file of every such claim with a
+one-line derivation that CI re-runs would close it, and adds nothing to the spec.
 
-**Sketch C — the long shot, named so it can be dismissed properly.** The identity chain and the
-manifest chain are one mechanism, and §9.1 says so in a substitution table. §5 and §9 are a large
-fraction of the document and much of §9 is §5 restated under that substitution. A single "chained
-document" section with the differences as the table — rather than the table as a mapping between
-two full treatments — is a real design change of the kind "more ambitious" might mean. It is also
-the riskiest thing in this file: the two chains differ in *which* checks apply per hop (§9.1's
-relaxation of the per-hop `_sig`, which it explicitly forbids carrying to §5.3), and a unification
-that blurs that is a security regression. Prototype before believing it.
+**Things not to try**, each having already cost a pass: a line budget (deliberately retired),
+splitting the document into several, cutting the reasoning that sits next to a MUST, or adding an
+index.
 
-**What not to do**, since each has already cost a pass: a line budget (retired deliberately),
-splitting the document (forbidden), cutting justification that sits beside a MUST (forbidden),
-and adding an index (measured against, above).
+---
 
-## Things that will bite you
+## Traps — things that will bite you
 
-New this pass, above the rule:
+Newest first.
 
-- **The reader's co-author identity resolver is scoped to one read, and that is §3.3.1, not
-  tuning.** It memoizes within a read — failures too, so one forked chain is one finding — and
-  observes again at the next. Do not restore a cross-read cache for performance: resolving a
-  co-author walks and pins *their* chain, so the cache would be answering §5.3.1, and the saving
-  was measured at one conditional GET per co-author per poll. `inbox.js` keeps its hour and is
-  right to — it caches a document to check one signature, never a walk.
+- **`tmp/rules.js`'s weight table is a ranking, never a proportion.** It ranks by absolute MUST
+  count, so a large section outranks the same material split across three smaller ones. Do not
+  convert a rank into a percentage; that mistake nearly deleted Appendix C.
+- **`--gate` is the only part of `rules.js` that can fail a build, and keep it that way.** The
+  other three columns are heuristics over prose, and a threshold that fails a build is a
+  threshold somebody will tune until it passes. "Is this rule connected to the code at all?" has
+  no threshold in it, which is why it is the one that gates.
+- **The reader looks up a co-author's identity once per read, and fetches it again next read.**
+  That is §3.3.1, not performance tuning. Do not add a cache that spans reads: checking a
+  co-author's item walks and pins *their* chain, so a stale cache means fork detection silently
+  stops. Measured, the cache saved one conditional GET per co-author per poll. `inbox.js` keeps
+  its one-hour cache and is right to — it caches a *document* to check one signature, never a
+  chain walk.
+- **A prototype with no assertions is only checking that the file still runs.** If you add one,
+  make it assert, then break the thing it claims and confirm it fails.
+- **`_openfeed` is merged into an item, never replaced.** `{ ...item, _openfeed: { rel } }` drops
+  `version` and everything downstream fails for a reason that looks unrelated. `publish.js` has
+  `withOpenFeed`; `tmp/` has no equivalent, which is how `inbox-prototype.js` broke.
+- **Both consumer stores evict whole identities and never old entries.** §4.4's record is a
+  *lower* bound on when a key could have signed, so the oldest observations are the strongest and
+  an age-ranked evictor destroys the thing it is bounding. §13.4 states it.
 
-- **A prototype with no assertion gate is checking that the file still runs.** All three fixed
-  this pass had drifted or broken without saying so, and `inbox` had been broken for four
-  commits. If you add a prototype, gate it, and revert-check the gate by breaking the claim.
-- **`_openfeed` is merged, never replaced — and prototypes are where this keeps happening.**
-  `{ ...item, _openfeed: { rel } }` drops `version` and every downstream check fails for a
-  reason that reads as unrelated. `publish.js`'s `withOpenFeed` is the helper; `tmp/` has no
-  equivalent, which is how `inbox-prototype.js` broke.
-- **Both consumer stores now evict, and the rule is not "keep it fresh".** `ObservationStore` and
-  `MigrationStore` drop **whole identities** and never old entries: §4.4's record is a *lower*
-  bound, so the oldest observations are the strongest and an age-ranked evictor destroys the
-  mechanism. §13.4 states it. Retained without asking: an identity owning a tracked feed, and
-  either side of a recorded or contested migration.
-- **`tmp/rules.js` is a report and deliberately has no gate.** Do not add one casually — its
-  ECHOES and ORPHANS columns are heuristics over prose and a threshold that fails a build is a
-  threshold somebody will tune until it passes. UNBACKED is the column worth promoting.
+Older, still true:
 
-Everything below the rule was already true:
-
-- **`sign()` and `buildHeader()` require an explicit `kind`** — `'identity'`, `'manifest'` or
-  `'item'` — and have no default. `verifyDocument` requires one too and checks it against `typ`.
-- **The `kind` vocabulary is three values, not two.** `'document'` is gone; anything passing it throws.
-- **`_sig` stays at top level in all three document kinds**, `_openfeed` notwithstanding, and
-  §6.3's strip rule is defined on that. §7.2 states the exception and the reason.
-- **`policy.verifySignature(doc, { url })` — the chain URL is required by `identityChainPolicy`**
-  and it throws without one. `walkToPin` threads it.
-- **`identityDocumentUrl` lives in `jws.js`** (re-exported from `fetch.js`), so `chain.js` can
-  name §3.2's path convention without importing the module that opens sockets.
-- **`parseTimestamp` (`jws.js`) is the only content-timestamp parser.** Not `Date.parse`, which
-  accepts `2025-02-30`, accepts `24:00:00`, and reads `Jan 15 2025` as **local** time.
-- **Invariant 3's passed-over test requires the item's signer to own the manifest.** Unscoped it
-  convicts a board owner on a timestamp a contributor chose; there is a test named for that.
+- **`sign()`, `buildHeader()` and `verifyDocument` all require an explicit `kind`** —
+  `'identity'`, `'manifest'` or `'item'`. There is no default, and `'document'` no longer exists.
+- **`_sig` stays at top level in all three document kinds**, despite `_openfeed`. §6.3's strip
+  rule is defined on that; §7.2 states the exception and why.
+- **`policy.verifySignature(doc, { url })` requires the chain URL** and throws without it.
+- **`identityDocumentUrl` lives in `jws.js`** (re-exported from `fetch.js`) so `chain.js` can use
+  §3.2's path convention without importing the module that opens sockets.
+- **`parseTimestamp` in `jws.js` is the only content-timestamp parser.** Not `Date.parse`, which
+  accepts `2025-02-30` and `24:00:00` and reads `Jan 15 2025` as *local* time.
+- **Invariant 3's "passed over" test only applies to items the manifest's owner signed.**
+  Unscoped, it convicts a board owner over a timestamp a contributor chose. There is a test named
+  for that.
 - **`reconcileFeed` violations carry `retryable`**, and `reader.js` maps those to a
-  `feed_behind_manifest` finding rather than `invariant` (so exit 1, not 2).
-- **`fetchDocument` refuses cross-origin redirects for every `kind` except `'json'`.**
-- **`_sig` covers `_recovery_sig` (§6.3), so order matters: co-sign first, then sign.** Prefer
-  `advanceIdentity(changes, { recoverySigner })`. `coSignIdentity` retrofits onto the tip and is
-  only safe before the tip's bytes are first served.
-- **The delivered column is an audience of one.** `_openfeed.delivery` lives only at top level,
-  is ignored (and MUST NOT appear) on published items, and `Publisher.retractDelivered`
-  tombstones a delivered item.
-- **`ObservationStore` keys `(author, id, _openfeed.version)`.** The revocation check *bounds* the
-  self-reported time (`Math.max`), never replaces it; don't "simplify" it back to `??`.
+  `feed_behind_manifest` finding rather than `invariant` — exit 1, not 2.
+- **`fetchDocument` refuses cross-origin redirects for every kind except `'json'`.**
+- **`_sig` covers `_recovery_sig`, so order matters: co-sign first, then sign.** Prefer
+  `advanceIdentity(changes, { recoverySigner })`. `coSignIdentity` retrofits onto the current tip
+  and is only safe before those bytes have been served to anyone.
+- **`_openfeed.delivery` only ever appears at top level**, is ignored on published items, and
+  `Publisher.retractDelivered` tombstones a delivered item.
+- **`ObservationStore` keys on `(author, id, _openfeed.version)`.** The revocation check *bounds*
+  the self-reported time with `Math.max`; it never replaces it. Don't "simplify" it back to `??`.
 - **`effectiveSigningTime` and `claimedAuthor` both require an explicit `{ kind }`** — no
-  field-sniffing, because an item can carry a numeric `updated` as conformant unknown data.
-- **`createInbox`'s `ownsItem` is owner-authored only**; "previously accepted here" is
-  `DedupStore.knows`, wired automatically. A **blocked** author writes neither store.
+  field-sniffing, because an item may legitimately carry a numeric `updated` as unknown data.
+- **`createInbox`'s `ownsItem` is owner-authored only.** "Previously accepted here" is
+  `DedupStore.knows`, wired automatically. A blocked author writes neither store.
 - **A two-feed identity needs no `Publisher` change.** `advanceIdentity({ feeds: [...current, e] })`
-  merges over the tip, and a second `Publisher` on the same identity supplies the feed and
-  manifest files — serve everything it emits *except* `openfeed*`.
+  merges over the tip; a second `Publisher` on the same identity supplies the feed and manifest
+  files — serve everything it emits *except* `openfeed*`.
 - **`_next_update` strictness binds the manifest tip only**; in retained history a malformed value
-  is read as absent.
-- **§13's list is numbered and cross-referenced from four files.** Append, don't insert.
-- **`tmp/regen.js`'s staleness check covers detached-JWS literals and scans fenced blocks.** If
-  you add a vector shape quoted twice — once alone, once nested — check the rule reaches its
-  literal. That class has survived a green run twice.
-- **The docs and the spec are consistent.** Any wire change from here breaks three files.
+  reads as absent.
+- **§13's list is numbered and cross-referenced from four files.** Append, never insert.
+- **`tmp/regen.js` checks that every hash-shaped literal in Appendix B is from the current run.**
+  If you add a vector shape quoted twice — once alone, once nested — check the rule reaches both.
+  That class of stale literal has survived a passing run twice.
+- **The spec, README and DISTRIBUTION-MODEL are consistent.** Any wire change breaks three files.
+  `npm run rules` now reports sentences the spec shares near-verbatim with the other two, which is
+  where that consistency rots first.
 
-## Questions still unanswered
+---
 
-1. **§3.1's percent-encoding** — the one place two conforming implementations can split one
-   identity into two chains. No prototype; longest-standing open question. §3.1 now states a
-   *second* comparator beside it, which shares the hazard and inherits the question.
-2. **Where the §15 review comes from** — decision 4 is the interim answer; it does not retire the
-   "never independently reviewed" caveat, and §15's promotion raised what rides on it.
-3. **Adoption asymmetry** — decision 5 reframes it, does not close it. Product question.
-4. **What the ambitious answer to length is** — decision 7, open by the owner's choice. The
-   sketch above is input, not an answer.
+## Questions nobody has answered
+
+1. **§3.1's percent-encoding rule** — the one place two conforming implementations could split
+   one identity into two chains. No prototype; longest-standing open question. §3.1 now states a
+   second URL comparator beside it, which shares the hazard.
+2. **Where a real §15 review comes from.** Decision 4 is an interim answer and does not retire
+   the "never independently reviewed" caveat.
+3. **Adoption asymmetry.** Publishing is expensive and buys the publisher nothing until verifying
+   readers exist in numbers. This is a product and distribution problem and no amount of spec work
+   touches it. See the last section of the register.
+4. **What the ambitious answer to length is** (decision 7). The claims ledger is the current best
+   candidate; it is the owner's call.

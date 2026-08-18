@@ -5,13 +5,22 @@
   "description": "Reference verifier for the Open Feed Protocol (see open-feed-spec.md)",
   "license": "Apache-2.0",
   "type": "module",
-  "engines": { "node": ">=20" },
-  "exports": { ".": "./src/index.js" },
-  "bin": { "openfeed": "./bin/openfeed.js" },
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "openfeed": "./bin/openfeed.js"
+  },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
+    "rules": "node tmp/rules.js",
+    "rules:gate": "node tmp/rules.js --gate",
     "verify": "node bin/openfeed.js verify",
     "vectors": "node tmp/regen.js",
-    "prototypes": "node tmp/check-prototypes.js"
+    "prototypes": "node tmp/check-prototypes.js",
+    "check": "npm test && node tmp/regen.js && node tmp/rules.js --gate"
   }
 }

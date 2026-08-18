@@ -10,22 +10,32 @@
 // So this is the instrument for that lever rather than another surface to maintain. It answers
 // four questions about the text as it stands:
 //
-//   1  WEIGHT      which sections carry the normative load, and how it is distributed
+//   1  WEIGHT      which sections carry the normative load, and how it is distributed.
+//                  Read it as a ranking and never as a proportion: it ranks by absolute count,
+//                  so one large section outranks the same material split across three. That
+//                  misreading cost a pass — Appendix C ranked #2 and was called "~15% of the
+//                  binding weight" when it is 4.5% of MUSTs and 4.5% of words.
 //   2  ECHOES      which rules are stated in more than one section — the equivocation
 //                  candidates, since two statements of one rule can drift apart and one of
 //                  them is then wrong
+//   2b SHARED      the same test between the spec and README / DISTRIBUTION-MODEL, at a much
+//                  higher bar. A companion paraphrasing a rule is doing its job; a companion
+//                  sharing a *sentence* is a copy that drifts when the rule moves
 //   3  UNBACKED    which normative sections nothing in `src/` and nothing in `test/` cites —
 //                  a rule with no implementation and no test is either unimplemented or
 //                  unimplementable, and both are findings
 //   4  ORPHANS     which sections nothing else in the document cross-references, which is
 //                  what a candidate for a Stage 3 cut looks like from the outside
 //
-// Everything here is a heuristic over prose. It does not decide anything; it produces a
-// shortlist a human argues with. Deliberately no assertion gate and no exit code: this is a
-// measuring instrument, not a claim, so there is nothing here for a later run to falsify.
+// Everything here is a heuristic over prose and produces a shortlist a human argues with —
+// with one exception. `--gate` fails a build on UNBACKED alone, because "is this rule connected
+// to the implementation at all?" is the one question here with no threshold in it. The others
+// stay ungated on purpose: a threshold that fails a build is a threshold somebody tunes until
+// it passes.
 //
 //   node tmp/rules.js            report to stdout
 //   node tmp/rules.js --json     the same data, for another tool to read
+//   node tmp/rules.js --gate     report, then exit 1 if an in-scope section is unbacked
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -184,6 +194,45 @@ for (let i = 0; i < enriched.length; i++) {
 }
 echoes.sort((x, y) => y.score - x.score);
 
+// ---- 2b. cross-document echoes -------------------------------------------------------------
+// The same comparison, run between the spec and the two documents that explain it. This is a
+// different failure from the one above and has cost more passes: `CLAUDE.md` says README
+// explains and the spec defines, so a sentence appearing in both is one of them doing the
+// other's job, and the copy drifts the next time the rule moves. S2.11 was an entire pass spent
+// on that drift. The pass that added this found Appendix C had a sentence README carried
+// verbatim, which the within-document check above structurally cannot see.
+//
+// Every sentence is compared, not only rule-bearing ones: README carries no RFC 2119 keywords
+// by house rule, so restricting to rules here would find nothing by construction.
+
+// Much higher than the within-document threshold, and for a reason. README restating a rule in
+// its own words is README doing its job — at 0.42 this finds 125 pairs, nearly all of them a
+// companion correctly explaining a rule. What is a defect is a *sentence* living in two files, so
+// the bar is near-verbatim.
+const CROSS_THRESHOLD = 0.8;
+const COMPANIONS = ['README.md', 'DISTRIBUTION-MODEL.md'];
+const specSentences = sections(spec).flatMap((s) =>
+  toSentences(prose(s)).map((sentence) => ({ where: `spec §${sectionId(s.title)}`, sentence })));
+
+const crossEchoes = [];
+for (const file of COMPANIONS) {
+  const full = path.join(root, file);
+  if (!fs.existsSync(full)) continue;
+  const theirs = sections(fs.readFileSync(full, 'utf8')).flatMap((s) =>
+    toSentences(prose(s)).map((sentence) => ({ where: file, sentence })));
+  const mine = specSentences.map((r) => ({ ...r, words: contentWords(r.sentence) }));
+  for (const t of theirs) {
+    const tw = contentWords(t.sentence);
+    if (tw.size < MIN_WORDS) continue;
+    for (const m of mine) {
+      if (m.words.size < MIN_WORDS) continue;
+      const score = jaccard(m.words, tw);
+      if (score >= CROSS_THRESHOLD) crossEchoes.push({ score, a: m, b: t });
+    }
+  }
+}
+crossEchoes.sort((x, y) => y.score - x.score);
+
 // ---- 3. unbacked --------------------------------------------------------------------------
 // A section carrying MUSTs that nothing in `src/` and nothing in `test/` names. `src/` is a
 // complete implementation of the core, so a normative section it never cites is either
@@ -220,6 +269,21 @@ const inTest = citations('test');
 const unbacked = [...bySection.values()]
   .filter((s) => s.binding > 0 && !inSrc.has(s.section) && !inTest.has(s.section))
   .sort((a, b) => b.binding - a.binding);
+
+// A section is exempt from `--gate` only when `src/` *cannot* cite it, and there is one test for
+// that: does §12 define the subject the section binds? Everything §12 names is a reader, a
+// publisher, or an inbox, and `src/` is all three. Nothing here is a judgement about whether the
+// rules are good — that is what makes it safe to fail a build on.
+//
+// The distinction matters because UNBACKED means two opposite things. §3.3.1 was unbacked
+// because it had been *forgotten*, and under it was a live defect that survived the whole of
+// Stage 0. Appendix C is unbacked because it is out of *scope*. Gating without separating them
+// fails forever on Appendix C and teaches everyone to pass `--no-gate`.
+const GATE_EXEMPT = new Map([
+  ['C', '§12 defines no gateway, so `src/` implements none. A Bridge level would end this exemption.'],
+  ['Abstract', 'Summarises rules stated normatively elsewhere; it is not their source.'],
+]);
+const gateFailures = unbacked.filter((s) => !GATE_EXEMPT.has(s.section));
 
 // ---- 4. orphans ---------------------------------------------------------------------------
 // Sections nothing else in the specification points at. A section with normative weight and no
@@ -263,6 +327,7 @@ if (process.argv.includes('--json')) {
       a: { section: a.section, sentence: a.sentence },
       b: { section: b.section, sentence: b.sentence },
     })),
+    crossEchoes: crossEchoes.map(({ score, a, b }) => ({ score: Number(score.toFixed(3)), a: { where: a.where, sentence: a.sentence }, b: { where: b.where, sentence: b.sentence } })),
     unbacked,
     orphans: orphans.map((s) => ({ ...s, inbound: 0 })),
   }, null, 2));
@@ -299,15 +364,37 @@ for (const { score, a, b } of echoes.slice(0, 25)) {
 }
 if (echoes.length > 25) say(`  ... and ${echoes.length - 25} more (use --json)`);
 
+rule(`2b. SHARED SENTENCES — spec and companion near-verbatim (overlap >= ${CROSS_THRESHOLD})`);
+say('  README explains and the spec defines (CLAUDE.md). A sentence in both is one of them');
+say('  doing the other\'s job, and the copy drifts the next time the rule moves.');
+say();
+if (!crossEchoes.length) {
+  say('  none');
+} else {
+  for (const { score, a, b } of crossEchoes.slice(0, 20)) {
+    say(`  ${score.toFixed(2)}  ${a.where} <-> ${b.where}`);
+    say(`        ${clip(a.sentence, 104)}`);
+    say(`        ${clip(b.sentence, 104)}`);
+    say();
+  }
+  if (crossEchoes.length > 20) say(`  ... and ${crossEchoes.length - 20} more (use --json)`);
+}
+
 rule('3. UNBACKED — binding sections nothing in src/ or test/ cites');
 if (!unbacked.length) {
   say('  none — every section carrying a MUST is named somewhere in the implementation or its tests');
 } else {
-  for (const s of unbacked) say(`  §${s.section.padEnd(7)} ${String(s.binding).padStart(3)} MUST  ${clip(s.title, 56)}`);
+  for (const s of unbacked) {
+    const why = GATE_EXEMPT.get(s.section);
+    say(`  §${s.section.padEnd(7)} ${String(s.binding).padStart(3)} MUST  ${clip(s.title, 56)}${why ? '   [exempt]' : ''}`);
+  }
   say();
   say('  This does not say the rule is unimplemented. It says the implementation never claims');
   say('  to be implementing it, so nothing connects the two and a change to either is silent');
-  say('  at the other.');
+  say('  at the other. §3.3.1 sat here while a live defect sat under it.');
+  for (const [sec, why] of GATE_EXEMPT) {
+    if (unbacked.some((s) => s.section === sec)) say(`  exempt §${sec}: ${why}`);
+  }
 }
 
 rule('4. ORPHANS — binding sections no other section points at');
@@ -323,3 +410,19 @@ if (!orphans.length) {
 }
 
 say();
+
+// `--gate` is the only part of this file that can fail a build, and it is deliberately the only
+// column that can. WEIGHT is a ranking, ECHOES and ORPHANS are heuristics over prose, and a
+// threshold that fails a build is a threshold somebody tunes until it passes. "Is this rule
+// connected to the implementation at all?" is a yes/no question with no threshold in it.
+if (process.argv.includes('--gate')) {
+  if (gateFailures.length) {
+    say(`GATE FAILED — ${gateFailures.length} binding section(s) that src/ could cite and does not:`);
+    for (const s of gateFailures) say(`  §${s.section}  ${s.binding} MUST  ${s.title}`);
+    say();
+    say('Cite the section from the code that implements it and from the test that would fail');
+    say('without it. If neither exists, that is the finding.');
+    process.exit(1);
+  }
+  say('GATE PASSED — every binding section src/ could cite is cited by src/ and by test/');
+}
