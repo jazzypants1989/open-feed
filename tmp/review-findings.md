@@ -29,7 +29,19 @@ Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 >   number and calling it prohibitive. Do not restore a cross-read cache on that argument.
 > - **`tmp/rules.js`'s UNBACKED column earned its keep on its first use.** §3.3.1 left that column
 >   by being implemented. Appendix C (13 MUSTs) and the Abstract remain, and Appendix C is now the
->   register's largest single open finding.
+>   register's largest single open finding — but see the correction below.
+> - **The Appendix C entry's headline number was wrong, and it was the sentence doing the
+>   persuading.** "~15% of the binding weight" is off by a factor of three: measured, Appendix C
+>   is **4.5% of MUSTs and 4.5% of words**, i.e. exactly proportional. It ranks second in
+>   `rules.js`'s per-section table because it is one large section where comparable material is
+>   split (§3.2 + §3.2.1 = 22 MUSTs), not because it is dense. The case both ways is
+>   `tmp/appendix-c-case.md`, written at the owner's request; the recommendation is **keep it
+>   normative**, because four core sections scope their own MUSTs by pointing at it — §11.1.1's
+>   only exception, §13.8's named prohibition, §7.3's allowlist justification, §14's proxy
+>   carve-out — and because five of its thirteen MUSTs are the only text in this specification
+>   protecting people who never agreed to be in it. A smaller cut of three weak rules is proposed
+>   there instead. **A number nobody recomputed survived four passes and nearly bought a
+>   deletion**; it is the same failure as a prototype nobody re-runs.
 > - **Stage 0 was declared CLOSED and a Stage 0-class defect was still there.** "Closed" meant the
 >   enumerated list was done, not that `src/` was clean — and the thing that found the survivor was
 >   a tool built to measure something else. Read the status line that way.
@@ -65,7 +77,8 @@ Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 >   `publish.js` already followed §4.3. Fixed by deleting the restatement.
 > - **Still OPEN:** Stage 3 (now the only lever that shortens the document), Stage 4's remaining
 >   items, Stage 5's remainder, and owner decisions 4 and 7. Appendix C is the largest single
->   finding of the new tool: 13 MUSTs, ~15% of the binding weight, and nothing in `src/` or
+>   finding of the new tool: 13 MUSTs, ~15% of the binding weight *(wrong — 4.5%, corrected in the
+>   seventh pass above)*, and nothing in `src/` or
 >   `test/` cites it.
 >
 > **Session update (2026-08-17, fifth pass — the docs).** S2.11 is **DONE**: README and

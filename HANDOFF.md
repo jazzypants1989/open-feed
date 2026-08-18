@@ -83,11 +83,15 @@ been measured for any of them and each needs a prototype or an argument, not a p
 
 **2. The shortlist `tmp/rules.js` produced.** Run `node tmp/rules.js` — it is a report, it
 changes nothing, and it takes a second:
-- **Appendix C carries 13 MUSTs and nothing in `src/` or `test/` cites it.** That is ~15% of the
-  specification's binding weight, for gateways, required by no conformance level, and it says
-  itself that it defines no profile and never will. The honest question — not mine to answer —
-  is whether it is a specification or an essay, and README is where essays live. It is the
-  single largest reduction available and it costs no rule any level requires.
+- **Appendix C carries 13 MUSTs and nothing in `src/` or `test/` cites it.** Put to the owner and
+  written up in `tmp/appendix-c-case.md`; read that before acting. Two things in the entry as
+  originally written are wrong and are corrected there. **"~15% of the specification's binding
+  weight" was never measured and is off by a factor of three** — Appendix C is 4.5% of MUSTs and
+  4.5% of words, i.e. exactly proportional, and it ranks second in `rules.js`'s table only because
+  it is one large section where comparable material is split (§3.2 + §3.2.1 = 22). And it is
+  **UNBACKED for scope, not neglect**: `src/` implements no gateway. The recommendation is to keep
+  it — four core sections scope their own MUSTs by pointing at it, §11.1.1's only exception among
+  them — and take a smaller cut of the three weak rules.
 - **§3.3.1 — ANSWERED, and the answer was yes. DONE**, see `b0b4be2` and register 0.13. It could,
   and there were two defects stacked in the one path. §3.3.1 has left the UNBACKED column by
   being implemented. **The transferable part is the shape:** §12's "MAY cache … MUST NOT hold one
