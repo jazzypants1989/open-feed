@@ -115,11 +115,53 @@ parse identity documents") and never restates the *shapes* those behaviors act o
 §5.1, §5.4. An implementer could satisfy every line of §12 and not be conformant. §12 now says so
 in a short paragraph, which is the cheap fix; whether anything more is wanted is open.
 
-**Still unbuilt, and the best remaining idea:** a **claims ledger**. Executable claims are gated
-(prototypes) and normative ones are now gated (`rules:gate`). **Numbers and "this is the only
-place X happens" claims are gated by nothing**, and those are exactly the two that have cost the
-most — a number nobody rechecked nearly deleted Appendix C. A file of every such claim with a
-one-line derivation that CI re-runs would close it, and adds nothing to the spec.
+### The owner's idea, which was dismissed and should not have been
+
+**Building the spec from the code, by first proving each fact from the code.** This is the
+owner's proposal. It appears in the record exactly once — the previous pass's handoff, written up
+anonymously as "the tempting inversion", rejected in the same paragraph, ending *"so nobody
+re-proposes it."* Then the pass after that deleted the paragraph and reinvented a weaker piece of
+it under a new name. **If you find yourself about to reject an owner suggestion in the document
+that is supposed to carry it forward, don't.**
+
+The rejection answered a weak reading — *generate the spec's prose from rule objects* — and that
+reading does deserve to fail: the spec's value is its argument, why this rule and not the weaker
+one, and arguments don't decompose into data. But the owner's framing is **prove each fact from
+code first**, which is not about generating prose at all. It is about what earns the right to be
+written down. Under that reading, every failure this repo has catalogued is a claim the code never
+supported, and it is the only proposal on the table that addresses all four rows of the table at
+the top of this file.
+
+**`tmp/prove.js` is the first working slice of it.** For each rule: a one-line edit to `src/` that
+breaks it, and the test that must start failing. Run `npm run prove`. It proves a transition —
+the test passes on clean code, then fails on broken code — because either half alone is worthless.
+
+`tmp/proofs.js` holds the table, and it holds **no rule text at all**: a section number, an edit,
+a test name. There is nothing in it to drift out of agreement with the spec, which is what the
+original objection was actually about.
+
+What it has already found, from five entries:
+
+- §11.1.1's producer-side guard had **no test**. `Publisher` refused to deliver an item carrying
+  `_openfeed.feed_url`, and deleting that guard kept the whole suite green. Test written.
+- `chain.js`'s stateless report of the compare rule is **not exercised by anything**, and its own
+  comment says it is unreachable when a `PinStore` exists. Either a test is missing or the line is
+  dead. Left failing on purpose — see the note in `tmp/proofs.js`.
+- The first version of `prove.js` reported **four false proofs**, because a `--test-name-pattern`
+  matching nothing still exits non-zero, so "nothing ran" and "the test caught it" looked
+  identical. Fixed by requiring the named test to exist and to pass first.
+
+**Not yet wired into `npm run check`**, deliberately: one entry is legitimately failing, and a
+gate that ships red gets ignored or suppressed. Resolve the §5.3.1 question, then wire it.
+
+**Where to take it next**, in rough order of value:
+1. Cover the enforceable MUSTs. `rules.js --gate` says which sections are cited; this says which
+   are *held*. The honest output is a fraction — proven / enforceable — and nobody can currently
+   state it.
+2. Extend past normative rules to **numbers and uniqueness claims**, which is what nearly deleted
+   Appendix C and what nothing checks today.
+3. Decide what a rule that cannot be proven from this code means. Appendix C's bind gateways;
+   §10.5's bind display. Those are not failures, and the report should say so by name.
 
 **Things not to try**, each having already cost a pass: a line budget (deliberately retired),
 splitting the document into several, cutting the reasoning that sits next to a MUST, or adding an

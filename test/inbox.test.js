@@ -750,6 +750,49 @@ test('`_delivery` on a published item is ignored, never a stream (§10.6, §11.2
   assert.deepEqual({ seq: st.seq, hash: st.hash }, { seq: 1, hash: documentHash(dm) });
 });
 
+test('a delivered item may not name a feed', async (t) => {
+  // §11.1.1's producer half. The receiver half — "a receiver MUST NOT place a delivered-only item
+  // into any publicly-readable artifact" — is tested elsewhere and is the enforcement everyone
+  // thinks of, but the author's own side has to hold too: `_openfeed.feed_url` is what §7.5 makes
+  // canonical, so an item carrying one is published by definition and there is no such thing as
+  // delivering it privately. Promotion is a re-sign (a re-*encrypt* under §15), never a field
+  // added to bytes already delivered.
+  //
+  // Found missing by `tmp/prove.js`: the guard at publish.js could be deleted and the whole suite
+  // stayed green. That is the first thing the method caught, and it is the shape it is built for
+  // — not a wrong rule, an unwatched one.
+  const site = await newSite(t);
+  const gran = identityAt(site, 'gran');
+  const sender = new Publisher({
+    identity: gran.url, signer: gran.signer, feedUrl: `${gran.url}feed.json`,
+    manifestUrl: `${gran.url}manifest.json`, title: 'gran', now: () => T0 - 600,
+  });
+
+  assert.throws(
+    () => sender.deliverItem(
+      {
+        id: 'urn:uuid:not-really-private',
+        content_text: 'private',
+        _openfeed: {
+          feed_url: `${gran.url}feed.json`,
+          rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }],
+        },
+      },
+      { at: T0 - 500, to: MOM },
+    ),
+    /feed_url/,
+    'a delivered item that names a feed is a published item, and Publisher refuses to sign it as both',
+  );
+
+  // The same item without the field is ordinary, so the refusal is about `feed_url` and not about
+  // anything else in the shape.
+  const ok = sender.deliverItem(
+    { id: 'urn:uuid:not-really-private', content_text: 'private', _openfeed: { rel: [{ type: 'reply', to: `${MOM_FEED}#${MY_ITEM}` }] } },
+    { at: T0 - 500, to: MOM },
+  );
+  assert.equal(ok._openfeed.feed_url, undefined);
+});
+
 test('a delivered retraction carries its own place in the stream, and the allowlist admits it (§7.3, §8.2, §10.6)', async (t) => {
   // §8.2 retracts a delivered item by delivering a tombstone; §10.6 has delivered items carry
   // `_delivery`. Before §7.3's allowlist admitted the field, the two rules could not both be

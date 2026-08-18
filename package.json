@@ -18,6 +18,7 @@
     "test": "node --test \"test/**/*.test.js\"",
     "rules": "node tmp/rules.js",
     "rules:gate": "node tmp/rules.js --gate",
+    "prove": "node tmp/prove.js",
     "verify": "node bin/openfeed.js verify",
     "vectors": "node tmp/regen.js",
     "prototypes": "node tmp/check-prototypes.js",
