@@ -96,14 +96,63 @@ Stage close:
 - [x] Shrink CLAUDE.md's per-prototype table to a pointer at the cards
 - [x] `npm run check` and `npm run prototypes` green; every gate revert-checked (21 mutations in `tmp/revert-gates.js`, all caught)
 
-## Stage 2 — the tl;dr (~1 session)
+## Stage 2 — the tl;dr — CLOSED 2026-08-17
 
-- [ ] `TLDR.md` at root: best honest 200 (how) + 100 (guarantees) + ≤10-term glossary for the
+- [x] `TLDR.md` at root: best honest 200 (how) + 100 (guarantees) + ≤10-term glossary for the
       spec *as it stands*, marked draft
-- [ ] `tmp/measure/tldr-check.js` (~30 lines): enforce the budget mechanically
-- [ ] **Complexity ledger** (append as a section here): every mechanism/term that blew the
+- [x] `tmp/measure/tldr-check.js` (~30 lines): enforce the budget mechanically
+- [x] **Complexity ledger** (append as a section here): every mechanism/term that blew the
       budget → its spec sections, word cost, and which floor assurance it serves. A mechanism
       serving no stated guarantee is a named cut candidate.
+
+
+## The complexity ledger (Stage 2, 2026-08-17)
+
+The 300 words **fit** — 200/97/10 exactly, `tmp/measure/tldr-check.js` green. The predicted
+failure did not happen, and the actual finding is sharper: the tl;dr fits only by describing the
+happy path. All ten glossary slots went to nouns; `tombstone`, `version`, `published/delivered`,
+`canonical/copy`, `migration`, and `level` each lost the 11th-term contest, and
+**published/delivered is the most painful omission** — it is the protocol's central conceptual
+split and the 300 words never mention it.
+
+Word costs re-derived 2026-08-17 (`re-split on ## headings, fences dropped`); total spec prose
+≈ 40,700. What the budget excluded:
+
+| Mechanism | Where | Words | Serves | In the 300 words |
+| --- | --- | --- | --- | --- |
+| URL normalization, two comparators | §3.1 | ~900 | every identity/pin comparison | hidden inside "HTTPS URL" |
+| Migration + recovery + predecessor equivalence | §3.4, §4.5 | ~2,900 | **exit (floor)** | one sentence |
+| Delegated keys | §4.6 | ~700 | exit custody | absent |
+| Revocation + two observation heuristics | §4.4 | ~600 | damage limitation (§4.4 itself concedes how little) | absent — Stage 3 candidate |
+| Chain fine print: contiguity, base64url spelling, retention, fork resolution, caps | §5 | 2,694 | integrity | "chain"/"pin" carry two lines of it |
+| Signing + canonicalization + parser equivalence + kind binding | §6 | 2,947 | integrity of everything | seven words |
+| Canonical/copy + derived item URLs + withholding | §7.5–§7.6, §9.3 | ~2,200 | completeness | absent entirely |
+| Manifest machinery: skip links, freshness, cadence, five invariants, lag/withheld/stale | §9 | 4,980 | completeness + freshness | "manifest" carries one line — the largest pile |
+| Inbox pipeline: ordering, dedup, oracles, delivery continuity | §10 | 2,083 | interaction integrity | "inbox" carries one line |
+| Published/delivered split + audience-of-one + roster foreclosure | §11 | 1,707 | **audience restriction (floor)** | absent |
+| Tombstone allowlist + versioning | §7.3 | ~600 | the deletion guarantee | three words |
+| Encryption layer | §15 | 3,555 | **audience-restricted content (floor)** | one clause |
+| Item-carried pins | §16 | 1,602 | equivocation-detection supply | absent |
+| Conformance levels + hosting rules | §12 | 1,396 | — | absent |
+| Token-vocabulary meta-rule | §2.1 | ~350 | extension governance | absent — Stage 3 candidate |
+
+**Guarantees the 100 words could not fit** — each is real, each has a mechanism pile behind it,
+and none was expressible in the budget:
+
+- *A host that stops serving you is distinguishable from you going quiet* — §9.1.2 freshness.
+- *A dropped private message is visible to its recipient* — §10.6 delivery continuity.
+- *A host serving the manifest but refusing the bytes is caught* — §7.6 + §9.3 withholding.
+- *Your encrypted words cannot be replayed under someone else's name* — §15.2.1 carrier binding.
+- *Ordinary family traffic carries the cross-checking* — §16.1 item pins.
+
+**The reading that matters for Stage 3.** Those five guarantees are all patches for the same gap
+— things the manifest-plus-pin core cannot see (silence, drops, refusals, replays, single-witness
+blindness) — and each was answered with *another application of the same chain/commitment
+discipline*: §10.6 is "the third application of the one chain discipline" by its own text, §16.1
+is pins again, §9.1.2 is a deadline on the chain, §7.6 is hash-addressing again. Five separate
+mechanisms, ~9,000 words, one underlying idea. The one-chain-construction and manifest-optional
+hypotheses in Stage 3 are aimed exactly here: if the applications genuinely unify, four of the
+five guarantees become one sentence and the tl;dr's omissions stop being omissions.
 
 ## Stage 3 — redesign prototypes, the heart (~3+ sessions)
 
