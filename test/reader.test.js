@@ -865,12 +865,11 @@ test('a fork with no co-signature on either branch stays frozen', async (t) => {
   assert.equal(me.pins.pin(`${site.url}openfeed.json`).seq, 2, 'the pin is retained, not advanced');
 });
 
-test('an identity document is cached across reads, and the cache expires', async (t) => {
-  // §12 Level 1 SHOULD, and who pays is the reason it is not tuning. A family board (§7.1)
-  // carries items from several authors and every one needs that author's own document to
-  // resolve a key, so without a cache spanning reads one poll of a shared board is one fetch per
-  // distinct author, at every author's origin, forever. The ceiling is what keeps it a cache
-  // rather than a second pin: a revocation published afterwards has to become visible.
+/**
+ * Mom's board (§7.1) carrying items by Gran, who publishes at her own origin. Resolving Gran's
+ * key needs Gran's own document (§6.6), which is one identity chain walked and pinned per read.
+ */
+async function boardWithCoAuthor(t, { items = 1 } = {}) {
   const site = await newSite(t);
   const board = await newSite(t);
   const signer = makeSigner('key-1');
@@ -880,35 +879,96 @@ test('an identity document is cached across reads, and the cache expires', async
   const contributor = new Publisher({
     identity: board.url, signer: guest, profile: { name: 'Gran' }, now: () => T0,
   });
-  contributor.publishItem({ id: 'urn:uuid:gran-1', content_text: 'from Gran' }, { at: T0 });
+  for (let i = 0; i < items; i++) {
+    contributor.publishItem({ id: `urn:uuid:gran-${i}`, content_text: `from Gran ${i}` }, { at: T0 });
+  }
   contributor.advanceManifest({ updated: T0 + 60 });
   board.serve(contributor);
 
-  // A copy of Gran's item on Mom's board: verified as authored, and resolving its key needs
-  // Gran's document (§7.1, §6.6).
-  const copy = [...contributor.items.values()][0];
+  const copies = [...contributor.items.values()];
   site.serve(owner);
-  site.replace('feed.json', { ...owner.feed, items: [...owner.feed.items, copy] });
+  site.replace('feed.json', { ...owner.feed, items: [...owner.feed.items, ...copies] });
+  return { site, board, owner, contributor, copies };
+}
+
+test('a co-author is observed once per read, and observed again at the next read', async (t) => {
+  // §3.3.1 against §12, and the two are not in conflict once you read §12's clause as what it
+  // is: "MAY cache identity documents, and MUST NOT hold one for longer than 1 h" — a permission
+  // with a ceiling, not an instruction. §3.3.1's MUST is what binds, because resolving a
+  // co-author *is* deciding a verdict: `readIdentity` walks and pins that author's chain, so
+  // §5.3.1 fires there or nowhere. A cache spanning reads answers the second poll out of the
+  // first poll's copy, which is the test below this one.
+  //
+  // Within one read, memoizing is the opposite trade and is kept: one read is one verdict, and a
+  // second fetch of the same URL inside it buys nothing but a chance to catch a swap mid-read.
+  const { site, board } = await boardWithCoAuthor(t, { items: 3 });
 
   const me = consumer(t);
   const clock = { at: T0 + DAY };
-  const r = () => createReader({
+  const shared = createReader({
     fetcher: me.fetcher, pins: me.pins, observations: new ObservationStore({ now: () => clock.at }),
     now: () => clock.at,
   });
-  const shared = r();
 
   const before = board.requested.length;
   await shared.read(site.url);
-  const afterFirst = board.requested.length;
-  assert.ok(afterFirst > before, 'the first read resolves the foreign author');
+  const first = board.requested.length - before;
+  assert.ok(first > 0, 'the first read resolves the foreign author');
+  assert.equal(
+    board.requested.filter((p) => p === 'openfeed.json').length, 1,
+    'three items by one co-author cost one observation of that co-author',
+  );
 
   await shared.read(site.url);
-  assert.equal(board.requested.length, afterFirst, 'the second asks that origin for nothing');
+  assert.equal(board.requested.length - before, first * 2, 'the next read observes that origin again');
+});
 
-  clock.at = T0 + DAY + 3601;
-  await shared.read(site.url);
-  assert.ok(board.requested.length > afterFirst, 'and past the ceiling it asks again');
+test("a co-author's chain equivocating is a violation, not a flaky host", async (t) => {
+  // §5.3.1 reached through someone else's feed. The evidence is identical to an equivocation on
+  // this identity's own chain — the consumer's own two observations of one URL — so the finding
+  // carries the same kind, and `cli.js` exits 2. Reported as `unverifiable` it is exit 1 and
+  // reads as Gran's server having a bad day, which is the report a forking host would choose.
+  //
+  // This is the co-author instance of the rule already applied to a listed `feeds` entry: an
+  // equivocating archive must not read as an unreachable one either.
+  const { site, board } = await boardWithCoAuthor(t, { items: 2 });
+
+  const me = consumer(t);
+  const r = () => createReader({
+    fetcher: me.fetcher, pins: me.pins, observations: new ObservationStore({ now: () => T0 + DAY }),
+    now: () => T0 + DAY,
+  });
+
+  const first = await r().read(site.url);
+  assert.deepEqual(first.findings, [], 'the board reads clean while Gran is honest');
+  const pinned = me.pins.pin(`${board.url}openfeed.json`);
+  assert.equal(pinned.seq, 1, "Gran's chain is pinned by the co-author resolution");
+
+  // Gran's origin now serves a different genesis at the same seq — a fork, whoever made it.
+  const thief = makeSigner('thief-1');
+  const fork = new Publisher({
+    identity: board.url, signer: thief, profile: { name: 'Gran (not)' }, now: () => T0,
+  });
+  fork.publishItem({ id: 'urn:uuid:gran-0', content_text: 'from Gran 0' }, { at: T0 });
+  fork.advanceManifest({ updated: T0 + 60 });
+  board.serve(fork);
+
+  const second = await r().read(site.url);
+  const severe = second.findings.filter((f) => f.kind === 'invariant');
+  assert.equal(severe.length, 1, 'one forked chain is one finding, however many items it signed');
+  assert.match(severe[0].message, /served two different versions at seq 1/);
+  assert.match(severe[0].message, /co-author/);
+  assert.equal(me.pins.isFrozen(`${board.url}openfeed.json`), true, 'and the pin is frozen, not advanced');
+  assert.equal(
+    me.pins.pin(`${board.url}openfeed.json`).hash, pinned.hash,
+    'the pin still names what this consumer saw first',
+  );
+
+  // Both of Gran's items are still individually reported unverifiable — the chain finding is
+  // about the chain, and a client showing items needs to know which ones went dark.
+  assert.equal(second.findings.filter((f) => f.kind === 'unverifiable').length, 2);
+  // Mom's own feed is unharmed: one co-author's fork does not take a board down (§7.1).
+  assert.ok(second.items.live.length > 0, "the board owner's own items still verify");
 });
 
 test('an item that fails verification writes nothing into the first-observation record', async (t) => {

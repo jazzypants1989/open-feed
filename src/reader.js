@@ -334,13 +334,6 @@ export function createReader({
   // can commit ten thousand items the reader is not holding, and probing all of them is a
   // fetch storm to answer a question nobody asked.
   maxItemProbes = 16,
-  // §12 Level 1 SHOULD: cache identity documents for at most an hour. It reads like tuning and
-  // is not, because of who pays. A family board (§7.1) carries items from several authors and
-  // every one of them needs that author's own document to resolve a key — so without a cache
-  // spanning reads, one poll of a thousand-item board is one fetch per distinct author, at every
-  // author's origin, forever. The ceiling is what keeps it a cache rather than a second pin:
-  // revocation has to become visible, and an hour is the bound §12 names.
-  identityCacheSeconds = 3600,
   // §13.4's fan-out caps. The per-document caps bound what one fetch can cost; these bound what
   // one *document* can make a consumer fetch. A conformant 100 KB identity document can list
   // hundreds of feeds, and a single feed page can name a distinct author per item — each
@@ -350,9 +343,6 @@ export function createReader({
   maxAuthorResolutions = 50,
   identityCacheEntries = 256,
 } = {}) {
-  // author -> { document, at }. Deliberately not a pin store: this holds no verdict, and every
-  // document taken from it has already been walked and pinned by the code that put it here.
-  const identityCache = new Map();
   /**
    * §13.4's history budget: "the greater of 10 MB and 20× the current version's size", decoded.
    * It scales with the document because a fixed budget does not survive its own ceiling — a
@@ -729,6 +719,10 @@ export function createReader({
     // resolution is a fetch at an author-chosen origin, a chain walk, and a permanent pin, so
     // a hostile feed naming a fresh author per item converts one poll into an unbounded sweep.
     const resolvedAuthors = new Set();
+    // author -> the EquivocationError or InvariantViolation their chain raised. Collected rather
+    // than thrown: one co-author's forked chain must not take the whole feed down with it (§7.1),
+    // and it must not be reported as a fetch failure either.
+    const authorChainViolations = new Map();
 
     for (const item of allItems) {
       const author = String(item?.authors?.[0]?.url ?? '');
@@ -768,6 +762,15 @@ export function createReader({
           try {
             authorDocument = (await resolveIdentity(author)).document;
           } catch (e) {
+            // A co-author's chain equivocating is the attack §5.3.1 exists to name, and reaching
+            // it through someone else's feed does not make it a fetch failure. Classified like
+            // the same finding on a listed `feeds` entry: the item is still unverifiable, but
+            // the *chain* violation is surfaced under its own severe kind (exit 2, not 1), or a
+            // publisher hands a reader "Gran's server was flaky" for a forked identity. Keyed by
+            // author, because one forked chain is one fact however many items it signed.
+            if (e instanceof EquivocationError || e instanceof InvariantViolation) {
+              if (!authorChainViolations.has(key)) authorChainViolations.set(key, e);
+            }
             rejected.push({ item, reason: `could not resolve ${author}: ${e.message}` });
             continue;
           }
@@ -849,6 +852,7 @@ export function createReader({
       canonical,
       copies,
       rejected,
+      authorChainViolations,
       unhashedAttachments,
       partial,
       probe,
@@ -962,7 +966,7 @@ export function createReader({
    * item is judged against, what supplies §4.4's first-observation time, and (since §7.6) the
    * list of exact revisions a reader may ask for by name.
    */
-  async function readOneFeed(identity, entry) {
+  async function readOneFeed(identity, entry, resolveIdentity) {
     const manifest = await readManifest(entry.manifest, {
       identityDocument: identity.document,
       feedUrl: entry.url,
@@ -999,7 +1003,7 @@ export function createReader({
       // resolver every such item is unverifiable, which reads as a defect in an ordinary
       // arrangement the specification explicitly permits. One fetch per distinct author,
       // memoized for the read, of that author's own fixed-path document (§13.9).
-      resolveIdentity: cachedIdentity,
+      resolveIdentity,
     });
 
     // §9.3's withholding verdict is scoped to bytes this consumer actually tried to obtain, and
@@ -1057,6 +1061,14 @@ export function createReader({
           kind: 'stale',
           message: `${stale.url}: manifest seq ${stale.seq} undertook to advance by ${stale.deadline}${stale.declared ? ' (declared)' : ' (this reader\'s ceiling)'} and has not; ${Math.floor(stale.overdueSeconds / 86400)} day(s) overdue`,
         }] : []),
+        // §5.3.1 on a co-author's own chain (§7.1). It carries the same kind as a violation on
+        // this identity's chains, because it is the same rule firing on the same evidence — the
+        // consumer's own two observations of one URL — and the items below say separately that
+        // this author's items could not be verified.
+        ...[...feed.authorChainViolations].map(([author, e]) => ({
+          kind: 'invariant',
+          message: `${author} (co-author on ${entry.url}): ${e.message}`,
+        })),
         ...byState('withheld').map((s) => ({ kind: 'withheld', id: s.id, message: `${s.id}: ${s.reason}` })),
         ...feed.rejected.map((r) => ({ kind: 'unverifiable', id: r.item?.id, message: r.reason })),
         // §7.4: the signature covers the reference, never the bytes. An attachment with no
@@ -1085,26 +1097,51 @@ export function createReader({
   }
 
   /**
-   * §12's positive identity-document cache, shared across reads rather than scoped to one.
+   * §7.1's co-author resolver: one observation of each distinct author per read, and a fresh one
+   * at the next read.
    *
-   * The entry is discarded once it is older than the ceiling, so a revocation published after it
-   * was stored becomes visible within the hour §12 allows. A caller wanting none passes
-   * `identityCacheSeconds: 0`.
+   * §12 permits caching an identity document for up to an hour and §3.3.1 requires revalidating
+   * a mutable tip before deciding a verdict — and resolving a co-author is deciding one, because
+   * `readIdentity` walks and pins that author's chain, so §5.3.1 fires here or not at all. §12's
+   * clause is a MAY with a ceiling, not a licence to skip a MUST, so the scope is the *read*: a
+   * cache spanning reads answers the second poll's verdict out of the first poll's copy, and a
+   * co-author whose chain forks in the meantime is a clean report and an unfrozen pin. Measured,
+   * the saving that buys is one conditional GET per distinct co-author per poll — the ordinary
+   * cost of a feed reader, against tips §3.3.1 already asks producers to serve with an `ETag`.
+   *
+   * Within one read it memoizes, and that is not the same trade: one read is one verdict, so a
+   * second observation of the same URL would only be a second chance to catch the serving path
+   * mid-swap — while a 20-feed catalog naming one co-author throughout would pay 20 fetches for
+   * it. Failures memoize too, so a forked chain is one finding and not one per item it signed.
+   *
+   * Contrast `inbox.js`, whose hour-long identity cache is conformant: it caches a *document* to
+   * check one signature, never a chain walk, so no §5.3.1 verdict rides on it and §13.9's framing
+   * — the ceiling as a bound on revocation — is the whole of it there.
    */
-  async function cachedIdentity(author) {
-    const key = normalizeIdentityUrl(author);
-    const held = identityCache.get(key);
-    if (held && now() - held.at < identityCacheSeconds) return held.result;
-    const result = await readIdentity(key, { verifyMigration: false });
-    // Bounded (§13.4): the keys arrive from other people's feeds, so an unbounded map is a
-    // memory lever a hostile feed pulls one author at a time. Insertion-order eviction is
-    // enough — an evicted entry costs one refetch, exactly as expiry does.
-    identityCache.delete(key);
-    identityCache.set(key, { result, at: now() });
-    while (identityCache.size > identityCacheEntries) {
-      identityCache.delete(identityCache.keys().next().value);
-    }
-    return result;
+  function readScopedIdentityResolver() {
+    // Bounded (§13.4) even for one read: `maxAuthorResolutions` is charged per feed and
+    // `maxFeedEntries` feeds are read, so the keys — which arrive from other people's feeds —
+    // still multiply. Insertion-order eviction is enough; an evicted entry costs one refetch.
+    const memo = new Map();
+    return async function resolveIdentity(author) {
+      const key = normalizeIdentityUrl(author);
+      if (memo.has(key)) {
+        const held = memo.get(key);
+        if (held.error) throw held.error;
+        return held.result;
+      }
+      let held;
+      try {
+        held = { result: await readIdentity(key, { verifyMigration: false }) };
+      } catch (e) {
+        held = { error: e };
+      }
+      memo.delete(key);
+      memo.set(key, held);
+      while (memo.size > identityCacheEntries) memo.delete(memo.keys().next().value);
+      if (held.error) throw held.error;
+      return held.result;
+    };
   }
 
   /**
@@ -1231,11 +1268,14 @@ export function createReader({
     // unbounded sweep. Entries past the cap are reported, not silently dropped.
     const others = listed.slice(0, Math.max(0, maxFeedEntries - 1));
     const skippedEntries = listed.slice(others.length);
-    const primary = await readOneFeed(identity, entry);
+    // One resolver for this read (§3.3.1), shared across every listed feed so a co-author
+    // appearing in two of them is observed once.
+    const resolveIdentity = readScopedIdentityResolver();
+    const primary = await readOneFeed(identity, entry, resolveIdentity);
     const rest = [];
     for (const other of others) {
       try {
-        rest.push(await readOneFeed(identity, other));
+        rest.push(await readOneFeed(identity, other, resolveIdentity));
       } catch (e) {
         // One unreadable archive does not make an identity unreadable. The finding says which.
         rest.push({ entry: other, error: e });
