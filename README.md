@@ -750,7 +750,7 @@ Open Feed builds on JSON Feed, the modern JSON equivalent of RSS/Atom. Plain fee
 
 ### Writing a bridge profile
 
-Spec Appendix C states the one rule that governs every gateway — *a gateway may not change the terms under which content was published*: not the **audience**, not the **durability**, not the **verification status**. Because that rule is protocol-independent, a profile for a specific protocol is a filled-in table rather than a fresh trust argument. **Profiles live here rather than in the spec, permanently**: a profile binds to a foreign protocol's behavior of the moment — its visibility flags, its deletion semantics, its identity seam — and normative text that goes stale at a trust boundary is worse than none, because implementers keep obeying it. This is the template; a worked one follows.
+Spec Appendix C states the one rule that governs every gateway — *a gateway may not change the terms under which content was published*: not the **audience**, not the **durability**, not the **verification status**. Because that rule is protocol-independent, a profile for a specific protocol is a filled-in table rather than a fresh trust argument. **Profiles live here rather than in the spec, permanently**: a profile binds to a foreign protocol's behavior of the moment — its visibility flags, its deletion semantics, its identity seam — and normative text that goes stale at a trust boundary is worse than none, because implementers keep obeying it. The spec keeps only the two slots whose wrong answer is somebody else's disclosure — the audience test and the durability test — and leaves the rest here. This is the template; a worked one follows.
 
 | Slot | What it fixes |
 |---|---|
@@ -763,7 +763,7 @@ Spec Appendix C states the one rule that governs every gateway — *a gateway ma
 | **What does not map** | Foreign objects with no item representation — `Follow`, `Accept`, `Block`, lexicon records, room state. Bridge-internal state; never invent `_openfeed.rel` types for them |
 | **Failure semantics** | The foreign object disappears; a delete arrives for something never ingested; the foreign side is unreachable |
 
-Those last two are where implementers improvise, and improvisation at a trust boundary is how the honest-hub model gets quietly abandoned.
+Fill every slot. A blank one is not a gap in the table, it is a decision made at runtime by whoever writes the code that day.
 
 #### Worked profile: Mastodon, syndication class (POSSE)
 

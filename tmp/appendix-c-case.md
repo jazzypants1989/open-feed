@@ -97,9 +97,17 @@ Three of the thirteen are weak, and none of them is in the group protecting non-
   keeping one sentence: a profile must answer the audience and durability tests, which are [7] and
   [8] and are the safety-critical pair C already flags.
 
-That is 3 of 13 MUSTs and roughly a third of the appendix's prose, taken from the parts that read
-as essay, leaving every rule that protects somebody untouched. It is a real cut and it is not the
-lever the owner is looking for: on the measured share it recovers about 1.5% of the document.
+**Taken, and measured afterwards — the estimate in this paragraph was wrong.** Predicted: 3 of 13
+MUSTs and a third of the appendix's prose. Actual: **2 of 13 MUSTs and 9 words.** [12] kept both
+its keywords in reduced form (a profile MUST still fix the two safety-critical tests, and the
+`_openfeed.rel` prohibition binds gateways rather than profiles), and the slot enumeration it shed
+was a run-on list that cost almost nothing to carry. Appendix C moves from #2 to joint-#2 in
+`rules.js`'s weight table.
+
+So the cut is worth taking and it is **a duplication cut, not a length cut** — it deletes a
+verbatim shadow copy of README's seven-slot template and two MUSTs that restate §11.1.1 and §9.3.
+Nine words is the finding: there is no length lever in Appendix C, and §1's proportionality result
+already said so. Anyone re-proposing the deletion should start from this number.
 
 ## 5. What a gateway implementer loses under each option
 
