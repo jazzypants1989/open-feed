@@ -146,6 +146,14 @@ that live elsewhere, which is exactly the extraction surface Stage 4 asks for, a
 already maintained by hand. Leaning into it and deleting it are both coherent; maintaining it
 while adding a second one is not.
 
+**Sketch B and Sketch C are CLOSED** — measured in `tmp/sketches-review.md`, read that before
+re-costing either. C's premise is false: §9.1 *is* the unification it proposes, already built as a
+four-row substitution table, and 87% of §9 has no §5 analog at all. B's instrument is miscalibrated
+(the weight table ranked Appendix C #2 for a section-size artifact) and its real shortlist is one
+item, which was examined this pass and kept. The same document carries the finding they missed —
+**§12's checklist reaches only half the specification's MUSTs**, the other half being object
+shapes it silently assumes — and three alternatives none of the sketches contain.
+
 **Sketch C — the long shot, named so it can be dismissed properly.** The identity chain and the
 manifest chain are one mechanism, and §9.1 says so in a substitution table. §5 and §9 are a large
 fraction of the document and much of §9 is §5 restated under that substitution. A single "chained
