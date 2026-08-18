@@ -3,7 +3,7 @@
 Delete this file when it has been consumed. It is a list of what is still open plus the traps;
 none of it belongs in `CLAUDE.md` or the spec. `tmp/review-findings.md` is the durable register.
 
-**Baseline:** `npm test` → **265 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
+**Baseline:** `npm test` → **266 pass, 0 fail**. `node tmp/regen.js` → all checks pass.
 `npm run prototypes` → **all 17 hold**, re-run this pass; see `tmp/prototype-results.json`
 (gitignored; read it before paying for a rerun, the full suite costs ~5 min). Working tree clean.
 
@@ -61,7 +61,9 @@ third time this class has survived a green run.
 
 ## Status
 
-**Stage 0 (`src/` defects): CLOSED.**
+**Stage 0 (`src/` defects): CLOSED — and read that as "the enumerated list is done", not as
+"`src/` is clean".** The seventh pass found a Stage 0-class defect after the close (register 0.13),
+and what found it was a tool built to measure something else.
 **Stage 1 (spec corrections): CLOSED.**
 **Stage 2: CLOSED**, S2.9 included.
 **S2.11 (docs): DONE.** README and DISTRIBUTION-MODEL both match the spec.
@@ -86,12 +88,11 @@ changes nothing, and it takes a second:
   itself that it defines no profile and never will. The honest question — not mine to answer —
   is whether it is a specification or an essay, and README is where essays live. It is the
   single largest reduction available and it costs no rule any level requires.
-- **§3.3.1 (Caching) is the only section that is both orphaned and unbacked.** Its MUST is real
-  ("a consumer deciding a verdict MUST revalidate rather than answer from a stale cached copy"),
-  and **nothing in `src/` claims to implement it** — `reader.js` caches identity documents and
-  cites §12 and §13.9 for the ceiling, never §3.3.1's revalidation rule. Worth an hour: can the
-  shipped reader answer a §5.3.1 or §9.3 verdict out of its identity cache? If it can, that is a
-  Stage 0 defect that outlived Stage 0.
+- **§3.3.1 — ANSWERED, and the answer was yes. DONE**, see `b0b4be2` and register 0.13. It could,
+  and there were two defects stacked in the one path. §3.3.1 has left the UNBACKED column by
+  being implemented. **The transferable part is the shape:** §12's "MAY cache … MUST NOT hold one
+  for longer than 1 h" is a permission written next to a bound, it reads as an instruction, and
+  the MUST that actually governed it lived in a section nothing cited.
 - **§10.1 is orphaned but backed** — nothing points at it, everything implements it. Benign.
 
 **3. Stage 5's remainder.** `syndication-prototype.js` still recommends a shape it never measured
@@ -157,6 +158,13 @@ and adding an index (measured against, above).
 ## Things that will bite you
 
 New this pass, above the rule:
+
+- **The reader's co-author identity resolver is scoped to one read, and that is §3.3.1, not
+  tuning.** It memoizes within a read — failures too, so one forked chain is one finding — and
+  observes again at the next. Do not restore a cross-read cache for performance: resolving a
+  co-author walks and pins *their* chain, so the cache would be answering §5.3.1, and the saving
+  was measured at one conditional GET per co-author per poll. `inbox.js` keeps its hour and is
+  right to — it caches a document to check one signature, never a walk.
 
 - **A prototype with no assertion gate is checking that the file still runs.** All three fixed
   this pass had drifted or broken without saying so, and `inbox` had been broken for four

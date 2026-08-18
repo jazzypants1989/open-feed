@@ -6,6 +6,36 @@ every finding, with its current status. `HANDOFF.md` is the short list of what t
 
 Status key: **DONE** (landed, with a test) · **OPEN** · **PARTIAL**.
 
+> **Session update (2026-08-17, seventh pass — the handoff's §3.3.1 question, answered yes).**
+> Baseline now **266 pass**, regen clean, all 17 prototypes hold. One commit. What a later pass
+> most needs from this one:
+>
+> - **The answer to "can the shipped reader answer a §5.3.1 verdict out of its identity cache?"
+>   was yes**, and there were two defects stacked in that one code path — the first hiding the
+>   second. `reader.js` cached a co-author's resolved identity for an hour *across reads*; because
+>   resolving a co-author (§7.1, §6.6) runs `readIdentity`, which walks and pins that author's
+>   chain, the cache was answering §5.3.1. A long-lived reader polling a board whose co-author
+>   forks returned `findings: []`, an unfrozen pin, and no record. Underneath it, with the cache
+>   off, the equivocation *was* caught and the pin *did* freeze — and `readFeed`'s per-item catch
+>   rendered it `unverifiable` (exit 1), which is "Gran's server was flaky" for a forked identity.
+>   Both fixed: the cache is scoped to one read, and a co-author chain violation is `invariant`.
+> - **§12's cache clause is a MAY with a ceiling, and `src/` read it as an instruction.** That is
+>   the whole mechanism of the bug and it is worth remembering as a shape: a permission written
+>   next to a bound reads like a recommendation, and the MUST that actually governed it lived in a
+>   section nothing cited. §3.3.1 and §12 now point at each other.
+> - **Measured, the cache saved one conditional GET per co-author per poll** — not a walk. A walk
+>   costs nothing once the pin is current, so `reader.js`'s comment defending the cache against
+>   "one fetch per distinct author, at every author's origin, forever" was pricing the right
+>   number and calling it prohibitive. Do not restore a cross-read cache on that argument.
+> - **`tmp/rules.js`'s UNBACKED column earned its keep on its first use.** §3.3.1 left that column
+>   by being implemented. Appendix C (13 MUSTs) and the Abstract remain, and Appendix C is now the
+>   register's largest single open finding.
+> - **Stage 0 was declared CLOSED and a Stage 0-class defect was still there.** "Closed" meant the
+>   enumerated list was done, not that `src/` was clean — and the thing that found the survivor was
+>   a tool built to measure something else. Read the status line that way.
+> - **Still OPEN:** Stage 3, Stage 4's remaining items, Stage 5's remainder, owner decisions 4 and
+>   7, and Appendix C.
+>
 > **Session update (2026-08-17, sixth pass — four items off the handoff's list).** Baseline now
 > **265 pass**, regen clean, all 17 prototypes hold. What a later pass most needs from this one:
 >
@@ -254,6 +284,19 @@ Both of invariant 3's bounds invert under a future-dated item: `manifest.updated
 false and `now - signedAt > ceiling` is negative, so a publisher stamping a year ahead holds its
 whole feed in permanent `pending` and can serve an item to one reader and not another
 indefinitely. Needs a clock-skew guard plus the spec sentence at 1.4.
+
+**0.13 The identity cache answered a §5.3.1 verdict, and a co-author's fork was graded as a
+fetch failure. DONE (seventh pass).** Found by the handoff's §3.3.1 question, which `tmp/rules.js`
+raised by listing §3.3.1 as the one section both orphaned and unbacked. `reader.js` held a
+co-author's resolved identity for an hour across reads on §12's authority — but §12's clause is a
+MAY with a ceiling, and resolving a co-author runs `readIdentity`, so the cache was answering the
+compare rule. Second poll of a forked co-author: `findings: []`, pin unfrozen, nothing recorded.
+With the cache off the fork *was* caught and the pin *did* freeze, and the finding came out
+`unverifiable` (exit 1) rather than `invariant` (exit 2) — the co-author instance of 0.9, whose
+fix sits one screen below in the same file. Cache scoped to one read (memoizing within it,
+failures included); violations collected by author and surfaced under the severe kind. Measured
+cost of conformance: one conditional GET per distinct co-author per poll. §3.3.1 and §12 now
+cross-reference. Two tests, each revert-checked.
 
 **0.11 Smaller. DONE.**
 - `publish.js` could not emit `_recovery_sig` at all — **DONE**, `Publisher.coSignIdentity`.
