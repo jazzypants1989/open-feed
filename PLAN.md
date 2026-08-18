@@ -46,7 +46,7 @@ claim.
 - [x] Write this file
 - [x] Delete HANDOFF.md
 
-## Stage 1 — code clean-up (~1–2 sessions)
+## Stage 1 — code clean-up — CLOSED 2026-08-17
 
 Layout: `tmp/archive/` (originals, never run by CI) · `tmp/prototypes/<name>.js` + `<name>.md`
 (gates and verdict cards) · `tmp/measure/` (informative scripts, no gates).
@@ -54,7 +54,8 @@ Layout: `tmp/archive/` (originals, never run by CI) · `tmp/prototypes/<name>.js
 **The gate contract** lives in `tmp/prototypes/README.md`: imports `src/`, real assertions each
 revert-checked (break the thing, watch it fail), comments ≤1 line, target ≤~200 lines. The card
 carries: question, method, key numbers (marked with what would make them stale), verdict, pointer
-to the archived original.
+to the archived original. Revert-checks are an executable table, `tmp/revert-gates.js`
+(`npm run prototypes:revert`) — not just a dated note in the card.
 
 - [x] Create layout; `git mv` all 17 prototypes to `tmp/archive/`; fix their relative paths
 - [x] Point `tmp/check-prototypes.js` at `tmp/prototypes/*.js`; fail on an empty set
@@ -64,15 +65,18 @@ to the archived original.
 Gates to rewrite (drive `src/` on properties whose violation is silent):
 
 - [x] threshold — shipped `verifyMigration` refuses `_recovery_sigs` (revert-checked)
-- [ ] inbox — §10.2 ordering by outbound fetch position; §10.3 write-before-verify; dedup across migration
-- [ ] delivery-chain — §10.6/§11.2; **preserve its greps of four exact spec sentences**
-- [ ] freshness — §9.1.2 with the rule off and on; Q5 greedy declaration; Q6 punctual custodian
-- [ ] withholding-capability — §3.2.1 `items` caught-vs-silent; undeclared publisher reads as before
-- [ ] itemurls — §7.6 hash-addressing; feed-parsed and standalone bodies hash identically
-- [ ] migration — both §3.4 paths through shipped `verifyRecoverySignature`/`resolveFork`
-- [ ] enctags — shipped envelope keeps shared-`epk` + blinded-tag shape, no `kid`
-- [ ] export — §14 restore with no network, no bundle-specific verifier; E1 ancestor asymmetry
-- [ ] canonicality — regime-B bytes equivocate; regime-C cannot reproduce §14-nested docs
+- [x] inbox — §10.2 ordering by outbound fetch position; §10.3 write-before-verify; dedup across migration
+- [x] delivery-chain — §10.6/§11.2; **preserve its greps of four exact spec sentences**
+- [x] freshness — §9.1.2 with the rule off and on; Q5 greedy declaration; Q6 punctual custodian
+- [x] withholding-capability — §3.2.1 `items` caught-vs-silent; undeclared publisher reads as before
+- [x] itemurls — §7.6 hash-addressing; feed-parsed and standalone bodies hash identically
+- [x] migration — both §3.4 paths through shipped `verifyRecoverySignature`/`resolveFork`
+- [x] enctags — shipped envelope keeps shared-`epk` + blinded-tag shape, no `kid`
+- [x] export — §14 restore with no network, no bundle-specific verifier; E1 ancestor asymmetry
+- [x] canonicality — regime-B bytes equivocate; regime-C cannot reproduce §14-nested docs
+- [x] feedbinding — the Q3 board-owner attack against shipped `_feed_url`, plus the spec-text
+      locator that keeps the ~106-word figure honest. (Omitted from the first draft of this
+      table — the 17th prototype; caught during stage close)
 
 Verdict cards only (assertion promoted only if cheap):
 
@@ -80,17 +84,17 @@ Verdict cards only (assertion promoted only if cheap):
       the adopted convention is unchained (the old file's table overstates the adopted cost)
 - [x] manifestindex — its `|| true` assertion was dead; the three rejection reasons are card material
 - [x] itempins
-- [ ] skiplinks — headline number was halved once when repriced at the MUST; mark stale-prone
-- [ ] enc — hand-rolled its own JWE; anything still load-bearing gets re-pointed at `src/enc`
+- [x] skiplinks — headline number was halved once when repriced at the MUST; mark stale-prone
+- [x] enc — hand-rolled its own JWE; anything still load-bearing gets re-pointed at `src/enc`
 
 Measure scripts:
 
-- [ ] deltamanifest → `tmp/measure/` (verdict is ratios that could invert with compressor/scenario)
+- [x] deltamanifest → `tmp/measure/` (verdict is ratios that could invert with compressor/scenario)
 
 Stage close:
 
-- [ ] Shrink CLAUDE.md's per-prototype table to a pointer at the cards
-- [ ] `npm run check` and `npm run prototypes` green; every gate revert-checked
+- [x] Shrink CLAUDE.md's per-prototype table to a pointer at the cards
+- [x] `npm run check` and `npm run prototypes` green; every gate revert-checked (21 mutations in `tmp/revert-gates.js`, all caught)
 
 ## Stage 2 — the tl;dr (~1 session)
 

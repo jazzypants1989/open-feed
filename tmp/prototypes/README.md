@@ -13,7 +13,8 @@ The contract for a gate:
   regresses, which is the failure mode this folder replaces.
 - **It asserts, and every assertion has been revert-checked** — the thing it guards was broken
   once, deliberately, and the gate observed to fail. An assertion that has never failed is a
-  claim. Record the revert-check in the card.
+  claim. Add the mutation as a row in `tmp/revert-gates.js` (`npm run prototypes:revert` re-runs
+  every check) and note the check in the card.
 - **Comments are one line, maximum.** Prose — why the question mattered, what the alternatives
   cost, what the numbers were — belongs in the card. Code exists to fail when a claim stops being
   true, not to carry an argument.

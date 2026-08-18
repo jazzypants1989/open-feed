@@ -22,6 +22,7 @@
     "verify": "node bin/openfeed.js verify",
     "vectors": "node tmp/regen.js",
     "prototypes": "node tmp/check-prototypes.js",
+    "prototypes:revert": "node tmp/revert-gates.js",
     "check": "npm test && node tmp/regen.js && node tmp/rules.js --gate"
   }
 }
