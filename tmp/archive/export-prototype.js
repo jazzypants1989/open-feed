@@ -37,7 +37,7 @@ import {
   canonicalBytes,
   sign,
   verifyDocument,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 let clock = 1736899200;
 const tick = (s = 3600) => (clock += s);

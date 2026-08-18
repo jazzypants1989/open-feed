@@ -43,7 +43,7 @@ import {
   sign,
   normalizeIdentityUrl,
   verifyDocument,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 // ---- a web ------------------------------------------------------------------------------
 // url -> document. Every host publishes into it; the consumer only ever reads from it, which

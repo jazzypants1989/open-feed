@@ -35,7 +35,7 @@ import {
   buildHeader,
   normalizeIdentityUrl,
   sign,
-} from '../src/index.js';
+} from '../../src/index.js';
 import crypto from 'node:crypto';
 
 const say = (s = '') => console.log(s);

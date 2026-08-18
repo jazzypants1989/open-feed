@@ -1,11 +1,9 @@
-// Run every prototype and report which ones still hold.
+// Run every prototype gate in tmp/prototypes/ and report which ones still hold.
 //
-// This exists because a convention decayed silently. Each `tmp/*-prototype.js` ends in an
-// assertion gate and a verdict, and the spec cites those verdicts as the reason its rules are
-// what they are — but nothing re-ran them, so `src/` was free to drift out from under one.
-// `itemurls-prototype.js` did exactly that: commit 932404c made `src/manifest.js` safer, which
-// falsified the prototype's Q1 premise, and the file sat exiting 1 with `HANDOFF.md` still
-// arguing §7.6's case from the number it no longer produced.
+// This exists because a convention decayed silently. Each gate ends in assertions, and the spec
+// cites their verdicts as the reason its rules are what they are — but nothing re-ran them, so
+// `src/` was free to drift out from under one (see 932404c). The originals these gates distill
+// live in `tmp/archive/`; the contract for a gate is `tmp/prototypes/README.md`.
 //
 // A prototype is evidence. Evidence that nobody re-runs is a claim.
 //
@@ -17,10 +15,11 @@ import path from 'node:path';
 import url from 'node:url';
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
-const files = fs.readdirSync(here).filter((f) => f.endsWith('-prototype.js')).sort();
+const dir = path.join(here, 'prototypes');
+const files = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort();
 
 if (!files.length) {
-  console.error('no prototypes found — did this move?');
+  console.error('no prototype gates found in tmp/prototypes/ — an empty run proves nothing');
   process.exit(1);
 }
 
@@ -31,7 +30,7 @@ for (const f of files) {
   let ok = true;
   let output = '';
   try {
-    output = execFileSync(process.execPath, [path.join(here, f)], {
+    output = execFileSync(process.execPath, [path.join(dir, f)], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 300_000,

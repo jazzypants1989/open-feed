@@ -41,7 +41,7 @@ import {
   Publisher,
   derivedVersionUrl,
   CanonicalError,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 import crypto from 'node:crypto';
 

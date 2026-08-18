@@ -31,7 +31,7 @@
 // Imports src/: the corpus is built by the real Publisher and the URL comparator is the shipped
 // one, because a rule that only works against a re-derived normalizer is not a result.
 
-import { Publisher, canonicalBytes, normalizeUrlForCompare, normalizeIdentityUrl, sign } from '../src/index.js';
+import { Publisher, canonicalBytes, normalizeUrlForCompare, normalizeIdentityUrl, sign } from '../../src/index.js';
 import crypto from 'node:crypto';
 
 const say = (s = '') => console.log(s);
@@ -254,7 +254,7 @@ scene(4, 'What actually deletes, counted rather than asserted');
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
-const specPath = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..', 'open-feed-spec.md');
+const specPath = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..', '..', 'open-feed-spec.md');
 const spec = fs.readFileSync(specPath, 'utf8');
 
 const PASSAGES = [

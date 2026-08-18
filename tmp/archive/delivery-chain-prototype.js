@@ -48,7 +48,7 @@ import {
   normalizeIdentityUrl,
   DeliveryStore,
   seal,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 const DAY = 86400;
 const T0 = 1736899200;
@@ -272,7 +272,7 @@ check('Q4 the shipped store ignores `_openfeed.delivery` where `_openfeed.feed_u
 // rather than remembered — the failure mode this whole prototype directory exists to avoid is
 // an argument that outlives the sentence it stands on.
 const specText = await import('node:fs').then((fs) =>
-  fs.readFileSync(new URL('../open-feed-spec.md', import.meta.url), 'utf8'));
+  fs.readFileSync(new URL('../../open-feed-spec.md', import.meta.url), 'utf8'));
 const anchors = [
   'MUST be addressed to exactly one recipient and delivered to exactly one inbox', // §11.2's rule
   'receivers MUST ignore it where `_openfeed.feed_url` is present',                         // §10.6's guard

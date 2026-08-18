@@ -28,7 +28,7 @@
 
 import crypto from 'node:crypto';
 
-import { seal, open, slotTag, TAG_LABEL, encryptionKeyFor, EncError } from '../src/enc.js';
+import { seal, open, slotTag, TAG_LABEL, encryptionKeyFor, EncError } from '../../src/enc.js';
 
 const say = (s = '') => console.log(s);
 const rule = (t) => { say(); say('='.repeat(78)); say(t); say('='.repeat(78)); };

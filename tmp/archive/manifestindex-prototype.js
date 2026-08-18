@@ -24,7 +24,7 @@
 // item is `'x'.repeat(280)` — item sizes are heterogeneous, because a storage figure derived from
 // one item length is a figure about that length.
 
-import { Publisher, canonicalBytes, documentHash } from '../src/index.js';
+import { Publisher, canonicalBytes, documentHash } from '../../src/index.js';
 import crypto from 'node:crypto';
 
 const say = (s = '') => console.log(s);

@@ -21,7 +21,7 @@
 
 import crypto from 'node:crypto';
 
-import { sign, verifyDocument, normalizeIdentityUrl, parseIJSON } from '../src/index.js';
+import { sign, verifyDocument, normalizeIdentityUrl, parseIJSON } from '../../src/index.js';
 
 const say = (s = '') => console.log(s);
 const scene = (n, t) => { say(); say('='.repeat(78)); say(`S${n}. ${t}`); say('='.repeat(78)); };

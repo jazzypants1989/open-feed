@@ -51,7 +51,7 @@ import {
   normalizeIdentityUrl,
   derivedVersionUrl,
   FetchError,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 const DAY = 86400;
 const T0 = 1736899200;

@@ -46,7 +46,7 @@ import {
   b64u,
   parseIJSON,
   assertCanonicalBytes,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 import crypto from 'node:crypto';
 

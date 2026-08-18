@@ -56,14 +56,14 @@ revert-checked (break the thing, watch it fail), comments ≤1 line, target ≤~
 carries: question, method, key numbers (marked with what would make them stale), verdict, pointer
 to the archived original.
 
-- [ ] Create layout; `git mv` all 17 prototypes to `tmp/archive/`; fix their relative paths
-- [ ] Point `tmp/check-prototypes.js` at `tmp/prototypes/*.js`; fail on an empty set
-- [ ] Write `tmp/prototypes/README.md` (the gate contract)
-- [ ] Note the layout change in CLAUDE.md (full table shrink happens at stage end)
+- [x] Create layout; `git mv` all 17 prototypes to `tmp/archive/`; fix their relative paths
+- [x] Point `tmp/check-prototypes.js` at `tmp/prototypes/*.js`; fail on an empty set
+- [x] Write `tmp/prototypes/README.md` (the gate contract)
+- [x] Note the layout change in CLAUDE.md (full table shrink happens at stage end)
 
 Gates to rewrite (drive `src/` on properties whose violation is silent):
 
-- [ ] threshold — shipped `verifyMigration` refuses `_recovery_sigs` (revert-checked)
+- [x] threshold — shipped `verifyMigration` refuses `_recovery_sigs` (revert-checked)
 - [ ] inbox — §10.2 ordering by outbound fetch position; §10.3 write-before-verify; dedup across migration
 - [ ] delivery-chain — §10.6/§11.2; **preserve its greps of four exact spec sentences**
 - [ ] freshness — §9.1.2 with the rule off and on; Q5 greedy declaration; Q6 punctual custodian
@@ -76,10 +76,10 @@ Gates to rewrite (drive `src/` on properties whose violation is silent):
 
 Verdict cards only (assertion promoted only if cheap):
 
-- [ ] syndication — **card must state in bold**: the measured costs priced the *chained* shape;
+- [x] syndication — **card must state in bold**: the measured costs priced the *chained* shape;
       the adopted convention is unchained (the old file's table overstates the adopted cost)
-- [ ] manifestindex — its `|| true` assertion was dead; the three rejection reasons are card material
-- [ ] itempins
+- [x] manifestindex — its `|| true` assertion was dead; the three rejection reasons are card material
+- [x] itempins
 - [ ] skiplinks — headline number was halved once when repriced at the MUST; mark stale-prone
 - [ ] enc — hand-rolled its own JWE; anything still load-bearing gets re-pointed at `src/enc`
 
