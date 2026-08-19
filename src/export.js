@@ -159,9 +159,9 @@ export function containerEntries(bundle, blobs = new Map()) {
     externalized++;
   }
   // The JSON entry sheds only inlined `bytes` whose blob now rides as a container file, and
-  // keeps every other member of every attachment entry — and where the bundle is signed (§14
-  // MAY), it is not touched at all: a container that rewrites a signed document has invalidated
-  // the one signature that says who assembled it.
+  // keeps every other member of every attachment entry — and a bundle carrying a `_sig` (an
+  // extension; §14 defines no bundle signature) is not touched at all: rewriting a document out
+  // from under a signature field falsifies whatever that field was claiming.
   if (externalized && typeof bundle._sig !== 'string') {
     document.attachments = (bundle.attachments ?? []).map((a) => {
       if (typeof a?.bytes !== 'string' || !entries.has(a?._openfeed?.sha256)) return a;

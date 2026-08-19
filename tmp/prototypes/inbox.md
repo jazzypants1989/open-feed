@@ -31,10 +31,10 @@ of a delivered-only item filed as a stranger's new item and the sender got a `20
 landed. §10.3 now subjects the `author` half to predecessor equivalence; `src/inbox.js` takes an
 `equivalent` predicate, and the gate runs the failure with it absent and the cure with it present.
 
-**What the gate guards** (`inbox.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): the fetch counts stay pinned to the
+**What the gate guards** (`inbox.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the fetch counts stay pinned to the
 step-7 boundary, the shipped write order keeps the victim's genuine revisions accepted, relevance
 keeps refusing strangers before any fetch, and `DedupStore.write` keeps landing a successor's
-retraction on the predecessor's record. Proposed revert-check mutations, each matching exactly
+retraction on the predecessor's record. Revert-check mutations (rows in `tmp/revert-gates.js`), each matching exactly
 once in `src/inbox.js`:
 
 1. `if (!relevant(item) && !tombstoneOfStored) return out('not_relevant');` →

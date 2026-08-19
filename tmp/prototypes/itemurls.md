@@ -37,12 +37,12 @@ that reads as withholding. Hash-addressing needs no encoding rule, is self-verif
 is the value the manifest already commits, and incidentally keeps superseded revisions fetchable,
 which §7.3 otherwise makes impossible.
 
-**What the gate guards** (`itemurls.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): the shipped reconcile keeps
+**What the gate guards** (`itemurls.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the shipped reconcile keeps
 `withheld` reachable only through a refused §7.6 probe (the 932404c behavior, both directions);
 the encoder divergence that disqualifies id-addressing; every committed hash staying URL-safe and
 the shipped derivation staying under `/items/` unencoded; and §6.3's parser equivalence — a
 standalone body round-trips to its own bytes and hashes identically to the feed-parsed item.
-Proposed revert-check mutations (to be performed and stamped by the orchestrator):
+Revert-check mutations (rows in `tmp/revert-gates.js`):
 
 1. `src/manifest.js`: `const probed = unobtainable.has(id);` → `const probed = true;`
    (assertions 1 and 3 should fail — a feed read alone starts accusing).

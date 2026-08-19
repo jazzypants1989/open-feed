@@ -38,12 +38,12 @@ link. A's cost is not the feared bar: signing already computes the exact bytes, 
 keeping a string, and the one reachable failure is serializing twice — which is why §6.3 names the
 trailing newline explicitly.
 
-**What the gate guards** (`canonicality.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): B-bytes stays read as
+**What the gate guards** (`canonicality.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): B-bytes stays read as
 equivocation by the shipped code — `assertCanonicalBytes` accepts the canonical retained copy whose
 hash contradicts a tip pin over pretty bytes; the shipped code keeps refusing a pretty-printed body
 and canonical-bytes-plus-trailing-newline; a §14-nested value keeps reproducing published bytes
 under A and keeps being irreproducible under C; and the reference publisher keeps emitting only
-canonical files. Proposed revert-check mutations (each one line, matching exactly once):
+canonical files. Revert-check mutations (rows in `tmp/revert-gates.js`; each one line, matching exactly once):
 
 1. `src/canonical.js`: `if (!served.equals(expected)) {` →
    `if (!served.equals(expected) && !served.equals(Buffer.concat([expected, Buffer.from('\n')]))) {`

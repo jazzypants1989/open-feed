@@ -37,11 +37,11 @@ candidate deletes only two application sites of predecessor equivalence, not the
 two still compares feed URLs), and `_feed_owner ?? authors[0].url` adds a second
 absence-means-something rule beside §11.1.1's load-bearing one.
 
-**What the gate guards** (`feedbinding.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (`npm run prototypes:revert`)): the two rules keep agreeing
+**What the gate guards** (`feedbinding.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the two rules keep agreeing
 everywhere except Q3 — in particular the Q3 asymmetry itself, moved-item-stays-canonical under
 `_feed_owner` and copy under `_feed_url`, which is the whole reason the candidate was rejected;
 the shipped URL comparator keeps distinguishing two feeds of one identity; and the §7.5/§9
-passages behind the ~106-word figure stay locatable. Proposed revert-check mutations, each a
+passages behind the ~106-word figure stay locatable. Revert-check mutations (rows in `tmp/revert-gates.js`), each a
 one-line edit matching exactly once:
 
 1. `src/jws.js`, in `normalizeUrlForCompare`: `return url.href;` → `return url.origin + '/';`

@@ -33,12 +33,12 @@ manifest — same items, fresh `updated`, fresh `_next_update` — and stays per
 suppressing every new post (Q6); the bound defeats a host that cannot sign, and §13.2's terminal
 adversary is not that host.
 
-**What the gate guards** (`freshness.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): the freeze stays silent with the
+**What the gate guards** (`freshness.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the freeze stays silent with the
 rule off and reported with it on; mutations keep their verdicts while invariant 3 keeps not
 reaching the freeze; a declared deadline keeps firing early and staying quiet in an honest
 window; the consumer ceiling keeps capping a greedy declaration; and the Q6 caveat stays true —
 the punctual empty-advancing custodian must keep evading the rule, because §9.1.2's text claims
-no more than that. Proposed revert-check mutations (perform, observe the gate fail, revert):
+no more than that. Revert-check mutations (rows in `tmp/revert-gates.js`):
 
 1. `src/manifest.js`: `const deadline = Math.min(declared, manifest.updated + ceiling);` →
    `const deadline = Math.max(declared, manifest.updated + ceiling);` — assertions 2, 5, and 7

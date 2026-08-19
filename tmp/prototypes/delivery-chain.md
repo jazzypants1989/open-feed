@@ -41,7 +41,7 @@ RULE, and `_openfeed.delivery` on a published item is ignored. The pair key reso
 predecessor equivalence (Q5), a third consumer of §3.4's rule. Stated limit: a suffix drop leaves
 silence, and silence is not evidence — this does not make delivery reliable.
 
-**What the gate guards** (`delivery-chain.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): the pre-§10.6 counterfactual
+**What the gate guards** (`delivery-chain.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the pre-§10.6 counterfactual
 stays true (no `to`, no field, no evidence), the shipped chain keeps catching the selective drop
 with a signed artifact and a counter alone keeps failing the suffix case, the §15.2 slot header
 stays down to `alg` and `_tag` with unlinkable tags, the shipped entry keeps naming nobody, the
@@ -50,7 +50,7 @@ ends — and **the spec keeps carrying the four sentences the Q4 resolution stan
 one-recipient MUST, §10.6's ignore-where-`feed_url` guard, the membership framing, the author-held
 list), so the argument cannot outlive the text it rests on.
 
-Proposed revert-check mutations (each matches exactly once; orchestrator to perform and stamp):
+Revert-check mutations (rows in `tmp/revert-gates.js`; each matches exactly once):
 
 1. `src/publish.js` — `if (last) entry.prev = last.hash;` → `// if (last) entry.prev = last.hash;`
    (sender stops emitting the prev-hash; the Q3 signed-artifact and Q5 linkage claims should fail).

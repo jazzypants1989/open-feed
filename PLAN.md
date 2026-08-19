@@ -108,7 +108,7 @@ Stage close:
 
 ## The complexity ledger (Stage 2, 2026-08-17)
 
-The 300 words **fit** — 200/97/10 exactly, `tmp/measure/tldr-check.js` green. The predicted
+297 words — 200/97/10 exactly, `tmp/measure/tldr-check.js` green. The predicted
 failure did not happen, and the actual finding is sharper: the tl;dr fits only by describing the
 happy path. All ten glossary slots went to nouns; `tombstone`, `version`, `published/delivered`,
 `canonical/copy`, `migration`, and `level` each lost the 11th-term contest, and
@@ -154,38 +154,119 @@ mechanisms, ~9,000 words, one underlying idea. The one-chain-construction and ma
 hypotheses in Stage 3 are aimed exactly here: if the applications genuinely unify, four of the
 five guarantees become one sentence and the tl;dr's omissions stop being omissions.
 
-## Stage 3 — redesign prototypes, the heart (~3+ sessions)
+## The review pass + prelude (2026-08-19) — CLOSED
 
-Each hypothesis gets a Stage 1-style prototype (gate + card), judged on: (1) the assurance floor,
-(2) which of the 267 tests' *intents* break — the suite encodes the adversary catalog, (3)
-measured simplicity (spec words removed, glossary terms removed, wire/request cost). Check
-`tmp/archive/` and the cards first: several near-misses are already priced, and re-*discovering*
-them is waste. Each accepted change lands completely — spec + `src/` + tests + `node tmp/regen.js`
-+ affected gates — before the next hypothesis begins.
+A full review re-derived Stage 1/2's claims (every checked number reproduced; all 21 revert
+mutations were live) and found four defects, all fixed the same session:
 
-Hypothesis list (Stage 2's ledger will reorder and extend):
+1. Ten verdict cards were bulk-stamped "revert-checked" while still carrying "to be performed by
+   the orchestrator" tails — the campaign's own signature bug inside its own instruments. The
+   cards now point at `tmp/revert-gates.js` as the sole record.
+2. `tmp/revert-gates.js` had no green baseline — a gate already red would have "caught" every one
+   of its mutations vacuously. It now runs each gate clean first and reports `GATE ALREADY RED`.
+3. The gates were absent from `npm run check` although all 11 now finish in under a second — the
+   exact decay mode this fleet exists to stop. Wired in.
+4. **A real spec defect**: §14 said a bundle "MAY itself be signed (§6)", but §6.2's closed `typ`
+   set names no bundle kind and §6.5 step 3 rejects an unrecognized one — a signed bundle could
+   never verify. Fixed by deleting the affordance (§14 itself argued the signature unnecessary);
+   §6.3's and §6.6's nested-signature justifications re-grounded on embedded signed documents
+   generally; `src/export.js`'s comment updated (its conservative don't-rewrite-under-a-`_sig`
+   behavior kept).
 
-- [ ] §9.1.1 skip links (~700 words of OPTIONAL; deltamanifest card holds the counter-cost)
-- [ ] §4.4's two revocation heuristics (weakest-defended of the five; §4.4 itself concedes)
-- [ ] `_recovery_sig`'s second role as §5.5 fork tiebreaker (a SHOULD a first-contact consumer cannot run)
-- [ ] §2.1's vocabulary meta-rule (governs one real vocabulary, inverts one, one unused)
-- [ ] §16.1's `observed` field (supports only what §13.10 declines to build on)
-- [ ] One chain construction — identity + manifest unified at the *design* level (the dead sketch
-      merged the *sections*; a design merge makes "87% no counterpart" the thing to fix)
-- [ ] Manifest-optional core — can item-carried pins do enough of §5.3.1's work that the manifest
-      becomes a layer? (§9: 5,012 words, largest section, 173 w/MUST vs 95–110 baseline)
-- [ ] Fewer document kinds / fewer conformance levels, measured against the glossary cap
-- [ ] Inbox and encryption as companion layers (spec-splitting was "a thing not to try"; the
-      owner has put it back on the table, so it gets priced rather than presumed)
+Counting note: test/ is 7,878 lines only if helpers are counted; 7,500 without.
 
-## Stage 4 — docs clean-up + proving the spec (~2 sessions)
+## Stage 3 — write the pearl (redesign, ~3+ sessions) — REPLANNED 2026-08-19
 
-- [ ] Re-run the tl;dr against the new spec — the campaign's success metric: it fits, or the
-      misses are deliberate and named. Promote into README's TL;DR.
-- [ ] The 26% pile: ~9,900 words carrying no RFC 2119 keyword, never assessed as a pile. Where a
-      proof or test now carries a justification's weight, the prose shrinks to a sentence.
-- [ ] README (13.6k words) and DISTRIBUTION-MODEL (20k) trimmed; `npm run rules`'s near-verbatim
-      echo report drives cross-document consistency
+The review inverted this stage. The old list (kept below as the control arm) treated
+simplification as independent deletions; the ledger's own reading — five patch mechanisms,
+~9,000 words, one idea — points at designs where the patched gaps *do not exist*. Stage 3 now
+drafts one coherent straw-man, **Open Feed 2**, from three moves, then attacks it with everything
+Stages 1–2 built. Owner rulings 2026-08-19: radical straw-man over incremental cuts;
+manifest-optional demoted to a card; Stage 4's rationale split is wholesale.
+
+The three moves — each must answer its named recorded rejections in writing, never silently:
+
+- **R2 — kill the delivered column.** Everything is published; §15 encryption is the privacy
+  (§15.2's blinded tags already hide the audience); §10's inbox becomes a content-free **ping**
+  ("look at ‹URL›", rate-limited, verified by the ordinary read path at the source), making §1's
+  principle 3 true *without* its stated exception. §15.4 already reversed the delivered column
+  for encrypted replies and recorded why; this finishes the move. Collapses: the §10 pipeline +
+  oracles, §10.6 (its guarantee *upgraded* — a dropped message becomes the already-solved
+  withholding problem, committed by the sender's own log), §11's 2×2 + audience-of-one
+  scaffolding, the dedup/delivery stores, and §14's admitted no-completeness-proof slots.
+  Price to measure, not assume: DM existence/size/timing metadata goes public; stranger replies
+  become ping + fetch. Must answer: delivery-chain card Q4, both rejected receipt designs,
+  §11.2's roster foreclosure (unchanged — audiences stay sealed).
+- **R1 — the manifest becomes an append-only event log with checkpoints.** Typed events
+  (add / tombstone / checkpoint); §9.3 invariant 1 becomes true by construction — there is no
+  removal event but the tombstone; skip links → checkpoints; retained history becomes append-only
+  immutable segments (the deltamanifest card measured this shape winning retained storage
+  38–60×). Must answer: §9.2's Merkle paragraph (checkpoints keep the map — no inclusion proofs,
+  no dynamic endpoint, static hosting *improves*); the deltamanifest card's
+  fold/reconstructed-state objection (the log is the *only* shape and §5.3.1 still compares
+  published bytes); §13.4's budgets re-derived for the log shape.
+- **R3 — family witnesses.** The two-self-hosting-hubs persona gets a mutual witness profile:
+  each hub publishes periodic pins of the chains it reads plus a freshness attestation, turning
+  §13.2's "detectable rather than detected" into detected for witnessed hubs and closing
+  §9.1.2's key-custodian gap there. §13.10 already states this is a pure extension needing no
+  new field, endpoint, or rule. Measure what §16.1's scoping prose and §4.5's fingerprint
+  choreography shrink to when the deployment profile carries detection.
+
+Held fixed in every candidate: the exit triad (§3.4/§4.5/§14 — the identity chain stays small
+and self-keyed; the recorded rejection of merging content volume into it stands), §6 + §6.3 +
+§3.1 verbatim, the §15 envelope (unreviewed; R2 *raises* its load — say so), and `feed.json`
+kept as a plain JSON Feed *view* of the log for Level 0 readers.
+
+- [ ] **Session A — straw-man + accounting.** `SKETCH.md`: Open Feed 2 as a real RFC 2119 draft,
+      written small from the start (target ~8–12k normative words; missing the target is itself
+      a finding). `tmp/redesign/intent-map.md`: all 267 test intents mapped kept / transformed
+      (mechanism named) / dropped (owner sign-off flagged) — a silent gap here is the stage
+      failing. `tmp/redesign/rejections.md`: every recorded rejection answered by name (§9.2
+      Merkle, deltamanifest, delivery-chain Q4 + the two rejected receipt designs, §16.1
+      aggregator foreclosure, §11.2 roster, §15.4 history, register items 1–5). The sketch's
+      tl;dr through `tmp/measure/tldr-check.js`, published/delivered's fate in plain words.
+- [ ] **Sessions B/C — price the three risky deltas** as Stage 1-style gates + cards,
+      revert-checked into `tmp/revert-gates.js`: **log-gate** (walk/checkpoint/fold over `src/`
+      primitives; the manifest adversary intents — rollback, resurrection, withholding,
+      relocation; §13.4 and the deltamanifest scenarios re-derived); **ping-gate** (a pure
+      function like `inbox.js`; §10's adversary intents — oracles, floods, forged hints; the
+      claim to falsify: zero outbound fetches without a rate token, and the read path needs no
+      new verification rule); **witness profile + the R2 price sheet** (DM metadata exposure,
+      encrypted-reaction wire cost at family scale, stranger-reply latency — measured, on a
+      card, for the owner).
+- [ ] **Manifest-optional retired by card** (owner ruling): item pins never fetch and cannot
+      supply completeness (`src/chain.js:305`, `src/inbox.js:653`; ~40-test blast radius;
+      manifestindex's structural ground). The card states exactly what would reopen it.
+- [ ] **Decision gate** (owner, artifacts in hand): adopt Open Feed 2, adopt partially (e.g. R1
+      without R2), or fall back to the control arm. Adoption means rewriting spec + `src/` +
+      tests with the intent-map as the checklist — multi-session.
+
+**Control arm** (the fallback; the per-item evidence stands): one chained-document chapter
+(`src/chain.js` is already one walk + two policies whose whole delta is one predicate — self-keyed
+or not; ~12 boundary tests); one attestation concept (§10.6 + §16.1 are one shape ~2,000 words
+apart); one observation-store shape (§4.4/§10.3/§10.6, the id-half rule stated once); one verdict
+lattice (lag/withheld/violation/stale/unverifiable — §13.13 and §13.17 dissolve into it); one
+derived-URL rule (§5.4/§7.6); one timing-constants table; then the old deletion hypotheses
+(§9.1.1 skip links, §4.4's two heuristics, §2.1's meta-rule, §16.1's `observed`,
+`_recovery_sig` as §5.5 tiebreaker, §12's duplicated hosting obligations vs §4.5/§14).
+
+## Stage 4 — docs + proving, over whichever spec wins (~2 sessions)
+
+Owner ruling 2026-08-19: the rationale split is **wholesale** — superseding this repo's
+editing-rule caution. Update CLAUDE.md's rule 3 when it lands.
+
+- [ ] **RATIONALE.md**: the spec keeps every rule plus a one-sentence justification; attack
+      narratives and defeated alternatives move out, section-keyed. `tmp/prove.js` + the gates
+      carry the "this rule is real" weight mechanically. (Replaces the old "26% pile" item —
+      the pile moves wholesale instead of shrinking in place.)
+- [ ] §13 split: §13.2 (adversary gradient) and §13.4 (cap table) stay normative; the ~10
+      pure-restatement items become pointers.
+- [ ] Re-run the tl;dr — the campaign metric is now: the **honest** tl;dr fits, with
+      published/delivered either included or gone by design. Promote into README's TL;DR.
+- [ ] README (13.6k) / DISTRIBUTION-MODEL (20k): the identity-document example exists in four
+      places — keep one; Relationship to Other Protocols (3,002 w, README's largest section) out
+      of README; DM's Signatures / Published Output / Cross-Site Interactions become links.
+      `npm run rules`'s echo report drives it.
 - [ ] Expand `tmp/prove.js`/`proofs.js`: cover the enforceable MUSTs (honest output is the
       fraction proven/enforceable); extend to numeric and uniqueness claims (the class that
       nearly deleted Appendix C); resolve the deliberately-failing §5.3.1 entry (missing test or

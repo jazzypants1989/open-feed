@@ -36,12 +36,11 @@ rather than granting anyone an impersonation, so the recovery key's location *is
 S2 surfaced is likewise now plain text in §12/§13.2: a custodian holding the root key can contest
 a departure, and delegated custody removes the capability outright.
 
-**What the gate guards** (`migration.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above) — the orchestrator will perform
-and stamp): the byte-verbatim carriage keeps every held hash; invariant 5 carries every id across
+**What the gate guards** (`migration.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the byte-verbatim carriage keeps every held hash; invariant 5 carries every id across
 a relocation and trips on a dropped one; a recovery migration verifies against a declining host
 while a self-naming `kid` stays refused; a competing claim by the stolen key verifies identically
 and `resolveFork` refuses to adjudicate the pair; and §6.3's asymmetry keeps a stripped
-co-signature breaking the document. Proposed revert-check mutations, each matching exactly once:
+co-signature breaking the document. Revert-check mutations (rows in `tmp/revert-gates.js`), each matching exactly once:
 
 1. `src/chain.js`: `if (identityUrl !== identity) throw new VerifyError(\`kid names ${identityUrl}, not ${identity}\`);`
    → `if (identityUrl !== identityUrl) throw new VerifyError(\`kid names ${identityUrl}, not ${identity}\`);`

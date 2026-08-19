@@ -37,12 +37,12 @@ nothing (§4.2). §14 now requires `identity.history` to carry the predecessor's
 and `buildBundle` refuses assembly without them. **E2**, SHOULD-inline steered implementers at
 33% inflation and a multi-GB single parse; §14 now makes the archive container the ordinary form.
 
-**What the gate guards** (`export.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): a bundle still restores through the
+**What the gate guards** (`export.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): a bundle still restores through the
 generic verifier alone — both chains walked from genesis out of the file, items reconciled with
 their tombstone intact — surviving a serialize/parse round trip byte-verbatim, extension field
 and all; and the E1 asymmetry, the only test of §14's predecessor-versions rule: the successor's
 own keys cannot verify its recovery co-signature (`withoutAncestor.valid === false`) while the
-predecessor's retained chain can (`withAncestor.valid === true`). Proposed revert-checks:
+predecessor's retained chain can (`withAncestor.valid === true`). Revert-check mutations (rows in `tmp/revert-gates.js`):
 
 - `src/chain.js`: `if (identityUrl !== identity) throw new VerifyError(` →
   `if (identityUrl === identity) throw new VerifyError(` — both E1 assertions should fail (the

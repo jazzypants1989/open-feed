@@ -82,8 +82,17 @@ const targets = [...new Set(M.map(([, f]) => f))];
 const dirty = git('status', '--porcelain', '--', ...targets).trim();
 if (dirty) { console.error(`refusing: a target file is dirty\n${dirty}`); process.exit(2); }
 
+// Baseline: a gate that is already red on the clean tree "catches" every mutation vacuously.
+const runGate = (gate) => spawnSync(process.execPath, [`tmp/prototypes/${gate}.js`], { cwd: root, encoding: 'utf8' }).status;
+const red = new Set([...new Set(M.map(([g]) => g))].filter((g) => runGate(g) !== 0));
+
 let bad = 0;
 for (const [gate, file, from, to] of M) {
+  if (red.has(gate)) {
+    bad++;
+    console.log(`  FAIL  ${gate.padEnd(15)} ${file.padEnd(18)} GATE ALREADY RED — a failing gate proves nothing`);
+    continue;
+  }
   const full = path.join(root, file);
   const before = fs.readFileSync(full, 'utf8');
   const n = before.split(from).length - 1;

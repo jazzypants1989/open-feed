@@ -30,12 +30,12 @@ withdrawable only by advancing the identity chain in front of every pinned reade
 accusing nobody — and a host that never declares still cannot be accused, which is itself a
 signal a reader can show a user.
 
-**What the gate guards** (`withholding.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): a serving, declaring host
+**What the gate guards** (`withholding.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): a serving, declaring host
 cannot hide a committed item; a declining, undeclared host still suppresses the verdict (the
 safe reading, kept deliberately); the signed declaration makes the verdict reachable against
 the declining host; an undeclared publisher is read exactly as before (§7.6's normative
 backwards-compatibility promise); and the declaration cannot be stripped without the signing
-key. Proposed revert-check mutations, each matching exactly once:
+key. Revert-check mutations (rows in `tmp/revert-gates.js`), each matching exactly once:
 
 1. `src/reader.js`: `itemUrlsDeclared: entry.items === true,` → `itemUrlsDeclared: false,`
    — the reader ignores the signed declaration; assertion 3 should fail.

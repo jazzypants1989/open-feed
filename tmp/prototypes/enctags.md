@@ -40,11 +40,11 @@ of the two private halves, and tags are per-item because the ephemeral is, which
 path for every recipient, not one — same in-process exposure the CEK already has. And no quantity
 of measurement substitutes for a cryptographer; nobody outside this repo has reviewed §15.
 
-**What the gate guards** (`enctags.js`, revert-checked 2026-08-17: each proposed mutation was applied in turn, the gate failed naming the broken claim, and the tree was restored green (runner: the mutations recorded above)): the shipped envelope stays scheme
+**What the gate guards** (`enctags.js`, revert-checked — the mutations below are rows in `tmp/revert-gates.js`, and `npm run prototypes:revert` re-applies each one and requires the gate to fail): the shipped envelope stays scheme
 C — one shared `epk` and none per slot, every slot tagged, no `kid` sealed or tolerated at open,
 tags per-item and computable only from a private half, no recipient roster on the wire, an
-outsider refused, and §15.1's revoked-key refusal for new senders. Proposed revert-check
-mutations to `src/enc.js` (perform, observe the gate fail, revert, stamp):
+outsider refused, and §15.1's revoked-key refusal for new senders. Revert-check
+mutations to `src/enc.js` (rows in `tmp/revert-gates.js`):
 
 1. Reintroduce a per-slot `kid`:
    from `return { header: { alg: ALG, _tag: slotTag(z) }, encrypted_key: wrapped.toString('base64url') };`
