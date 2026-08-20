@@ -217,6 +217,52 @@ and self-keyed; the recorded rejection of merging content volume into it stands)
 §3.1 verbatim, the §15 envelope (unreviewed; R2 *raises* its load — say so), and `feed.json`
 kept as a plain JSON Feed *view* of the log for Level 0 readers.
 
+> **Session A was attempted on 2026-08-19 and failed** — the draft it produced was the current spec
+> with two sections deleted and one field renamed, not a redesign. Read
+> **`tmp/redesign/HANDOFF-stage3.md` before this file.** It records what went wrong, what is verified,
+> and the questions this stage has to ask; the owner's standing instruction there is to question
+> everything, including the three moves below and everything this file holds fixed.
+
+> **Replanned again the same day, at the owner's instruction** ("prototype several different things;
+> don't put all simplification eggs in one basket"): before any sketch, Session A now produces
+> **competing candidates with runnable assumption gates**. Done 2026-08-19: three candidate designs
+> (LOG+KEY, LOG+URL, and a profile study that eliminated nostr/ActivityPub/atproto and surfaced a
+> GIT-substrate candidate) and **seven green gates** in `tmp/redesign/gates/` (bytes, log, subchain,
+> writer, sealed-pins, channel, git — each with a verdict card and kill criteria; two kill criteria
+> fired during development and forced design consequences, recorded on the cards).
+> **`tmp/redesign/CANDIDATES.md` is the comparison and decision sheet** (four owner axes: identity
+> primitive, substrate, delivered channel, §15 envelope); `tmp/redesign/rejections.md` (draft)
+> answers every recorded rejection by name. **Owner ruling at the decision gate (2026-08-19): no
+> candidate is adopted yet — the next session is a skeptical review** of everything this session
+> produced (issues, improvements, innovative alternatives), per
+> **`tmp/redesign/HANDOFF-review.md`**, which also records the owner's leanings (hybrid identity
+> appealing; minimal delivered channel leaned; NIP-44 envelope evaluation commissioned) and the
+> known soft spots to attack first. The sketch, intent-map, and finalized rejections follow the
+> review.
+
+> **Superseded 2026-08-20 by a goals conversation with the owner.** The review found that the
+> floor above encodes the July-24 review's conclusions and that none of the owner's original values
+> (zero dependencies, weekend implementability, interop) were recorded anywhere. The owner's
+> answers are now **`tmp/redesign/GOALS.md`** — the floor restated as four assurances, the
+> priority order, the decisions taken (identity is a key; the device is the only signer; a small
+> publish interface enters scope; pull-only core; publisher forgets; items are files signed as
+> bytes; three privacy tiers, one mechanism), and the seven scenarios gates must stage. **Read it
+> before CANDIDATES.md**: the candidates' four axes are settled or dissolved by it, and the
+> sketch is written *from* GOALS.md, not from the three moves above or the control arm. GOALS.md
+> is a draft the owner has not yet argued with.
+
+> **Outside review, 2026-08-20.** Six non-Anthropic models designed from the brief and then attacked a
+> summary of GOALS.md (`tmp/redesign/outside/`). The synthesis of that review was rewritten once
+> after verification found it quoting quarantined answers (`SYNTHESIS-v2-superseded.md`, errata in
+> v3's Appendix A). **`tmp/redesign/outside/SYNTHESIS.md` (v3) is now organized as decision briefs**
+> — staleness/relocation, recovery, first contact, local copy, multi-device, push, encryption, scheduled
+> posts, the head, the publish interface — each with the attack, what this repo already measured, and
+> every option priced. **The owner rules from it next; GOALS.md and `rejections.md` are amended only
+> after those rulings, and the sketch follows them.** Two of GOALS.md's decisions are genuinely
+> destabilized by the review (a frozen copy cannot read as stale with no freshness signal; "peers a
+> reader already trusts" makes identity reader-relative); the rest are confirmed or refined. The whole
+> `tmp/redesign/` tree entered git with this block — it had been untracked for three sessions.
+
 - [ ] **Session A — straw-man + accounting.** `SKETCH.md`: Open Feed 2 as a real RFC 2119 draft,
       written small from the start (target ~8–12k normative words; missing the target is itself
       a finding). `tmp/redesign/intent-map.md`: all 267 test intents mapped kept / transformed

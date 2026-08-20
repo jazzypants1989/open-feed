@@ -4,7 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const text = fs.readFileSync(path.join(root, 'TLDR.md'), 'utf8');
+const target = process.argv[2] ? path.resolve(process.argv[2]) : path.join(root, 'TLDR.md');
+const text = fs.readFileSync(target, 'utf8');
+console.log(`  ${path.relative(root, target)}`);
 
 function section(title) {
   const m = text.split(`## ${title}\n`)[1];
