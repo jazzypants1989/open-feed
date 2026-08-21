@@ -158,3 +158,52 @@ the recorded position, surfaced here plainly.
   confirm in the sketch.
 - The archive/rotation successor (checkpoint-blob growth at 100k-item scale) — log-gate names
   it; the sketch must bound it or scope it out.
+
+## 11. ⚠ Item-carried pins (GOALS.md:80–81) — re-adopted by the fresh-start design
+
+**Recorded:** GOALS.md's completeness bullet retires "item-carried pins as a mechanism" along
+with the compare-rule apparatus; the head alone, pinned by a reader, is the completeness story.
+
+**⚠ Part-reversed, unruled.** `TLDR-new.md` and `decisions/inventory-head-exp.js` Issue 5 make a
+pin `(hseq, hash)` carried in every reply and reaction the split-view detector. `gates/splitview-gate.md`
+measures what it buys and what it costs: it catches every captive-family strategy once one
+interacting outsider with a social path exists (0 of 511), catches nothing in an all-captive
+family (4 of 63 escape), cannot see uniform staleness at all, and **as specified is a forgery
+vector** — two unverifiable fields let any replier make an honest host read as withholding or an
+honest author as forked. Adopting it requires choosing repair A (pins are hints) or repair B (the
+head signs `hseq\nhash`). The owner has not ruled on the re-adoption or the repair.
+
+## 12. ⚠ The tiny counter (RULINGS.md ruling 4) — superseded by the `[n, hash]` list
+
+**Recorded:** ruling 4 chose the 138-byte counter `{sequence, top, withdrawn, prev}` over a list
+of names (6.8 KB) or names plus fingerprints (33 KB) at ten years of three posts a week.
+
+**⚠ Reversed, unruled.** `decisions/substitution-exp.js` (the counter passes a stolen-key
+substitution to cold readers) and `inventory-head-exp.js` Issue 6 (the counter false-alarms on a
+reply to a withdrawn post) argue the list wins on correctness; the design adopted it without a
+ruling. `gates/headrange-gate.md` prices it: 81.6 KB at family scale, 5.39 MB at 100k posts; under
+range-fetch the reader cost is small at family scale at any edit rate, and at a 10k-follower
+journal it collapses to 79% of always-full at a 5% edit rate — a rate the design never states.
+The counter's own number is stale too: 178 B with a prev-hash, 337 B at 5% withdrawals, and it
+cannot express an edit. A paged head (fixed-size pages, the head listing page hashes) keeps the
+list's correctness at 0.49 TB/year in the worst case tried. Owner to rule on the reversal and
+the edit-rate assumption.
+
+## 13. ⚠ Host-released scheduled posts (RULINGS.md ruling 10) — incompatible with admission
+
+**Recorded:** ruling 10 keeps host release: the pre-stamped post carries its release time, so
+early release is visible and withholding is ordinary withholding.
+
+**⚠ Contradicted, unruled (handoff §5 A1).** Only the author's key writes the head, and a post
+is Alice's only when the head lists it, so a host-released file is never admitted.
+`gates/scheduled-gate.md` tries every way around it: pre-signing Friday's head forks Alice's
+own identity against her Tuesday post (or rolls it back); listing #8 as pending makes the
+withholding verdict depend on the reader's wall clock, which convicts an honest host from a
+clock one day fast. 0 of 4 options pass. The choice is between dropping host release and
+accepting a clock-gated verdict declared as UX.
+
+**Resolved 2026-08-21 (RULINGS §11.5, §11.9): the mechanism is reversed, the feature kept.** A
+fifth option the gate's table omitted — the head lists the post as `pending`, a reader never
+convicts a pending entry on its clock, and it becomes ordinary when the device next publishes —
+passes all four columns (`decisions/scheduled5-exp.js`). Ruling 10's "bounded withholding" story is
+replaced by "uncalled until the author next publishes," stated as the cost.
