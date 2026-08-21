@@ -124,6 +124,7 @@ console.log(`
   SHAPE: an append-only head where a withdrawal is an appended [n, null] line costs ${TB(day.ao).trim()} TB a year
   at the journal scale whatever the edit age, against ${TB(day.full).trim()} TB — with the trace of a withdrawn post
   lingering until the author compacts (once in ten years at a 10% threshold; ${TB(day.aoM).trim()} TB a year
-  compacting monthly, so the trace lives at most a month). 16-byte hashes halve every column.
+  compacting monthly, so the trace lives at most a month). 16-byte hashes take ~38% off every
+  column — not half, since the brackets and the number do not shrink (hashwidth-exp.js).
   At family scale every shape is noise. The paged head is never needed.
 `);

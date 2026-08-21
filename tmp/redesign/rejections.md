@@ -173,6 +173,14 @@ vector** — two unverifiable fields let any replier make an honest host read as
 honest author as forked. Adopting it requires choosing repair A (pins are hints) or repair B (the
 head signs `hseq\nhash`). The owner has not ruled on the re-adoption or the repair.
 
+**Resolved 2026-08-21 (RULINGS §11.1): not re-adopted, and the surface removed.** The carried pin
+is dropped. A reply already names its target (author key, number, hash), and *that* is the signal:
+a reply to a number above the head's declared top makes a reader re-fetch and, if still short, say
+"X replied to something I can't see" — a rumor naming X, never an accusation
+(`decisions/targetrumor-exp.js`: strategy for strategy it catches what the pin caught, and the
+forgery vector is gone because there is nothing unverifiable left to forge). GOALS.md:80 stands as
+written. The word "pin" narrows to the head a *reader* remembers of a head it verified itself.
+
 ## 12. ⚠ The tiny counter (RULINGS.md ruling 4) — superseded by the `[n, hash]` list
 
 **Recorded:** ruling 4 chose the 138-byte counter `{sequence, top, withdrawn, prev}` over a list
@@ -188,6 +196,14 @@ The counter's own number is stale too: 178 B with a prev-hash, 337 B at 5% withd
 cannot express an edit. A paged head (fixed-size pages, the head listing page hashes) keeps the
 list's correctness at 0.49 TB/year in the worst case tried. Owner to rule on the reversal and
 the edit-rate assumption.
+
+**Resolved 2026-08-21 (RULINGS §11.9, §12.1): the reversal is the owner's, and the shape is the
+append-only list.** The counter is superseded on correctness. The edit-rate question is answered
+not by stating a rate but by changing the shape: a withdrawal is an appended `[n, null]` line, so a
+reader's tail fetch survives it, and the four candidate shapes collapse into one dial — how often
+the author rewrites the file — which the reader is indifferent to (`gates/aohead-gate.md`) and which
+is therefore the publisher's setting, suggested default once a month. The paged head is not needed
+at any scale measured.
 
 ## 13. ⚠ Host-released scheduled posts (RULINGS.md ruling 10) — incompatible with admission
 
@@ -207,3 +223,22 @@ fifth option the gate's table omitted — the head lists the post as `pending`, 
 convicts a pending entry on its clock, and it becomes ordinary when the device next publishes —
 passes all four columns (`decisions/scheduled5-exp.js`). Ruling 10's "bounded withholding" story is
 replaced by "uncalled until the author next publishes," stated as the cost.
+
+## 14. ⚠ "The host MAY check stamps" (RULINGS.md ruling 3 continued)
+
+**Recorded:** the host may verify a file's stamp before storing it or not; readers check
+regardless, so this is *disk hygiene, not a floor question* — "whatever the host does, it can never
+write as you, because it cannot make your stamp. The worst any of them permits is refusing you or
+deleting things, which the host can do anyway."
+
+**⚠ Part-reversed, ruled 2026-08-21 (RULINGS §12.5).** The floor half is confirmed over real
+sockets: an outsider's post lands on a hub that checks nothing, and the reader refuses it either
+way (`gates/pubif-gate.md`). What the recorded reasoning missed is that "refusing you" is not only
+the host's own option once create-once exists. A stranger PUTs `/alice/posts/30…34` signed by his
+own key, is stored five times, and **Alice's own post at 30 is then refused permanently — by the
+rule that exists to stop her being overwritten**. Five requests, from anyone who knows her address.
+So the repair: a write to a number that is already taken must be *resolved*, not refused flatly —
+if the file sitting there is not the owner's, the owner's write replaces it. The MAY survives on the
+ordinary path and stops being true on a collision. Ruling 3's "every post declares its own number
+inside its stamped bytes," recorded as a habit that rides along free, is what makes the repair work
+at all: without it a replayed genuine post locks the author out of a number she has not reached.

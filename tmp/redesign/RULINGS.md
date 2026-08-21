@@ -328,3 +328,95 @@ correctness; ruling 10's mechanism → "pending." Item-carried pins are *not* re
 **Still open after this walk:** the spoken code's bits; the NIP-44 evaluation and the padding
 floor; time discipline as a written list; the reader-state count; and ruling 2 above. Numbering
 stays load-bearing: ruling 3's create-once rule and ruling 1's "above the top" both depend on it.
+
+## 12. The head's shape and the hash width — rulings of 2026-08-21, second session
+
+Taken from `HANDOFF-to-spec.md` §2.A and §2.B with the experiments built first: `gates/aohead-gate`
+(14 claims, 5 revert rows), `decisions/tracelife-exp.js`, `decisions/hashwidth-exp.js`.
+
+**1. The head is append-only, and how often the author rewrites it is the publisher's setting,
+suggested default once a month.** §11.2 is closed. A withdrawal is an appended `[n, null]` line; the
+author rewrites the file when they choose. The four shapes the handoff listed turned out to be one
+dial — the flat list is "rewrite on every withdrawal" — and **the reader is indifferent to where the
+dial sits**: a reader that last saw hseq 1 and returns at hseq 6, across two rewrites and an append
+it never saw, accepts, is told what was withdrawn, and raises nothing false. So the spec states the
+reader's rules and leaves the cadence to the app, which is where a per-user setting belongs.
+
+The dial, at journal scale (100k posts, 10k daily followers, 5% withdrawals): never rewriting is
+0.005 TB/yr with the trace permanent; yearly 0.05 TB/yr, monthly 0.59 TB/yr with the trace capped
+at 30 days; the flat list is 11.5 TB/yr with no trace. Family scale is under 1 MB per reader-year
+in every row. **Two things the owner was told before ruling:** the leftover lines are only ~6% of
+the file, so rewriting is a privacy decision and never a size one; and it buys nothing against the
+custodian of §13.2, who kept every version he ever served — it hides deletions from readers who
+arrive later and from the public.
+
+**2. The head carries the whole 32-byte hash.** The 16-byte prefix saves 38%, not the half §11.2
+rounds it to, and is safe against both attackers the handoff named: a collision search finding
+4,783 at 3 bytes and 18 at 4 finds **0 at 16** over 400,000 real hashes, and a stolen key still
+faces 2^128 for a second preimage. It was rejected on **minimality**, not on safety: the prefix
+needs two widths kept in step forever — the head at 16, a reply's target at 32 — because the
+*author's* equivocation attack (two of her own posts sharing one entry, one shown to her mother and
+one to her cousin) drops from 2^128 to 2^64, about 194 days on a 2^40 h/s farm, and is closed only
+by the target carrying all 32. One width, stated once, is worth more than 38% of a file that at
+family scale is 86 KB.
+
+**3. The head declares `top`, the highest number ever issued, and it never decreases** — a finding,
+not a choice. Without it, withdrawing your *newest* post lowers the highest number listed, so a
+reply to that post reads as above the top and ruling 11.1 raises a rumor naming the replier over a
+post the author deliberately deleted. **The flat list has this hole today**, from the first
+withdrawal onward; `headrange-gate` and `splitview-gate` both take the top as max-of-entries and no
+gate had looked. One integer closes it under either shape.
+
+**4. `prev` is only checkable by a reader that saw the version immediately before** — write it that
+way. Across a gap, `hseq` not going backwards plus the rewrite check against what the reader holds
+are the whole defence; the spec must not imply the chain is walked.
+
+**5. A number held by a file that is not the owner's may be reclaimed by the owner, and by nobody
+else.** Part-reverses ruling 3's "the host MAY check stamps ... disk hygiene, not a floor question"
+(`rejections.md` §14). The floor half holds — over real sockets, an outsider's post lands on a hub
+that checks nothing and the reader refuses it either way — but create-once turns an unchecked write
+into a *permanent* block: a stranger PUTs `/alice/posts/30…34` signed by his own key, is stored five
+times, and Alice's own post at 30 is refused 409 forever, for five requests and her address
+(`gates/pubif-gate.md`). The ruled repair leaves the ordinary path free of crypto and resolves a
+collision instead of refusing it. It does not turn around: he cannot take back what she reclaimed,
+cannot overwrite a genuine post of hers, and she cannot overwrite her own.
+
+**"The owner's file" means signed by a key in her chain AND declaring that number.** A signature
+test alone is not enough — he can replay a genuine post of hers into a number she has not reached,
+and it is signed by her chain. Ruling 3 recorded "every post declares its own number inside its
+stamped bytes" as a habit that rides along for free; it is load-bearing, and it is checked at the
+host, not only at the reader.
+
+**6. Two more sentences the publish interface owes, from the same gate.** A writer that loses a
+compare-and-swap **re-reads the file the host is serving and folds its own line into that** — the
+naive retry re-sends the writer's own idea of the list, silently drops the other device's post, and
+the loss reads to every reader as a withdrawal, so nothing anywhere reports it. And the interface
+has **no token, session or account in it**: the request is the signed file, a replayed post is
+refused by create-once and a replayed head by the stale etag, both falling out of rules that exist
+for other reasons.
+
+**7. Three sentences found by writing the whole thing** (`gates/weekend-gate.md`; the reader is 141
+lines, the publisher 47, standard library only, nothing shared). All three were invisible until the
+code existed, which is what §2.H was for.
+
+- **The head MUST be signed by the key the profile currently ends on**, so a rotation or a restore
+  means writing the head again. Not bookkeeping — the mechanism. A thief holding a rotated-out key
+  can sign a head, and the head is what admits posts; if a reader took a head from any key in the
+  chain, the thief would go on deciding what counts as hers and a restore would take nothing back.
+  **Re-signing the head is what a restore actually restores.**
+- **A head that will not verify is not an accusation.** Between the two writes a rotation takes, an
+  honest host serves a head signed by a key the profile no longer ends on — in either write order.
+  The first draft of the reader called that "this host is misbehaving." The rule: a reader holding a
+  head it verified itself keeps that one and says nothing; only a reader with none reports anything.
+  No new state, and it is the same fallback as a host that quietly stops updating.
+- **The rumor rule needs two bounds.** Look again **at most once per identity per pass**, and say
+  **one line per person** however many replies they wrote. Without both, 1,000 replies naming
+  numbers that never existed cost 1,000 fetches aimed at somebody else's host and print 1,000
+  messages. Measured: 0 fetches for 1,000 replies to posts that exist, 5 for 1,000 that name
+  nothing, one line said.
+
+**8. The reader has exactly three states** — §2.G, answered by measurement rather than by counting
+the rulings. Across all thirteen moments the gate drives: `ok`, `this host is misbehaving`, `this
+identity is in question`. **`recently restored`, `withdrawn: n`, `pending: n` and `no head newer
+than the one I hold` are notes on an ok read, not states.** That distinction is what holds the count
+at three, and the spec should make it explicitly.
