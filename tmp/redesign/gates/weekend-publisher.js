@@ -27,15 +27,16 @@ export const restore = (from, to, vouchers, court) => ({
 // the leaf count says how many there are — which is what a majority is counted against.
 export const commit = (k, members) => ({ k, leaves: members.map(({ key, salt }) => sha256(Buffer.from(`${salt}|${key.x}`))) });
 
-export const profile = ({ genesis, pseq, prev, chain, recovery, locations, read }, key) =>
-  file({ genesis, pseq, ...(prev ? { prev } : {}), chain, recovery, locations, ...(read ? { read } : {}) }, key);
+// No `prev` on either overwritten file: nothing reads it. The rollback it would catch is caught by
+// pseq/hseq and by the rewrite check, and a field nobody reads is one implementers get wrong.
+export const profile = ({ genesis, pseq, name, chain, recovery, locations, read }, key) =>
+  file({ genesis, pseq, ...(name ? { name } : {}), chain, recovery, locations, ...(read ? { read } : {}) }, key);
 
 export const post = (n, fields, key) => file({ n, ...fields }, key);
 
 // entries first, so appending leaves every earlier byte where it was and a reader that cached the
 // file can fetch only the tail. `top` is the highest number ever issued and never goes down.
-export const head = ({ entries, hseq, top, prev }, key) =>
-  file({ entries, hseq, top, ...(prev ? { prev } : {}) }, key);
+export const head = ({ entries, hseq, top }, key) => file({ entries, hseq, top }, key);
 
 // ---- publishing ----
 // Take the next free number, then fold the new line into the head the host is actually serving.
@@ -55,7 +56,7 @@ export async function amendHead(io, at, key, change) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const cur = await io.get(`${at}/head`);
     const obj = cur ? JSON.parse(cur.subarray(0, cur.lastIndexOf(0x0a)).toString('utf8')) : { entries: [], hseq: 0, top: 0 };
-    const next = change({ entries: obj.entries, hseq: obj.hseq + 1, top: obj.top, prev: cur ? address(cur) : null });
+    const next = change({ entries: obj.entries, hseq: obj.hseq + 1, top: obj.top });
     if (await io.put(`${at}/head`, head(next, key), cur ? sha256(cur) : null) === 200) return next;
   }
   throw new Error('head: gave up retrying');

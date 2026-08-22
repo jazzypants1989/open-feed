@@ -17,75 +17,17 @@ import * as pub from './weekend-publisher.js';
 import { seal as oldSeal } from '../../../src/enc.js';
 
 // ---- deterministic keys, so every number on the card reproduces ----
-const PKCS8_X25519 = Buffer.from('302e020100300506032b656e04220420', 'hex');
+// The envelope itself now lives in envelope.js: the construction stopped being on trial when the
+// owner ruled (spec-2 §7.2 MUST, §7.4 SHOULD), and one implementation is what keeps tmp/regen2.js's
+// vectors from drifting away from the gate that proved them.
+import { seal as sealNew, open as openNew, bucket, xKey, xPub, b64, unb64, INFO } from './envelope.js';
 const PKCS8_ED25519 = Buffer.from('302e020100300506032b657004220420', 'hex');
 const seed = (name) => crypto.createHash('sha256').update(`envelope:${name}`).digest();
-const xKey = (name) => {
-  const privateKey = crypto.createPrivateKey({ key: Buffer.concat([PKCS8_X25519, seed(name)]), format: 'der', type: 'pkcs8' });
-  const publicKey = crypto.createPublicKey(privateKey);
-  return { name, privateKey, publicKey, x: publicKey.export({ format: 'jwk' }).x };
-};
 const edKey = (name) => {
   const privateKey = crypto.createPrivateKey({ key: Buffer.concat([PKCS8_ED25519, seed(`ed:${name}`)]), format: 'der', type: 'pkcs8' });
   return { privateKey, x: crypto.createPublicKey(privateKey).export({ format: 'jwk' }).x };
 };
-const xPub = (x) => crypto.createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x }, format: 'jwk' });
-const b64 = (b) => Buffer.from(b).toString('base64url');
-const unb64 = (s) => Buffer.from(s, 'base64url');
 
-// ---- the candidate envelope ----
-// {epk, slots:[[tag, wrapped]...], ct}. One ephemeral per message. Per slot: Z = X25519(eph, recipient);
-// tag(8) || kek(32) || knonce(12) = HKDF-SHA256(Z, salt = epk, info = 'openfeed/v1/slot'); wrapped =
-// ChaCha20-Poly1305(kek, knonce, content key, aad = epk). Content: ChaCha20-Poly1305(content key,
-// nonce = 12 zero bytes — the key is single-use, as in HPKE — plaintext padded, aad = epk || carrier).
-// The audience is the first thing in the plaintext. Padding: a 2-byte length, then zeros to a bucket.
-const INFO = 'openfeed/v1/slot';
-const ZERO12 = Buffer.alloc(12);
-const aead = (key, nonce, data, aad) => { const c = crypto.createCipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 }); c.setAAD(aad, { plaintextLength: data.length }); return Buffer.concat([c.update(data), c.final(), c.getAuthTag()]); };
-const unaead = (key, nonce, data, aad) => { const d = crypto.createDecipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 }); d.setAAD(aad, { plaintextLength: data.length - 16 }); d.setAuthTag(data.subarray(-16)); return Buffer.concat([d.update(data.subarray(0, -16)), d.final()]); };
-const slotKeys = (z, epk) => { const k = Buffer.from(crypto.hkdfSync('sha256', z, epk, INFO, 52)); return { tag: k.subarray(0, 8), kek: k.subarray(8, 40), knonce: k.subarray(40, 52) }; };
-// The carrier binding: the content AEAD's associated data is the ephemeral key and the carrier's
-// author key and number, so an envelope lifted into another post will not open there.
-const bindAAD = (epk, carrier) => Buffer.concat([epk, Buffer.from(carrier)]);
-const bucket = (n, floor) => Math.max(floor, 1 << Math.ceil(Math.log2(Math.max(n, 1))));
-const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 8, bodyFloor: 512 } };
-
-function sealNew({ content, audience, carrier = '', policy = 'floor', ephemeral, ck }) {
-  const { slotFloor, bodyFloor } = POLICY[policy];
-  const eph = ephemeral ?? xKey(`eph:${b64(crypto.randomBytes(8))}`);
-  const epk = unb64(eph.x);
-  const contentKey = ck ?? crypto.randomBytes(32);
-  // The audience is sealed inside the content, first, so a recipient learns who else can reply.
-  const plain = Buffer.from(JSON.stringify({ audience, ...content }), 'utf8');
-  const padded = Buffer.alloc(bucket(plain.length + 2, bodyFloor));
-  padded.writeUInt16BE(plain.length, 0); plain.copy(padded, 2);
-  const slots = audience.map((x) => {
-    const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: xPub(x) }), epk);
-    return [b64(tag), b64(aead(kek, knonce, contentKey, epk))];
-  });
-  // Dummy slots to the bucket: derived from the content key so a vector reproduces; random bytes
-  // in production. A dummy is a tag nobody can derive and a wrap nobody can open.
-  for (let i = slots.length; i < bucket(slots.length, slotFloor); i++) {
-    const d = Buffer.from(crypto.hkdfSync('sha256', contentKey, epk, `dummy/${i}`, 56));
-    slots.push([b64(d.subarray(0, 8)), b64(d.subarray(8))]);
-  }
-  const ct = aead(contentKey, ZERO12, padded, bindAAD(epk, carrier));
-  return { epk: eph.x, slots, ct: b64(ct) };
-}
-// The tag is a hint, never a decision: a matching tag whose unwrap fails is a collision, keep scanning.
-function openNew(env, privateKey, carrier = '') {
-  const epk = unb64(env.epk);
-  const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey, publicKey: xPub(env.epk) }), epk);
-  for (const [t, w] of env.slots) {
-    if (!crypto.timingSafeEqual(unb64(t), tag)) continue;
-    let contentKey; try { contentKey = unaead(kek, knonce, unb64(w), epk); } catch { continue; }
-    // The slot opened, so the key is right; if the content does not, the envelope is not for this
-    // carrier. That is the binding refusing, and it is the only way this function says no after a match.
-    let padded; try { padded = unaead(contentKey, ZERO12, unb64(env.ct), bindAAD(epk, carrier)); } catch { return null; }
-    return JSON.parse(padded.subarray(2, 2 + padded.readUInt16BE(0)).toString('utf8'));
-  }
-  return null;
-}
 const size = (env) => Buffer.byteLength(JSON.stringify(env));
 
 // ---- the people ----

@@ -151,13 +151,16 @@ const M = [
   ['court-gate', 'tmp/redesign/gates/weekend-reader.js',
     'const majority = (c) => vouches(c[i - 1].key, c[i], courts[i]) * 2 > (courts[i]?.leaves.length ?? Infinity);',
     'const majority = (c) => vouches(c[i - 1].key, c[i], courts[i]) >= 1;'],
-  ['envelope-gate', 'tmp/redesign/gates/envelope-gate.js',
+  // The envelope moved to gates/envelope.js when the construction stopped being on trial; these
+  // three rows follow it. They are the reason the move is safe: turn each rule off in its new home
+  // and the gate that proved it still goes red.
+  ['envelope-gate', 'tmp/redesign/gates/envelope.js',
     'const bindAAD = (epk, carrier) => Buffer.concat([epk, Buffer.from(carrier)]);',
     'const bindAAD = (epk, carrier) => epk;'],
-  ['envelope-gate', 'tmp/redesign/gates/envelope-gate.js',
-    'const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 8, bodyFloor: 512 } };',
-    'const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 1, bodyFloor: 32 } };'],
-  ['envelope-gate', 'tmp/redesign/gates/envelope-gate.js',
+  ['envelope-gate', 'tmp/redesign/gates/envelope.js',
+    "export const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 8, bodyFloor: 512 } };",
+    "export const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 1, bodyFloor: 32 } };"],
+  ['envelope-gate', 'tmp/redesign/gates/envelope.js',
     'const eph = ephemeral ?? xKey(`eph:${b64(crypto.randomBytes(8))}`);',
     "const eph = ephemeral ?? xKey('eph:fixed');"],
   ['twohubs-gate', 'tmp/redesign/gates/twohubs-gate.js',

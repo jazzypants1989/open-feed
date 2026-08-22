@@ -88,3 +88,10 @@ privacy-against-the-host choice with a stated byte price. **A slot tag is a hint
 unwrap fails is a collision and the reader keeps scanning.**
 
 **Run:** `node tmp/redesign/gates/envelope-gate.js`
+
+**Changed while writing the spec (2026-08-21).** The construction moved out of this gate into
+`gates/envelope.js`, unchanged, so that `tmp/regen2.js` generates Appendix B's sealed vector from
+the same code this gate proved rather than from a copy of it. The three revert rows above follow it
+to the new file and still go red. Every number on this card was re-run after the move, with one
+drift worth noting: today's `src/enc.js` slot prints 168 B rather than the 160 B first recorded —
+the candidate's 83 B is unchanged, and the ratio the verdict rests on is not affected.

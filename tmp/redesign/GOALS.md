@@ -99,7 +99,11 @@ Code defends scenarios, not rules. Every gate in the redesign answers one of the
 
 1. **The divorce.** Sister on the ex's hub: he cannot post as her, read her family-only posts,
    alter or backdate what she wrote, or stop her leaving; after she leaves, Mom's app follows her
-   with one tap and his frozen copy reads as stale, not as her.
+   with one tap and reads his frozen copy as an older version of her, not as her. *(Reworded
+   2026-08-21, the owner's ruling on `REVIEW-final.md` Q8 / intent-map sign-off 4: the original said
+   "reads as stale", and it does not for a reader with no social path to her — that reader sees an
+   unmarked page. Ruling 7 chose location-through-replies as how people learn, and every mechanism
+   that would tell everyone else was priced and rejected. Spec-2 §14.3 states the limit.)*
 2. **Grandma onboards.** Installs an app, picks a name, is never shown a key, never told to store
    a file outside the house. Loses her phone a year later and is back by calling her daughter.
 3. **Two hubs, one thread.** Jesse on `jessepence.com`, Mom on the family hub; a family-only post,

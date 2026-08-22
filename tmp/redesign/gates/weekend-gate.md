@@ -76,7 +76,12 @@ all three were invisible until the code existed.
 `gapless-gate` fixed the publisher's rewrite (it was confirming every pending post) and put the
 pending flag in the pin; `court-gate` put the fork-point court into the reader (+18 lines) and made
 a restore hop carry the list it satisfied; `media-gate` added the photo entry (+2). **The reader is
-now 161 lines and the publisher 51.** The thirteen moments above still read the same, and the
+now 161 lines and the publisher 50.** The thirteen moments above still read the same, and the
 "second profile at the same version" row is now settled by the court rather than by `pseq` equality
 — which is the finding: as measured here, the reader contested two profiles at one version and
 followed a thief who picked a higher one.
+
+**Changed while writing the spec (2026-08-21).** `prev` is cut from both overwritten files (the
+owner's ruling on `REVIEW-final.md` Q3: the publisher wrote it and no reader ever read it), and the
+publisher gained the optional `name` of spec-2 §4.2. Publisher 51 → 50 lines; every claim above
+still holds, and nothing in the reader changed.
