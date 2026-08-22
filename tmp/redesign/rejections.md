@@ -242,3 +242,18 @@ if the file sitting there is not the owner's, the owner's write replaces it. The
 ordinary path and stops being true on a collision. Ruling 3's "every post declares its own number
 inside its stamped bytes," recorded as a habit that rides along free, is what makes the repair work
 at all: without it a replayed genuine post locks the author out of a number she has not reached.
+
+## 15. ⚠ "§15's carrier binding goes" (SKETCH.md §9)
+
+**Recorded:** the sketch lists §15's carrier binding among what the redesign retires with its
+mechanism — three plaintext fields compared at the decrypting client, two of which no longer exist.
+
+**⚠ Reversed in part, 2026-08-21 (`gates/envelope-gate.md`).** The *shape* goes; the *binding*
+stays. Staged on this substrate: the thief, who cannot read Alice's sealed post, lifts its envelope
+into a post of his own, signed by his key, listed in his head. With an empty associated-data field
+her family decrypts it and **her words render under his name**. With the carrier — the author's
+genesis key and the post's number — as associated data, the lifted envelope does not open, and it
+costs zero bytes on the wire. One sentence the spec owes: the content's associated data MUST include
+the carrier author's genesis key and the post's number. `INTENT-MAP.md` flags the same thing from
+the old `enc.test.js` side as a sign-off.
+

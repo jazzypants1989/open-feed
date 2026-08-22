@@ -70,7 +70,7 @@ seen.set(A.x, first.pin);
 // a withdrawal, then a rewrite that clears its lines
 await pub.withdraw(net, AT, A, 2);
 const afterWithdraw = await read(net.get, { learned: A.x, at: AT, pin: first.pin });
-await pub.rewrite(net, AT, A, [...afterWithdraw.pin.live]);
+await pub.rewrite(net, AT, A);
 const afterRewrite = await read(net.get, { learned: A.x, at: AT, pin: afterWithdraw.pin });
 
 // a rotation, then a restore vouched by one listed member
@@ -79,7 +79,7 @@ await net.put(`${AT}/profile`, p2, hub.tag('alice/profile'));
 const midRotation = await read(net.get, { learned: A.x, at: AT, pin: afterRewrite.pin });   // head still under the old key
 await pub.resignHead(net, AT, A2);
 const afterRotate = await read(net.get, { learned: A.x, at: AT, pin: afterRewrite.pin });
-const p3 = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2), pub.restore(A2, A3, [mum])], recovery: REC, locations: LOC }, A3);
+const p3 = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2), pub.restore(A2, A3, [mum], REC)], recovery: REC, locations: LOC }, A3);
 await net.put(`${AT}/profile`, p3, hub.tag('alice/profile'));
 await pub.resignHead(net, AT, A3);
 const afterRestore = await read(net.get, { learned: A.x, at: AT, pin: afterRotate.pin });
@@ -108,7 +108,7 @@ hub.swap.set('alice/profile', fake);
 const substituted = await read(net.get, { learned: A.x, at: AT, pin: good });
 hub.swap.delete('alice/profile');
 
-const forked = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2), pub.restore(A2, ex, [sis])], recovery: REC, locations: LOC }, ex);
+const forked = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2), pub.restore(A2, ex, [sis], REC)], recovery: REC, locations: LOC }, ex);
 hub.swap.set('alice/profile', forked);
 const contested = await read(net.get, { learned: A.x, at: AT, pin: good });
 hub.swap.delete('alice/profile');

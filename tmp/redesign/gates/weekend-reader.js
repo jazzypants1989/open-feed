@@ -66,17 +66,20 @@ function parse(text) {
 
 // ---- the profile's chain of key changes ----
 // A hop is a rotation, signed by the key it replaces, or a restore, vouched by members of the list
-// the profile committed to in advance. Each voucher reveals only its own salt.
+// that stood BEFORE the hop — the hop carries that list, since the profile's own list is for the
+// next one. Each voucher reveals only its own salt. `vouches` counts distinct listed members.
+const hopSig = (from, to, x, s) => { const b = sigBytes(s); try { return b && crypto.verify(null, Buffer.from(`${from}->${to}`), pub(x), b); } catch { return false; } };
+function vouches(from, hop, court) {
+  const leaves = new Set(court?.leaves ?? []);
+  return new Set((hop?.vouchers ?? []).filter((v) => hopSig(from, hop.key, v.key, v.sig) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`)))).map((v) => v.key)).size;
+}
 function walk(p) {
   if (!Array.isArray(p.chain) || p.chain[0]?.key !== p.genesis) return null;
   for (let i = 1; i < p.chain.length; i++) {
-    const hop = p.chain[i], from = p.chain[i - 1].key, msg = Buffer.from(`${from}->${hop.key}`);
-    const signed = (x, s) => { const b = sigBytes(s); try { return b && crypto.verify(null, msg, pub(x), b); } catch { return false; } };
-    if (hop.by === 'rotation') { if (!signed(from, hop.sig)) return null; continue; }
-    if (hop.by !== 'restore' || !Array.isArray(hop.vouchers)) return null;
-    const leaves = new Set(p.recovery?.leaves ?? []);
-    const ok = hop.vouchers.filter((v) => signed(v.key, v.sig) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`))));
-    if (new Set(ok.map((v) => v.key)).size < (p.recovery?.k ?? Infinity)) return null;
+    const hop = p.chain[i], from = p.chain[i - 1].key;
+    if (hop.by === 'rotation') { if (!hopSig(from, hop.key, from, hop.sig)) return null; continue; }
+    if (hop.by !== 'restore' || !Array.isArray(hop.vouchers) || !Array.isArray(hop.court?.leaves)) return null;
+    if (vouches(from, hop, hop.court) < hop.court.k) return null;
   }
   return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.at(-1).by === 'restore' };
 }
@@ -85,11 +88,14 @@ function walk(p) {
 // The live set is a fold over the entries in order: [n, hash] admits, [n, hash, 'pending'] admits a
 // post the device has not released yet, [n, null] takes one back. A number is issued once, so the
 // only legal second line for it is a pending entry confirmed with the same hash, or its withdrawal.
+// A photo is listed by its hash alone — [hash] admits it, [hash, null] takes it back — and is the
+// one unsigned thing: what admits it is being listed, and what checks it is the hash.
 function fold(entries) {
   if (!Array.isArray(entries)) return null;
   const live = new Map(), issued = new Map();
   for (const e of entries) {
-    if (!Array.isArray(e) || typeof e[0] !== 'number') return null;
+    if (!Array.isArray(e) || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;
+    if (typeof e[0] === 'string') { if (e[1] === null ? !live.delete(e[0]) : (e.length !== 1 || live.has(e[0]))) return null; if (e.length === 1) live.set(e[0], { hash: e[0] }); continue; }
     const [n, hash, flag] = e;
     if (hash === null) { if (!live.has(n)) return null; live.delete(n); continue; }
     if (typeof hash !== 'string') return null;
@@ -117,10 +123,27 @@ export async function read(get, { learned, at, pin = null } = {}) {
   if (!chain) return bad('identity', 'the chain of key changes does not hold');
   const profile = openFile(pf, chain.current);
   if (!profile) return bad('identity', 'the profile is not signed by the key it ends on');
+  // The court. A reader keeps, for every chain length it has seen, the FIRST recovery list it saw
+  // there — from the profile, or from the hop that carried it. A served chain that does not extend
+  // the pinned one is a fork; the list that stood at the split judges it, and the branch whose hop
+  // there has a majority of that list wins. A restore is judged by the list the reader holds, never
+  // by the copy it carries. No court, or no majority on exactly one side: contested.
+  const courts = { ...(pin?.courts ?? {}) };
+  raw.chain.forEach((h, j) => { if (h.court && !(j in courts)) courts[j] = h.court; });
   if (pin) {
-    if (raw.pseq < pin.pseq) return bad('identity', 'an older profile than the one this reader saw');
-    if (raw.pseq === pin.pseq && profile.address !== pin.phash) return bad('identity', 'contested: two profiles at one version');
+    let i = raw.chain.findIndex((h, j) => j < pin.chain.length && pin.chain[j].key !== h.key);
+    if (i < 0 && raw.chain.length < pin.chain.length && raw.pseq > pin.pseq) i = raw.chain.length;   // a newer profile that forgets a hop is a fork too
+    if (i > 0) {
+      const majority = (c) => vouches(c[i - 1].key, c[i], courts[i]) * 2 > (courts[i]?.leaves.length ?? Infinity);
+      const mine = majority(pin.chain), theirs = majority(raw.chain);
+      if (mine === theirs) return bad('identity', 'contested: two histories, and no majority settles it');
+      if (mine) return bad('host', 'serves a branch the court rejected');
+      say('switched to the branch the court chose');
+      for (const j of Object.keys(courts)) if (j > i) delete courts[j];
+    } else if (raw.pseq < pin.pseq) return bad('identity', 'an older profile than the one this reader saw');
+    else if (raw.pseq === pin.pseq && profile.address !== pin.phash) return bad('identity', 'contested: two profiles at one version');
   }
+  courts[raw.chain.length] ??= raw.recovery;
   if (chain.restored) say('recently restored');
 
   // The head must be signed by the key that is current NOW — that is what takes the list away from
@@ -135,7 +158,7 @@ export async function read(get, { learned, at, pin = null } = {}) {
   if (!head) {
     if (!pin) return bad('host', hf ? 'the head is not signed by the key the profile ends on' : 'no head served');
     say('no head newer than the one this reader holds');
-    set = { live: new Map([...pin.live].map(([n, h]) => [n, { hash: h, pending: false }])), top: pin.top };
+    set = { live: new Map([...pin.live].map(([n, h]) => [n, { hash: h, pending: pin.pending.has(n) }])), top: pin.top };
     head = { obj: { hseq: pin.hseq, top: pin.top }, address: pin.hhash };
   }
   if (pin) {
@@ -145,7 +168,7 @@ export async function read(get, { learned, at, pin = null } = {}) {
     // Whatever was rewritten since, a post the reader saw either survived unchanged or was
     // withdrawn; a number at or below the old top cannot appear that was never there.
     for (const [n, e] of set.live) {
-      if (n > pin.top) continue;
+      if (typeof n !== 'number' || n > pin.top) continue;
       const was = pin.live.get(n);
       if (!was) return bad('host', `post ${n} is listed now and was not before`);
       if (was !== e.hash) return bad('host', `post ${n} changed after the reader saw it`);
@@ -153,11 +176,12 @@ export async function read(get, { learned, at, pin = null } = {}) {
     for (const n of pin.live.keys()) if (!set.live.has(n)) say(`withdrawn: ${n}`);
   }
 
-  const posts = new Map();
+  const posts = new Map(), media = new Map();
   for (const [n, e] of set.live) {
     if (e.pending) { say(`pending: ${n}`); continue; }
-    const f = await get(`${at}/posts/${n}`);
-    if (!f) return bad('host', `post ${n} is listed and not served`);
+    const f = await get(typeof n === 'string' ? `${at}/media/${n}` : `${at}/posts/${n}`);
+    if (!f) return bad('host', `${typeof n === 'string' ? 'photo' : 'post'} ${n} is listed and not served`);
+    if (typeof n === 'string') { if (sha256(f) !== n) return bad('host', `photo ${n} is not what the head lists`); media.set(n, f); continue; }
     const post = openFile(f, chain.keys);
     // Signed by a key that was hers, listed by the head, and declaring the number it was served at.
     if (!post || post.address !== e.hash || post.obj.n !== n) return bad('host', `post ${n} is not what the head lists`);
@@ -165,8 +189,9 @@ export async function read(get, { learned, at, pin = null } = {}) {
   }
 
   return {
-    verdict: 'ok', note, posts, chain, locations: raw.locations ?? [],
-    pin: { pseq: raw.pseq, phash: profile.address, hseq: head.obj.hseq, hhash: head.address, top: head.obj.top, live: new Map([...set.live].map(([n, e]) => [n, e.hash])) },
+    verdict: 'ok', note, posts, media, chain, locations: raw.locations ?? [], read: raw.read,
+    pin: { pseq: raw.pseq, phash: profile.address, chain: raw.chain, courts, hseq: head.obj.hseq, hhash: head.address, top: head.obj.top,
+      live: new Map([...set.live].map(([n, e]) => [n, e.hash])), pending: new Set([...set.live].filter(([, e]) => e.pending).map(([n]) => n)) },
   };
 }
 

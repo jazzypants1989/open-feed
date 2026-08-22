@@ -17,8 +17,10 @@ const hop = (msg, key) => crypto.sign(null, Buffer.from(msg), key.privateKey).to
 
 // ---- the three kinds ----
 export const rotation = (from, to) => ({ key: to.x, by: 'rotation', sig: hop(`${from.x}->${to.x}`, from) });
-export const restore = (from, to, vouchers) => ({
-  key: to.x, by: 'restore',
+// A restore carries the list it satisfied — the one that stood before it — because the profile's
+// own list is for the next one, and a reader that holds no list needs this to walk the chain.
+export const restore = (from, to, vouchers, court) => ({
+  key: to.x, by: 'restore', court,
   vouchers: vouchers.map(({ key, salt }) => ({ key: key.x, salt, sig: hop(`${from.x}->${to.x}`, key) })),
 });
 // The recovery list is committed one member at a time, so a voucher reveals only its own salt and
@@ -63,6 +65,11 @@ export const publish = (io, at, key, n, fields) =>
   publishPost(io, at, key, n, fields).then(({ n: num, entry }) =>
     amendHead(io, at, key, (h) => ({ ...h, entries: [...h.entries, entry], top: Math.max(h.top, num) })).then(() => num));
 
+// A photo: put the bytes at their hash, then list the hash. Unsigned — the head's line admits it.
+export const publishMedia = (io, at, key, bytes) => {
+  const h = sha256(bytes);
+  return io.put(`${at}/media/${h}`, bytes).then((r) => { if (r !== 201 && r !== 200) throw new Error(`media: ${r}`); return amendHead(io, at, key, (hd) => ({ ...hd, entries: [...hd.entries, [h]] })).then(() => h); });
+};
 export const withdraw = (io, at, key, n) =>
   amendHead(io, at, key, (h) => ({ ...h, entries: [...h.entries, [n, null]] }));
 
@@ -72,5 +79,7 @@ export const resignHead = (io, at, key) => amendHead(io, at, key, (h) => h);
 
 // A rewrite drops the lines a withdrawal left behind. How often is the publisher's business — the
 // reader is indifferent — so this is a setting, not a rule. Once a month is the suggested default.
-export const rewrite = (io, at, key, live) =>
-  amendHead(io, at, key, (h) => ({ ...h, entries: [...live].map(([n, hash]) => [n, hash]) }));
+// The publisher needs the fold too: what survives a rewrite is what is live, and a pending entry
+// survives still pending — confirm it with a bare line, never by rewriting the file.
+const live = (entries) => { const m = new Map(); for (const [n, h, f] of entries) h === null ? m.delete(n) : m.set(n, typeof n === 'string' ? [n] : m.has(n) ? [n, h] : [n, h, ...(f === 'pending' ? ['pending'] : [])]); return [...m.values()]; };
+export const rewrite = (io, at, key) => amendHead(io, at, key, (h) => ({ ...h, entries: live(h.entries) }));

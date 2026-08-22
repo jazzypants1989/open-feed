@@ -18,7 +18,8 @@ a post for another she signed, substituting a whole other identity, a second pro
 a post signed by a key that was hers and never listed. Then a second identity on the same hub whose
 replies name a post that exists, one she withdrew, and one that never did.
 
-**Numbers** (stale if either file changes):
+**Numbers** (stale if either file changes; the two files were changed by the final review, see the
+note at the end):
 - **The reader is 141 lines, the publisher 47** — non-blank, non-comment, standard library only.
   Against `git-gate`'s 137-line verifier, and that one had no key changes, no recovery and no
   rewrite rule. About a quarter of the reader is the strict JSON scan, which exists because
@@ -70,3 +71,12 @@ canonicalizer, no JOSE, no dependency. The three findings above are sentences th
 all three were invisible until the code existed.
 
 **Run:** `node tmp/redesign/gates/weekend-gate.js`
+
+**Changed by the final review (2026-08-21).** The two files are no longer the ones measured above:
+`gapless-gate` fixed the publisher's rewrite (it was confirming every pending post) and put the
+pending flag in the pin; `court-gate` put the fork-point court into the reader (+18 lines) and made
+a restore hop carry the list it satisfied; `media-gate` added the photo entry (+2). **The reader is
+now 161 lines and the publisher 51.** The thirteen moments above still read the same, and the
+"second profile at the same version" row is now settled by the court rather than by `pseq` equality
+— which is the finding: as measured here, the reader contested two profiles at one version and
+followed a thief who picked a higher one.
