@@ -86,6 +86,16 @@ hub, on purpose — a hub that ships the app can take the key.
 **Leaving** is writing the same files somewhere else. The host is asked for nothing and has nothing
 to refuse (§10).
 
+**What a person can rely on**, which is `GOALS.md`'s floor:
+
+- **The host cannot speak for you.** Nothing it serves as yours verifies unless you signed it, and
+  the key that signs was never the host's.
+- **The host cannot read what wasn't meant for it.** Content for chosen people is encrypted to their
+  keys, and the host serves bytes it cannot open.
+- **The host cannot keep you.** The key and the copy were always on your device.
+- **Family on other hubs are first-class.** Two relatives on separate domains reply and react to
+  each other's family-only content with no access control anywhere.
+
 Vocabulary is fixed and small: *anchor key, chain, link, recovery list, profile, index, post, media,
 encrypted, pin, withdraw, hub* (§1).
 

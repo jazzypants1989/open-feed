@@ -131,15 +131,17 @@ With the example `.md`s holding the supporting prose, decide per document what s
 and what dies. Output: each file rewritten or archived, and **an explicit list of what the spec may
 now drop because it lives elsewhere** — that list is Stage D's input.
 
-- [ ] `README.md` (13.6k words, old design): rewrite for the current spec — TL;DR from `TLDR.md`,
-      pointers into `examples/`; the protocol-comparison section (3k words) becomes an example `.md`
-      or goes
+- [x] `README.md` — rewritten for the current spec, 13.6k words → ~6k: the why from `GOALS.md`, a
+      TL;DR, an explaining-depth walk with spec section numbers, the twenty examples as the reading
+      path, the limits stated, and the protocol comparison reduced to a table pointing at the example
+      `.md` that argues each one
 - [x] `DISTRIBUTION-MODEL.md` — **archived**, not rewritten (`archive/DISTRIBUTION-MODEL.md`, indexed
       in `archive/README.md`). Its subject was gone rather than renamed — manifests, the inbox,
       delegated hub keys, the export bundle, conformance levels — and every durable argument under it
       was found to have landed already in the spec or in an example `.md`. Do not reopen it
-- [ ] `TLDR.md`: reconcile with the spec's §1 table; fold into README or keep
-- [ ] `GOALS.md`: keep as the statement of values and scenarios; trim the redesign-era asides
+- [x] `TLDR.md` — folded into the README and deleted
+- [x] `GOALS.md` — kept, trimmed: the process framing, the `*Retires:*` clauses naming an archived
+      spec's sections, and the "still open" list are gone; its words follow the spec's vocabulary now
 - [ ] `CLAUDE.md`: shrink again
 - [ ] The "may now drop" list, section by section — every example `.md` is now a place prose can
       live, so this list is mostly a matter of reading the twenty of them beside the spec
