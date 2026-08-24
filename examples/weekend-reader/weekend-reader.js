@@ -171,7 +171,7 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
   }
   const withdrawn = new Map(pin?.withdrawn ?? []);
   if (pin) {
-    if (index.obj.version < pin.indexVersion) return bad('host', 'a index older than the one this reader saw');
+    if (index.obj.version < pin.indexVersion) return bad('host', 'an index older than the one this reader saw');
     if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('host', 'two indexes at one version');
     if (index.obj.top < pin.top) return bad('host', 'the highest number used went backwards');
     // Whatever was rewritten since, a post the reader saw either survived unchanged, was withdrawn,

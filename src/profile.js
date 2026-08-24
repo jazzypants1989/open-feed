@@ -68,7 +68,7 @@ const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * §7.1 steps 1–6 over profile bytes. `pin` is what the reader verified last time (or null).
- * Returns `{ verdict, why }` or `{ verdict: 'ok', raw, chain, profile, recoveryLists, fields, switched }`.
+ * Returns `{ verdict, why }` or `{ verdict: 'ok', raw, chain, profile, recoveryLists, fields }`.
  */
 export function verifyProfile(bytes, { learned, pin = null }) {
   const bad = (verdict, why) => ({ verdict, why });

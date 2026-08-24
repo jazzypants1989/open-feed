@@ -1,6 +1,7 @@
 # What writing the examples found
 
-**Status: nothing here is fixed.** This file is the defect list Stage B produced and Stage D's input.
+**Status: nothing here is fixed, except four cosmetic items struck from §5 and fixed on the spot.**
+This file is the defect list Stage B produced and Stage D's input.
 Every entry was found by writing a program that asserts what the spec says and watching it disagree,
 so each one is reproducible; where a number is quoted it was re-derived, not copied.
 
@@ -161,14 +162,6 @@ and the `media` keys. A gap in both the spec and the reference implementation.
 
 ## 5. Cosmetic
 
-- **"a index"** — user-facing verdict strings and comments left over from the `head` → `index`
-  rename: `src/index.js`'s `'a index older than the one this reader saw'`, `test/index.test.js:41`,
-  `test/reader.test.js:65` and `:85`, `examples/weekend-reader/weekend-reader.js:172`,
-  `examples/weekend-publisher/weekend-publisher.js:43`, and several seeds. Changing the verdict string
-  means rebuilding any example output that quotes it.
-- `src/wordlist.js`'s header cites §4.1 for the spoken code; it is §3.1.
-- `src/profile.js`'s `verifyProfile` JSDoc documents a `switched` member of the ok return that is
-  never set or returned.
 - `src/index.js`'s `checkAgainstPin` orders the "two indexes at one version" check before the `top`
   check, so an index that both holds its version and drops `top` never reports the `top` message.
   Both are `host`; only a test expecting the wording would notice.
@@ -176,3 +169,8 @@ and the `media` keys. A gap in both the spec and the reference implementation.
   second pass over the same posts sees already-marked targets.
 - `adoptRecoveryLists`'s per-link `!(j in recoveryLists)` guard looks unreachable: every call site
   passes a `from` at or above the highest held index.
+
+**Struck and fixed** (2026-08-24): the `head` → `index` rename left `'a index older than the one this
+reader saw'` in a verdict string and in five other places; `src/reader.js` labelled a §4 *shape*
+failure as a §4.2 *fold* failure; `src/wordlist.js`'s header cited §4.1 for the spoken code, which is
+§3.1; and `verifyProfile`'s JSDoc documented a `switched` member it never returns.

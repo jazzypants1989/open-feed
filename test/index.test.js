@@ -38,7 +38,7 @@ test('§7.2 step 9 against a pin: no rollback, no insertion below top, no change
   const pin = { indexVersion: 2, indexHash: 'H2', top: 3, live: new Map([[1, 'a'], [3, 'c']]), withdrawn: new Map([[2, 'b']]) };
   const ok = (entries, version = 3, top = 3, address = 'H3') => checkAgainstPin({ obj: { version, top }, address }, fold(entries), pin);
   assert.equal(ok([[1, 'a'], [3, 'c']]).notes.length, 0);
-  assert.equal(ok([[1, 'a'], [3, 'c']], 1).why, 'a index older than the one this reader saw');
+  assert.equal(ok([[1, 'a'], [3, 'c']], 1).why, 'an index older than the one this reader saw');
   assert.equal(ok([[1, 'a'], [3, 'c']], 2, 3, 'other').why, 'two indexes at one version');
   assert.equal(ok([[1, 'a'], [3, 'c']], 2, 3, 'H2').notes.length, 0, 'the same index again');
   assert.equal(ok([[1, 'a'], [3, 'c']], 3, 2).why, 'the highest number used went backwards');

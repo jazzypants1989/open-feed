@@ -39,7 +39,7 @@ export function checkIndex(obj, set) {
  */
 export function checkAgainstPin(index, set, pin) {
   const bad = (why) => ({ verdict: 'host', why });
-  if (index.obj.version < pin.indexVersion) return bad('a index older than the one this reader saw');
+  if (index.obj.version < pin.indexVersion) return bad('an index older than the one this reader saw');
   if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('two indexes at one version');
   if (index.obj.top < pin.top) return bad('the highest number used went backwards');
   const withdrawn = new Map(pin.withdrawn ?? []);

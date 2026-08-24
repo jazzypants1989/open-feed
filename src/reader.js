@@ -29,7 +29,8 @@ export function createReader({ get }) {
     const hf = await get(`${at}/index`);
     let index = hf && verifyIndex(hf.bytes, chain.current);
     let set = index && fold(index.obj.entries);
-    if (index) { const why = !set ? 'the index does not fold' : checkIndex(index.obj, set); if (why) return bad('host', why === 'the index does not fold' ? why : `the index does not fold: ${why}`); }
+    // §4.2 is the fold; the rest of §4 is the shape. They are different failures and say so.
+    if (index) { const why = !set ? 'the index does not fold' : checkIndex(index.obj, set); if (why) return bad('host', why); }
     if (!index) {
       if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
       say('no index I can verify');

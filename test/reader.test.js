@@ -62,7 +62,7 @@ test('§7.2 the index: withholding, a rollback, a swap, and the rotation window'
   await s.pub.withdraw(3);
   const later = await s.read(good.pin);
   s.files.set('alice/index', headBytes);
-  assert.equal(view(await s.read(later.pin)), 'host: a index older than the one this reader saw');
+  assert.equal(view(await s.read(later.pin)), 'host: an index older than the one this reader saw');
   assert.equal(view(await s.read()), 'ok [1,2,3]', 'a cold reader cannot see the rollback');
   // A swapped post.
   s.files.set('alice/posts/1', signFile({ n: 1, at: 'x', text: 'not what she wrote' }, s.alice.key));
@@ -82,7 +82,7 @@ test('§4.6 / §7.2 a rotation: the index is re-signed under the new key; in bet
   assert.equal(view(await s.read()), 'host: the index is not signed by the key the profile ends on');
   await pub2.resignIndex();
   assert.equal(view(await s.read(before.pin)), 'ok [1,2,3]');
-  // A index signed by the rotated-out key is not a index.
+  // An index signed by the rotated-out key is not an index.
   await (createPublisher({ io: s.io, key: s.alice.key, at: s.AT })).amendIndex((h) => h).catch(() => {});
   assert.equal(view(await s.read()), 'ok [1,2,3]', 'the hub refused it (§8.4), so the K2 index still stands');
 });

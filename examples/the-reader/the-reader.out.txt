@@ -77,7 +77,7 @@
 
   move                                             verdict   what the reader said
   withholds a listed post                          host      post 3 is listed and not served
-  serves an older index                            host      a index older than the one this reader saw
+  serves an older index                            host      an index older than the one this reader saw
   swaps a post for another she signed              host      post 1 is not what the index lists
   serves genuine post 3 at number 1                host      post 1 is not what the index lists
   withholds a listed media file                    host      media file ot0dUv… is listed and not served

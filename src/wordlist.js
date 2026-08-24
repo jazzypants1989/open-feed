@@ -1,4 +1,4 @@
-// The BIP-39 English wordlist — 2,048 words — which §4.1 names for the spoken code. Data, not a
+// The BIP-39 English wordlist — 2,048 words — which §3.1 names for the spoken code. Data, not a
 // dependency: this is the list, verbatim, SHA-256 2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda
 // of the upstream english.txt. Reproduced here so a second implementer has nothing to fetch.
 export const WORDS = [

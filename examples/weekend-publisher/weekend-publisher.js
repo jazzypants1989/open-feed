@@ -43,7 +43,7 @@ export const index = ({ entries, version, top }, key) => file({ entries, version
 // ---- publishing ----
 // Take the next free number, then fold the new line into the index the host is actually serving.
 // Both retries matter: the first keeps two devices from overwriting each other's posts, the second
-// keeps the loser of a index race from dropping the winner's post out of the list.
+// keeps the loser of an index race from dropping the winner's post out of the list.
 export async function publishPost(io, at, key, n, fields) {
   let num = n;
   for (;;) {
