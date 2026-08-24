@@ -1,53 +1,39 @@
-# Open Feed in 300 words
-
-**DRAFT — a Stage 2 diagnostic instrument, not yet documentation.** The budgets (200 words how,
-100 words guarantees, 10 glossary terms) are enforced by `node tmp/measure/tldr-check.js`.
-Everything that did not fit is recorded in PLAN.md's complexity ledger, which is this document's
-real product: each mechanism the budget excluded is a named simplification candidate.
+# Open Feed — TL;DR
 
 ## How it works
 
-Your identity is an HTTPS URL. At a fixed path under it sits one signed JSON file — the identity
-document — holding your profile, public keys, and endpoints. Your content is a feed of
-individually signed items: posts, replies, and likes are all the same object, and an interaction
-is just an item carrying a relation naming its target. Interactions arrive fast because senders POST
-signed items to the recipient's inbox; they stay complete because anything important is also
-published in a feed.
+Your identity is a signing key. A profile at your address names your current keys, your locations,
+and a recovery list, and chains every key change back to your first key — so a reader who
+learned that key, from a link or a scanned code, follows you through every rotation and move.
 
-A separately signed manifest lists every live item's exact bytes, so a host cannot drop, rewrite,
-or resurrect content unnoticed. The identity document and each manifest form a chain: every
-version names the hash of the one before it, and old versions stay served forever. A reader
-stores a pin — the last version and hash it verified — and every later read must walk back to it;
-two readers comparing pins catch a host telling each a different story.
+Every file is signed, and the bytes served are the bytes signed — no reformatting. Beside it sits a
+head: a signed list saying which posts exist now. A post counts as yours when the head lists its
+hash; withdrawing it appends a line taking it back, gone when the file is next rewritten. A post
+signs itself, so anyone holding a copy can prove you wrote it.
 
-Everything is signed one way: a detached signature over canonical JSON bytes. If your host turns
-hostile, a recovery key it never held proves your identity moved, and an export bundle carries
-every signed byte elsewhere.
+A reply, reaction, or private message is a post in its author's feed naming its target by key,
+number, hash, and location. Readers pull; a newer location in any verified post is where a reader
+looks next. A reply naming a number above the head's top makes a reader look again, then say only
+that it cannot see what was answered. Private content is encrypted to chosen keys with the audience
+inside; a direct message is that, to one.
 
 ## What it guarantees
 
-Nobody can alter, forge, or misattribute what you signed. A host cannot silently delete, rewrite,
-or roll back what you published: removal requires a signed deletion notice every reader sees, and
-readers who compare notes catch a host lying differently to each of them. You can always leave —
-prove your identity's move, and republish your verified archive anywhere without your old host's
-permission. None of this is privacy: who posts, when, and to whom is public forever. An optional
-layer encrypts content for a chosen audience, and is exactly as private as that audience's key
-custody.
+The host cannot speak for you: nothing verifies as yours unless your key signed it, and that key
+was never the host's. It cannot read what you encrypted to others. It cannot keep you — your key and
+your copy are yours, and your readers hold the rest, so you leave by writing the same files
+elsewhere. It cannot drop or swap a post without a reader who saw it noticing, nor show two people
+different histories once one of them replies to something the other cannot see. Losing your key is
+survivable: the people you named restore it.
 
 ## Glossary
 
-- **item** — a signed JSON Feed entry; the one content object (post, reply, like, deletion alike)
-- **identity document** — the signed file at your URL: profile, keys, endpoints
-- **feed** — a JSON Feed of items, listed in the identity document, owned by one identity
-- **manifest** — the signed document committing a feed's exact contents; its completeness proof
-- **chain** — versions of a document, each naming the previous version's hash; history retained forever
-- **pin** — a reader's stored (version, hash) of a chain; later reads must connect to it
-- **relation** — the entry that makes an item a reply, like, repost, quote, or mention of a target
-- **inbox** — the HTTPS endpoint where signed items are POSTed to reach an identity
-- **recovery key** — an offline key the host never held; co-signs the proof that an identity moved
-- **export bundle** — one archive of every signed byte an identity published, sent, and received; verifiable anywhere
+- **profile** — the signed file naming your keys, locations, and recovery list
+- **head** — the signed list saying which posts exist now, and the highest number you have used
+- **post** — one immutable signed file; a reply or DM is a post naming a target
+- **anchor key** — your first key; a link or scanned code carries it, and readers follow the chain from it
+- **recovery list** — the people or keys you named to restore you, committed privately in advance
+- **pin** — a head a reader verified itself and remembers, which is what catches a lying host later
+- **withdraw** — take a post out of the head; the line saying so goes when the file is next rewritten
+- **seal** — encrypt to chosen keys with the audience inside; the host learns only that, when, and roughly how big
 
-## What did not fit
-
-That is the point. See **PLAN.md → The complexity ledger** for every mechanism and guarantee the
-budget excluded, with word costs and what each serves.

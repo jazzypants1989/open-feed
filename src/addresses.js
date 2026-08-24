@@ -1,4 +1,4 @@
-// Address classification for §13.5's SSRF rule: "reject private/loopback/link-local
+// Address classification for §9's SSRF rule: "reject private/loopback/link-local
 // addresses."
 //
 // Split out from fetch.js and written as pure functions over strings because this is the
@@ -56,20 +56,20 @@ export function parseIPv6(s) {
     return out;
   };
 
-  const head = toGroups(halves[0]);
-  if (head === null) return null;
+  const index = toGroups(halves[0]);
+  if (index === null) return null;
   let rest = halves.length === 2 ? toGroups(halves[1]) : [];
   if (rest === null) return null;
 
   // The synthesized '0' standing in for the IPv4 tail is not a real group.
   if (tail.length) {
     if (halves.length === 2 && rest.length) rest = rest.slice(0, -1);
-    else if (halves.length === 1) head.pop();
+    else if (halves.length === 1) index.pop();
   }
 
   const groups = halves.length === 2
-    ? [...head, ...Array(8 - tail.length - head.length - rest.length).fill(0), ...rest, ...tail]
-    : [...head, ...rest, ...tail];
+    ? [...index, ...Array(8 - tail.length - index.length - rest.length).fill(0), ...rest, ...tail]
+    : [...index, ...rest, ...tail];
 
   if (groups.length !== 8 || groups.some((g) => !Number.isInteger(g) || g < 0 || g > 0xffff)) return null;
   return groups;
@@ -145,7 +145,7 @@ export function isPublicIPv6(groups) {
 }
 
 /**
- * The default address policy (spec §13.5). `fetch.js` applies this to every address DNS
+ * The default address policy (spec §9). `fetch.js` applies this to every address DNS
  * returns, before connecting, and refuses the fetch if none survive.
  */
 export function isPublicAddress(address) {

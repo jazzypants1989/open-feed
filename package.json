@@ -2,31 +2,21 @@
   "name": "open-feed",
   "version": "0.0.0",
   "private": true,
-  "description": "Reference implementations for the Open Feed Protocol (src/ for open-feed-spec.md, src2/ for open-feed-spec-2.md)",
+  "description": "The Open Feed Protocol: the specification, its zero-dependency reference implementation, and the examples that teach it",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "exports": {
-    ".": "./src/index.js"
-  },
-  "bin": {
-    "openfeed": "./bin/openfeed.js",
-    "openfeed2": "./bin/openfeed2.js"
+    ".": "./src/openfeed.js"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\" \"test2/**/*.test.js\"",
-    "rules": "node tmp/rules.js",
-    "rules:gate": "node tmp/rules.js --gate",
-    "prove": "node tmp/prove.js",
-    "verify": "node bin/openfeed.js verify",
-    "vectors": "node tmp/regen.js",
-    "prototypes": "node tmp/check-prototypes.js",
-    "prototypes:revert": "node tmp/revert-gates.js",
-    "check": "npm test && node tmp/regen.js && node tmp/regen2.js && node tmp/rules.js --gate && node tmp/check-prototypes.js && npm run gates",
-    "vectors2": "node tmp/regen2.js",
-    "gates": "sh -c 'for f in tmp/redesign/gates/*-gate.js; do node \"$f\" >/dev/null || { echo \"RED: $f\"; exit 1; }; done; echo \"all gates green\"'",
-    "gates:revert": "node tmp/redesign/gates/revert.js"
+    "test": "node --test \"test/**/*.test.js\"",
+    "vectors": "node tools/regen.js",
+    "examples": "node tools/examples.js",
+    "revert": "node tools/revert.js",
+    "seeds": "sh -c 'for f in examples/_seeds/*-gate.js; do node \"$f\" >/dev/null || { echo \"RED: $f\"; exit 1; }; done; echo \"all seeds green\"'",
+    "check": "npm test && npm run vectors && npm run examples && npm run seeds"
   }
 }

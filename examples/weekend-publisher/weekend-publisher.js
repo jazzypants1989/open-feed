@@ -1,0 +1,89 @@
+// The publisher, written from TLDR-new.md and the rulings, in one file, standard library only —
+// the other half of HANDOFF-to-spec.md §1.H. It imports nothing from lastline.js either.
+// Measured and driven by weekend-gate.js.
+import crypto from 'node:crypto';
+
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest('base64url');
+export const newKey = () => { const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519'); return { privateKey, x: publicKey.export({ format: 'jwk' }).x }; };
+
+// A file is its body bytes, one newline, then the signature over the body. Serialize once: the
+// bytes signed are the bytes served, so nothing may re-format them afterwards.
+export function file(obj, key) {
+  const body = Buffer.from(JSON.stringify(obj), 'utf8');
+  return Buffer.concat([body, Buffer.from('\n'), Buffer.from(crypto.sign(null, body, key.privateKey).toString('base64url'), 'ascii')]);
+}
+export const address = (f) => sha256(f.subarray(0, f.lastIndexOf(0x0a)));
+const link = (msg, key) => crypto.sign(null, Buffer.from(msg), key.privateKey).toString('base64url');
+
+// ---- the chain: one link shape ----
+// Every link carries the list that stood before it (`recovery`), so a reader meeting the chain at any
+// length holds a recovery at every length below. A rotation carries the previous key's signature; a
+// restore carries vouchers from the recovery; a link may carry both, and vouchers may be added later.
+export const rotation = (from, to, recovery) => ({ key: to.x, recovery, sig: link(`${from.x}->${to.x}`, from) });
+export const restore = (from, to, vouchers, recovery) => ({ key: to.x, recovery, vouchers: vouchers.map(({ key, salt }) => ({ key: key.x, salt, sig: link(`${from.x}->${to.x}`, key) })) });
+export const vouched = (h, from, vouchers) => ({ ...h, vouchers: [...(h.vouchers ?? []), ...restore(from, { x: h.key }, vouchers, h.recovery).vouchers] });
+// The recovery list is committed one member at a time, so a voucher reveals only its own salt and
+// the leaf count says how many there are — which is what a majority is counted against.
+export const commit = (k, members) => ({ k, leaves: members.map(({ key, salt }) => sha256(Buffer.from(`${salt}|${key.x}`))) });
+
+// No `prev` on either overwritten file: nothing reads it. The rollback it would catch is caught by
+// version/version and by the rewrite check, and a field nobody reads is one implementers get wrong.
+export const profile = ({ anchor, version, name, chain, recovery, locations, read }, key) =>
+  file({ anchor, version, ...(name ? { name } : {}), chain, recovery, locations, ...(read ? { read } : {}) }, key);
+
+export const post = (n, fields, key) => file({ n, ...fields }, key);
+
+// entries first, so appending leaves every earlier byte where it was and a reader that cached the
+// file can fetch only the tail. `top` is the highest number ever issued and never goes down.
+export const index = ({ entries, version, top }, key) => file({ entries, version, top }, key);
+
+// ---- publishing ----
+// Take the next free number, then fold the new line into the index the host is actually serving.
+// Both retries matter: the first keeps two devices from overwriting each other's posts, the second
+// keeps the loser of a index race from dropping the winner's post out of the list.
+export async function publishPost(io, at, key, n, fields) {
+  let num = n;
+  for (;;) {
+    const f = post(num, fields, key);
+    const r = await io.put(`${at}/posts/${num}`, f);
+    if (r === 201 || r === 200) return { n: num, entry: [num, address(f)] };
+    if (r !== 409) throw new Error(`publishing post ${num}: ${r}`);
+    num++;
+  }
+}
+// The entity tag is the hub's and opaque: it comes off the ETag header with the bytes, never from
+// hashing them here.
+export async function amendIndex(io, at, key, change) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await io.get(`${at}/index`);
+    if (cur && !cur.etag) throw new Error('index: the hub sent no ETag');
+    const obj = cur ? JSON.parse(cur.subarray(0, cur.lastIndexOf(0x0a)).toString('utf8')) : { entries: [], version: 0, top: 0 };
+    const next = change({ entries: obj.entries, version: obj.version + 1, top: obj.top });
+    if (await io.put(`${at}/index`, index(next, key), cur ? cur.etag : null) === 200) return next;
+  }
+  throw new Error('index: gave up retrying');
+}
+
+export const publish = (io, at, key, n, fields) =>
+  publishPost(io, at, key, n, fields).then(({ n: num, entry }) =>
+    amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, entry], top: Math.max(h.top, num) })).then(() => num));
+
+// A media file: put the bytes at their hash, then list the hash. Unsigned — the index's line admits it.
+export const publishMedia = (io, at, key, bytes) => {
+  const h = sha256(bytes);
+  return io.put(`${at}/media/${h}`, bytes).then((r) => { if (r !== 201 && r !== 200) throw new Error(`media: ${r}`); return amendIndex(io, at, key, (hd) => ({ ...hd, entries: [...hd.entries, [h]] })).then(() => h); });
+};
+export const withdraw = (io, at, key, n) =>
+  amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, [n, null]] }));
+// A withdrawn number comes back only at the hash it had — the same signed bytes.
+export const relist = (io, at, key, n, hash) =>
+  amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, [n, hash]] }));
+
+// Rotating or restoring changes who signs the index, so the index is written again under the new key.
+// Until it is, readers who already hold one keep it and readers who do not cannot read at all.
+export const resignIndex = (io, at, key) => amendIndex(io, at, key, (h) => h);
+
+// A rewrite drops the lines a withdrawal left behind. How often is the publisher's business — the
+// reader is indifferent — so this is a setting, not a rule. Once a month is the suggested default.
+const live = (entries) => { const m = new Map(); for (const [n, h] of entries) h === null ? m.delete(n) : m.set(n, typeof n === 'string' ? [n] : [n, h]); return [...m.values()]; };
+export const rewrite = (io, at, key) => amendIndex(io, at, key, (h) => ({ ...h, entries: live(h.entries) }));
