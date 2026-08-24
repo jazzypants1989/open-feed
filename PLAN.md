@@ -142,17 +142,31 @@ now drop because it lives elsewhere** — that list is Stage D's input.
 - [x] `TLDR.md` — folded into the README and deleted
 - [x] `GOALS.md` — kept, trimmed: the process framing, the `*Retires:*` clauses naming an archived
       spec's sections, and the "still open" list are gone; its words follow the spec's vocabulary now
-- [ ] `CLAUDE.md`: shrink again
-- [ ] The "may now drop" list, section by section — every example `.md` is now a place prose can
-      live, so this list is mostly a matter of reading the twenty of them beside the spec
+- [x] `CLAUDE.md` — reviewed and **came out a wash**, 1,211 → 1,217 words. The `examples/` and
+      `src/` rows lost detail that `examples/README.md` now owns and the README rule lost a sentence,
+      and that bought back one new trap: the capstones' `// ====` marker is what three separate
+      measurements slice on, so moving it breaks them silently. Reported rather than dressed up as a
+      cut — the file is a repo map, a threat model, seven editing rules and six traps, and there is
+      no fat left in it that is not load-bearing
+- [x] The "may now drop" list — `SPEC-CUTS.md`, section by section. **Its headline is the finding:
+      the drops come to about 520 words of 10,277, five per cent.** The spec is already tight; what
+      would actually shorten it is its last section, "Shorter by design", twelve places where one
+      thing is said twice or three paragraphs stand where a table belongs — worth another ~570 words,
+      and where the "a novice reads it in an hour" goal is won or lost. Read that section first
 
 ## Stage D — the spec rewrite (~1–2 sessions)
 
 Target: normative language; every MUST keeps its one-sentence justification; stand-alone; readable
-by a novice in an hour or two. Input: Stage C's list. Every edit is gated by `npm run check` — the
-vectors under two readers, the examples, the tests — so shortening cannot silently change meaning.
+by a novice in an hour or two. Input: `SPEC-CUTS.md`, and `FINDINGS.md`. Every edit is gated by
+`npm run check` — the vectors under two readers, the examples, the tests — so shortening cannot
+silently change meaning.
 
-- [ ] Section-by-section pass with the list in hand
+**Do the rulings first.** `FINDINGS.md` §1 holds two security defects that are one protocol change,
+and §2–§4 hold about two dozen places the spec and the code disagree. Rewriting prose around rules
+that are about to change is wasted work, and the `k` change would restage `examples/contest/`.
+
+- [ ] Rule on `FINDINGS.md` §1 (the `k` change), then §1.2 (§2.4 inside the envelope), then the rest
+- [ ] Section-by-section pass with `SPEC-CUTS.md` in hand — start with "Shorter by design"
 - [ ] Re-read as a novice; time it
 - [ ] Owner review
 

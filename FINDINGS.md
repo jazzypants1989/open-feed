@@ -60,6 +60,11 @@ and the `media` keys. A gap in both the spec and the reference implementation.
 
 ## 2. The spec says one thing and the code does another
 
+- **§5.6's "it can withhold any of them, which to the recipient looks like the sender going quiet"
+  contradicts §7.4.** A direct message is a listed numbered post, so withholding it reads as
+  `host: listed and not served` — `examples/posts-and-targets/` measures exactly that. Silence
+  requires freezing the index as well, which is a different move and worth saying.
+
 - **§3.3's "a restore changes the key and nothing else" is enforced narrowly.** The spec says a link
   with no `sig` MUST NOT be accompanied *in the same profile version* by a change to `locations`,
   `recovery`, `name` or `read`. `verifyProfile` checks it only when the chain grew by exactly one
@@ -89,6 +94,17 @@ and the `media` keys. A gap in both the spec and the reference implementation.
   absence only for withdrawn and encrypted posts.
 
 ## 3. The spec does not say something an implementer needs
+
+- **§2's file table and §8.4 disagree about who names you.** The table says the paths are "under a
+  name the hub assigns"; §8.4 says a name is claimed first come, with the profile as the proof, by
+  the writer. One of the two is wrong.
+- **The spec never joins `locations` to the `/<name>/…` paths.** `src/reader.js` fetches
+  `${location}/profile`; no sentence says a location *is* the name-prefixed base. A second
+  implementer has to guess the one thing every fetch depends on.
+- **Nothing bounds attacker-supplied work inside one profile.** `chain` and `recovery.leaves` are
+  unbounded arrays inside a 1 MB body, and each link and each voucher costs an Ed25519 verification;
+  `src/profile.js` has no length bound. §9 bounds bytes and sockets, §13.4 bounds stores, and neither
+  bounds this.
 
 - **The 65,535-byte cap on an encrypted plaintext** that §6.1's two-byte length prefix imposes.
   `src/envelope.js` enforces it as `MAX_PLAIN`; §6.1 never mentions it. (Found twice, independently.)
