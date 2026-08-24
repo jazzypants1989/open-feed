@@ -36,23 +36,25 @@ export const carrierOf = (genesis, n) => `${genesis}:${n}`;
 export const bucket = (n, floor) => Math.max(floor, 1 << Math.ceil(Math.log2(Math.max(n, 1))));
 export const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 8, bodyFloor: 512 } };
 
-export function seal({ content, audience, carrier = '', policy = 'floor', ephemeral, ck }) {
+export function seal({ content, audience, carrier = '', policy = 'floor', ephemeral, ck, random = crypto.randomBytes }) {
   const { slotFloor, bodyFloor } = POLICY[policy];
   const eph = ephemeral ?? xKey(`eph:${b64(crypto.randomBytes(8))}`);
   const epk = unb64(eph.x);
   const contentKey = ck ?? crypto.randomBytes(32);
   // The audience is sealed inside the content, first, so a recipient learns who else can reply.
   const plain = Buffer.from(JSON.stringify({ audience, ...content }), 'utf8');
+  if (plain.length > 65535) throw new RangeError('sealed plaintext is limited to 65,535 bytes (§7.1)');
   const padded = Buffer.alloc(bucket(plain.length + 2, bodyFloor));
   padded.writeUInt16BE(plain.length, 0); plain.copy(padded, 2);
-  const slots = audience.map((x) => {
+  const slots = audience.map((a) => a.read ?? a).map((x) => {          // an entry may be a key or {key, read, at}
     const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: xPub(x) }), epk);
     return [b64(tag), b64(aead(kek, knonce, contentKey, epk))];
   });
-  // Dummy slots to the bucket: derived from the content key so a vector reproduces; random bytes
-  // in production. A dummy is a tag nobody can derive and a wrap nobody can open.
+  // Dummy slots to the bucket: random bytes — a tag nobody can derive and a wrap nobody can open,
+  // and nothing a recipient holds regenerates them (or a recipient counts the true audience).
+  // `random` is injectable so a test vector reproduces; production leaves it alone.
   for (let i = slots.length; i < bucket(slots.length, slotFloor); i++) {
-    const d = Buffer.from(crypto.hkdfSync('sha256', contentKey, epk, `dummy/${i}`, 56));
+    const d = random(56);
     slots.push([b64(d.subarray(0, 8)), b64(d.subarray(8))]);
   }
   return { epk: eph.x, slots, ct: b64(aead(contentKey, ZERO12, padded, bindAAD(epk, carrier))) };
@@ -63,12 +65,15 @@ export function open(env, privateKey, carrier = '') {
   const epk = unb64(env.epk);
   const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey, publicKey: xPub(env.epk) }), epk);
   for (const [t, w] of env.slots) {
-    if (!crypto.timingSafeEqual(unb64(t), tag)) continue;
+    const tb = unb64(t);
+    if (tb.length !== tag.length || !crypto.timingSafeEqual(tb, tag)) continue;   // a malformed tag is a slot to skip, not a crash
     let contentKey; try { contentKey = unaead(kek, knonce, unb64(w), epk); } catch { continue; }
     // The slot opened, so the key is right; if the content does not, the envelope is not for this
     // carrier. That is the binding refusing, and it is the only way this function says no after a match.
     let padded; try { padded = unaead(contentKey, ZERO12, unb64(env.ct), bindAAD(epk, carrier)); } catch { return null; }
-    return JSON.parse(padded.subarray(2, 2 + padded.readUInt16BE(0)).toString('utf8'));
+    const len = padded.readUInt16BE(0);
+    if (len + 2 > padded.length) return null;                                      // a length past the body is a forgery of the author's own making
+    return JSON.parse(padded.subarray(2, 2 + len).toString('utf8'));
   }
   return null;
 }

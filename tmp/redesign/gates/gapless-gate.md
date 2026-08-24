@@ -75,3 +75,10 @@ abandons a number it cannot prove it listed. One sentence SKETCH §6 should lose
 one question — is withdrawal ever deletion on an honest host — for the owner.
 
 **Run:** `node tmp/redesign/gates/gapless-gate.js`
+
+**Re-measured 2026-08-23** after `pending` was cut (RULINGS §14.5; `pending-gate`): section 5 now
+stages a head carrying the retired line (`host: the head does not fold`), a scheduled post landing
+at the next number, and a reserved number listed late below a seen top (`host: post 8 is listed now
+and was not before` — the check that had made the line exist). The "two bugs in the files on
+trial" above were bugs in a feature that no longer exists.
+

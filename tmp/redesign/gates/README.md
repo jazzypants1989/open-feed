@@ -49,6 +49,34 @@ collected in `../REVIEW-fresh-start.md`.
 | `court-gate` | final §2.D | The contest rule inside the composed reader: **as written, a thief with a rotated-out key who picked a higher `pseq` was followed by every reader**; the court takes 18 lines and needs the pinned chain and the first list seen per chain length; a restore carries the list it satisfied; majority is the only rule under which a listed adversary never wins alone; a cold reader's court is whatever its first profile carried |
 | `media-gate` | final §2.E | The fourth file kind end to end: `[hash]` lists a photo, 48 B, withheld and swapped are both `host`, withdrawal is not deletion, a sealed post's photo is ciphertext at a listed hash; **a griefer's junk at her hash makes her own readers accuse her host** unless the hub replaces a file that does not hash to its name — §12.5's content-addressed twin |
 
+## Review gates — the 2026-08-23 skeptical review of `open-feed-spec-2.md` (`../REVIEW-spec2.md`)
+
+Each stages a finding against the text **as written** through the unchanged weekend reader and
+publisher, over a socket against `hub.js` — §9 as written, with a knob per proposed repair — and
+prices the repair in the same run.
+
+| gate | finding | one line |
+|---|---|---|
+| `coldcourt-gate` | A1, A1b | A reader holds no court below the length it met Alice at; a restore hop is signed only by its vouchers; **anyone with her public chain forks there and the reader rejects the real Alice forever**. Every hop carrying its list costs 165 B and closes it; a unified hop lets her repair a rotation instead of abandoning it |
+| `oldkey-gate` | A2, A5 | A rotated-out key squats every number she has not reached (201 × 5, her post lands at 9); "issued once" reaches only one head, so re-listing depends on whether the thief rewrote |
+| `hubwrite-gate` | A3 | A hub that checks nothing stores a stranger's profile for the price of a GET; every reader says `identity`; a write war at one PUT each |
+| `pending-gate` | A4 | Nothing a reader sees before the device confirms depends on the line; the hub cannot release; the device can post at the next number. 18 spec lines |
+| `audience-gate` | A6, A9 | A replier knowing a member only from the envelope cannot seal to her under §4.8 — the thread splits silently; `{key, read, at}` entries fix it at zero bytes. 65,535-byte ceiling |
+| `spoken-gate` | A7, C1 | Two branches of one identity speak the same six words; 40 bits is a year on a core, not a second |
+
+**`hub.js` is not a gate** either: §9 as ruled (`reclaim: 'current'`, `verifyWrites: true` by
+default) with the as-first-written settings behind knobs, shared by the review gates so each does
+not carry its own.
+
+**Held to the rulings (2026-08-23).** The owner ruled on the six findings the same day (RULINGS
+§14): the unified hop, `pending` cut, re-listing at the identical hash, the current-key reclaim,
+hub-side verification, audience entries, the spoken code over any key. The spec, the weekend
+reader and publisher, `envelope.js` and `tmp/regen2.js` follow the rulings; every gate above was
+re-run against them, and the review gates' "as written" claims flipped to the ruled behaviour
+(each card says so). **`lastline.js` did not follow**: it still carries the single-salt
+commitment and `prev`, and the nine gates on its substrate measure what they measured on
+2026-08-21 — read them as history, not as the current design.
+
 **`envelope.js` is not a gate.** It is the §7 envelope, lifted verbatim out of `envelope-gate.js`
 once the construction stopped being on trial, so the gate and `tmp/regen2.js` (which generates
 `open-feed-spec-2.md`'s Appendix B) share one implementation. Its three revert rows live in

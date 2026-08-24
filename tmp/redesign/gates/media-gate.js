@@ -39,7 +39,7 @@ class Hub {
   }
 }
 const io = (hub) => ({
-  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; },
+  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Object.assign(Buffer.from(await r.arrayBuffer()), { etag: r.headers.get('etag') }) : null; },
   put: async (p, b, ifMatch) => (await fetch(hub.url + p, { method: 'PUT', body: b, headers: ifMatch ? { 'if-match': ifMatch } : {} })).status,
 });
 

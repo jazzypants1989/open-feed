@@ -23,7 +23,9 @@ standards (JSON Feed, JOSE/JWS/JWK, RFC 8785 canonicalization), with a deliberat
 
 | File | Purpose |
 | ---- | ------- |
-| `open-feed-spec.md` | **The specification.** Core §1–§14; layered §15 (encrypted content — required by no level, REQUIRED of any deployment offering audience-restricted content) and §16 (item-carried pins — emission a Level 3 MUST, heeding optional); Appendices A (media types), B (test vectors), C (gateways) |
+| `open-feed-spec-2.md` | **The redesigned specification (Open Feed 2)** — the Cutting Campaign's product, reviewed and ruled 2026-08-23 (`tmp/redesign/REVIEW-spec2.md`, RULINGS §13–14). Identity is a genesis key; files are `body\n<sig>` with no canonicalization; one hop shape carrying its court; the head with one-hash-per-number; the envelope with carrier AAD; a PUT interface with verified writes. Beside the old spec until the swap (docs must catch up first) |
+| `src2/` · `test2/` | **The spec-2 reference implementation**, zero dependencies, and its suite. `file.js` is §3 (the strict parser lives here); `profile.js` §4 (walk, courts, contest); `head.js` §5; `envelope.js` §7 + sealed photos; `spoken.js` + `wordlist.js` §4.1 (BIP-39 as data); `reader.js` §8 over an injected fetcher; **`fetch.js` is the only src2 module that opens a socket** (`addresses.js` shared logic, ported verbatim); `publish.js` §9-client + §11 (it keeps every byte it writes); `hub.js` §9-server as a pure handler (verifies profile/head on write); `views.js` §12; `cli.js`/`bin/openfeed2.js`. `test2/scenarios.test.js` stages GOALS.md's scenarios; `tmp/regen2.js` verifies Appendix B with **both** readers (src2 and the weekend instrument) and the envelope byte-for-byte |
+| `open-feed-spec.md` | **The old specification** (superseded in design, still what `src/`+`test/` implement). Core §1–§14; layered §15 (encrypted content — required by no level, REQUIRED of any deployment offering audience-restricted content) and §16 (item-carried pins — emission a Level 3 MUST, heeding optional); Appendices A (media types), B (test vectors), C (gateways) |
 | `README.md` | Human-facing docs: examples, protocol comparisons, interop routes, FAQ |
 | `DISTRIBUTION-MODEL.md` | Reference implementation plan: a family AI-journaling hub |
 | `src/` | **Reference implementation**, zero dependencies: Level 1 verifier, Level 2 publisher, Level 3 inbox, plus §14 export and the §15 layer. `canonical.js` is RFC 8785 + a hand-written I-JSON parser, because §6.3's duplicate-member rejection is not something `JSON.parse` can do; `jws.js` is the §6 construction; `chain.js` is §5.3's walk for both chained documents; `manifest.js` is §9.3; `migration.js` is §3.4 — predecessor equivalence held once and asked by every site that needs it, plus §4.5's **recovery pin** — `(url, seq, hash)` and the keys committed there, which is what a co-signature resolves against and what §7.5's exception needs, rather than the whole document; `publish.js` emits every artifact as bytes; `reader.js` composes the lot into the Level 1 consumer, and the *order* is its content — identity chain before manifest, manifest before items; `cli.js` is that reader as a command; `inbox.js` is §10 as a function rather than a server, because §10.2's *ordering* is the security property and a socket hides it — it reports its own outbound fetch count for that reason; `export.js` is §14, and it deliberately contains no verifier: `restoreFetcher` is a fetcher over a bundle's contents and `verifyBundle` is `createReader` unchanged, which is how §14's "nothing about verification changes" is checked rather than asserted; `enc.js` is §15 and touches nothing else — one shared ephemeral, blinded per-recipient tags, and §15.2.1's carrier binding at the decrypting client. **`fetch.js` is the only module that opens a socket — keep it that way.** Node's `crypto` has Ed25519 natively — no `jose`, no `@noble`, no `canonicalize` |
@@ -45,8 +47,10 @@ Read §13.2 before touching anything security-relevant.
 
 ## Version policy
 
-**0.1.0 — Draft, unreleased.** Nothing here has had a reader outside this repo. `src/` implements
-it, which means the text is checked against running code and against nobody else's reading of it.
+**0.1.0 — Draft, unreleased.** Nothing here has had a reader outside this repo. Each spec is
+checked against running code: `src/` implements the old one, `src2/` the new one — and spec-2's
+vectors are verified by two independent readers (`src2/reader.js` and the weekend instrument),
+which is the closest thing to somebody else's reading it has had.
 
 **Do not bump the version for ordinary changes.** The number marks a release someone outside this
 repository can depend on, not an edit counter. Pre-1.0, breaking changes ARE allowed to fix
@@ -62,9 +66,9 @@ correctness or security defects; post-1.0, additive only.
 3. **Keep the rule, cut the archaeology.** Justification sitting next to a MUST is load-bearing —
    it is what stops the next implementer weakening it, so it stays. A paragraph about what an
    earlier draft got wrong does not.
-4. **Run `node tmp/regen.js`** after any change touching canonicalization, signing, document shape,
-   or the vectors. It self-verifies signatures and manifest hashes and confirms every vector string
-   appears verbatim in the spec. Exits non-zero on drift.
+4. **Run `node tmp/regen.js`** (old spec) or **`node tmp/regen2.js`** (spec-2) after any change
+   touching signing, document shape, the envelope, or the vectors. Each self-verifies and confirms
+   every vector appears verbatim in its spec. Exits non-zero on drift.
 5. **Timestamps** — key/chain fields in Unix seconds (JOSE); content fields in ISO 8601 (JSON Feed).
 6. **No changelog appendix, no version bump.** Record the change in the commit.
 7. **There is no line budget. Do not reintroduce one.** It was retired deliberately: a line count

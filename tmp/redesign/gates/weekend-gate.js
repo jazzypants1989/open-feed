@@ -48,7 +48,7 @@ class Hub {
   }
 }
 const io = (hub) => ({
-  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; },
+  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Object.assign(Buffer.from(await r.arrayBuffer()), { etag: r.headers.get('etag') }) : null; },
   put: async (p, b, ifMatch) => (await fetch(hub.url + p, { method: 'PUT', body: b, headers: ifMatch ? { 'if-match': ifMatch } : {} })).status,
 });
 
@@ -74,12 +74,12 @@ await pub.rewrite(net, AT, A);
 const afterRewrite = await read(net.get, { learned: A.x, at: AT, pin: afterWithdraw.pin });
 
 // a rotation, then a restore vouched by one listed member
-const p2 = pub.profile({ genesis: A.x, pseq: 2, prev: pub.address(p1), chain: [...chain0, pub.rotation(A, A2)], recovery: REC, locations: LOC }, A2);
+const p2 = pub.profile({ genesis: A.x, pseq: 2, prev: pub.address(p1), chain: [...chain0, pub.rotation(A, A2, REC)], recovery: REC, locations: LOC }, A2);
 await net.put(`${AT}/profile`, p2, hub.tag('alice/profile'));
 const midRotation = await read(net.get, { learned: A.x, at: AT, pin: afterRewrite.pin });   // head still under the old key
 await pub.resignHead(net, AT, A2);
 const afterRotate = await read(net.get, { learned: A.x, at: AT, pin: afterRewrite.pin });
-const p3 = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2), pub.restore(A2, A3, [mum], REC)], recovery: REC, locations: LOC }, A3);
+const p3 = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2, REC), pub.restore(A2, A3, [mum], REC)], recovery: REC, locations: LOC }, A3);
 await net.put(`${AT}/profile`, p3, hub.tag('alice/profile'));
 await pub.resignHead(net, AT, A3);
 const afterRestore = await read(net.get, { learned: A.x, at: AT, pin: afterRotate.pin });
@@ -108,7 +108,7 @@ hub.swap.set('alice/profile', fake);
 const substituted = await read(net.get, { learned: A.x, at: AT, pin: good });
 hub.swap.delete('alice/profile');
 
-const forked = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2), pub.restore(A2, ex, [sis], REC)], recovery: REC, locations: LOC }, ex);
+const forked = pub.profile({ genesis: A.x, pseq: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2, REC), pub.restore(A2, ex, [sis], REC)], recovery: REC, locations: LOC }, ex);
 hub.swap.set('alice/profile', forked);
 const contested = await read(net.get, { learned: A.x, at: AT, pin: good });
 hub.swap.delete('alice/profile');
@@ -120,10 +120,10 @@ const smuggled = await read(net.get, { learned: A.x, at: AT, pin: good });
 // ---- the rumor, over a second identity on the same hub ----
 const B = pub.newKey(), BAT = '/bob';
 await net.put(`${BAT}/profile`, pub.profile({ genesis: B.x, pseq: 1, chain: [{ key: B.x }], recovery: pub.commit(1, [mum]), locations: ['https://bob.example'] }, B), null);
-const target = (n) => ({ key: A.x, n, hash: good.live.get(n) ?? 'unknown', at: AT });
+const target = (n) => ({ key: A.x, n, hash: good.live.get(n) ?? 'unknown', loc: AT });
 await pub.publish(net, BAT, B, 1, { at: '2026-08-06', rel: 'reply', target: target(1), text: 'to a post I can see' });
 await pub.publish(net, BAT, B, 2, { at: '2026-08-06', rel: 'reply', target: { ...target(2), n: 2 }, text: 'to one she withdrew' });
-await pub.publish(net, BAT, B, 3, { at: '2026-08-06', rel: 'reply', target: { key: A.x, n: 99, hash: 'x', at: AT }, text: 'to one the host hides' });
+await pub.publish(net, BAT, B, 3, { at: '2026-08-06', rel: 'reply', target: { key: A.x, n: 99, hash: 'x', loc: AT }, text: 'to one the host hides' });
 const bob = await read(net.get, { learned: B.x, at: BAT });
 seen.set(A.x, good);
 let fetches = 0;
@@ -131,8 +131,8 @@ const counted = (p) => { fetches++; return net.get(p); };
 const raised = await rumors(counted, seen, bob.posts, 'bob');
 
 // the same rule under a griefer: a thousand replies naming numbers that do not exist
-const quiet = new Map([...Array(1000).keys()].map((i) => [i, { n: i, target: { key: A.x, n: 1, hash: good.live.get(1), at: AT } }]));
-const noisy = new Map([...Array(1000).keys()].map((i) => [i, { n: i, target: { key: A.x, n: 500 + i, hash: 'x', at: AT } }]));
+const quiet = new Map([...Array(1000).keys()].map((i) => [i, { n: i, target: { key: A.x, n: 1, hash: good.live.get(1), loc: AT } }]));
+const noisy = new Map([...Array(1000).keys()].map((i) => [i, { n: i, target: { key: A.x, n: 500 + i, hash: 'x', loc: AT } }]));
 let quietFetches = 0, noisyFetches = 0;
 const grief = await rumors((p) => { noisyFetches++; return net.get(p); }, new Map([[A.x, good]]), noisy, 'a griefer');
 await rumors((p) => { quietFetches++; return net.get(p); }, new Map([[A.x, good]]), quiet, 'a friend');
@@ -168,7 +168,7 @@ const gate = [
   ['a rotation is followed from the genesis key the reader learned, with no new trust',
     afterRotate.verdict === 'ok' && afterRotate.chain.current !== afterRotate.chain.keys[0]],
   ['between the two writes a rotation takes, an honest host is not accused — the reader keeps the head it verified',
-    midRotation.verdict === 'ok' && midRotation.note.includes('no head newer than the one this reader holds') && midRotation.posts.size === 2],
+    midRotation.verdict === 'ok' && midRotation.note.includes('no head I can verify') && midRotation.posts.size === 2],
   ['a restore vouched by a listed member is followed, and flagged',
     afterRestore.verdict === 'ok' && afterRestore.note.includes('recently restored') && afterBack.posts.size === 3],
   ['withholding a listed post is the host\'s fault, and says so', withheld.verdict === 'host'],

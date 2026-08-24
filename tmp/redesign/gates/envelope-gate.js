@@ -43,7 +43,9 @@ const vectors = [
   { name: 'family, pow2',   audience: FAMILY.slice(0, 3), content: { text: 'x'.repeat(200) },        carrier: '',                policy: 'pow2',  eph: 'v3', ck: 'k3' },
 ];
 const vecOut = vectors.map((v) => {
-  const mk = () => sealNew({ ...v, ephemeral: xKey(`eph:${v.eph}`), ck: seed(`ck:${v.ck}`) });
+  // Dummies are random bytes (§7.4); a seeded stream stands in so the vector reproduces.
+  const stream = () => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', `dummies:${v.ck}`, '', String(i++), n)); };
+  const mk = () => sealNew({ ...v, ephemeral: xKey(`eph:${v.eph}`), ck: seed(`ck:${v.ck}`), random: stream() });
   const a = JSON.stringify(mk()), b = JSON.stringify(mk());
   const env = JSON.parse(a);
   const opened = openNew(env, fam[0].privateKey, v.carrier);
@@ -116,7 +118,7 @@ class Hub {
   }
 }
 const io = (hub) => ({
-  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; },
+  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Object.assign(Buffer.from(await r.arrayBuffer()), { etag: r.headers.get('etag') }) : null; },
   put: async (p, b, ifMatch) => (await fetch(hub.url + p, { method: 'PUT', body: b, headers: ifMatch ? { 'if-match': ifMatch } : {} })).status,
 });
 const hubA = await new Hub().listen(), hubT = await new Hub().listen();

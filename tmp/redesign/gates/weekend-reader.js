@@ -65,44 +65,43 @@ function parse(text) {
 }
 
 // ---- the profile's chain of key changes ----
-// A hop is a rotation, signed by the key it replaces, or a restore, vouched by members of the list
-// that stood BEFORE the hop — the hop carries that list, since the profile's own list is for the
-// next one. Each voucher reveals only its own salt. `vouches` counts distinct listed members.
-const hopSig = (from, to, x, s) => { const b = sigBytes(s); try { return b && crypto.verify(null, Buffer.from(`${from}->${to}`), pub(x), b); } catch { return false; } };
+// One hop shape. Every hop carries the list that stood before it; a hop is valid when the previous
+// key signed it (a rotation) or enough distinct listed members vouched for it (a restore), and it
+// may carry both. The reader judges a hop by the court IT holds at that length — the carried copy
+// is only for a reader that holds none. `vouches` counts distinct listed members.
+const hopSig = (from, to, x, s) => { const b = sigBytes(s ?? ''); try { return !!b && crypto.verify(null, Buffer.from(`${from}->${to}`), pub(x), b); } catch { return false; } };
 function vouches(from, hop, court) {
   const leaves = new Set(court?.leaves ?? []);
   return new Set((hop?.vouchers ?? []).filter((v) => hopSig(from, hop.key, v.key, v.sig) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`)))).map((v) => v.key)).size;
 }
-function walk(p) {
-  if (!Array.isArray(p.chain) || p.chain[0]?.key !== p.genesis) return null;
+const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function walk(p, courts) {
   for (let i = 1; i < p.chain.length; i++) {
-    const hop = p.chain[i], from = p.chain[i - 1].key;
-    if (hop.by === 'rotation') { if (!hopSig(from, hop.key, from, hop.sig)) return null; continue; }
-    if (hop.by !== 'restore' || !Array.isArray(hop.vouchers) || !Array.isArray(hop.court?.leaves)) return null;
-    if (vouches(from, hop, hop.court) < hop.court.k) return null;
+    const hop = p.chain[i], from = p.chain[i - 1].key, court = courts[i];
+    if (!Array.isArray(hop?.court?.leaves) || !court) return null;
+    if (!hopSig(from, hop.key, from, hop.sig) && vouches(from, hop, court) < court.k) return null;
   }
-  return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.at(-1).by === 'restore' };
+  return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.length > 1 && p.chain.at(-1).sig === undefined };
 }
 
 // ---- the head ----
-// The live set is a fold over the entries in order: [n, hash] admits, [n, hash, 'pending'] admits a
-// post the device has not released yet, [n, null] takes one back. A number is issued once, so the
-// only legal second line for it is a pending entry confirmed with the same hash, or its withdrawal.
-// A photo is listed by its hash alone — [hash] admits it, [hash, null] takes it back — and is the
-// one unsigned thing: what admits it is being listed, and what checks it is the hash.
+// The live set is a fold over the entries in order: [n, hash] admits, [n, null] takes one back. A
+// number has one hash, ever: the only legal second line for it is its withdrawal, or its return at
+// the identical hash. A photo is listed by its hash alone — [hash] admits it, [hash, null] takes it
+// back — and is the one unsigned thing: what admits it is being listed, and what checks it is the hash.
 function fold(entries) {
   if (!Array.isArray(entries)) return null;
   const live = new Map(), issued = new Map();
   for (const e of entries) {
-    if (!Array.isArray(e) || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;
+    if (!Array.isArray(e) || e.length > 2 || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;
     if (typeof e[0] === 'string') { if (e[1] === null ? !live.delete(e[0]) : (e.length !== 1 || live.has(e[0]))) return null; if (e.length === 1) live.set(e[0], { hash: e[0] }); continue; }
-    const [n, hash, flag] = e;
+    const [n, hash] = e;
+    if (!(Number.isInteger(n) && n >= 1)) return null;
     if (hash === null) { if (!live.has(n)) return null; live.delete(n); continue; }
     if (typeof hash !== 'string') return null;
     const had = issued.get(n);
-    if (had && (!had.pending || had.hash !== hash)) return null;
-    const rec = { hash, pending: !had && flag === 'pending' };
-    issued.set(n, rec); live.set(n, rec);
+    if (had && (had !== hash || live.has(n))) return null;
+    issued.set(n, hash); live.set(n, { hash });
   }
   return { live, top: Math.max(0, ...issued.keys()) };
 }
@@ -111,7 +110,8 @@ function fold(entries) {
 // `learned` is the genesis key the reader got off the host's path — a link, a scanned code. `pin`
 // is what it remembers from the last time it verified this identity itself. Three verdicts:
 // ok, host (this host is misbehaving), identity (who this is is in question).
-export async function read(get, { learned, at, pin = null } = {}) {
+const WEEK = 7 * 86400e3;
+export async function read(get, { learned, at, pin = null, now = Date.now() } = {}) {
   const note = [], say = (v) => note.includes(v) || note.push(v);
   const bad = (verdict, why) => ({ verdict, why, note });
 
@@ -119,17 +119,19 @@ export async function read(get, { learned, at, pin = null } = {}) {
   if (!pf) return bad('host', 'no profile served');
   const raw = pf.lastIndexOf(0x0a) < 0 ? null : parse(pf.subarray(0, pf.lastIndexOf(0x0a)).toString('utf8'));
   if (!raw || raw.genesis !== learned) return bad('identity', 'not the identity this reader learned');
-  const chain = walk(raw);
+  if (!Array.isArray(raw.chain) || raw.chain[0]?.key !== raw.genesis) return bad('identity', 'the chain does not start at the genesis');
+  // The court. A reader keeps, for every chain length it has seen, the FIRST recovery list it saw
+  // there — from the hop that carried it, or from the profile. A pinned reader adopts nothing at a
+  // length its pinned chain already reaches. A served chain that does not extend the pinned one is
+  // a split; the list that stood at the split judges it, and the branch whose hop there has a
+  // majority of that list wins. No majority on exactly one side: contested.
+  const courts = { ...(pin?.courts ?? {}) };
+  const adopt = (from) => { raw.chain.forEach((h, j) => { if (j >= from && h.court && !(j in courts)) courts[j] = h.court; }); if (raw.chain.length >= from) courts[raw.chain.length] ??= raw.recovery; };
+  adopt(pin ? pin.chain.length : 0);
+  let chain = walk(raw, courts);
   if (!chain) return bad('identity', 'the chain of key changes does not hold');
   const profile = openFile(pf, chain.current);
   if (!profile) return bad('identity', 'the profile is not signed by the key it ends on');
-  // The court. A reader keeps, for every chain length it has seen, the FIRST recovery list it saw
-  // there — from the profile, or from the hop that carried it. A served chain that does not extend
-  // the pinned one is a fork; the list that stood at the split judges it, and the branch whose hop
-  // there has a majority of that list wins. A restore is judged by the list the reader holds, never
-  // by the copy it carries. No court, or no majority on exactly one side: contested.
-  const courts = { ...(pin?.courts ?? {}) };
-  raw.chain.forEach((h, j) => { if (h.court && !(j in courts)) courts[j] = h.court; });
   if (pin) {
     let i = raw.chain.findIndex((h, j) => j < pin.chain.length && pin.chain[j].key !== h.key);
     if (i < 0 && raw.chain.length < pin.chain.length && raw.pseq > pin.pseq) i = raw.chain.length;   // a newer profile that forgets a hop is a fork too
@@ -138,13 +140,17 @@ export async function read(get, { learned, at, pin = null } = {}) {
       const mine = majority(pin.chain), theirs = majority(raw.chain);
       if (mine === theirs) return bad('identity', 'contested: two histories, and no majority settles it');
       if (mine) return bad('host', 'serves a branch the court rejected');
-      say('switched to the branch the court chose');
       for (const j of Object.keys(courts)) if (j > i) delete courts[j];
+      adopt(i + 1);
+      if (!(chain = walk(raw, courts))) return bad('identity', 'the chain of key changes does not hold');
     } else if (raw.pseq < pin.pseq) return bad('identity', 'an older profile than the one this reader saw');
     else if (raw.pseq === pin.pseq && profile.address !== pin.phash) return bad('identity', 'contested: two profiles at one version');
+    // A restore that arrived since the pin changed the key and nothing else — only a pinned reader can tell.
+    else if (chain.restored && raw.chain.length === pin.chain.length + 1 && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [courts[pin.chain.length], ...pin.fields])) return bad('identity', 'a restore changed more than the key');
   }
-  courts[raw.chain.length] ??= raw.recovery;
-  if (chain.restored) say('recently restored');
+  // "Recently restored" is a flag beside a name for seven days of this reader's clock, never a verdict.
+  const restoredAt = chain.restored ? (pin?.restoredAt?.[raw.chain.length] ?? now) : null;
+  if (restoredAt !== null && now - restoredAt < WEEK) say('recently restored');
 
   // The head must be signed by the key that is current NOW — that is what takes the list away from
   // a thief holding an old one. So a rotation means writing the head again, and in the moment
@@ -154,31 +160,33 @@ export async function read(get, { learned, at, pin = null } = {}) {
   const hf = await get(`${at}/head`);
   let head = hf && openFile(hf, chain.current);
   let set = head && fold(head.obj.entries);
-  if (head && (!set || !(head.obj.top >= set.top))) return bad('host', 'the head does not fold');
+  if (head && (!set || !(Number.isInteger(head.obj.top) && head.obj.top >= set.top))) return bad('host', 'the head does not fold');
   if (!head) {
     if (!pin) return bad('host', hf ? 'the head is not signed by the key the profile ends on' : 'no head served');
-    say('no head newer than the one this reader holds');
-    set = { live: new Map([...pin.live].map(([n, h]) => [n, { hash: h, pending: pin.pending.has(n) }])), top: pin.top };
+    say('no head I can verify');
+    set = { live: new Map([...pin.live].map(([n, h]) => [n, { hash: h }])), top: pin.top };
     head = { obj: { hseq: pin.hseq, top: pin.top }, address: pin.hhash };
   }
+  const withdrawn = new Map(pin?.withdrawn ?? []);
   if (pin) {
     if (head.obj.hseq < pin.hseq) return bad('host', 'a head older than the one this reader saw');
     if (head.obj.hseq === pin.hseq && head.address !== pin.hhash) return bad('host', 'two heads at one version');
     if (head.obj.top < pin.top) return bad('host', 'the highest number used went backwards');
-    // Whatever was rewritten since, a post the reader saw either survived unchanged or was
-    // withdrawn; a number at or below the old top cannot appear that was never there.
+    // Whatever was rewritten since, a post the reader saw either survived unchanged, was withdrawn,
+    // or came back at the hash it had; a number at or below the old top cannot appear that was
+    // never there, and cannot come back as something else.
     for (const [n, e] of set.live) {
       if (typeof n !== 'number' || n > pin.top) continue;
-      const was = pin.live.get(n);
+      const was = pin.live.get(n) ?? withdrawn.get(n);
       if (!was) return bad('host', `post ${n} is listed now and was not before`);
       if (was !== e.hash) return bad('host', `post ${n} changed after the reader saw it`);
     }
-    for (const n of pin.live.keys()) if (!set.live.has(n)) say(`withdrawn: ${n}`);
+    for (const [n, h] of pin.live) if (!set.live.has(n)) { say(`withdrawn: ${n}`); withdrawn.set(n, h); }
+    for (const n of withdrawn.keys()) if (set.live.has(n)) withdrawn.delete(n);
   }
 
   const posts = new Map(), media = new Map();
   for (const [n, e] of set.live) {
-    if (e.pending) { say(`pending: ${n}`); continue; }
     const f = await get(typeof n === 'string' ? `${at}/media/${n}` : `${at}/posts/${n}`);
     if (!f) return bad('host', `${typeof n === 'string' ? 'photo' : 'post'} ${n} is listed and not served`);
     if (typeof n === 'string') { if (sha256(f) !== n) return bad('host', `photo ${n} is not what the head lists`); media.set(n, f); continue; }
@@ -190,25 +198,31 @@ export async function read(get, { learned, at, pin = null } = {}) {
 
   return {
     verdict: 'ok', note, posts, media, chain, locations: raw.locations ?? [], read: raw.read,
-    pin: { pseq: raw.pseq, phash: profile.address, chain: raw.chain, courts, hseq: head.obj.hseq, hhash: head.address, top: head.obj.top,
-      live: new Map([...set.live].map(([n, e]) => [n, e.hash])), pending: new Set([...set.live].filter(([, e]) => e.pending).map(([n]) => n)) },
+    pin: { pseq: raw.pseq, phash: profile.address, chain: raw.chain, courts, fields: [raw.locations, raw.name, raw.read],
+      restoredAt: { ...(pin?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
+      hseq: head.obj.hseq, hhash: head.address, top: head.obj.top,
+      live: new Map([...set.live].map(([n, e]) => [n, e.hash])), withdrawn },
   };
 }
 
-// A reply names its target by key, number, hash and location. A number above the top of the head
-// the reader holds for that author is the only thing worth raising, and it is a rumor naming the
-// replier, never an accusation: re-fetch, and if the host still will not show it, say so.
+// A reply names its target by key, number, hash and location. A target whose hash is not what that
+// author's head lists — now, or when it was withdrawn — is a reply to something else, and says
+// nothing. A number above the top of the head the reader holds for that author is the only thing
+// worth raising, and it is a rumor naming the replier, never an accusation: re-fetch, and if the
+// host still will not show it, say so.
 export async function rumors(get, seen, posts, replier) {
   const out = [], refreshed = new Set();
   for (const p of posts.values()) {
     const t = p.target;
     if (!t || !seen.has(t.key)) continue;
+    const listed = () => { const s = seen.get(t.key); return s.live.get(t.n) ?? s.withdrawn.get(t.n); };
+    if (listed() !== undefined && listed() !== t.hash) { t.unresolved = true; continue; }
     if (t.n <= seen.get(t.key).top) continue;                         // withdrawn, or superseded — quiet
     // Look again, but once per identity per pass: a thousand replies naming a number that does not
     // exist must not turn into a thousand fetches aimed at somebody else's host.
     if (!refreshed.has(t.key)) {
       refreshed.add(t.key);
-      const again = await read(get, { learned: t.key, at: t.at, pin: seen.get(t.key) });
+      const again = await read(get, { learned: t.key, at: t.loc, pin: seen.get(t.key) });
       if (again.verdict === 'ok') seen.set(t.key, again.pin);
     }
     // One line per person, however many replies they wrote: the rumor names who, not how often.

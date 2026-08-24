@@ -55,7 +55,7 @@ class Hub {
   }
 }
 const io = (hub) => ({
-  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; },
+  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Object.assign(Buffer.from(await r.arrayBuffer()), { etag: r.headers.get('etag') }) : null; },
   put: async (p, b, ifMatch) => (await fetch(hub.url + p, { method: 'PUT', body: b, headers: ifMatch ? { 'if-match': ifMatch } : {} })).status,
 });
 
@@ -81,7 +81,7 @@ const quiet = (r) => r.verdict === 'ok' && r.note.length === 0;
 const bobReplies = async (s, targets) => {
   await s.net.put(`${BAT}/profile`, pub.profile({ genesis: B.x, pseq: 1, chain: [{ key: B.x }], recovery: REC, locations: ['https://bob.example'] }, B), null);
   let n = 1;
-  for (const t of targets) await pub.publish(s.net, BAT, B, n++, { at: '2026-08-02', rel: 'reply', target: { key: A.x, at: AT, ...t }, text: 'reply' });
+  for (const t of targets) await pub.publish(s.net, BAT, B, n++, { at: '2026-08-02', rel: 'reply', target: { key: A.x, loc: AT, ...t }, text: 'reply' });
   const bob = await read(s.net.get, { learned: B.x, at: BAT });
   return rumors(s.net.get, new Map([[A.x, s.pin]]), bob.posts, 'bob');
 };
@@ -136,33 +136,26 @@ for (let n = 8; n <= 12; n++) {
 }
 const reclaimedAll = await cold(s5);
 
-// 5. pending: the device lists a number with its hash and has not released the bytes. Then the
-// author abandons it. Then — the two lifecycle paths nothing had checked — a pending entry across a
-// rewrite, and across the fallback a rotation forces.
+// 5. scheduled posts (the `pending` line was cut 2026-08-23 — pending-gate.md). A head carrying the
+// old three-element line does not fold; the scheduled post is signed at release time at the next
+// number; and a number reserved in advance and listed late, below a top a reader saw, is host.
 const s6 = await fresh();
 const draft = pub.post(8, { at: '2026-09-01', text: 'scheduled' }, A);
+s6.pin = (await at(s6)).pin;
 await pub.amendHead(s6.net, AT, A, (h) => ({ ...h, entries: [...h.entries, [8, pub.address(draft), 'pending']], top: 8 }));
-const gets = () => s6.hub.log.filter((l) => l === 'GET alice/posts/8').length;
-const g0 = gets();
-const pendingRead = await at(s6);
-const pendingFetched = gets() - g0;
-s6.pin = pendingRead.pin;
-await pub.rewrite(s6.net, AT, A);                                                  // the author's monthly rewrite
-const pendingAfterRewrite = await at(s6);
-const rewritten = JSON.parse(body(await s6.net.get(`${AT}/head`))).entries.find(([n]) => n === 8);
-await s6.net.put(`${AT}/profile`, pub.profile({ genesis: A.x, pseq: 2, chain: [{ key: A.x }, pub.rotation(A, A2)], recovery: REC, locations: LOC }, A2), s6.hub.tag('alice/profile'));
-const pendingInFallback = await at(s6);                                            // head still under the old key
-await pub.resignHead(s6.net, AT, A2);
-await pub.withdraw(s6.net, AT, A2, 8);                                             // abandoned
-const abandoned = await read(s6.net.get, { learned: A.x, at: AT, pin: pendingAfterRewrite.pin });
-// the other device publishes 9 while 8 is pending, then the first releases 8 below the top
+const oldLine = await at(s6);
+await pub.amendHead(s6.net, AT, A, (h) => ({ ...h, entries: h.entries.filter((e) => e.length < 3) }));
+await pub.publish(s6.net, AT, A, 8, { at: '2026-08-03', text: 'meanwhile' });
+s6.pin = (await at(s6)).pin;
+const released = await pub.publish(s6.net, AT, A, 9, { at: '2026-09-01', text: 'scheduled' });
+const releasedRead = await at(s6);
 const s7 = await fresh();
-await pub.amendHead(s7.net, AT, A, (h) => ({ ...h, entries: [...h.entries, [8, pub.address(draft), 'pending']], top: 8 }));
 s7.pin = (await at(s7)).pin;
 await pub.publish(s7.net, AT, A, 9, { at: '2026-08-03', text: 'meanwhile' });
+s7.pin = (await at(s7)).pin;
 await s7.net.put(`${AT}/posts/8`, draft);
 await pub.amendHead(s7.net, AT, A, (h) => ({ ...h, entries: [...h.entries, [8, pub.address(draft)]] }));
-const released = await at(s7);
+const late = await at(s7);
 
 // 6. the write order: the head that lists a post must come after the post's bytes, or a reader in
 // between accuses an honest host.
@@ -181,8 +174,7 @@ console.log(`    the custodian, key and disk, backdates a post into 3:       his
 console.log(`    two devices, one crash:                                     laptop at ${laptop}, phone restarted at ${phoneAgain}; ${twoDevices.verdict} [${twoDevices.note}]`);
 console.log(`    griefer holds 8–12 (${burned.join(' ')}); his reply naming 11 before she gets there: ${griefRumorBefore}`);
 for (const [n, v, top, max] of tops) console.log(`      she publishes ${n}: ${v}, top ${top}, highest listed ${max}`);
-console.log(`    pending 8: ${pendingRead.verdict} [${pendingRead.note}], fetched ${pendingFetched}×; after the rewrite the line is ${JSON.stringify(rewritten)} and reads ${pendingAfterRewrite.verdict} (${pendingAfterRewrite.why ?? 'ok'})`);
-console.log(`      in the rotation fallback: ${pendingInFallback.verdict} (${pendingInFallback.why ?? pendingInFallback.note}); abandoned: ${abandoned.verdict} [${abandoned.note}]; released below the top: ${released.verdict} [${released.note}]`);
+console.log(`    the old pending line: ${oldLine.verdict} (${oldLine.why}); the scheduled post lands at ${released} (${releasedRead.verdict}); a reserved number listed late: ${late.verdict} (${late.why})`);
 console.log(`    head written before the post: ${headFirst.verdict} (${headFirst.why ?? 'ok'}); then the post lands: ${thenPost.verdict}\n`);
 
 const gate = [
@@ -202,13 +194,11 @@ const gate = [
     burned.every((s) => s === 201) && tops.every(([n, v, top, max]) => v === 'ok' && top === n && max === n) && reclaimedAll.posts.size === 11],
   ['his reply naming a number she has not reached names him, not her',
     griefRumorBefore.length === 1],
-  ['a pending entry is noted and never fetched', pendingRead.note.includes('pending: 8') && pendingFetched === 0],
-  ['a pending entry survives the rewrite still pending — the publisher keeps the flag',
-    rewritten?.[2] === 'pending' && pendingAfterRewrite.verdict === 'ok' && pendingAfterRewrite.note.includes('pending: 8')],
-  ['a pending entry survives the fallback still pending — the pin keeps the flag',
-    pendingInFallback.verdict === 'ok' && pendingInFallback.note.includes('pending: 8')],
-  ['an abandoned draft is a withdrawal, and a draft released below the top is an ordinary post',
-    abandoned.verdict === 'ok' && abandoned.note.includes('withdrawn: 8') && released.verdict === 'ok' && released.posts.has(8)],
+  ['a head carrying the retired pending line does not fold', oldLine.verdict === 'host' && oldLine.why === 'the head does not fold'],
+  ['a scheduled post is signed at release time at the next number, and reads as an ordinary post',
+    released === 9 && releasedRead.verdict === 'ok' && releasedRead.posts.has(9)],
+  ['a number reserved in advance and listed late, below a top the reader saw, is host — the check that made the pending line exist',
+    late.verdict === 'host' && late.why === 'post 8 is listed now and was not before'],
   ['a head that lists a post before its bytes land accuses an honest host — the post is written first',
     headFirst.verdict === 'host' && thenPost.verdict === 'ok'],
 ];

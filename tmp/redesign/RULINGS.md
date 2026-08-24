@@ -420,3 +420,51 @@ the rulings. Across all thirteen moments the gate drives: `ok`, `this host is mi
 identity is in question`. **`recently restored`, `withdrawn: n`, `pending: n` and `no head newer
 than the one I hold` are notes on an ok read, not states.** That distinction is what holds the count
 at three, and the spec should make it explicitly.
+
+## 13. The final review's eleven rulings — 2026-08-21 (recorded 2026-08-23)
+
+These were taken when `open-feed-spec-2.md` was written (commit `6791a91`) and lived only in that
+commit's message; `REVIEW-final.md` §5 still reads as open questions. Written down here so the
+record is the record.
+
+1. **Q1 — majority, with its price stated.** The only rule under which a listed adversary never
+   wins alone. A one-of-two restore against a bare rotation stays contested until a second member
+   vouches. (§4.6)
+2. **Q2 — a hub MAY remove a numbered or hashed file the head does not list**, after a grace
+   window for the post-before-head write order. Withdrawal is not deletion, and an app MUST NOT say
+   it is. (§9.8)
+3. **Q3 — `prev` cut from both overwritten files.** Nobody reads it; the rollback it would catch
+   is caught by `pseq`/`hseq` and the chain-prefix rule. Reverses §12.4 above; `rejections.md` §16.
+4. **Q4 — a sealed post's `rel`, `target` and `media` go inside the envelope**; in the clear only
+   on public posts. (§7.6)
+5. **Q5 — six words from a 2,048-word list**, 66 bits, HKDF-derived, no new primitive. (§4.1)
+6. **Q6 — one optional signed `name` on the profile.** (§4.2)
+7. **Q7 — the padding floor is a SHOULD**, with the ~1.1 KB per DM stated. (§7.4)
+8. **Q8 — GOALS scenario 1 reworded**: "stale" is what a reader with a social path sees. (§14.3)
+9. **Q9a — a short normative section on the copy on your device.** (§11)
+10. **Q9b — staleness accepted and said out loud.** (§14.3)
+11. **Q10 — three roles, publisher, reader, hub, and no levels.** (§13)
+
+## 14. The skeptical review — rulings of 2026-08-23
+
+Taken in plan mode before the gates ran, from the findings in `REVIEW-spec2.md`:
+
+1. **The spec-2 reference implementation lives in `src2/` and `test2/` beside the old tree.** The
+   swap (old spec and `src/` to `tmp/archive/`) waits for README and DISTRIBUTION-MODEL to catch up.
+2. **A withdrawn number MAY be re-listed at its identical hash** (finding A5; `oldkey-gate`). Same
+   signed bytes, head signed by the current key; the pin remembers withdrawn hashes. It is also the
+   only rule that is the same before and after a rewrite.
+3. **The hop shape (A1) and `pending` (A4) are decided after `coldcourt-gate` and `pending-gate`
+   run** — see the continuation below.
+
+Taken after the gates ran, the same day:
+
+4. **One hop shape** (A1; `coldcourt-gate`): `{key, court, sig?, vouchers?}`. Every hop carries
+   the list in force before it; a hop is valid when `sig` by the previous key verifies or when
+   distinct listed vouchers reach `court.k`; in a contest a hop weighs its vouchers in the court
+   the *reader* holds at that index. `by` goes. A hop with no `sig` changes the key and nothing
+   else. Vouchers MAY be added to an existing hop — which is how Alice out-votes a forger at an old
+   length without abandoning the keys after it. A reader holding a court at a hop's length judges
+   the hop by it, extension or split (A1b). Costs 165 B per rotation hop.
+5. **`pending` is cut** (A4; `pending-gate`). A scheduled post is an app-local queue, signed at
+   release time at the next number. Reverses §11.5 above; `rejections.md` §17.

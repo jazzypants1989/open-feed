@@ -42,14 +42,14 @@ her list after the restore. Then the rule as a pure function under three candida
 | fork | thief first | Alice first |
 |---|---|---|
 | thief at `pseq` 4, rotation; Alice 2 of 3 | followed, then **switched to Alice** | Alice, then `host: serves a branch the court rejected` |
-| the ex, listed, vouches himself (forged court of one); Alice 2 of 3 | switched to Alice | `host` |
+| the ex, listed, vouches himself (forged court of one); Alice 2 of 3 | `identity` outright (his hop fails under the held court), then Alice | `identity` |
 | one voucher each of two | `identity: contested` | `identity: contested` |
 | thief rotates; Alice 1 of 2 | `identity: contested` | `identity: contested` |
 | thief rotates; Alice 2 of 2 | switched to Alice | `host` |
-| thief rewrites the list, then forks | switched to Alice | `host` |
+| thief rewrites the list, then forks | `identity` outright, then Alice | `identity` |
 | `pseq` 9 with the chain from before her restore | — | `host` |
 | cold on Alice, then the thief | — | `host` |
-| cold on the thief (forged court of one), then Alice | `host` — **Alice is the one rejected** | — |
+| cold on the thief (forged court of one), then Alice | `identity` — **Alice is the one rejected** | — |
 
 The rule three ways, on the row that separates them — *the ex, on the list, vouches for himself;
 Alice merely rotates*: **majority: contested · at least k: the ex wins · strictly more: the ex
@@ -78,3 +78,10 @@ so an app SHOULD rotate when the list changes. One question for the owner: major
 `k` — the table above is the whole difference.
 
 **Run:** `node tmp/redesign/gates/court-gate.js`
+
+**Re-measured 2026-08-23** under the unified hop (RULINGS §14.4; `coldcourt-gate`): every hop
+carries its list, and a reader judges a hop's *validity* by the court it holds at that length —
+so a forged court of one no longer reaches the contest at all. Rows 2 and 5 read `identity: the
+chain of key changes does not hold` on the thief's branch in either order, where they read
+"switched to Alice" / `host` before; the rest of the table is unchanged.
+

@@ -3,7 +3,8 @@
 // and restores with git; these files are untracked while the design is on trial, so the original
 // bytes are held in memory and written back. A gate already red on the clean tree is not credited.
 //
-//   node tmp/redesign/gates/revert.js
+//   node tmp/redesign/gates/revert.js            # every row
+//   node tmp/redesign/gates/revert.js court-gate # one gate's rows
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -118,18 +119,12 @@ const M = [
   ['weekend-gate', 'tmp/redesign/gates/weekend-reader.js',
     'if (!refreshed.has(t.key)) {',
     'if (true) {'],
-  ['gapless-gate', 'tmp/redesign/gates/weekend-publisher.js',
-    "m.set(n, typeof n === 'string' ? [n] : m.has(n) ? [n, h] : [n, h, ...(f === 'pending' ? ['pending'] : [])])",
-    "m.set(n, typeof n === 'string' ? [n] : [n, h])"],
   ['gapless-gate', 'tmp/redesign/gates/weekend-reader.js',
-    'pending: pin.pending.has(n) }])), top: pin.top };',
-    'pending: false }])), top: pin.top };'],
+    "if (!Array.isArray(e) || e.length > 2 || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;",
+    "if (!Array.isArray(e) || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;"],
   ['gapless-gate', 'tmp/redesign/gates/weekend-reader.js',
     "if (typeof n !== 'number' || n > pin.top) continue;",
     'if (true) continue;'],
-  ['gapless-gate', 'tmp/redesign/gates/weekend-reader.js',
-    'if (e.pending) { say(`pending: ${n}`); continue; }',
-    'if (false) { say(`pending: ${n}`); continue; }'],
   ['gapless-gate', 'tmp/redesign/gates/gapless-gate.js',
     'if (this.owners(m[1], this.files.get(key), n) || !this.owners(m[1], b, n)) return { status: 409 };',
     'if (!this.owners(m[1], b, n)) return { status: 409 };'],
@@ -140,14 +135,11 @@ const M = [
     'if (i < 0 && raw.chain.length < pin.chain.length && raw.pseq > pin.pseq) i = raw.chain.length;',
     'if (false) i = raw.chain.length;'],
   ['court-gate', 'tmp/redesign/gates/weekend-reader.js',
-    'raw.chain.forEach((h, j) => { if (h.court && !(j in courts)) courts[j] = h.court; });',
-    'raw.chain.forEach((h, j) => { if (h.court) courts[j] = h.court; });'],
+    'raw.chain.forEach((h, j) => { if (j >= from && h.court && !(j in courts)) courts[j] = h.court; }); if (raw.chain.length >= from) courts[raw.chain.length] ??= raw.recovery;',
+    'raw.chain.forEach((h, j) => { if (h.court) courts[j] = h.court; }); courts[raw.chain.length] = raw.recovery;'],
   ['court-gate', 'tmp/redesign/gates/weekend-reader.js',
-    'courts[raw.chain.length] ??= raw.recovery;',
-    'courts[raw.chain.length] = raw.recovery;'],
-  ['court-gate', 'tmp/redesign/gates/weekend-reader.js',
-    'if (vouches(from, hop, hop.court) < hop.court.k) return null;',
-    'if (vouches(from, hop, p.recovery) < p.recovery.k) return null;'],
+    'if (!hopSig(from, hop.key, from, hop.sig) && vouches(from, hop, court) < court.k) return null;',
+    'if (!hopSig(from, hop.key, from, hop.sig) && vouches(from, hop, hop.court) < hop.court.k) return null;'],
   ['court-gate', 'tmp/redesign/gates/weekend-reader.js',
     'const majority = (c) => vouches(c[i - 1].key, c[i], courts[i]) * 2 > (courts[i]?.leaves.length ?? Infinity);',
     'const majority = (c) => vouches(c[i - 1].key, c[i], courts[i]) >= 1;'],
@@ -173,8 +165,8 @@ const M = [
     'rumorFetches.M === 3 && rumorFetches.J === 0',
     'rumorFetches.J === 3 && rumorFetches.M === 0'],
   ['twohubs-gate', 'tmp/redesign/gates/twohubs-gate.js',
-    "at: momNew }, text: 'welcome home' }",
-    "at: mom.at }, text: 'welcome home' }"],
+    "loc: momNew }, text: 'welcome home' }",
+    "loc: mom.at }, text: 'welcome home' }"],
   ['media-gate', 'tmp/redesign/gates/weekend-reader.js',
     "if (typeof n === 'string') { if (sha256(f) !== n) return bad('host', `photo ${n} is not what the head lists`); media.set(n, f); continue; }",
     "if (typeof n === 'string') { media.set(n, f); continue; }"],
@@ -184,13 +176,50 @@ const M = [
   ['media-gate', 'tmp/redesign/gates/media-gate.js',
     'if (m[3] && this.contentCheck && sha(this.files.get(key)) !== m[3] && sha(b) === m[3]) { this.files.set(key, b); return { status: 200 }; }',
     'if (false) { this.files.set(key, b); return { status: 200 }; }'],
+  // The 2026-08-23 review gates. Each row turns off the repair a gate prices, or the staging that
+  // makes the finding visible, and the gate must go red either way.
+  ['coldcourt-gate', 'tmp/redesign/gates/weekend-reader.js',
+    'const hop = p.chain[i], from = p.chain[i - 1].key, court = courts[i];',
+    'const hop = p.chain[i], from = p.chain[i - 1].key, court = hop.court;'],
+  ['coldcourt-gate', 'tmp/redesign/gates/weekend-publisher.js',
+    "export const vouched = (h, from, vouchers) => ({ ...h, vouchers: [...(h.vouchers ?? []), ...restore(from, { x: h.key }, vouchers, h.court).vouchers] });",
+    "export const vouched = (h, from, vouchers) => ({ ...h });"],
+  ['oldkey-gate', 'tmp/redesign/gates/hub.js',
+    "return listed || verify(f, keys.at(-1));",
+    "return keys.some((x) => verify(f, x));"],
+  ['oldkey-gate', 'tmp/redesign/gates/weekend-reader.js',
+    'if (had && (had !== hash || live.has(n))) return null;',
+    'if (had && live.has(n)) return null;'],
+  ['oldkey-gate', 'tmp/redesign/gates/weekend-reader.js',
+    "for (const [n, h] of pin.live) if (!set.live.has(n)) { say(`withdrawn: ${n}`); withdrawn.set(n, h); }",
+    "for (const [n, h] of pin.live) if (!set.live.has(n)) { say(`withdrawn: ${n}`); }"],
+  ['hubwrite-gate', 'tmp/redesign/gates/hub.js',
+    "if (this.verifyWrites) { const keys = walk(o); if (!keys || !verify(b, keys.at(-1))) return { status: 403 }; }",
+    "if (false) { const keys = walk(o); if (!keys || !verify(b, keys.at(-1))) return { status: 403 }; }"],
+  ['pending-gate', 'tmp/redesign/gates/weekend-reader.js',
+    "if (!Array.isArray(e) || e.length > 2 || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;",
+    "if (!Array.isArray(e) || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;"],
+  ['pending-gate', 'tmp/redesign/gates/weekend-reader.js',
+    "if (!was) return bad('host', `post ${n} is listed now and was not before`);",
+    "if (!was) continue;"],
+  ['audience-gate', 'tmp/redesign/gates/audience-gate.js',
+    "const audience2 = [mom, jesse, sis].map((p) => ({ key: p.key.x, read: p.read.x, at: at[p.name] }));",
+    "const audience2 = [mom, jesse, sis].map((p) => ({ key: p.key.x, read: p.read.x, at: at.mom }));"],
+  ['audience-gate', 'tmp/redesign/gates/weekend-reader.js',
+    "if (!raw || raw.genesis !== learned) return bad('identity', 'not the identity this reader learned');",
+    "if (!raw) return bad('identity', 'not the identity this reader learned');"],
+  ['spoken-gate', 'tmp/redesign/gates/spoken-gate.js',
+    "const repaired = [spoken(alice.chain.at(-1).key), spoken(thief.chain.at(-1).key)];",
+    "const repaired = [spoken(alice.genesis), spoken(thief.genesis)];"],
 ];
 
 const runGate = (gate) => spawnSync(process.execPath, [path.join(here, `${gate}.js`)], { cwd: root, encoding: 'utf8' }).status;
-const red = new Set([...new Set(M.map(([g]) => g))].filter((g) => runGate(g) !== 0));
+const only = process.argv.slice(2);
+const rows = only.length ? M.filter(([g]) => only.includes(g)) : M;
+const red = new Set([...new Set(rows.map(([g]) => g))].filter((g) => runGate(g) !== 0));
 
 let bad = 0;
-for (const [gate, file, from, to] of M) {
+for (const [gate, file, from, to] of rows) {
   if (red.has(gate)) {
     bad++;
     console.log(`  FAIL  ${gate.padEnd(16)} ${file.padEnd(34)} GATE ALREADY RED — a failing gate proves nothing`);
@@ -215,4 +244,4 @@ for (const [gate, file, from, to] of M) {
 }
 console.log();
 if (bad) { console.log(`${bad} mutation(s) NOT caught — those gates or proposals need work`); process.exit(1); }
-console.log(`all ${M.length} mutations caught by their gates`);
+console.log(`all ${rows.length} mutations caught by their gates`);

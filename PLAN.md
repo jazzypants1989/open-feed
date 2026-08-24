@@ -263,6 +263,21 @@ kept as a plain JSON Feed *view* of the log for Level 0 readers.
 > reader already trusts" makes identity reader-relative); the rest are confirmed or refined. The whole
 > `tmp/redesign/` tree entered git with this block — it had been untracked for three sessions.
 
+> **The skeptical review + reference implementation, 2026-08-23.** The owner asked for a skeptical
+> review of `open-feed-spec-2.md`, proven in code, ending in the reference implementation. Findings
+> in **`tmp/redesign/REVIEW-spec2.md`** (nine protocol defects A1–A9, each with a gate; a code-drift
+> list; an editorial list); rulings in **RULINGS §14** (unified hop; `pending` cut; re-list at the
+> identical hash; current-key reclaim; verified hub writes; audience entries naming people; the
+> spoken code over any key; `src2/` beside, swap later). The spec, the weekend instruments,
+> `envelope.js` and `tmp/regen2.js` were edited to the rulings (Appendix B regenerated); six review
+> gates joined the fleet (`coldcourt`, `oldkey`, `hubwrite`, `pending`, `audience`, `spoken`) with
+> revert rows; **`src2/` + `test2/` now exist** — the modular zero-dep reference implementation with
+> §10's fetch layer (the section that had no code), a verified-write hub, views, the BIP-39 list as
+> data, a CLI, GOALS scenarios as tests, and two-reader vector agreement in `regen2.js`. `npm test`
+> runs both suites; `npm run check` runs both regens and every gate. **Still owed** before the swap:
+> README + DISTRIBUTION-MODEL rewritten for spec-2; TLDR-new.md promoted; the §15-class outside
+> review of the new envelope; `lastline.js`'s substrate drift is documented on the cards, not fixed.
+
 - [ ] **Session A — straw-man + accounting.** `SKETCH.md`: Open Feed 2 as a real RFC 2119 draft,
       written small from the start (target ~8–12k normative words; missing the target is itself
       a finding). `tmp/redesign/intent-map.md`: all 267 test intents mapped kept / transformed

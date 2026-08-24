@@ -48,7 +48,7 @@ class Hub {
   }
 }
 // One fetcher for every origin: `at` is a full URL, so the reader does not know or care which hub.
-const get = async (u) => { try { const r = await fetch(u); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; } catch { return null; } };
+const get = async (u) => { try { const r = await fetch(u); return r.status === 200 ? Object.assign(Buffer.from(await r.arrayBuffer()), { etag: r.headers.get('etag') }) : null; } catch { return null; } };
 const io = { get, put: async (p, b, ifMatch) => (await fetch(p, { method: 'PUT', body: b, headers: ifMatch ? { 'if-match': ifMatch } : {} })).status };
 
 // ---- the sealing stand-in ----
@@ -105,7 +105,7 @@ const n1 = await pub.publish(io, mom.at, mom.key, 1, { at: '2026-08-10T09:00:00Z
 const n2 = await pub.publish(io, mom.at, mom.key, 2, { at: '2026-08-10T10:00:00Z', sealed: seal({ text: 'a second one, soon withdrawn' }, fam) });
 const momRead = await read(get, { learned: mom.key.x, at: mom.at, pin: seen.get(mom.key.x) });
 seen.set(mom.key.x, momRead.pin);
-const momTarget = (n) => ({ key: mom.key.x, n, hash: momRead.pin.live.get(n) ?? 'x', at: mom.at });
+const momTarget = (n) => ({ key: mom.key.x, n, hash: momRead.pin.live.get(n) ?? 'x', loc: mom.at });
 
 // 2. Jesse: a sealed reply from HIS hub — with the target in the clear (mode A) and inside (mode B).
 const jn1 = await pub.publish(io, jesse.at, jesse.key, 1, { at: '2026-08-10T11:00:00Z', rel: 'reply', target: momTarget(1), sealed: seal({ text: 'best news all year' }, fam) });
@@ -135,9 +135,9 @@ const opensOnDisk = (hub) => [...hub.files.values()].map((f) => JSON.parse(f.sub
 await pub.withdraw(io, mom.at, mom.key, 2);
 const momAfter = await read(get, { learned: mom.key.x, at: mom.at, pin: seen.get(mom.key.x) });
 seen.set(mom.key.x, momAfter.pin);
-await pub.publish(io, jesse.at, jesse.key, 3, { at: '2026-08-11T09:00:00Z', rel: 'reply', target: { key: mom.key.x, n: 99, hash: 'x', at: mom.at }, text: 'to one her hub hides' });
+await pub.publish(io, jesse.at, jesse.key, 3, { at: '2026-08-11T09:00:00Z', rel: 'reply', target: { key: mom.key.x, n: 99, hash: 'x', loc: mom.at }, text: 'to one her hub hides' });
 await pub.publish(io, jesse.at, jesse.key, 4, { at: '2026-08-11T09:01:00Z', rel: 'reply', target: momTarget(2), text: 'to one she withdrew' });
-await pub.publish(io, jesse.at, jesse.key, 5, { at: '2026-08-11T09:02:00Z', sealed: seal({ rel: 'reply', target: { key: mom.key.x, n: 98, hash: 'x', at: mom.at }, text: 'sealed, and above the top' }, fam) });
+await pub.publish(io, jesse.at, jesse.key, 5, { at: '2026-08-11T09:02:00Z', sealed: seal({ rel: 'reply', target: { key: mom.key.x, n: 98, hash: 'x', loc: mom.at }, text: 'sealed, and above the top' }, fam) });
 const jesseFeed = await read(get, { learned: jesse.key.x, at: jesse.at, pin: seen.get(jesse.key.x) });
 // Cousin's reader holds Mom's pin; a rumor about Mom must re-fetch MOM's hub, not Jesse's.
 const cousinSeen = new Map([[mom.key.x, momAfter.pin]]);
@@ -164,7 +164,7 @@ await io.put(`${momNew}/head`, M.files.get('mom/head'), null);
 await pub.resignHead(io, momNew, mom.key);
 const n3 = await pub.publish(io, momNew, mom.key, 3, { at: '2026-08-20T09:00:00Z', text: 'moved, and safe' });
 const momAtNew = await read(get, { learned: mom.key.x, at: momNew, pin: momAfter.pin });
-await pub.publish(io, jesse.at, jesse.key, 6, { at: '2026-08-20T10:00:00Z', rel: 'reply', target: { key: mom.key.x, n: 3, hash: momAtNew.pin.live.get(3), at: momNew }, text: 'welcome home' });
+await pub.publish(io, jesse.at, jesse.key, 6, { at: '2026-08-20T10:00:00Z', rel: 'reply', target: { key: mom.key.x, n: 3, hash: momAtNew.pin.live.get(3), loc: momNew }, text: 'welcome home' });
 const jesseFeed2 = await read(get, { learned: jesse.key.x, at: jesse.at, pin: jesseFeed.pin });
 // Cousin's reader only ever knew the ex's hub. It reads Jesse, sees a reply to Mom#3 above the top
 // it holds, looks again where the reply says she lives — and has followed her.
@@ -175,13 +175,13 @@ const followed = cousinSeen2.get(mom.key.x);
 const frozen = await read(get, { learned: mom.key.x, at: mom.at, pin: followed });        // the ex's copy, against the pin that moved
 // The same rule as a beacon: a griefer's reply names Mom at a URL he controls. The reader fetches it.
 const beacon = await new Hub().listen();
-const grief = new Map([...Array(50).keys()].map((i) => [i, { n: i, rel: 'reply', target: { key: mom.key.x, n: 500 + i, hash: 'x', at: `${beacon.url}/mom` } }]));
+const grief = new Map([...Array(50).keys()].map((i) => [i, { n: i, rel: 'reply', target: { key: mom.key.x, n: 500 + i, hash: 'x', loc: `${beacon.url}/mom` } }]));
 beacon.log.length = 0;
 const raisedBeacon = await rumors(get, new Map([[mom.key.x, followed]]), grief, 'a griefer');
 const beaconHits = beacon.log.length;
 // And a reply that names Mom at the ex's FROZEN hub, to a reader whose pin already moved: older head, pin untouched.
 const stale = new Map([[mom.key.x, followed]]);
-await rumors(get, stale, new Map([[0, { n: 0, rel: 'reply', target: { key: mom.key.x, n: 50, hash: 'x', at: mom.at } }]]), 'jesse');
+await rumors(get, stale, new Map([[0, { n: 0, rel: 'reply', target: { key: mom.key.x, n: 50, hash: 'x', loc: mom.at } }]]), 'jesse');
 
 // 3. The naive sealer: the read key taken off the profile without checking it is the verified one.
 const exRead = x25519();
@@ -237,7 +237,7 @@ const gate = [
     followed.pseq === 2 && followed.top === 3 && raisedAfterMove.length === 0],
   ['the ex\'s frozen copy, against the moved pin, is refused — as "an older profile", which the reader files under identity, not host — and the pin stays where it moved',
     frozen.verdict === 'identity' && frozen.why.startsWith('an older profile') && stale.get(mom.key.x).pseq === 2],
-  ['a griefer\'s `at` is a beacon the reader hits exactly once per identity per pass — and he is the one named',
+  ['a griefer\'s `loc` is a beacon the reader hits exactly once per identity per pass — and he is the one named',
     beaconHits === 1 && raisedBeacon.length === 1 && raisedBeacon[0].startsWith('a griefer')],
   ['sealing to a read key taken off an unverified profile hands the thread to the host; taking it from the pinned profile refuses',
     exReads?.text === 'for mom only' && checkedKey === null],

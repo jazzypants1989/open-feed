@@ -25,18 +25,18 @@ class Hub {
     const m = url.match(/^\/([a-z]+)\/(profile|head|posts\/\d+)$/);
     if (!m) return { status: 404 };
     const key = `${m[1]}/${m[2]}`;
-    if (method === 'GET') return this.files.has(key) ? { status: 200, body: this.files.get(key) } : { status: 404 };
+    if (method === 'GET') return this.files.has(key) ? { status: 200, body: this.files.get(key), etag: this.tag(key) } : { status: 404 };
     if (m[2] === 'head' || m[2] === 'profile') { if (this.tag(key) !== ifMatch) return { status: 412 }; this.files.set(key, b); return { status: 200 }; }
     if (this.files.has(key)) return { status: 409 };
     this.files.set(key, b); return { status: 201 };
   }
   listen() {
-    this.server = http.createServer((req, res) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => { const r = this.handle(req.method, req.url, Buffer.concat(c), req.headers['if-match'] ?? null); res.writeHead(r.status); res.end(r.body); }); });
+    this.server = http.createServer((req, res) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => { const r = this.handle(req.method, req.url, Buffer.concat(c), req.headers['if-match'] ?? null); res.writeHead(r.status, r.etag ? { etag: r.etag } : {}); res.end(r.body); }); });
     return new Promise((ok) => this.server.listen(0, '127.0.0.1', () => { this.url = `http://127.0.0.1:${this.server.address().port}`; ok(this); }));
   }
 }
 const io = (hub) => ({
-  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; },
+  get: async (p) => { const r = await fetch(hub.url + p); return r.status === 200 ? Object.assign(Buffer.from(await r.arrayBuffer()), { etag: r.headers.get('etag') }) : null; },
   put: async (p, b, ifMatch) => (await fetch(hub.url + p, { method: 'PUT', body: b, headers: ifMatch ? { 'if-match': ifMatch } : {} })).status,
 });
 
@@ -44,7 +44,7 @@ const io = (hub) => ({
 const A = pub.newKey(), A2 = pub.newKey(), A3 = pub.newKey(), T = pub.newKey();
 const mum = { key: pub.newKey(), salt: 's-mum' }, sis = { key: pub.newKey(), salt: 's-sis' }, ex = { key: pub.newKey(), salt: 's-ex' }, baby = { key: pub.newKey(), salt: 's-baby' };
 const AT = '/alice', LOC = ['https://alice.example'];
-const c0 = [{ key: A.x }], c2 = [...c0, pub.rotation(A, A2)];
+const c0 = [{ key: A.x }], c2of = (rec) => [...c0, pub.rotation(A, A2, rec)];   // every hop carries the list that stood before it
 const prof = (pseq, chain, recovery, key) => pub.profile({ genesis: A.x, pseq, chain, recovery, locations: LOC }, key);
 const hubs = [];
 // Alice at chain length 2 (one rotation), a reader pinned there — the pre-fork profile.
@@ -53,7 +53,7 @@ async function scene(recovery) {
   const net = io(hub);
   await net.put(`${AT}/profile`, prof(1, c0, recovery, A), null);
   await pub.publish(net, AT, A, 1, { at: '2026-08-01', text: 'post 1' });
-  await net.put(`${AT}/profile`, prof(2, c2, recovery, A2), hub.tag('alice/profile'));
+  await net.put(`${AT}/profile`, prof(2, c2of(recovery), recovery, A2), hub.tag('alice/profile'));
   await pub.resignHead(net, AT, A2);
   const pin = (await read(net.get, { learned: A.x, at: AT })).pin;
   const serve = async (p, key) => { hub.files.set('alice/profile', p); await pub.resignHead(net, AT, key); };
@@ -74,8 +74,8 @@ async function bothOrders(s, alice, aliceKey, thief, thiefKey) {
 //    to A3 at pseq 3, vouched by mum and sis — two of three.
 const REC3 = pub.commit(2, [mum, sis, ex]);
 const s1 = await scene(REC3);
-const thiefRot = prof(4, [...c2, pub.rotation(A2, T)], REC3, T);
-const aliceRestore = prof(3, [...c2, pub.restore(A2, A3, [mum, sis], REC3)], REC3, A3);
+const thiefRot = prof(4, [...c2of(REC3), pub.rotation(A2, T, REC3)], REC3, T);
+const aliceRestore = prof(3, [...c2of(REC3), pub.restore(A2, A3, [mum, sis], REC3)], REC3, A3);
 const higherPseq = await bothOrders(s1, aliceRestore, A3, thiefRot, T);
 await s1.serve(thiefRot, T); const coldThief = await s1.cold();
 
@@ -83,48 +83,48 @@ await s1.serve(thiefRot, T); const coldThief = await s1.cold();
 //    which the honest list's k=2 refuses, so he carries a court of his own making (k=1, himself).
 const s2 = await scene(REC3);
 const HIS = pub.commit(1, [ex]);
-const exRestore = prof(4, [...c2, pub.restore(A2, T, [ex], HIS)], HIS, T);
+const exRestore = prof(4, [...c2of(REC3), pub.restore(A2, T, [ex], HIS)], HIS, T);
 const listedEx = await bothOrders(s2, aliceRestore, A3, exRestore, T);
 
 // 3. the tie weekend-gate stages: a list of two, one voucher each.
 const REC2 = pub.commit(1, [mum, sis]);
 const s3 = await scene(REC2);
-const tie = await bothOrders(s3, prof(3, [...c2, pub.restore(A2, A3, [mum], REC2)], REC2, A3), A3, prof(4, [...c2, pub.restore(A2, T, [sis], REC2)], REC2, T), T);
+const tie = await bothOrders(s3, prof(3, [...c2of(REC2), pub.restore(A2, A3, [mum], REC2)], REC2, A3), A3, prof(4, [...c2of(REC2), pub.restore(A2, T, [sis], REC2)], REC2, T), T);
 
 // 4. a bare rotation by the thief against a one-of-two restore: not a majority, so contested — the
 //    price of the majority rule, stated. With both of two it is settled.
 const s4 = await scene(REC2);
-const oneOfTwo = await bothOrders(s4, prof(3, [...c2, pub.restore(A2, A3, [mum], REC2)], REC2, A3), A3, prof(4, [...c2, pub.rotation(A2, T)], REC2, T), T);
+const oneOfTwo = await bothOrders(s4, prof(3, [...c2of(REC2), pub.restore(A2, A3, [mum], REC2)], REC2, A3), A3, prof(4, [...c2of(REC2), pub.rotation(A2, T, REC2)], REC2, T), T);
 const s4b = await scene(REC2);
-const twoOfTwo = await bothOrders(s4b, prof(3, [...c2, pub.restore(A2, A3, [mum, sis], REC2)], REC2, A3), A3, prof(4, [...c2, pub.rotation(A2, T)], REC2, T), T);
+const twoOfTwo = await bothOrders(s4b, prof(3, [...c2of(REC2), pub.restore(A2, A3, [mum, sis], REC2)], REC2, A3), A3, prof(4, [...c2of(REC2), pub.rotation(A2, T, REC2)], REC2, T), T);
 
 // 5. the thief edits the list FIRST — same chain, his own list, a higher pseq — and then forks with a
 //    restore that satisfies the list he wrote. The court is the first list the reader saw there.
 const s5 = await scene(REC3);
-await s5.serve(prof(3, c2, HIS, A2), A2);
+await s5.serve(prof(3, c2of(REC3), HIS, A2), A2);
 const afterEdit = await s5.see(s5.pin);
-const editThenFork = await bothOrders({ ...s5, pin: afterEdit.pin }, prof(4, [...c2, pub.restore(A2, A3, [mum, sis], REC3)], REC3, A3), A3, prof(5, [...c2, pub.restore(A2, T, [ex], HIS)], HIS, T), T);
+const editThenFork = await bothOrders({ ...s5, pin: afterEdit.pin }, prof(4, [...c2of(REC3), pub.restore(A2, A3, [mum, sis], REC3)], REC3, A3), A3, prof(5, [...c2of(REC3), pub.restore(A2, T, [ex], HIS)], HIS, T), T);
 
 // 6. the thief forgets her restore: a higher pseq with the SHORTER chain, still ending on the key he holds.
 const s6 = await scene(REC3);
 await s6.serve(aliceRestore, A3); const onAlice = await s6.see(s6.pin);
-await s6.serve(prof(9, c2, REC3, A2), A2); const forgotten = await s6.see(onAlice.pin);
+await s6.serve(prof(9, c2of(REC3), REC3, A2), A2); const forgotten = await s6.see(onAlice.pin);
 
 // 7. what a cold reader has: the court it was handed. Cold on Alice's branch, her restore hop carries
 //    the list; then the thief's branch. Cold on the thief's branch, whose restore carries a forged list
 //    of one; then Alice's.
 const s7 = await scene(REC3);
 await s7.serve(aliceRestore, A3); const coldAlice = await s7.cold();
-await s7.serve(prof(4, [...c2, pub.restore(A2, T, [ex], HIS)], HIS, T), T); const coldAliceThenThief = await s7.see(coldAlice.pin);
+await s7.serve(prof(4, [...c2of(REC3), pub.restore(A2, T, [ex], HIS)], HIS, T), T); const coldAliceThenThief = await s7.see(coldAlice.pin);
 const s7b = await scene(REC3);
-await s7b.serve(prof(4, [...c2, pub.restore(A2, T, [ex], HIS)], HIS, T), T); const coldOnThief = await s7b.cold();
+await s7b.serve(prof(4, [...c2of(REC3), pub.restore(A2, T, [ex], HIS)], HIS, T), T); const coldOnThief = await s7b.cold();
 await s7b.serve(aliceRestore, A3); const coldThiefThenAlice = await s7b.see(coldOnThief.pin);
 
 // 8. Alice edits her list after a restore — drops sis, who vouched for it — and a cold reader walks
 //    her chain, because the restore hop carries the list it satisfied.
 const s8 = await scene(REC3);
 await s8.serve(aliceRestore, A3);
-await s8.serve(prof(4, aliceRestore && [...c2, pub.restore(A2, A3, [mum, sis], REC3)], pub.commit(2, [mum, ex, baby]), A3), A3);
+await s8.serve(prof(4, aliceRestore && [...c2of(REC3), pub.restore(A2, A3, [mum, sis], REC3)], pub.commit(2, [mum, ex, baby]), A3), A3);
 const editedAfterRestore = await s8.cold();
 
 // 9. the same rule, as a pure function, under the three candidate rules — for the owner's table.
@@ -165,18 +165,18 @@ const gate = [
     higherPseq.thiefFirst[1] === 'follows Alice' && higherPseq.aliceFirst[1].startsWith('host')],
   ['but a cold reader follows whichever branch it is served — the stated limit of §11.3',
     coldThief.verdict === 'ok' && coldThief.chain.current === T.x],
-  ['a listed adversary who vouches for himself alone loses to a majority, in either order',
-    listedEx.thiefFirst[1] === 'follows Alice' && listedEx.aliceFirst[1].startsWith('host')],
+  ['a listed adversary who vouches for himself alone is refused outright by a reader holding the real court — his hop is not even valid under it — in either order',
+    listedEx.thiefFirst[0].startsWith('identity') && listedEx.thiefFirst[1] === 'follows Alice' && listedEx.aliceFirst[1].startsWith('identity')],
   ['one voucher each is contested, in either order',
     tie.thiefFirst[1].startsWith('identity') && tie.aliceFirst[1].startsWith('identity')],
   ['a bare rotation against a one-of-two restore is contested — the majority rule\'s price — and settled at two of two',
     oneOfTwo.thiefFirst[1].startsWith('identity') && twoOfTwo.thiefFirst[1] === 'follows Alice' && twoOfTwo.aliceFirst[1].startsWith('host')],
   ['rewriting the list before forking buys the thief nothing: the court is the first list the reader saw at that length',
-    afterEdit.verdict === 'ok' && editThenFork.thiefFirst[1] === 'follows Alice' && editThenFork.aliceFirst[1].startsWith('host')],
+    afterEdit.verdict === 'ok' && editThenFork.thiefFirst[0].startsWith('identity') && editThenFork.thiefFirst[1] === 'follows Alice' && editThenFork.aliceFirst[1].startsWith('identity')],
   ['a newer profile that forgets her restore is a fork, and loses it',
     forgotten.verdict === 'host'],
   ['a cold reader\'s court is whatever its first profile carried: handed Alice\'s it later rejects the thief, handed the thief\'s it later rejects Alice',
-    coldAliceThenThief.verdict === 'host' && coldThiefThenAlice.verdict === 'host'],
+    coldAliceThenThief.verdict === 'identity' && coldThiefThenAlice.verdict === 'identity'],
   ['an author who edits her list after a restore does not break her own chain — the hop carries the list it satisfied',
     editedAfterRestore.verdict === 'ok' && editedAfterRestore.chain.current === A3.x],
   ['under the majority rule a listed adversary never wins alone; under the other two he does',

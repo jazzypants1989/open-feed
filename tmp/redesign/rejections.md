@@ -257,3 +257,36 @@ costs zero bytes on the wire. One sentence the spec owes: the content's associat
 the carrier author's genesis key and the post's number. `INTENT-MAP.md` flags the same thing from
 the old `enc.test.js` side as a sign-off.
 
+
+## 16. ⚠ `prev` on the two overwritten files (RULINGS.md §12.4, SKETCH.md §2 and §6)
+
+**Recorded position.** §12.4 (2026-08-21): "`prev` is only checkable by a reader that saw the
+version immediately before — write it that way." SKETCH.md and HANDOFF-to-spec.md §3 specify
+`prev` on both the profile and the head.
+
+**Reversed** by final-review Q3 (RULINGS §13.3), without an entry here until 2026-08-23. The
+answer to the recorded reasoning: a field only checkable by the reader that saw the version
+immediately before is a field no reader can rely on, and every rollback it would catch is caught
+by `pseq`/`hseq` not going backwards and by §4.6's chain-prefix rule (a newer profile whose chain
+is a strict prefix of the pinned one is a split). A member nobody reads is a member implementers
+get wrong. Cost of the reversal: nothing measured; the publisher lost one line.
+
+## 17. ⚠ `pending` (RULINGS.md §11.5, ruling 16) — cut 2026-08-23
+
+**Recorded position.** §11.5 kept scheduled posts as a `[n, hash, "pending"]` line with one cost
+stated ("a host sitting on a scheduled post is uncalled until the author next publishes"), after
+`scheduled-gate` found 0 of 4 host-release options admissible, collision-free, early-visible and
+clock-free at once — `pending` was the option that failed only the clock column, and §5.5 rescued
+it by removing the clock.
+
+**Reversed** on `pending-gate`'s measurement: nothing any reader observes before the device
+confirms depends on the line (the same reads against the same head with the line deleted are
+identical but for the note); the hub cannot confirm (the head is signed by the current key, and a
+hub-appended line reads as *no head I can verify* / `host`); and the device can publish the
+scheduled post at release time at the next number with nothing it lacks — it holds the key and
+the bytes, and §6.1 signs the number in. The line's one effect is that a scheduled post keeps the
+number reserved for it, which no reader needs and §5.5 never stated. Cost removed: an entry kind,
+§5.5, the fold's confirmation clause, the rewrite's carry-through, §8.4's exemption, a note, a
+§14.2 row, a pin field, and B.10/B.11's pending entry — 18 spec lines. What §11.5's cost sentence
+described (a host sitting on a post) no longer exists, because the host never holds an
+unreleased post.

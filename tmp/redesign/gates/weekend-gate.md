@@ -26,7 +26,7 @@ note at the end):
   `JSON.parse` cannot see a duplicate member.
 - **Exactly three reader verdicts across all thirteen moments** (§2.G's target, measured, not
   counted from the rulings): `ok`, `host`, `identity`. `recently restored`, `withdrawn: 2`,
-  `pending: n` and `no head newer than the one this reader holds` are **notes on an ok read**, not
+  `pending: n` and `no head I can verify` are **notes on an ok read**, not
   states — which is what keeps the count at three.
 - Griefing is bounded: 1,000 replies to posts that exist cost **0** fetches, and 1,000 naming
   numbers that never existed cost **5** — one look at that identity — and produce **one** line.
