@@ -1,0 +1,106 @@
+§9 — HTTPS only, because the address came from a stranger
+
+  https://hub.example/mum/profile  allowed     the one scheme §9 permits
+  http://hub.example/mum/profile   bad_scheme  plaintext, refused
+  file:///etc/passwd               bad_scheme  a local file is not a hub
+  ftp://hub.example/mum/profile    bad_scheme  and every other scheme with it
+
+§9 — every range in the blocked table, judged on the address
+
+  0.0.0.0           refused  0.0.0.0/8 this network
+  10.1.2.3          refused  10/8 private
+  100.64.0.1        refused  100.64/10 CGNAT
+  127.0.0.1         refused  127/8 loopback
+  169.254.169.254   refused  169.254/16 link-local — where cloud metadata lives
+  172.16.0.1        refused  172.16/12 private
+  192.0.0.1         refused  192.0.0/24 IETF protocol assignments
+  192.0.2.1         refused  192.0.2/24 TEST-NET-1
+  192.168.1.1       refused  192.168/16 private
+  198.18.0.1        refused  198.18/15 benchmarking
+  198.51.100.1      refused  198.51.100/24 TEST-NET-2
+  203.0.113.1       refused  203.0.113/24 TEST-NET-3
+  224.0.0.1         refused  224/4 multicast
+  255.255.255.255   refused  240/4 reserved
+  93.184.216.34     allowed  an ordinary public address
+  ::                refused  the unspecified address
+  ::1               refused  loopback
+  fe80::1           refused  fe80::/10 link-local
+  fc00::1           refused  fc00::/7 unique local
+  2606:2800:220::1  allowed  an ordinary public address
+
+§9 — every embedded-IPv4 form is judged as the IPv4 address it carries
+
+  ::ffff:127.0.0.1        refused  IPv4-mapped
+  ::127.0.0.1             refused  the deprecated IPv4-compatible form
+  ::ffff:0:127.0.0.1      refused  IPv4-translated, RFC 2765
+  64:ff9b::7f00:1         refused  NAT64's 64:ff9b::/96
+  64:ff9b:1::7f00:1       refused  NAT64's 64:ff9b:1::/48
+  2002:7f00:1::           refused  6to4's 2002::/16
+  ::ffff:169.254.169.254  refused  the metadata address, wearing IPv6
+  ::ffff:93.184.216.34    allowed  the same unwrapping, allowing a public one
+
+  Each refused one reaches its IPv4 destination through an address a naive IPv6 check
+  waves past. Seven forms is the kind of list a second implementer gets wrong.
+
+§9 — a dotted quad with a leading zero is refused, not guessed at
+
+  0177.0.0.1  refused  127.0.0.1 to some resolvers, 177.0.0.1 to others
+  177.0.0.1   allowed  the same digits without the zero: an ordinary address
+
+  The disagreement is itself the bypass, so the parser declines to pick a side: it is not
+  an address at all (parseIPv4 → null), and what is not an address is not public.
+
+§9 — the check is on the resolved address, and runs before the socket connects
+
+  https://innocent.example/x  blocked_address  a name whose zone the attacker owns, answering 127.0.0.1
+  https://0177.0.0.1/x        blocked_address  not a literal to `net.isIP`; the resolver read it as octal
+  https://mixed.example/x     filtered         answered 127.0.0.1 and 93.184.216.34; connects to 93.184.216.34
+  https://169.254.169.254/x   blocked_address  checked on the URL, because a literal never reaches the resolver
+
+  Checking after connecting would leave a rebinding window. The name is resolved once, the
+  survivors are checked, and the socket goes to exactly the address that was checked.
+
+§9 — at most 5 redirects, and never to a different origin
+
+  302 → /final             ok                     a same-origin redirect is followed
+  302 → elsewhere.example  cross_origin_redirect  a redirect is never identity equivalence
+  302 → 169.254.169.254    blocked_address        every link re-checked for address, not just the first
+  302 → gopher:            bad_scheme             and for scheme
+  302 → itself, forever    too_many_redirects     stopped at 5; the origin saw 6 requests
+
+  Moving is expressed in the profile (§3.7), not in a `Location` header.
+
+§9 — bound everything
+
+  timeout                   10000 ms   connect, redirects and body read under one deadline
+  redirects                 5          per fetch
+  sockets per origin        10         concurrent
+  body cap                  1048576    bytes for the profile, the index and a post
+  body cap (media)          52428800   bytes — larger, and still a cap
+  identities per pass       200        how many one pass will resolve
+  64 KiB under a 1 KiB cap  too_large  the transfer is destroyed, not buffered
+
+§9 — a cap is no verdict, not an accusation
+
+  answered, and wrongly         verdict: host   "no profile served" — evidence about a hub
+  a body over the cap           too_large       no verdict
+  a timeout                     timeout         no verdict — retry before reporting host
+  a name that does not resolve  connect_failed  no verdict — retry before reporting host
+
+  §7.3 has three verdicts and this is not a fourth — it is the absence of one. The read did
+  not complete and the publisher may have done nothing, so an app says "could not check",
+  never a state of the identity. Only an answer that is wrong is evidence about a hub.
+
+§7.5 — following a reply’s `loc` is both the feature and the beacon
+
+  https://pence.family/mum/profile       first      a location this reader already holds
+  https://mum.example/mum/profile        then       a location this reader already holds
+  https://dad-chose.example/mum/profile  last       the address in dad’s reply
+  two replies, one target                3 fetches  look again at most once per identity per pass
+  and said                               1 line     "dad replied to something I cannot see" — one line per person
+
+  Trying it at all tells whoever wrote that reply the address and the moment of every reader
+  that holds a pin for the name they targeted. §9’s caps bound what that costs; they do
+  not make it private. The spec names the price rather than hiding it.
+
+Every line above is asserted.

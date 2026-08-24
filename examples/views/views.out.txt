@@ -1,0 +1,158 @@
+§11 — a publisher SHOULD write three views, generated from the index and the posts
+
+  /alice/feed.json — JSON Feed 1.1 (application/feed+json)
+
+    {
+     "version": "https://jsonfeed.org/version/1.1",
+     "title": "Alice",
+     "home_page_url": "https://alice.example/alice/",
+     "feed_url": "https://alice.example/alice/feed.json",
+     "authors": [
+      {
+       "name": "Alice",
+       "url": "https://alice.example/alice/"
+      }
+     ],
+     "items": [
+      {
+       "id": "urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:1",
+       "url": "https://alice.example/alice/posts/1",
+       "date_published": "2026-08-01T09:12:00Z",
+       "content_text": "First day of the holidays.\nThe kids are feral already."
+      },
+      {
+       "id": "urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:2",
+       "url": "https://alice.example/alice/posts/2",
+       "date_published": "2026-08-02T20:40:00Z",
+       "content_text": "Rain. Board games. <b>Not</b> HTML & such."
+      }
+     ]
+    }
+
+  /alice/feed.xml — Atom (application/atom+xml)
+
+    <?xml version="1.0" encoding="utf-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <id>urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY</id>
+      <title>Alice</title>
+      <updated>2026-08-02T20:40:00Z</updated>
+      <link rel="self" href="https://alice.example/alice/feed.xml"/>
+      <link rel="alternate" href="https://alice.example/alice/"/>
+      <author><name>Alice</name></author>
+      <entry>
+        <id>urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:1</id>
+        <title>First day of the holidays.</title>
+        <updated>2026-08-01T09:12:00Z</updated>
+        <link rel="alternate" href="https://alice.example/alice/posts/1"/>
+        <content type="text">First day of the holidays.
+    The kids are feral already.</content>
+      </entry>
+      <entry>
+        <id>urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:2</id>
+        <title>Rain. Board games. &lt;b&gt;Not&lt;/b&gt; HTML &amp; such.</title>
+        <updated>2026-08-02T20:40:00Z</updated>
+        <link rel="alternate" href="https://alice.example/alice/posts/2"/>
+        <content type="text">Rain. Board games. &lt;b&gt;Not&lt;/b&gt; HTML &amp; such.</content>
+      </entry>
+    </feed>
+
+  /alice/index.html — an h-card and an h-feed (text/html)
+
+    <!doctype html>
+    <html lang="en"><head><meta charset="utf-8"><title>Alice</title>
+    <link rel="alternate" type="application/feed+json" href="https://alice.example/alice/feed.json">
+    <link rel="alternate" type="application/atom+xml" href="https://alice.example/alice/feed.xml"></head>
+    <body><div class="h-card"><a class="p-name u-url" href="https://alice.example/alice/#pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY">Alice</a></div>
+    <ul class="h-feed">
+    <li class="h-entry"><a class="u-url" href="https://alice.example/alice/posts/1"><time class="dt-published" datetime="2026-08-01T09:12:00Z">2026-08-01T09:12:00Z</time></a> <span class="e-content">First day of the holidays.
+    The kids are feral already.</span></li>
+    <li class="h-entry"><a class="u-url" href="https://alice.example/alice/posts/2"><time class="dt-published" datetime="2026-08-02T20:40:00Z">2026-08-02T20:40:00Z</time></a> <span class="e-content">Rain. Board games. &lt;b&gt;Not&lt;/b&gt; HTML &amp; such.</span></li>
+    </ul></body></html>
+
+  They are how this protocol reaches readers that have never heard of it.
+
+§11 — item ids are `urn:openfeed:<anchor key>:<n>`, not the URL
+
+  anchor key   pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY
+  at https://alice.example/alice
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:1   https://alice.example/alice/posts/1
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:2   https://alice.example/alice/posts/2
+  she moves to https://pence.family/alice (§3.7)
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:1   https://pence.family/alice/posts/1
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:2   https://pence.family/alice/posts/2
+
+  Same ids, new URLs. A URL id would make every post reappear as unread in every plain
+  feed reader on the day she moved.
+
+§11 — withdrawn posts are absent, encrypted posts are omitted, and no view carries ciphertext
+
+  the index lists   1, 2, 3 live and 4 withdrawn (§4.2), top 4
+  post 3            encrypted (§6) — epk YBHyFmqA…  8 slots  ct fmfgWAPx…
+  post 4            "Peonies are back." — withdrawn, so the reader never fetched it
+  the three views   items 1 and 2, and nothing else
+  any ciphertext?   false
+
+  §11 allows an empty placeholder item at an encrypted post's number instead; src/views.js
+  omits it. Either way the ciphertext stays in the post, where the audience can find it.
+
+§11 — the h-card's name is the profile's `name`, and the link's fragment carries the key
+
+  profile name          "Alice"  — signed (§3.2), so no hub chooses it
+  the h-card link       <a class="p-name u-url" href="https://alice.example/alice/#pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY">Alice</a>
+  with no name (§3.2)   falls back to "alice", the last segment of the location
+  what the server sees  GET /alice/  — a fragment is never sent (RFC 3986 §3.5)
+
+  But this page came from the host. A reader that learned the anchor key from a page the
+  host served has learned it from the host, and §3.1 still applies — see first-contact/.
+
+§11 — nothing in a view is signed, and a view is never the index
+
+  the host rewrites /alice/feed.json in place: one item invented, one item's text changed
+
+    [
+     {
+      "id": "urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:2",
+      "url": "https://alice.example/alice/posts/2",
+      "date_published": "2026-08-02T20:40:00Z",
+      "content_text": "Rain. Board games. Everything is fine."
+     },
+     {
+      "id": "urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5",
+      "url": "https://alice.example/alice/posts/5",
+      "date_published": "2026-08-05T08:00:00Z",
+      "content_text": "I have moved to his hub — follow me there."
+     }
+    ]
+
+  read as a signed file (§2.1)   null — a view has no signature to break
+  the reader's verdict now       ok — it never fetched the view
+
+  the same three edits, made to the files the view was generated from:
+
+    invent a post 5      in the view   accepted — 3 items
+                         in the files  host: the index is not signed by the key the profile ends on
+    change post 2's text in the view   accepted — reads fine
+                         in the files  host: post 2 is not what the index lists
+    drop post 1          in the view   accepted — 1 item
+                         in the files  host: post 1 is listed and not served
+
+  A view is something a host can regenerate; the index is something only alice's key can
+  produce. An implementation MUST NOT treat a view as evidence of anything.
+
+§11 — the stranger
+
+  a plain feed reader parses the view, and does nothing else:
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:1  First day of the holidays.
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:2  Rain. Board games. Everything is fine.
+    urn:openfeed:pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5  I have moved to his hub — follow me there.
+
+  an Open Feed reader (§7) over the same origin, at the same moment:
+    host: the index is not signed by the key the profile ends on
+
+  The stranger gets reach and nothing else: no key, no verification, no protocol. He is
+  protected against a network attacker (§9 is HTTPS-only) and against nobody else — the host
+  he is reading can invent, edit, and unpublish anything on that page. That is what interop
+  costs: a second surface the host controls entirely, bought for the reach that is GOALS.md
+  priority 3 and scenario 7.
+
+Every line above is asserted.

@@ -1,0 +1,120 @@
+§5 — a post is immutable, created once, and signed by any key in its author's chain
+
+  {"n":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}
+  Pe6ZO_mwGsToFUaNh1sRuPI7kTastKn7qJ3KpXyPBupKLLJzuoZiAnfwUbXTxnULHkLkqevKxmU3q3xPj1ehDQ
+
+  n       1                      the number this post is published at (§5.1)
+  at      2026-07-04T10:15:00Z   content time, and never a verdict (§5.2)
+  text    the peonies came back  the content; rel, target and media join it below
+
+  post 1 verifies under  her anchor key          pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY
+  post 3 verifies under  the key she rotated to  kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs
+  a second, different file PUT at /alice/posts/1 → 409, created once (§8.2)
+
+§5.1 — the number is inside the signed bytes
+
+  post 2's address                       AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs
+  the same at and text signed at 6       4evCCF0QWLOgJzV9HWoOHBtObz8WUYqgI2qdBFhGE8w
+  with n taken out of the body, both     63eWEqjI3tGJeGWWyB_f_FSO1UmWhL3c5er7y4OCjoo
+
+  Without the number one file is every number, and a host serves it wherever it likes. With it,
+  the host has to swap whole files — and the reader is looking:
+
+  genuine post 2 served at /alice/posts/6 → host: post 6 is not what the index lists
+  Its signature is alice's and its bytes are untouched. It is simply not post 6 (§7.4).
+
+§5.1 — at the hub, the number is the other half of the reclaim rule
+
+  a stranger replays alice's genuine post 3 into /alice/posts/9:  201
+  that file is signed by the key her chain ends on:               true
+  that file declares the number 9:                                false
+  alice then publishes her own post 9:                            200   reclaimed
+
+  Without the number in the bytes the replay is indistinguishable from her own file for 9, and the
+  hub would have to keep it and refuse her forever. §8.5, and examples/publish-interface/.
+
+§5.2 — `at` is content time, and is never a verdict
+
+  post 5   at 1970-01-01T00:00:00Z   written before the protocol existed
+  post 6   at 3026-01-01T00:00:00Z   written a thousand years from now
+  the read that returned both:       ok, notes []
+
+  an app ordering by at   5 1 2 3 4 6      what the index orders by (§4.2)   1 2 3 4 5 6
+
+  No clock was consulted to reach that verdict, and none decides precedence: a number has one hash
+  ever (§4.2) and the index saying so is signed. §13.2 is the whole list of clocks in the protocol —
+  `at`, "recently restored", the rewrite cadence — and not one gates anything. An adversary who runs
+  the server also sets its clock.
+
+§5.3 — a reply, a reaction, and a private message are the same kind of object
+
+  a reaction   {"n":1,"at":"2026-07-05T08:00:00Z","rel":"like","target":{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","n":1,"hash":"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY","loc":"https://alice.example/alice"}}
+  a reply      {"n":2,"at":"2026-07-05T08:01:00Z","text":"they always do","rel":"reply","target":{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","n":1,"hash":"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY","loc":"https://alice.example/alice"}}
+  a message    {"n":4,"at":"2026-08-18T21:40:00Z","encrypted":{…}}   (§5.6, below)
+
+  rel is reply, root, like, repost, quote, mention or supersedes, or an absolute URL for anything
+  else. There is no reaction endpoint, no inbox, and no second verifier.
+
+§5.3 — an edit is a new post that withdraws the old one
+
+  post 7   {"n":7,"at":"2026-08-15T07:20:00Z","text":"the morning after — it was thursday","rel":"supersedes","target":{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","n":3,"hash":"gfw72AQZGgw0umiHAA5QDYlxb1EXqTRwdDr9OcuK6fA","loc":"https://alice.example/alice"}}
+
+  the read after it        ok, notes [withdrawn: 3] — 3 is out of the live set
+  the pin keeps its hash   3 → gfw72AQZGgw0umiHAA5QDYlxb1EXqTRwdDr9OcuK6fA
+  so sis's older reply to (3, that hash) still resolves: unresolved? false, said []
+
+  A reader holding post 7 SHOULD show replies targeting the superseded (n, hash) under it, or every
+  edit orphans its thread. Post 3 is withdrawn, not revised, and there is no version history.
+
+§5.4 — target: an anchor key, a number, all 43 characters of the hash, and a location
+
+  {"n":3,"at":"2026-07-19T09:30:00Z","text":"congratulations, both of you","rel":"reply","target":{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","n":12,"hash":"_wcb5V3yCD3C6KmN7mOmNw3DKJcRdBJItfW0Z-Ic_kc","loc":"https://mom.example/mom"}}
+  S4mRckyGslGrhS5n9O6KmD0qqweGXOzu784PMH3sUHgrDqD5SliKvKiecBa6JWbIm9y1hkFTzor1_Bzqd433Dw
+
+  key    5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU   mum's anchor key, never a URL
+  n      12                                            the number she published it at
+  hash   _wcb5V3yCD3C6KmN7mOmNw3DKJcRdBJItfW0Z-Ic_kc   all 43 characters, never a prefix
+  loc    https://mom.example/mom                       where the replier last knew her to live (§3.7)
+
+  The URL can change and the identity cannot, so the key is the identity and `loc` is only a hint.
+  All four members are REQUIRED once `rel` names another post.
+
+§5.4 — a reply whose target hash the index does not list is a reply to something else
+
+  "we set a date"     6nRIpqHZnTpqbx_n6Og_Wew1Iapn6hXHCgKErJI4hTI   ← what mum's index lists
+  "we called it off"  ir7IfpZzYtkNFHP0NeeptjtC5sxa2oCv5Cy3wvS_5H4   ← what she showed somebody else
+
+  sis's reply to the first    threads; unresolved? false
+  sis's reply to the second   unresolved? true, and the reader says []
+
+  Both replies are genuine, signed, and name post 12. Threading on the number alone would show two
+  coherent threads under one post; the hash makes the second land nowhere at all.
+
+§5.5 — media is a list of addresses, and an encrypted post carries none
+
+  post 3   {"n":3,"at":"2026-08-15T07:00:00Z","text":"the morning after","media":["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]}
+
+  the index lists that file by its address alone and the reader checks the bytes: true
+  post 4's public members:  n, at, encrypted  — no media, no rel, no target
+
+  On an encrypted post media, rel and target are inside the envelope, and each media entry is
+  {hash, key} rather than a bare hash (§6.6). See examples/media/ and examples/envelope/.
+
+§5.6 — a private message is a post
+
+  it lives at /alice/posts/4 on alice's own host, listed in her own index. There is no inbox:
+    PUT /mom/inbox → 404   no such path exists, on mum's hub or on anyone's
+
+  the host cannot read it   a non-recipient's reading key opens null
+  mum can                   "I am leaving him on Friday"
+  it learns the shape       one message, at 2026-08-18T21:40:00Z, 1574 bytes,
+                            fetched 4 times from this hub so far
+  and it can withhold it    host: post 4 is listed and not served — and mum still has no
+                            message. A host gone quiet and a sender gone quiet look the same to
+                            her (§13.3).
+
+  And mum can prove it forever: alice's signature covers this ciphertext and mum holds the key that
+  opens it. Withdrawing post 4 unmakes neither, and mum keeps her own copy (§10). That is what a
+  per-post signature buys, and what it costs.
+
+Every line above is asserted.

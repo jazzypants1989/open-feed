@@ -13,7 +13,9 @@ import { read, rumors } from '../weekend-reader/weekend-reader.js';
 import * as pub from '../weekend-publisher/weekend-publisher.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const sloc = (f) => fs.readFileSync(path.join(here, f), 'utf8').split('\n').filter((l) => l.trim() && !l.trim().startsWith('//')).length;
+// The capstones now carry a demo below a `// ====` marker so they print under `npm run examples`.
+// The measurement is the implementation above it — the same slice the capstone reports itself.
+const sloc = (f) => { const src = fs.readFileSync(path.join(here, f), 'utf8').split('\n'); const end = src.findIndex((l) => l.startsWith('// ====')); return src.slice(0, end < 0 ? src.length : end).filter((l) => l.trim() && !l.trim().startsWith('//')).length; };
 
 // ---- the hub a third implementer writes: three paths, two verbs, one conditional header ----
 class Hub {

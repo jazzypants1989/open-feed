@@ -1,0 +1,76 @@
+§4.7 — a withdrawal is an appended line, and a rewrite is what takes it away
+
+  version 2 — post 2 withdrawn, then a post, a post and a media file appended
+    [1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"]
+    [2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]   ← left behind by the withdrawal
+    [3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"]
+    [2,null]                                            ← left behind by the withdrawal
+    [4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"]
+    [5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"]
+    ["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]
+
+  version 3 — the same file, written out again from the fold
+    [1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"]
+    [3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"]
+    [4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"]
+    [5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"]
+    ["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]
+    [2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]   ← §4.2's one legal repeat, below
+
+  both files  Appendix B.10 and B.11 of the spec, byte for byte
+
+  340 bytes of body, 59 of them the two lines about post 2; the rewrite drops both, and
+  version 3 is 331 because it re-lists post 2. How often is the publisher's setting (§4.7),
+  and a suggested default is once a month.
+
+§4.7 — the rewrite changes the file and never the live set
+
+  version 2, folded            posts 1, 3, 4, 5 and 1 media file, top 5
+  the lines it keeps, folded   posts 1, 3, 4, 5 and 1 media file, top 5   identical
+
+  The live set is what a rewrite must not touch, and that identity is its whole safety
+  argument. Version 3 also re-lists post 2, and that is a second act, not part of rewriting.
+
+§7.2 — a reader that last saw version 1 returns at version 6
+
+  in between   2 an append, 3 a rewrite, 4 an append, 5 a rewrite, 6 an append — none of them seen
+  verdict      ok
+  notes        withdrawn: 3
+  live         posts 1, 2, 4, 5, 6 and 1 media file
+  its pin now remembers post 3 withdrawn at i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4
+
+  Four of those six versions this reader never saw, and it is indifferent to all of them. The
+  one thing it is owed — a post it held is gone — is a note on an ok read, never a verdict.
+
+§4.2 — a number that comes back, and its illegal twin
+
+  a reader pinned at version 2 remembers  post 2 withdrawn at AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs
+  version 3 re-lists 2 at that same hash  ok     the same bytes coming back are no change
+  a twin re-lists 2 at another hash       host   post 2 changed after the reader saw it
+
+  Re-listing at the identical hash is the way back from a thief who held the current key and
+  withdrew everything. The other half of the rule — one hash per number inside a single index
+  — is examples/the-index/.
+
+§4.7 — a privacy decision, and never a size one
+
+  a year of a family feed   150 posts, 7 of them withdrawn
+  the whole index file      7888 bytes
+  the lines a rewrite drops 433 bytes
+  which is                  5.5% of the file   — the spec says "about 6%"
+
+  Half a kilobyte off an eight-kilobyte file. A publisher who rewrites to save bandwidth has
+  misread what it is for: the reason to do it is that a withdrawn line stops being public.
+
+§8.8, §13.1 — what rewriting buys, and what it does not
+
+  a reader arriving now sees, of post 3     nothing at all
+  post 3's bytes, still at /posts/3         served, and still verify: true
+  the operator's own archive, version 4     [3,null] — the line, and the hour he served it
+
+  Rewriting buys one thing: a withdrawn post's line stops being visible to later readers and
+  to the public. Against a host operator who kept every version he served it buys nothing
+  (§13.1). A hub MAY drop a file the current index does not list, and an app MUST NOT tell a
+  user that withdrawing erased anything (§8.8).
+
+Every line above is asserted.

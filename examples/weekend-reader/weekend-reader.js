@@ -1,9 +1,11 @@
-// The whole reader, written from TLDR-new.md and the rulings, in one file, with nothing but the
-// standard library. This is HANDOFF-to-spec.md §1.H's minimality measure: if it needs a thing the
-// TL;DR does not say, the TL;DR is wrong, not this file. It deliberately imports NOTHING from
-// lastline.js — the point is what a second implementer can write from the text alone.
+// §7 — the whole reader in one file, with nothing but the standard library. It was written from
+// the protocol's text alone, before `src/` existed, as `GOALS.md` scenario 6's measurement: if it
+// needs a thing the text does not say, the text is wrong, not this file. It imports NOTHING from
+// `src/` and nothing from the weekend publisher, and that is the point — `tools/regen.js` verifies
+// every vector in Appendix B with this reader and with `src/reader.js`, and two independent
+// readers agreeing is the interop check the spec exists for.
 //
-// Measured by weekend-gate.js, which also drives it against a real hub over a socket.
+// Run it: `node examples/weekend-reader/weekend-reader.js`. See `weekend-reader.md`.
 import crypto from 'node:crypto';
 
 // ---- bytes ----
@@ -230,4 +232,95 @@ export async function rumors(get, seen, posts, replier) {
     if (t.n > seen.get(t.key).top && !out.includes(line)) out.push(line);
   }
   return out;
+}
+
+// ============================================================================================
+// The measurement stops here. Everything below runs only when this file is run directly, and is
+// the narration `npm run examples` checks — it is not part of the reader.
+// ============================================================================================
+const isMain = process.argv[1] === (await import('node:url')).fileURLToPath(import.meta.url);
+if (isMain) {
+  const fs = await import('node:fs');
+  const assert = (await import('node:assert/strict')).default;
+  // The publisher is imported HERE, below the marker, so the file above it still imports nothing
+  // but node:crypto — which is the measurement this pair exists to make.
+  const P = await import('../weekend-publisher/weekend-publisher.js');
+  const srcLines = fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n');
+  const impl = srcLines.slice(0, srcLines.findIndex((l) => l.startsWith('// ====')));
+  const measured = impl.filter((l) => l.trim() && !l.trim().startsWith('//')).length;
+
+  const PKCS8 = Buffer.from('302e020100300506032b657004220420', 'hex');
+  const seeded = (label) => {
+    const seed = crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest();
+    const privateKey = crypto.createPrivateKey({ key: Buffer.concat([PKCS8, seed]), format: 'der', type: 'pkcs8' });
+    return { privateKey, x: crypto.createPublicKey(privateKey).export({ format: 'jwk' }).x };
+  };
+  const A1 = seeded('alice/anchor'), A2 = seeded('alice/rotated'), THIEF = seeded('thief');
+  const MUM = { key: seeded('mum'), salt: 'saltmum' }, SIS = { key: seeded('sis'), salt: 'saltsis' }, BRO = { key: seeded('bro'), salt: 'saltbro' };
+  const REC = P.commit(2, [MUM, SIS, BRO]);
+  const at = 'https://alice.example/alice';
+  const NOW = Date.parse('2026-09-01T00:00:00Z');                   // §3.4's seven-day flag needs a clock
+
+  const files = new Map();
+  const get = async (p) => files.get(p) ?? null;
+  const posts = [1, 2, 3].map((n) => P.post(n, { at: `2026-07-0${n}T10:00:00Z`, text: `post ${n}` }, A1));
+  posts.forEach((f, i) => files.set(`${at}/posts/${i + 1}`, f));
+  const base = { anchor: A1.x, name: 'Alice', recovery: REC, locations: [at] };
+  files.set(`${at}/profile`, P.profile({ ...base, version: 1, chain: [{ key: A1.x }] }, A1));
+  files.set(`${at}/index`, P.index({ entries: posts.map((f, i) => [i + 1, P.address(f)]), version: 1, top: 3 }, A1));
+
+  console.log('weekend-reader — §7, written from the text alone\n');
+  console.log(`  ${measured} non-blank, non-comment lines above the marker, standard library only.`);
+  console.log('  About a quarter of it is the strict JSON scan, which exists because JSON.parse');
+  console.log('  cannot see a duplicate member (§2.4). It imports nothing from the publisher.\n');
+  assert.ok(measured < 200, 'the kill criterion was 200 lines');
+
+  console.log('§7 — an honest read\n');
+  const ok = await read(get, { learned: A1.x, at, now: NOW });
+  console.log(`  verdict  ${ok.verdict}`);
+  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}`);
+  console.log(`  notes    ${ok.note.length ? ok.note.join('; ') : '(none)'}\n`);
+  assert.equal(ok.verdict, 'ok');
+  assert.equal(ok.posts.size, 3);
+  const pin = ok.pin;
+
+  console.log('§7.3 — the hostile moves, and the verdict each one earns\n');
+  const moves = [];
+  const restore = new Map(files);
+  const move = async (what, stage, opts = {}) => {
+    const saved = new Map(files);
+    await stage();
+    const r = await read(get, { learned: A1.x, at, now: NOW, ...opts });
+    files.clear(); saved.forEach((v, k) => files.set(k, v));
+    moves.push([what, r.verdict]);
+    console.log(`  ${what.padEnd(48)} ${r.verdict}${r.why ? ` — ${r.why}` : ''}`);
+    return r;
+  };
+  await move('nothing wrong', () => {}, { pin });
+  await move('a listed post withheld', () => files.delete(`${at}/posts/2`), { pin });
+  await move('post 2 served at the path for post 3', () => files.set(`${at}/posts/3`, files.get(`${at}/posts/2`)), { pin });
+  await move('an older index served', () => files.set(`${at}/index`, P.index({ entries: [[1, P.address(posts[0])]], version: 1, top: 1 }, A1)), { pin });
+  await move('a post signed by a key that was never hers', () => files.set(`${at}/posts/2`, P.post(2, { at: '2026-07-02T10:00:00Z', text: 'not hers' }, THIEF)), { pin });
+  await move('a whole other identity at this address', () => files.set(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)), { pin });
+  await move('a thief\'s branch, vouched by nobody on the list', () => files.set(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.restore(A1, THIEF, [{ key: THIEF, salt: 'x' }], REC)] }, THIEF)), { pin });
+  await move('an index signed by a rotated-out key (cold)', () => files.set(`${at}/index`, P.index({ entries: [], version: 2, top: 3 }, THIEF)));
+  const verdicts = new Set(moves.map(([, v]) => v));
+  console.log(`\n  ${moves.length} moves, ${verdicts.size} distinct verdicts: ${[...verdicts].sort().join(', ')}`);
+  console.log('  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.\n');
+  assert.equal(verdicts.size, 3);
+  files.clear(); restore.forEach((v, k) => files.set(k, v));
+
+  console.log('§7.2 — an index it cannot verify is not an accusation\n');
+  files.set(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.rotation(A1, A2, REC)] }, A2));
+  const mid = await read(get, { learned: A1.x, at, now: NOW, pin });
+  console.log(`  mid-rotation, pinned   ${mid.verdict}  notes: ${mid.note.join('; ')}`);
+  const cold = await read(get, { learned: A1.x, at, now: NOW });
+  console.log(`  mid-rotation, cold     ${cold.verdict} — ${cold.why}`);
+  console.log('\n  The honest host is between its two writes (§3.5). A reader holding an index it');
+  console.log('  verified itself keeps that one and says nothing; only a reader with none reports.\n');
+  assert.equal(mid.verdict, 'ok');
+  assert.ok(mid.note.some((n) => n.includes('no index I can verify')));
+  assert.equal(cold.verdict, 'host');
+
+  console.log('Every line above is asserted.');
 }

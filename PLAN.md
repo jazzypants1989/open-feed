@@ -84,18 +84,32 @@ implementer wrote from the text alone, and what it cost — the numbers are on `
 a narrated `<slug>.out.txt`, since today they are libraries and print nothing; `tools/regen.js`
 imports them and must keep working.
 
-- [x] 01–03 files — `signed-file`, `no-canonicalization`, `json-hygiene`; nine revert rows against
-      `src/file.js`, all caught. `tools/revert.js` now resolves a row's gate as a seed *or* an
-      example directory, so a row moves with its subject and nothing else changes
-- [ ] 04–08 identity
-- [ ] 09–12 the index
-- [ ] 13 posts
-- [ ] 14–15 encrypted content
-- [ ] 16 the reader
-- [ ] 17 the publish interface
-- [ ] 18–20 fetching, your copy, views
-- [ ] capstones documented and printing
+- [x] 01–03 files — `signed-file`, `no-canonicalization`, `json-hygiene`
+- [x] 04–08 identity — `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
+- [x] 09–12 the index — `the-index`, `top-and-rumors`, `media`, `rewrite`
+- [x] 13 posts — `posts-and-targets`
+- [x] 14–15 encrypted content — `envelope`, `padding`
+- [x] 16 the reader — `the-reader`
+- [x] 17 the publish interface — `publish-interface`
+- [x] 18–20 fetching, your copy, views — `fetching`, `your-copy`, `views`
+- [x] capstones documented and printing — each carries a demo below a `// ====` marker; the file
+      reports its own measurement (reader 170 lines, publisher 51, non-blank and non-comment above
+      the marker), and `court-gate`/`weekend-gate` count the same slice. `tools/regen.js` still
+      imports both
 - [ ] `_seeds/` empty; `seeds` script removed from `package.json`; `examples/README.md` links complete
+
+**All twenty examples and both capstones are written, and `npm run check` is green: 54 tests, 49
+vector checks under two readers, 22 examples matching their committed output, seeds green, and
+`npm run revert` catching all 129 mutations (89 of them new).** `tools/revert.js` resolves a row's
+gate as an example directory first and a seed second, so a row moves with its subject.
+
+What is left in this stage is only the seed deletion, and it is deliberately last: each seed still
+carries revert rows that prove rules against the weekend reader, and those rows have to be shown
+redundant against the new `src/`-targeting rows before the seed goes. Do it seed by seed, not in one
+sweep.
+
+**Writing the examples found defects. They are in `FINDINGS.md`, unfixed, and two of them are
+security defects in `k` — read that file before Stage D, and before touching §3.3, §3.4 or §3.6.**
 
 ## Stage C — the root documents (~1 session)
 
@@ -110,7 +124,8 @@ now drop because it lives elsewhere** — that list is Stage D's input.
 - [ ] `TLDR.md`: reconcile with the spec's §1 table; fold into README or keep
 - [ ] `GOALS.md`: keep as the statement of values and scenarios; trim the redesign-era asides
 - [ ] `CLAUDE.md`: shrink again
-- [ ] The "may now drop" list, section by section
+- [ ] The "may now drop" list, section by section — every example `.md` is now a place prose can
+      live, so this list is mostly a matter of reading the twenty of them beside the spec
 
 ## Stage D — the spec rewrite (~1–2 sessions)
 

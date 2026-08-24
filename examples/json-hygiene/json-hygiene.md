@@ -71,4 +71,8 @@ different things to two readers is a signature over an ambiguity, and the author
 whichever reading suits them afterwards.
 
 The cost is about 100 lines of parser, once. `src/file.js` holds it, and it is the only place in the
-reference implementation that knows what JSON looks like.
+reference implementation that knows what JSON looks like. That cost is also the sharpest tension in
+`GOALS.md`: priority 1 says no dependencies, priority 2 says a second implementer finishes in a
+weekend (scenario 6), and this parser is where the two meet — about a quarter of the weekend reader
+is this and nothing else. The alternative was a canonicalizer *plus* a strict parser, which is why
+the tension resolves in favour of the parser alone.

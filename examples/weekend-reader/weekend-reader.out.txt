@@ -1,0 +1,35 @@
+weekend-reader — §7, written from the text alone
+
+  170 non-blank, non-comment lines above the marker, standard library only.
+  About a quarter of it is the strict JSON scan, which exists because JSON.parse
+  cannot see a duplicate member (§2.4). It imports nothing from the publisher.
+
+§7 — an honest read
+
+  verdict  ok
+  posts    1, 2, 3
+  notes    (none)
+
+§7.3 — the hostile moves, and the verdict each one earns
+
+  nothing wrong                                    ok
+  a listed post withheld                           host — post 2 is listed and not served
+  post 2 served at the path for post 3             host — post 3 is not what the index lists
+  an older index served                            host — two indexes at one version
+  a post signed by a key that was never hers       host — post 2 is not what the index lists
+  a whole other identity at this address           identity — not the identity this reader learned
+  a thief's branch, vouched by nobody on the list  identity — the chain of key changes does not hold
+  an index signed by a rotated-out key (cold)      host — the index is not signed by the key the profile ends on
+
+  8 moves, 3 distinct verdicts: host, identity, ok
+  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.
+
+§7.2 — an index it cannot verify is not an accusation
+
+  mid-rotation, pinned   ok  notes: no index I can verify
+  mid-rotation, cold     host — the index is not signed by the key the profile ends on
+
+  The honest host is between its two writes (§3.5). A reader holding an index it
+  verified itself keeps that one and says nothing; only a reader with none reports.
+
+Every line above is asserted.

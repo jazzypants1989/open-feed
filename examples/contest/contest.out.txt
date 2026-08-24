@@ -1,0 +1,85 @@
+§3.6 — the pin holds the chain, and a served chain must extend it key for key
+
+  pinned         version 3   anchor → A2 → A3         a rotation, then a restore
+  the ex serves  version 4   anchor → A2 → his key    he holds A2, the key she rotated away from
+  his chain walks from the anchor: true — which is why walking is no test of anything
+  split at index 2, and the verdict is  host: serves a branch the recovery rejected
+
+  the ex serves  version 9   anchor → A2              a strict prefix: her restore left out
+  split at index 2 — the end of the prefix — and the verdict is  host: serves a branch the recovery rejected
+
+  outside a split, two plain rules against the same pin:
+  version 2 after version 3      identity: an older profile than the one this reader saw
+  version 3, a different body    identity: contested: two profiles at one version
+
+§3.6 — a recovery list is kept per chain length, and is never overwritten
+
+  a reader pinned at version 2 holds   length 1: k=1 of 3   length 2: k=1 of 3
+  the ex, holding A2, republishes at version 3 with a list of one — himself:  ok
+  nothing tells his edit from hers, and yet the reader holds   length 2: k=1 of 3   unchanged
+  alice restores to A3, two of three:  ok
+  he splits the chain at index 2 with the restore his own list would have blessed:  host: serves a branch the recovery rejected
+
+§3.6 — a link is judged by the list the reader holds, never by the copy it carries
+
+  the list the reader holds at index 2   k=1 of 3   mum, sis, and the ex
+  the list his link carries there        k=1 of 1   himself
+  against the list held      her link 0 of 3   his link 1 of 3   no majority on either side
+  against the copy he sent   her link 0 of 1   his link 1 of 1   a majority for him
+  a pinned reader adopts no carried list at a length its chain reaches: still k=1 of 3
+  verdict  identity: contested: two histories, and no majority settles it
+
+§3.6 — a majority of the list at the split wins, on exactly one side
+
+  her link at the split          hers his  his link at the split               verdict
+  a restore, mum and sis         2    0    a rotation with the key he holds    host — his branch rejected
+  a rotation she signed herself  0    0    a rotation with the key he holds    identity — contested
+  a rotation she signed herself  0    1    a restore he vouched for himself    identity — contested
+  a restore, mum and sis         2    1    a restore he vouched for himself    host — his branch rejected
+  a restore, mum and sis         2    2    a restore mum was made to sign too  identity — contested
+
+  A `sig` is not a vote: row 2 is two signed rotations, and each proves only that whoever
+  held A2 moved. He held it too. Row 5 is a majority on both sides — mum vouched for him.
+
+§3.6 — majority, and not `k`: the case the protocol exists for
+
+  the list at the split     k=1 of 3 — mum, sis, and the ex. any one of them can bring her back
+  her link                  a rotation she signed herself      0 vouchers
+  his link                  a restore he vouched for himself   1 voucher, his own
+  settled by a threshold k  his 1 >= 1 and her 0 < 1           → the ex: he is Alice now
+  settled by a majority     1 of 3 is not more than half       → contested: he is nobody
+  the reader's verdict      identity: contested: two histories, and no majority settles it
+
+  Under a threshold of `k`, one listed adversary hands himself her identity while she is
+  merely rotating a key. Under a majority he cannot, alone, ever.
+
+§3.6 — the price of the majority rule, and the repair the single link shape buys
+
+  a list of two, k=1 of 2 — mum and sis; the ex is not on this one
+  her link at the split   a restore mum vouched alone   1 of 2 — enough for k, not a majority
+  his link at the split   a rotation with her old key   0 of 2
+  verdict                 identity: contested: two histories, and no majority settles it
+  She is stuck until a second member vouches. That is what the majority rule costs.
+
+  sis adds her voucher to the link alice already made (§3.3) and republishes at version 5:
+
+  chain                   anchor → A2 → A3         unchanged, key for key
+  her link at the split   2 of 2 — a majority, and his branch now reads
+                          host: serves a branch the recovery rejected
+  she never restored again: post 1, signed by A3 before all this, still verifies: true
+
+§3.6 — two limits a reader cannot escape, and the only exit
+
+  a cold reader meets his branch first  ok — it follows him, adopting k=1 of 1 at index 2
+  alice's real profile then reads       identity: the chain of key changes does not hold
+  The real Alice is the one it rejects, and nothing in the protocol repairs that.
+
+  a list change reaches other readers only through a link (§3.5):
+  alice adds bro at the same chain length   the pinned reader still holds k=1 of 3 at length 2
+  she rotates, and the link carries it      now k=1 of 4 at length 3
+
+  the exit (§3.1): a person hands the reader the key her chain currently ends on — A3 — and
+  it follows the branch whose chain contains it. hers does: true; his does not: false.
+  Through a person, never through the host. See examples/first-contact/.
+
+Every line above is asserted.
