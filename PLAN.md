@@ -16,6 +16,11 @@ spec has less to hold at once: consolidate the repo (A), curate the examples (B)
 root documents (C), and only then rewrite the spec (D). By D it should be obvious what has to remain
 in the spec, because everything else will have somewhere to live.
 
+**Reviewing Stages B and C?** `HANDOFF-review.md` at the root is the context a reviewer needs and
+this file does not carry — what is machine-checked and what is nobody's evidence, the judgement calls
+that were mine rather than the owner's, and how to reproduce the two security findings. It is
+temporary; delete it when the review is done.
+
 **Working rule**, inherited: if you are about to act on a number or a claim, re-derive it first.
 Every stage ends in an artifact that can fail — `npm run check` — not a prose claim.
 
