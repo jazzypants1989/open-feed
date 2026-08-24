@@ -178,5 +178,11 @@ vectors under two readers, the examples, the tests — so shortening cannot sile
   and nothing else. Two more: third-party processing of *other people's* decrypted content, which §6
   and §10 make sharper rather than softer and which nothing in the repo raises
   (`examples/envelope/` or `examples/your-copy/`); and the bridge/POSSE half of `GOALS.md` scenario 7,
-  which `examples/views/views.md` explicitly disclaims. One gap, not text to move: §9 caps a
+  which `examples/views/views.md` explicitly disclaims — **priority 3 (interop) is now promised in
+  `GOALS.md` and cashed nowhere in the repo.** The old README's concrete route was: serve a
+  discoverable Atom feed plus an h-card and a third-party bridge represents you in the fediverse as
+  `@yourdomain.com` with nothing built. That is an unverified claim about an external service, which
+  is why it was left out of the new README; it wants an example that asserts something, or a stated
+  limit. The `did:web` mapping, the Bluesky domain-handle seam, and WebFinger are factual notes about
+  other ecosystems that went with it and a future implementer would have to rediscover. One gap, not text to move: §9 caps a
   *reader's* outbound fetches and the spec says nothing about a writable hub's own limits.

@@ -23,13 +23,23 @@ chain walk, the recovery lists, the contest rules, the fold, admission, the rumo
 
 **An honest read**, so the shape of a result is visible: a verdict, the posts, the notes.
 
-**The hostile moves, and the verdict each one earns.** Eight moves — a listed post withheld, post 2
-served at the path for post 3, an older index, a post signed by a key that was never hers, a whole
-other identity at the address, a thief's branch vouched by nobody on the list, an index signed by a
-rotated-out key — and the script asserts that the set of distinct verdicts across all of them has
-**exactly three** members. That is §7.3's rule confirmed by measurement rather than by design
-document: `ok`, `host`, `identity`, and no fourth. `examples/the-reader/` takes §7 apart step by
-step; this file is the whole of it running at once.
+**The hostile moves, and the verdict each one earns.** Thirteen moves — a listed post withheld, post
+1 served at the path for post 3, a post signed by a key that was never hers, an older index, a listed
+media file withheld and then altered, a number below the top that was never there, a number re-listed
+at another hash inside one index, a whole other identity at the address, a branch vouched only by the
+list its own link brought, a profile that forgets her restore, and an index signed by a rotated-out
+key — and **each one names the verdict it must earn**, which matters: counting three distinct
+verdicts at the end is not enough by itself, because a check that stopped working would move one row
+to another verdict and leave the count at three. The count is asserted too, and it is §7.3's rule
+confirmed by measurement rather than by design document: `ok`, `host`, `identity`, and no fourth.
+`examples/the-reader/` takes §7 apart step by step; this file is the whole of it running at once.
+
+**The rumor rule, at a thousand replies.** Mum replies twice from her own hub at numbers at or below
+alice's `top` and the reader says nothing and spends no extra fetch. A griefer writes a thousand
+replies naming numbers that never existed, and it costs **one look at alice — five fetches — and one
+line**, because §7.5's two bounds are look again at most once per identity per pass, and say one line
+per person. This is the finding that writing this file produced; `examples/top-and-rumors/` is the
+example that takes it apart.
 
 **An index it cannot verify is not an accusation.** The last block stages the honest case: alice
 rotates, and between her two writes (§3.5) the host is serving an index signed by the key her

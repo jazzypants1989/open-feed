@@ -404,6 +404,16 @@ regenerate; an index is something only the author's key can produce. Item ids ar
 `urn:openfeed:<anchor key>:<n>` rather than URLs, so a relocation does not make every post reappear
 as unread. Withdrawn posts are absent, encrypted posts are omitted, and no view carries ciphertext.
 
+### Three roles
+
+A **publisher** writes files, a **reader** verifies them, a **hub** stores and serves them, and §12
+states them as independent: implementing one says nothing about the others, and none of them is a
+level of the others. A hub that only serves has a short list to meet — exact bytes, cross-origin
+reads, no user's signing key — which is why static hosting clears it. A hub that accepts writes
+takes on §8's compare-and-swap, create-once, the two collision rules, and the checks of §8.4. The
+reader carries the most, because in this design almost nothing has to be defended on the way out: a
+party that cannot forge a signature can only refuse you or delete things.
+
 ---
 
 ## A reading path

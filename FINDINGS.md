@@ -121,6 +121,9 @@ and the `media` keys. A gap in both the spec and the reference implementation.
   both return `'not the identity this reader learned'`. The spec says a reader cannot *distinguish*
   them, which makes it defensible — but the wording asserts substitution rather than the
   indistinguishability the spec describes.
+- **§8 says "four paths, two verbs" and then prints a table with five `PUT` rows**, the fifth being
+  §11's views. `examples/publish-interface/publish-interface.md` repeats the phrasing without
+  reconciling it. Either the views are a fifth path or the sentence should say so.
 - **§8's status table does not admit the 400 a hub returns for junk at an empty media address.**
   `src/hub.js` answers `{ status: cur ? 409 : 400 }` when the offered bytes do not hash to the name;
   the table lists only `201 | 200 | 409`. Either list it, or say what a hub does with such bytes.
