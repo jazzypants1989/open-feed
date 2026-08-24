@@ -255,19 +255,31 @@ if (isMain) {
     const privateKey = crypto.createPrivateKey({ key: Buffer.concat([PKCS8, seed]), format: 'der', type: 'pkcs8' });
     return { privateKey, x: crypto.createPublicKey(privateKey).export({ format: 'jwk' }).x };
   };
-  const A1 = seeded('alice/anchor'), A2 = seeded('alice/rotated'), THIEF = seeded('thief');
+  const A1 = seeded('alice/anchor'), A2 = seeded('alice/rotated'), A3 = seeded('alice/restored'), THIEF = seeded('ex');
   const MUM = { key: seeded('mum'), salt: 'saltmum' }, SIS = { key: seeded('sis'), salt: 'saltsis' }, BRO = { key: seeded('bro'), salt: 'saltbro' };
+  const EX = { key: THIEF, salt: 'saltex' };
   const REC = P.commit(2, [MUM, SIS, BRO]);
-  const at = 'https://alice.example/alice';
+  const at = 'https://alice.example/alice', mumAt = 'https://mom.example/mom';
   const NOW = Date.parse('2026-09-01T00:00:00Z');                   // §3.4's seven-day flag needs a clock
 
+  let fetches = 0;
   const files = new Map();
-  const get = async (p) => files.get(p) ?? null;
+  const get = async (p) => { fetches++; return files.get(p) ?? null; };
+  const put = (p, b) => files.set(p, b);
+
+  // Alice: three posts and a photograph, but only 1 and 3 are listed. Post 2's bytes exist and
+  // nobody folded them in — a number nobody lists is nothing (§8.2), and it is also the bait for
+  // a host that would like to backdate one into her history.
   const posts = [1, 2, 3].map((n) => P.post(n, { at: `2026-07-0${n}T10:00:00Z`, text: `post ${n}` }, A1));
-  posts.forEach((f, i) => files.set(`${at}/posts/${i + 1}`, f));
+  posts.forEach((f, i) => put(`${at}/posts/${i + 1}`, f));
+  const photo = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
+  const mediaHash = crypto.createHash('sha256').update(photo).digest('base64url');
+  put(`${at}/media/${mediaHash}`, photo);
+  const listing = [[1, P.address(posts[0])], [3, P.address(posts[2])], [mediaHash]];
   const base = { anchor: A1.x, name: 'Alice', recovery: REC, locations: [at] };
-  files.set(`${at}/profile`, P.profile({ ...base, version: 1, chain: [{ key: A1.x }] }, A1));
-  files.set(`${at}/index`, P.index({ entries: posts.map((f, i) => [i + 1, P.address(f)]), version: 1, top: 3 }, A1));
+  const anchored = P.profile({ ...base, version: 1, chain: [{ key: A1.x }] }, A1);
+  put(`${at}/profile`, anchored);
+  put(`${at}/index`, P.index({ entries: listing, version: 1, top: 3 }, A1));
 
   console.log('weekend-reader — §7, written from the text alone\n');
   console.log(`  ${measured} non-blank, non-comment lines above the marker, standard library only.`);
@@ -278,40 +290,66 @@ if (isMain) {
   console.log('§7 — an honest read\n');
   const ok = await read(get, { learned: A1.x, at, now: NOW });
   console.log(`  verdict  ${ok.verdict}`);
-  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}`);
+  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   top ${ok.pin.top}`);
   console.log(`  notes    ${ok.note.length ? ok.note.join('; ') : '(none)'}\n`);
   assert.equal(ok.verdict, 'ok');
-  assert.equal(ok.posts.size, 3);
+  assert.deepEqual([...ok.posts.keys()], [1, 3]);
   const pin = ok.pin;
+
+  // A second pin, taken from the restored chain, so a profile that "forgets" the restore is a
+  // strict prefix at a higher version — a split at the end of the prefix (§3.6 rule 1).
+  const restoredChain = [{ key: A1.x }, P.rotation(A1, A2, REC), P.restore(A2, A3, [MUM, SIS], REC)];
+  const keep = new Map(files);
+  put(`${at}/profile`, P.profile({ ...base, version: 3, chain: restoredChain }, A3));
+  put(`${at}/index`, P.index({ entries: listing, version: 1, top: 3 }, A3));
+  const restoredRead = await read(get, { learned: A1.x, at, now: NOW });
+  const pinRestored = restoredRead.pin;
+  assert.equal(restoredRead.verdict, 'ok');
+  files.clear(); keep.forEach((v, k) => files.set(k, v));
 
   console.log('§7.3 — the hostile moves, and the verdict each one earns\n');
   const moves = [];
-  const restore = new Map(files);
-  const move = async (what, stage, opts = {}) => {
+  const clean = new Map(files);
+  // Each move names the verdict it must earn. Counting three at the end is not enough by itself:
+  // a check that stopped working would move one row to another verdict and leave the count at three.
+  const move = async (what, want, stage, opts = { pin }) => {
     const saved = new Map(files);
     await stage();
     const r = await read(get, { learned: A1.x, at, now: NOW, ...opts });
     files.clear(); saved.forEach((v, k) => files.set(k, v));
     moves.push([what, r.verdict]);
-    console.log(`  ${what.padEnd(48)} ${r.verdict}${r.why ? ` — ${r.why}` : ''}`);
+    console.log(`  ${what.padEnd(50)} ${r.verdict}${r.why ? ` — ${r.why}` : ''}`);
+    assert.equal(r.verdict, want, what);
     return r;
   };
-  await move('nothing wrong', () => {}, { pin });
-  await move('a listed post withheld', () => files.delete(`${at}/posts/2`), { pin });
-  await move('post 2 served at the path for post 3', () => files.set(`${at}/posts/3`, files.get(`${at}/posts/2`)), { pin });
-  await move('an older index served', () => files.set(`${at}/index`, P.index({ entries: [[1, P.address(posts[0])]], version: 1, top: 1 }, A1)), { pin });
-  await move('a post signed by a key that was never hers', () => files.set(`${at}/posts/2`, P.post(2, { at: '2026-07-02T10:00:00Z', text: 'not hers' }, THIEF)), { pin });
-  await move('a whole other identity at this address', () => files.set(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)), { pin });
-  await move('a thief\'s branch, vouched by nobody on the list', () => files.set(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.restore(A1, THIEF, [{ key: THIEF, salt: 'x' }], REC)] }, THIEF)), { pin });
-  await move('an index signed by a rotated-out key (cold)', () => files.set(`${at}/index`, P.index({ entries: [], version: 2, top: 3 }, THIEF)));
+  const reindex = (entries, version, top, key = A1) => put(`${at}/index`, P.index({ entries, version, top }, key));
+  const other2 = P.post(2, { at: '2026-07-02T10:00:00Z', text: 'not the post you saw' }, A1);
+
+  await move('nothing wrong', 'ok', () => {});
+  await move('a listed post withheld', 'host', () => files.delete(`${at}/posts/3`));
+  await move('post 1 served at the path for post 3', 'host', () => put(`${at}/posts/3`, posts[0]));
+  await move('a post signed by a key that was never hers', 'host', () => put(`${at}/posts/3`, P.post(3, { at: '2026-07-03T10:00:00Z', text: 'not hers' }, THIEF)));
+  await move('an older index served', 'host', () => reindex([[1, P.address(posts[0])]], 1, 3));
+  await move('a listed media file withheld', 'host', () => files.delete(`${at}/media/${mediaHash}`));
+  await move('a media file that is not its own hash', 'host', () => put(`${at}/media/${mediaHash}`, Buffer.from('other bytes entirely')));
+  await move('a number below the top that was never there', 'host', () => reindex([...listing, [2, P.address(posts[1])]], 2, 3));
+  await move('a number re-listed at another hash', 'host', () => reindex([...listing, [2, P.address(posts[1])], [2, null], [2, P.address(other2)]], 2, 3));
+  await move('a whole other identity at this address', 'identity', () => put(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)));
+  await move("a branch vouched only by a list the link brought", 'identity', () => put(`${at}/profile`,
+    P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.restore(A1, THIEF, [EX], P.commit(1, [EX])) ] }, THIEF)));
+  await move('a newer profile that forgets her restore', 'identity',
+    () => put(`${at}/profile`, P.profile({ ...base, version: 9, chain: [{ key: A1.x }] }, A1)), { pin: pinRestored });
+  await move('an index signed by a rotated-out key, to a cold reader', 'host',
+    () => reindex([], 2, 3, THIEF), { pin: null });
   const verdicts = new Set(moves.map(([, v]) => v));
   console.log(`\n  ${moves.length} moves, ${verdicts.size} distinct verdicts: ${[...verdicts].sort().join(', ')}`);
   console.log('  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.\n');
   assert.equal(verdicts.size, 3);
-  files.clear(); restore.forEach((v, k) => files.set(k, v));
+  files.clear(); clean.forEach((v, k) => files.set(k, v));
 
   console.log('§7.2 — an index it cannot verify is not an accusation\n');
-  files.set(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.rotation(A1, A2, REC)] }, A2));
+  const midway = new Map(files);
+  put(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.rotation(A1, A2, REC)] }, A2));
   const mid = await read(get, { learned: A1.x, at, now: NOW, pin });
   console.log(`  mid-rotation, pinned   ${mid.verdict}  notes: ${mid.note.join('; ')}`);
   const cold = await read(get, { learned: A1.x, at, now: NOW });
@@ -321,6 +359,40 @@ if (isMain) {
   assert.equal(mid.verdict, 'ok');
   assert.ok(mid.note.some((n) => n.includes('no index I can verify')));
   assert.equal(cold.verdict, 'host');
+  files.clear(); midway.forEach((v, k) => files.set(k, v));
+
+  // §7.5 — mum replies from her own hub, and a griefer replies a thousand times.
+  console.log('§7.5 — the rumor rule, and what it costs\n');
+  const target = (n) => ({ key: A1.x, n, hash: n === 1 ? P.address(posts[0]) : 'x'.repeat(43), loc: at });
+  const speak = (who, key, where, reps) => {
+    const made = reps.map(([n, num]) => P.post(num, { at: '2026-08-01T00:00:00Z', text: 'saying something', rel: 'reply', target: target(n) }, key));
+    made.forEach((f, i) => put(`${where}/posts/${reps[i][1]}`, f));
+    put(`${where}/profile`, P.profile({ anchor: key.x, version: 1, name: who, chain: [{ key: key.x }], recovery: P.commit(2, []), locations: [where] }, key));
+    put(`${where}/index`, P.index({ entries: made.map((f, i) => [reps[i][1], P.address(f)]), version: 1, top: reps.length }, key));
+    return made;
+  };
+  const body = (f) => JSON.parse(f.subarray(0, f.lastIndexOf(0x0a)).toString('utf8'));
+  const asPosts = (made) => new Map(made.map((f, i) => [i + 1, body(f)]));
+  const seen = new Map([[A1.x, { ...pin }]]);
+  const quiet = speak('Mum', MUM.key, mumAt, [[1, 1], [2, 2]]);          // 1 exists; 2 is at or below top
+  let before = fetches;
+  const noRumor = await rumors(get, seen, asPosts(quiet), 'Mum');
+  console.log(`  two replies at or below alice's top   ${noRumor.length} lines, ${fetches - before} extra fetches`);
+  assert.deepEqual(noRumor, []);
+  assert.equal(fetches - before, 0);
+
+  const N = 1000;
+  const loud = speak('a griefer', BRO.key, 'https://loud.example/loud', Array.from({ length: N }, (_, i) => [9000 + i, i + 1]));
+  before = fetches;
+  const raised = await rumors(get, seen, asPosts(loud), 'a griefer');
+  const looks = fetches - before;
+  console.log(`  ${N} replies naming numbers above it   ${raised.length} line, ${looks} fetches — one look at alice, not ${N}`);
+  console.log(`  the line                              ${JSON.stringify(raised[0])}`);
+  console.log('\n  Both bounds are required: look again at most once per identity per pass, and say');
+  console.log('  one line per person. Without them a thousand cheap replies buy a thousand fetches');
+  console.log("  aimed at somebody else's hub, and a thousand messages. See examples/top-and-rumors/.\n");
+  assert.equal(raised.length, 1);
+  assert.ok(looks <= 8, 'one look at that identity, not one per reply');
 
   console.log('Every line above is asserted.');
 }

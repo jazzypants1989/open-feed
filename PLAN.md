@@ -103,12 +103,17 @@ vector checks under two readers, 22 examples matching their committed output, se
 `npm run revert` catching all 129 mutations (89 of them new).** `tools/revert.js` resolves a row's
 gate as an example directory first and a seed second, so a row moves with its subject.
 
-What is left in this stage is only the seed deletion, and it is harder than it looks. **Measured:**
-retarget the fourteen rows whose subject is `examples/weekend-reader/weekend-reader.js` at the
-capstone example and **thirteen of the fourteen go uncaught** — the capstone's demo stages eight
-hostile moves, and the seeds stage the other thirty. So the seeds are not redundant with the new
-rows: the new rows prove `src/`, and the seeds are the only thing that proves the *second* reader,
-which is the one the vectors are checked against.
+What is left in this stage is only the seed deletion, and it is harder than it looks. **Measured
+twice.** Retarget the fourteen rows whose subject is `examples/weekend-reader/weekend-reader.js` at
+the capstone example: with the capstone's first demo, **thirteen of the fourteen went uncaught**. The
+demo was then strengthened — thirteen hostile moves, each asserting the verdict it must earn rather
+than only the count of distinct verdicts, plus media, a backdated number, a number re-listed at
+another hash, a prefix split, a link carrying its own recovery list, and the rumor rule at a thousand
+replies — and **ten of the fourteen are now caught**. The four still uncaught are the anchor check
+(twice), the string guard on a media entry, and the one-hash-per-number rule inside a single index.
+
+So the seeds are not yet redundant: the new rows prove `src/`, and the seeds are still the only thing
+that proves the *second* reader, which is the one Appendix B is checked against.
 
 Three ways out, in order of preference. (1) Grow the capstone's demo until it catches all fourteen,
 and delete the seeds it replaces — the demo roughly doubles, and its committed output with it.
@@ -129,7 +134,10 @@ now drop because it lives elsewhere** — that list is Stage D's input.
 - [ ] `README.md` (13.6k words, old design): rewrite for the current spec — TL;DR from `TLDR.md`,
       pointers into `examples/`; the protocol-comparison section (3k words) becomes an example `.md`
       or goes
-- [ ] `DISTRIBUTION-MODEL.md` (20k words, old design): rewrite small for the current spec or archive
+- [x] `DISTRIBUTION-MODEL.md` — **archived**, not rewritten (`archive/DISTRIBUTION-MODEL.md`, indexed
+      in `archive/README.md`). Its subject was gone rather than renamed — manifests, the inbox,
+      delegated hub keys, the export bundle, conformance levels — and every durable argument under it
+      was found to have landed already in the spec or in an example `.md`. Do not reopen it
 - [ ] `TLDR.md`: reconcile with the spec's §1 table; fold into README or keep
 - [ ] `GOALS.md`: keep as the statement of values and scenarios; trim the redesign-era asides
 - [ ] `CLAUDE.md`: shrink again
@@ -157,5 +165,16 @@ vectors under two readers, the examples, the tests — so shortening cannot sile
 - `examples/_seeds/*` are not examples: they still speak to the weekend instruments and their own
   `hub.js`/`envelope.js`, and their cards cite the numbers from before the rulings. Read the card's
   "held to the rulings" note before quoting a number.
-- The README and DISTRIBUTION-MODEL describe the old design until Stage C; do not "fix" a sentence
-  in them to match the new spec piecemeal.
+- **From `DISTRIBUTION-MODEL.md`, archived but not fully rehoused.** Six things it carried have no
+  home yet, and this list is the only record of them. Hub operations belong in
+  `examples/publish-interface/publish-interface.md`: the two cache classes and why the split is
+  correctness rather than tuning; how cache skew between the index and the posts manufactures a false
+  `host` verdict against an honest publisher; the lower bound on §8.8's grace window (it must exceed
+  the gap between §8.3's two writes); what §8.7's "a pass, an account, a rate limit, a bill" is *not*
+  (a billing relationship with a writer, never the identity, and never the same list as an envelope's
+  `audience`); and moderation stated honestly — refuse a write, stop serving, drop an unlisted file,
+  and nothing else. Two more: third-party processing of *other people's* decrypted content, which §6
+  and §10 make sharper rather than softer and which nothing in the repo raises
+  (`examples/envelope/` or `examples/your-copy/`); and the bridge/POSSE half of `GOALS.md` scenario 7,
+  which `examples/views/views.md` explicitly disclaims. One gap, not text to move: §9 caps a
+  *reader's* outbound fetches and the spec says nothing about a writable hub's own limits.
