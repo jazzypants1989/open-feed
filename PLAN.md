@@ -103,10 +103,19 @@ vector checks under two readers, 22 examples matching their committed output, se
 `npm run revert` catching all 129 mutations (89 of them new).** `tools/revert.js` resolves a row's
 gate as an example directory first and a seed second, so a row moves with its subject.
 
-What is left in this stage is only the seed deletion, and it is deliberately last: each seed still
-carries revert rows that prove rules against the weekend reader, and those rows have to be shown
-redundant against the new `src/`-targeting rows before the seed goes. Do it seed by seed, not in one
-sweep.
+What is left in this stage is only the seed deletion, and it is harder than it looks. **Measured:**
+retarget the fourteen rows whose subject is `examples/weekend-reader/weekend-reader.js` at the
+capstone example and **thirteen of the fourteen go uncaught** — the capstone's demo stages eight
+hostile moves, and the seeds stage the other thirty. So the seeds are not redundant with the new
+rows: the new rows prove `src/`, and the seeds are the only thing that proves the *second* reader,
+which is the one the vectors are checked against.
+
+Three ways out, in order of preference. (1) Grow the capstone's demo until it catches all fourteen,
+and delete the seeds it replaces — the demo roughly doubles, and its committed output with it.
+(2) Move the hostile-move staging into `test/` as the weekend reader's own suite, retarget the rows
+there, and empty `_seeds/` — it is a test, not teaching material, and this is the honest home for it.
+(3) Keep `_seeds/` and strike the checkbox. Whichever is chosen, do it seed by seed, not in one
+sweep, and re-run `npm run revert` after each.
 
 **Writing the examples found defects. They are in `FINDINGS.md`, unfixed, and two of them are
 security defects in `k` — read that file before Stage D, and before touching §3.3, §3.4 or §3.6.**
