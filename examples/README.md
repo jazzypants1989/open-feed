@@ -32,9 +32,9 @@ that exist are linked.
 
 | # | example | spec | shows |
 | - | ------- | ---- | ----- |
-| 01 | signed-file | §2.1–2.2 | a file is body + `\n` + signature; the address is the hash of the body |
-| 02 | no-canonicalization | §2.3 | pretty-printing, sorting, or a trailing newline reads as forged |
-| 03 | json-hygiene | §2.4 | the four ways `JSON.parse` lets two readers disagree |
+| 01 | [signed-file](signed-file/) | §2.1–2.2, §2.5 | a file is body + `\n` + signature; the address is the hash of the body; unknown members ride inside it |
+| 02 | [no-canonicalization](no-canonicalization/) | §2.3, §8.7 | pretty-printing, sorting, or a trailing newline reads as forged |
+| 03 | [json-hygiene](json-hygiene/) | §2.4 | the four ways `JSON.parse` lets two readers disagree |
 | 04 | first-contact | §3.1 | the link fragment and the six-word spoken code |
 | 05 | the-chain | §3.3 | rotating, restoring, and vouchers added to a link later |
 | 06 | recovery-list | §3.4 | salted leaves: a voucher reveals only itself |

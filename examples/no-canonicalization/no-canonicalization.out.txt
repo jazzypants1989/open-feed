@@ -1,0 +1,45 @@
+§2.3 — the same object, three re-spellings
+
+  as signed        {"n":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}
+
+  pretty-printed  {   "n": 1,   "at": "2026-07-04T10:15:00Z",   "text": "the peonies came back" }
+                  same object: true   verifies: false
+
+  members sorted  {"at":"2026-07-04T10:15:00Z","n":1,"text":"the peonies came back"}
+                  same object: true   verifies: false
+
+  re-serialized   {"n":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}
+                  same object: true   verifies: true
+
+  All three parse to the object alice signed. Two of them are not her file.
+  The third verifies only because this serializer happens to reproduce these bytes —
+  which is luck, not a rule, and the next case shows how thin the luck is.
+
+§2.3 — what a canonicalizing verifier would have to agree about
+
+  served {"n":1.0}            re-serialized {"n":1}      DIFFERENT
+  served {"n":1e3}            re-serialized {"n":1000}   DIFFERENT
+  served {"t":"caf\u00e9"}    re-serialized {"t":"café"} DIFFERENT
+  served {"t":"\u0041"}       re-serialized {"t":"A"}    DIFFERENT
+
+  Trailing zeros, exponents, escapes, and which characters get escaped at all: four
+  places two honest implementations diverge. Open Feed never re-serializes, so none
+  of them is a question it has to answer.
+
+§2.3 — a trailing newline does not corrupt the file, it re-cuts it
+
+  one \n appended, then split at the last \n:
+  body      153 bytes — the old body, the separator, and the signature
+  signature "" — empty
+  verifies  false
+
+§8.7 — the same rule, seen from the hub
+
+  a hub that byte-for-byte    → the reader sees alice's post
+  a hub that adds a newline   → the reader sees a file signed by nobody
+  a hub that pretty-prints    → the reader sees a file signed by nobody
+
+  A hub cannot regenerate a file from a database row. It stores bytes and returns them.
+  That is the whole cost of having no canonicalizer, and the hub pays it once.
+
+Every line above is asserted.

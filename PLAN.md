@@ -69,7 +69,9 @@ this is where prose from the spec/README/DISTRIBUTION-MODEL lands) → generate 
 add the `tools/revert.js` row(s) that turn it red, retargeted at `src/` → delete the seed(s) it
 consumed. **The stage closes when `_seeds/` is empty** and `npm run revert` is all caught.
 
-Seeds by example: 01–03 `weekend-gate` + `test/file.test.js`; 04 `spoken-gate`; 05–07 `court-gate`,
+Seeds by example: 01–03 `weekend-gate` + `test/file.test.js` (**`weekend-gate` stays** until the
+capstones are documented — it is their material too, and its card holds the numbers they cite);
+04 `spoken-gate`; 05–07 `court-gate`,
 `coldcourt-gate`, `oldkey-gate`; 08 `twohubs-gate`; 09, 12 `oldkey-gate`, `gapless-gate`;
 10 `test/reader.test.js`; 11 `media-gate`; 13 `gapless-gate`; 14–15 `envelope-gate`,
 `audience-gate`; 16 `test/reader.test.js`; 17 `hubwrite-gate`, `test/hub.test.js`; 18
@@ -82,7 +84,9 @@ implementer wrote from the text alone, and what it cost — the numbers are on `
 a narrated `<slug>.out.txt`, since today they are libraries and print nothing; `tools/regen.js`
 imports them and must keep working.
 
-- [ ] 01–03 files
+- [x] 01–03 files — `signed-file`, `no-canonicalization`, `json-hygiene`; nine revert rows against
+      `src/file.js`, all caught. `tools/revert.js` now resolves a row's gate as a seed *or* an
+      example directory, so a row moves with its subject and nothing else changes
 - [ ] 04–08 identity
 - [ ] 09–12 the index
 - [ ] 13 posts

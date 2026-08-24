@@ -124,9 +124,43 @@ const M = [
   ['spoken-gate', 'examples/_seeds/spoken-gate.js',
     "const repaired = [spoken(alice.chain.at(-1).key), spoken(thief.chain.at(-1).key)];",
     "const repaired = [spoken(alice.anchor), spoken(thief.anchor)];"],
+  // ---- the examples (PLAN.md Stage B). These rows target `src/`, which is what the examples run. ----
+  ['signed-file', 'src/file.js',
+    "if (b.length !== bytes || b.toString('base64url') !== text) return null;",
+    'if (b.length !== bytes) return null;'],
+  ['signed-file', 'src/file.js',
+    'export const address = (bytes) => { const s = splitFile(bytes); return s ? sha256(s.body) : null; };',
+    'export const address = (bytes) => sha256(bytes);'],
+  ['signed-file', 'src/file.js',
+    "try { if (crypto.verify(null, s.body, publicKey(x), sig)) { by = x; break; } } catch { /* a malformed key verifies nothing */ }",
+    'by = x; break;'],
+  ['no-canonicalization', 'src/file.js',
+    'const i = bytes.lastIndexOf(0x0a);',
+    'const i = bytes.indexOf(0x0a);'],
+  ['no-canonicalization', 'src/file.js',
+    "try { if (crypto.verify(null, s.body, publicKey(x), sig)) { by = x; break; } } catch { /* a malformed key verifies nothing */ }",
+    "try { if (crypto.verify(null, Buffer.from(JSON.stringify(parseBody(s.body))), publicKey(x), sig)) { by = x; break; } } catch { /* a malformed key verifies nothing */ }"],
+  ['json-hygiene', 'src/file.js',
+    'if (seen.has(key)) throw this.error(`duplicate member name ${JSON.stringify(key)}`);',
+    'if (false) throw this.error(`duplicate member name ${JSON.stringify(key)}`);'],
+  ['json-hygiene', 'src/file.js',
+    "if (key === '__proto__') throw this.error('reserved member name \"__proto__\"');",
+    "if (false) throw this.error('reserved member name \"__proto__\"');"],
+  ['json-hygiene', 'src/file.js',
+    'if (/^-?\\d+$/.test(token) && (BigInt(token) > 9007199254740991n || BigInt(token) < -9007199254740991n)) throw this.error(`integer ${token} outside ±(2^53 − 1)`);',
+    'if (false) throw this.error(`integer ${token} outside ±(2^53 − 1)`);'],
+  ['json-hygiene', 'src/file.js',
+    "if (/[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?:^|[^\\ud800-\\udbff])[\\udc00-\\udfff]/.test(out)) throw this.error('unpaired surrogate in string');",
+    "if (false) throw this.error('unpaired surrogate in string');"],
 ];
 
-const runGate = (gate) => spawnSync(process.execPath, [path.join(root, 'examples', '_seeds', `${gate}.js`)], { cwd: root, encoding: 'utf8' }).status;
+// A row's first column names either a seed (`examples/_seeds/<gate>.js`) or an example
+// (`examples/<gate>/<gate>.js`). As Stage B converts seeds into examples, only the file moves.
+const scriptOf = (gate) => {
+  const seed = path.join(root, 'examples', '_seeds', `${gate}.js`);
+  return fs.existsSync(seed) ? seed : path.join(root, 'examples', gate, `${gate}.js`);
+};
+const runGate = (gate) => spawnSync(process.execPath, [scriptOf(gate)], { cwd: root, encoding: 'utf8' }).status;
 const only = process.argv.slice(2);
 const rows = only.length ? M.filter(([g]) => only.includes(g)) : M;
 const red = new Set([...new Set(rows.map(([g]) => g))].filter((g) => runGate(g) !== 0));
@@ -135,7 +169,7 @@ let bad = 0;
 for (const [gate, file, from, to] of rows) {
   if (red.has(gate)) {
     bad++;
-    console.log(`  FAIL  ${gate.padEnd(16)} ${file.padEnd(34)} GATE ALREADY RED — a failing gate proves nothing`);
+    console.log(`  FAIL  ${gate.padEnd(20)} ${file.padEnd(34)} GATE ALREADY RED — a failing gate proves nothing`);
     continue;
   }
   const full = path.join(root, file);
@@ -153,7 +187,7 @@ for (const [gate, file, from, to] of rows) {
     fs.writeFileSync(full, before);
   }
   if (verdict !== 'caught') bad++;
-  console.log(`  ${verdict === 'caught' ? 'ok  ' : 'FAIL'}  ${gate.padEnd(16)} ${file.padEnd(34)} ${verdict}`);
+  console.log(`  ${verdict === 'caught' ? 'ok  ' : 'FAIL'}  ${gate.padEnd(20)} ${file.padEnd(34)} ${verdict}`);
 }
 console.log();
 if (bad) { console.log(`${bad} mutation(s) NOT caught — those gates or proposals need work`); process.exit(1); }
