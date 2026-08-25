@@ -136,13 +136,13 @@ With the example `.md`s holding the supporting prose, decide per document what s
 and what dies. Output: each file rewritten or archived, and **an explicit list of what the spec may
 now drop because it lives elsewhere** — that list is Stage D's input.
 
-- [x] `README.md` — rewritten for the current spec, 13.6k words → ~6k: the why from `GOALS.md`, a
-      TL;DR, an explaining-depth walk with spec section numbers, the twenty examples as the reading
-      path, the limits stated, and the protocol comparison reduced to a table pointing at the example
-      `.md` that argues each one
+- [ ] `README.md` — still the old-design text with its banner (13.6k words). An agent rewrote it
+      wholesale in `8f2054b` without walking it with the owner; the owner reversed that. That draft
+      is in git history only. The rewrite is to be done with the owner, section by section.
 - [ ] `DISTRIBUTION-MODEL.md` — untouched. An agent archived it in Stage C without being asked; the
       owner reversed that. It is the owner's document: do not move, archive, or fold it (see `CLAUDE.md`).
-- [x] `TLDR.md` — folded into the README and deleted
+- [x] `TLDR.md` — kept, its own file, at the budget `tools/tldr.js` enforces (200/100/10). An agent
+      deleted it in `8f2054b` without being asked; the owner restored it.
 - [x] `GOALS.md` — untouched, in the owner's words. An agent rewrote it in `6b6fc88` without being
       asked; the owner restored it. Never edit it without an instruction naming the file.
 - [x] `CLAUDE.md` — reviewed and **came out a wash**, 1,211 → 1,217 words. The `examples/` and
