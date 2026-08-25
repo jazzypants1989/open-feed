@@ -42,12 +42,14 @@ keeps the first recovery list it ever saw at each chain length, and because ever
 list that stood before it (§3.3), a pinned reader holds one at **every** length its chain reaches,
 from its first read. When he then splits the chain with a restore his own list would have
 blessed, the list at the split is still the three-member one: his single voucher is not a majority
-of it, hers are, and his branch is rejected.
+of it, so his link is not a valid link at all (§3.3), and the read ends before any contest.
 
 **A link is judged by the list the reader holds, never by the copy it carries.** The same split,
 counted twice. Against the list the reader holds — three members — his self-vouched restore is one
-of three and Alice's plain rotation is zero of three: no majority either way. Against the copy his
-link carries — one member, himself — he has a majority and she has none. The carried copy exists
+of three, which is not a valid link. Against the copy his link carries — one member, himself — he
+has a majority and would be Alice. The block closes with a link of his that *is* valid — a rotation
+signed with the A2 he holds, vouched by himself, carrying his list of one — against her restore by mum
+and sis: under the held list his one voucher of three loses to her two, and the reader names the host. The carried copy exists
 only for a reader with no list at that length; a pinned reader MUST NOT prefer it, and MUST NOT
 adopt one at any length its chain already reaches. The example shows the reader's list at index 2
 unchanged after the read.
@@ -56,8 +58,10 @@ unchanged after the read.
 voucher counts the reference implementation actually computed. Row 2 is the point about signatures:
 two signed rotations, one from Alice and one from the ex with the key he took, and the verdict is
 contested. **A link's `sig` is not a vote.** It proves that whoever held the previous key moved, and
-he held it too. Row 5 is the other tie — mum was made to vouch for him, so both branches reach a
-majority — and it also resolves to contested. Both sides, or neither: the reader follows nobody.
+he held it too. Rows 3 and 4 never reach the contest at all: his link is a restore he vouched for
+alone, one of three, and §3.3 rejects it as a link before rule 4 is consulted. Row 5 is the other
+tie — mum was made to vouch for him, so both branches reach a majority — and it also resolves to
+contested. Both sides, or neither: the reader follows nobody.
 
 **He moves first.** The threat model (`CLAUDE.md`) gives the operator the serving path and first
 move, and the key he holds is not one she rotated away from but her *live* one. So the block stages
@@ -68,35 +72,28 @@ split at index 2, hers has the majority, his does not, and the reader switches b
 the arm of rule 4 that works *for* the reader, and it is also the honest limit of it: on his hub her
 restore may never arrive. Withholding is the move no rule in §3.6 answers, and §13.3 says so.
 
-**Majority, and not `k`.** The recovery list is three people with `k` = 1, which is a setting a real
-app would offer ("any one of your people can bring you back"), and the ex is one of the three. He
-vouches for himself. Alice, meanwhile, has done nothing dramatic — she rotated her key, alone, as
-anybody does when they get a new phone. The example runs that one split under both candidate rules
-and prints both outcomes:
-
-- **under a threshold of `k`:** his 1 ≥ 1, her 0 < 1 — *he is Alice now*.
-- **under a majority:** 1 of 3 is not more than half, and neither is 0 — *contested*.
-
-One listed adversary, acting alone, takes her identity under `k` and cannot take it under a majority
-— **at a split.** The block then stages the open defect, `FINDINGS.md` §1.1(b), against the same
-pin: he does not fork at all, he *appends* a self-vouched restore A3 → his key to the chain the
-reader already holds. A chain that extends the pin has no split, rule 4 never runs, and the only
-gate left is §3.3's validity rule, which is `k`. One of three is at least one, and the reader
-follows him: `ok`. The example asserts that verdict because it is what the current spec says; the
-fix under review (a restore needs `k` **and** a majority) turns that line into `identity`, and this
-example is restaged when the owner rules on it.
+**One bar, a majority.** The recovery list is three people and the ex is one of them. He vouches
+for himself. Alice, meanwhile, has done nothing dramatic — she rotated her key, alone, as anybody
+does when they get a new phone. The example stages his move twice against the same list: as a fork
+at the split, and as an *extension* — he appends a self-vouched restore A3 → his key to the chain
+the reader already holds, so there is no split and rule 4 never runs. Both read `identity: the chain
+of key changes does not hold`, because §3.3 makes a restore valid only when **more than half** of
+the list vouches, and one of three is not more than half. That is why the spec has no separate
+threshold for a restore: any lower bar would be a second door into the identity — one the contest
+rule never watches, since a chain that extends the pin is never contested. The majority is the one
+bar, for a link's validity and for a contest alike.
 
 **The price, and the repair.** The majority rule is not free, and the spec says so where the rule is
-stated rather than in a footnote. On a list of two with `k` = 1, a restore mum vouched alone is
-*enough for `k` and is not a majority*, so it draws against the ex's bare rotation and the reader is
-stuck at contested. Alice needs a second member, and until she gets one a reader served his branch
-follows nobody — a reader that pinned her restore and keeps reading her files is fine.
+stated. On a list of two, a restore mum vouched alone is one of two — not more than half — so the
+link does not hold and a pinned reader reads `identity`. Alice needs a second member, and until she
+gets one she cannot come back.
 
 What the single link shape (§3.3) buys is that she does not pay that price twice. Vouchers MAY be
-added to a link **after it was made**, so sis signs the same `A2 -> A3` move Alice already
-published, Alice republishes at a higher `version`, and the chain is unchanged key for key: A3 still
-signs, and the post A3 signed before any of this still verifies. Without that, her only move would
-be to restore *again* to a fresh key, abandoning A3 and every post it signed.
+added to a link **after it was made**, so sis signs the same `A2 -> A3` move Alice already made,
+Alice republishes at a higher `version`, and the chain is unchanged key for key: A3 still signs, and
+the post A3 signed before any of this still verifies. The ex rotating her old key against that link
+now reads `host`. Without that, her only move would be to restore *again* to a fresh key, abandoning
+A3 and every post it signed.
 
 **Two limits, and the only exit.** A cold reader's recovery list is whatever the first profile it
 saw carried. The example runs a reader with no pin against the ex's branch: it follows him, adopts
@@ -150,6 +147,6 @@ The scenario this serves is `GOALS.md` scenario 1, **the divorce** — the siste
 hub, who must be able to leave with her identity intact and her people able to bring her back. It is
 also what makes scenario 2, **grandma onboards**, survivable: she is never shown a key and gets back
 in by calling her daughter, which is a restore, which is exactly the mechanism a listed adversary
-would abuse if the rule were a threshold instead of a majority. Scenario 1's 2026-08-21 rewording
+would abuse if the rule were anything less than a majority. Scenario 1's 2026-08-21 rewording
 already conceded a related limit — a reader with no social path to Alice sees the ex's frozen copy
 as an unmarked page — and the cold-reader limit above is that same honesty applied to a contest.

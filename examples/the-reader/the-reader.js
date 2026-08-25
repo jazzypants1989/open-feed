@@ -16,7 +16,7 @@ const seed = (label) => crypto.createHash('sha256').update(`openfeed/v1/vector:$
 const key = (label) => signingKeyFromSeed(seed(label));
 const A1 = key('alice/anchor'), A2 = key('alice/rotated'), A3 = key('alice/restored'), THIEF = key('thief');
 const MUM = { key: key('mum'), salt: 'saltmum' }, SIS = { key: key('sis'), salt: 'saltsis' }, BRO = { key: key('bro'), salt: 'saltbro' };
-const REC = commit(2, [MUM, SIS, BRO]), AT = 'https://alice.example/alice';
+const REC = commit([MUM, SIS, BRO]), AT = 'https://alice.example/alice';
 const T0 = Date.parse('2026-08-01T00:00:00Z'), LATER = T0 + 8 * 86400e3;
 
 // `src/hub.js`'s pure handler behind the fetcher shape §7 is given — no socket, since `src/fetch.js`
@@ -50,7 +50,7 @@ const step = (n, what, saw) => console.log(`  ${String(n).padStart(2)}  ${what.p
 console.log('§7 — the order of operations is normative\n');
 step(1, 'fetch the profile', `${pf.bytes.length} bytes, parsed under §2.4's rules`);
 step(2, 'is `anchor` the key I learned?', `${id.raw.anchor.slice(0, 10)}… — yes`);
-step(3, 'record a recovery list per length', `length ${Object.keys(id.recoveryLists)[0]}: k = ${REC.k} of ${REC.leaves.length} leaves`);
+step(3, 'record a recovery list per length', `length ${Object.keys(id.recoveryLists)[0]}: ${REC.leaves.length} leaves, more than half must vouch`);
 step(4, 'walk the chain', `${id.raw.chain.length - 1} links yet: the chain is the anchor key alone`);
 step(5, "verify the profile's own signature", 'under the key step 4 ended on');
 step(6, 'compare the profile against the pin', 'no pin: nothing to compare');
@@ -113,9 +113,8 @@ console.log('  all this, and no reader can tell them apart — so §7.2 asks a c
 console.log('  whole read once before it reports `host`.\n');
 assert.deepEqual([midCold.verdict, midCold.why, midRotation.posts.size], ['host', 'the index is not signed by the key the profile ends on', 2]);
 
-// An encrypted post, published by the restored key. Its content key and padding are seeded too.
-const dummies = (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', 'openfeed/v1/vector:dummies', '', String(i++), n)); })();
-const env = encrypt({ content: { text: 'the peonies came back' }, carrier: carrierOf(A1.x, 4), random: dummies,
+// An encrypted post, published by the restored key. Its content key is seeded too.
+const env = encrypt({ content: { text: 'the peonies came back' }, carrier: carrierOf(A1.x, 4),
   audience: [{ key: MUM.key.x, read: readingKeyFromSeed(seed('mum-read')).x, loc: 'https://mum.example/mum' }],
   ephemeral: readingKeyFromSeed(seed('alice/eph')), contentKey: seed('alice/contentkey') });
 await pub3.publish(4, { at: '2026-08-08T09:00:00Z', encrypted: env });
@@ -125,7 +124,7 @@ console.log('§7.4 — every live entry is checked before it is handed back\n');
 check(`media ${PHOTO.slice(0, 8)}…`, 'the bytes hash to the address the index lists', sha256(full.media.get(PHOTO)) === PHOTO);
 check('post 1', 'the signature verifies under a key in the chain', `${post1.by === A1.x ? 'the anchor key' : '?'}, two links back`);
 check('', 'its address, and its n, are what index and path say', post1.address === full.pin.live.get(1) && post1.obj.n === 1);
-check('post 4', `the same three checks, and ${env.slots.length} opaque slots`, `text: ${full.posts.get(4).text}`);
+check('post 4', `the same three checks, and ${env.slots.length} opaque slot${env.slots.length === 1 ? '' : 's'}`, `text: ${full.posts.get(4).text}`);
 console.log('\n  This reader holds no reading key and never looked for one: `encrypted` comes back whole');
 console.log("  and unopened, because opening it is the client's business (§6). Any failure is `host`.\n");
 assert.deepEqual([sha256(full.media.get(PHOTO)), post1.by, post1.address, post1.obj.n], [PHOTO, A1.x, full.pin.live.get(1), 1]);

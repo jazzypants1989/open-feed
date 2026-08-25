@@ -60,7 +60,7 @@ you did not set up is also a backup you do not have to trust.
 
 Two are still missing, and the honest line is what the index *cannot* say: it gives the number and
 the address and nothing about who saw them, because an encrypted post's audience is inside the
-envelope (§6.5). So she asks a named person for a named list — sis, for posts 4 and 5, not "send me
+envelope (§6.4). So she asks a named person for a named list — sis, for posts 4 and 5, not "send me
 everything you have" — and the rebuilt copy is then read by an ordinary reader over a `Map` with no
 network: `ok`, posts 1, 3, 4, 5.
 

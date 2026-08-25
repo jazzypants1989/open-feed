@@ -29,7 +29,6 @@ export const TIMEOUT_MS = 10_000;
 export const MAX_REDIRECTS = 5;
 export const MAX_SOCKETS_PER_ORIGIN = 10;
 export const MAX_BYTES = { profile: 1024 * 1024, index: 1024 * 1024, post: 1024 * 1024, media: 50 * 1024 * 1024 };
-export const MAX_IDENTITIES_PER_PASS = 200;
 
 /** The DNS half of the address guard: resolve, drop what the policy refuses, connect only to what survived. */
 export function guardedLookup(isAddressAllowed, resolve = dns.lookup) {

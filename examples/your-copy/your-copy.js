@@ -12,7 +12,7 @@ const seed = (l) => crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`
 const sign = (l) => signingKeyFromSeed(seed(l)), reading = (l) => readingKeyFromSeed(seed(`${l}/read`));
 const alice = sign('alice/anchor'), mum = sign('mum'), sis = sign('sis'), op = sign('bro');
 const reads = { alice: reading('alice/anchor'), mum: reading('mum'), sis: reading('sis'), op: reading('bro') };
-const REC = commit(2, [{ key: mum, salt: 'saltmum' }, { key: sis, salt: 'saltsis' }, { key: op, salt: 'saltbro' }]);
+const REC = commit([{ key: mum, salt: 'saltmum' }, { key: sis, salt: 'saltsis' }, { key: op, salt: 'saltbro' }]);
 const OLD = 'https://ex.example/alice', NEW = 'https://alice.example/alice';
 const ioOver = (h) => ({
   get: async (u) => { const r = h.handle({ method: 'GET', path: new URL(u).pathname }); return r.status === 200 ? { bytes: r.body, etag: r.headers.etag } : null; },

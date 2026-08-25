@@ -99,7 +99,7 @@
   post 4's public members:  n, at, encrypted  — no media, no rel, no target
 
   On an encrypted post media, rel and target are inside the envelope, and each media entry is
-  {hash, key} rather than a bare hash (§6.6). See examples/media/ and examples/envelope/.
+  {hash, key} rather than a bare hash (§6.5). See examples/media/ and examples/envelope/.
 
 §5.6 — a private message is a post
 

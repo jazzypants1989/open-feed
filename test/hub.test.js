@@ -12,7 +12,7 @@ const get = (hub, path) => hub.handle({ method: 'GET', path });
 
 async function scene() {
   const hub = createHub(), io = memIo(hub), alice = person('alice'), mum = person('mum'), sis = person('sis'), ex = person('ex');
-  const REC = list(2, mum, sis, ex), AT = 'https://x/alice';
+  const REC = list(mum, sis, ex), AT = 'https://x/alice';
   const pub = await claim(io, alice, AT, { recovery: REC });
   for (let n = 1; n <= 3; n++) await pub.publish(n, { at: 'x', text: `post ${n}` });
   return { hub, io, alice, REC, AT, pub };

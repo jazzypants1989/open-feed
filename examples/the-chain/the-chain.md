@@ -42,8 +42,9 @@ hold: its signature verifies, **and** `SHA-256(salt ‖ "|" ‖ voucher key)` in
 `recovery.leaves`. The example shows bro producing a cryptographically perfect signature under a
 salt that is not the one committed for him; it counts zero. His own salt, same signature, counts
 one — the signature was never the question. And mum's voucher listed twice counts one, because the
-threshold is over **distinct** voucher keys; the chain does not hold at `k` of 2. Duplicating a
-voucher is the cheapest possible attack on a threshold and it is worth seeing it fail.
+majority is over **distinct** voucher keys; one of three is not more than half, and the chain does
+not hold. Duplicating a voucher is the cheapest possible attack on a count and it is worth seeing it
+fail.
 
 **Every link carries the recovery list as it stood before it.** This is the part of §3.3 that looks
 redundant and is not. A reader meeting alice for the first time at chain length three holds no
@@ -57,8 +58,8 @@ carried copy (§3.6 rule 3) — the carried copy is for the cold reader only. Th
 **Vouchers may be added to a link after it was made.** `src/profile.js`'s `vouched` takes a rotation
 alice made alone and returns the same link with her people's signatures attached: same `key`, same
 `sig`, two vouchers that now count. Nothing after that link is disturbed. That matters because
-§3.6 settles a contest by a **majority of the recovery list at the split**, not by `k` and not by a
-`sig` — so a bare rotation can be stuck against a thief's vouched fork. The fix is not to restore
+§3.6 settles a contest by a **majority of the recovery list at the split**, never by a `sig` — so a
+bare rotation can be stuck against a thief's vouched fork. The fix is not to restore
 again onto a fresh key and abandon everything signed since; it is for her people to back the link
 she already made. One link shape is what buys that.
 

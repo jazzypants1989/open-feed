@@ -6,9 +6,9 @@
 
 §7 — the order of operations is normative
 
-   1  fetch the profile                     446 bytes, parsed under §2.4's rules
+   1  fetch the profile                     440 bytes, parsed under §2.4's rules
    2  is `anchor` the key I learned?        pukq6VMQM9… — yes
-   3  record a recovery list per length     length 1: k = 2 of 3 leaves
+   3  record a recovery list per length     length 1: 3 leaves, more than half must vouch
    4  walk the chain                        0 links yet: the chain is the anchor key alone
    5  verify the profile's own signature    under the key step 4 ended on
    6  compare the profile against the pin   no pin: nothing to compare
@@ -59,7 +59,7 @@
   media ot0dUvs5…   the bytes hash to the address the index lists       true
   post 1            the signature verifies under a key in the chain     the anchor key, two links back
                     its address, and its n, are what index and path say true
-  post 4            the same three checks, and 8 opaque slots           text: undefined
+  post 4            the same three checks, and 1 opaque slot            text: undefined
 
   This reader holds no reading key and never looked for one: `encrypted` comes back whole
   and unopened, because opening it is the client's business (§6). Any failure is `host`.

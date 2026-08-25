@@ -3,8 +3,8 @@
 **Spec:** §3.4, with §3.3 for the link that spends it and Appendix B.2 for the vector.
 **Run:** `node examples/recovery-list/recovery-list.js`
 
-A recovery list is two members wide: a threshold `k`, and one hash per person you would trust to
-say "yes, that is her, and this is her new key". The hash is `SHA-256(salt ‖ "|" ‖ member key)` in
+A recovery list is one hash per person you would trust to say "yes, that is her, and this is her
+new key" — and more than half of them have to say it (§3.3). The hash is `SHA-256(salt ‖ "|" ‖ member key)` in
 base64url, with a distinct random salt per member, so publishing the list publishes nothing about
 who is on it — only how many. When a member vouches, they reveal their own salt and their own key
 and sign the move, and the link in your chain (§3.3) carries that voucher forever.
@@ -19,7 +19,7 @@ daughter, and is back — without ever having been shown a key or asked to store
 
 **One leaf per member, each under its own salt.** The three members, their salts, their keys, and
 the leaf each pair hashes to, laid out as Appendix B.2 lays them out, and then the committed object
-`{"k":2,"leaves":[…]}` that goes in the profile. The example asserts the three leaves and the
+`{"leaves":[…]}` that goes in the profile. The example asserts the three leaves and the
 committed JSON against the spec's own vector, character for character.
 
 **A voucher reveals only itself.** sis vouches, and what goes on the wire is one object: her key,
@@ -35,26 +35,35 @@ the profile. That is not a leak the design tolerates, it is a requirement: §3.6
 against the list, and a majority needs a denominator every reader can see. `examples/contest/` is
 where that rule is worked out; this example only shows the number it needs.
 
-**`k` is the threshold the author set for a restore to be valid.** With `k` of 2 over three
-members, sis alone leaves the link invalid at one counted voucher; mum joining makes it two and the
-link stands; and mum's key submitted under sis's salt counts zero, because a leaf binds the salt and
-the key together and either half alone hashes to nothing. Then the whole profile is read and comes
-back **ok**, ending on the key Alice made. What `k` is *not* — the test that settles a contested
-identity — is `examples/contest/`, and so is what a `k` below a majority costs (`FINDINGS.md` §1.1).
+**A restore is valid when more than half of the list vouches.** Over three members, sis alone
+leaves the link invalid at one counted voucher; mum joining makes it two and the link stands; and
+mum's key submitted under sis's salt counts zero, because a leaf binds the salt and the key together
+and either half alone hashes to nothing. Then the whole profile is read and comes back **ok**,
+ending on the key Alice made. There is no threshold for the author to set: the same majority
+settles a contested identity, and `examples/contest/` shows why one bar is the point.
 
 **The list MAY be empty.** An empty list is a real choice with an exact price: no leaf can ever
 match, so no voucher can ever count, so no restore is possible and a lost key is a lost identity.
 Where the list is not empty, a member can be a person, a backup key you keep in a drawer, or your
 host. A leaf does not say which, and nothing outside your own app knows.
 
+**Starting alone: a backup key you keep yourself.** For the first person on the protocol — or
+anyone whose people are not on it yet — the list has nobody to name. §3.4 says an app SHOULD create
+a backup key at setup and list it, and the example stages exactly that: a list of one leaf, the
+backup key's six-word spoken code (§3.1) printed as it would go on paper, and a restore to a new
+phone vouched by that key alone. A majority of one is one, so the paper is the whole recovery. When
+people join later she lists them and rotates (§3.5); nothing in the protocol has to change for her
+to go from one member to several, and nothing about recovery waits on having friends first.
+
 **A list with one other person hands that person the identity.** The example stages it: Alice lists
-bro and nobody else, bro restores to a key of his own, one of one counted against a `k` of one, and
-the chain walks to his key. Then the half that makes it worse. Alice replaces the list with the
+bro and nobody else, bro restores to a key of his own, one of one counted — a majority — and the
+chain walks to his key. Then the half that makes it worse. Alice replaces the list with the
 three and rotates so the change reaches readers at all (§3.5), and her new link at chain length 1
 carries the new list — but a reader that already saw the list of one there keeps it (§3.6 rule 2,
 staged in `examples/contest/`). Bro's ability to restore at that length does not expire with the
 list; it lasts as long as that reader does. That is why §3.4 says an app SHOULD require two or more
-members, or the owner alone: a majority of one is one.
+members beyond your own keys: a majority of one is one, which is the right answer for your own
+backup key and the wrong one for somebody else's.
 
 **"Recently restored" is presentation, not a verdict.** The read is **ok**; `restored` is a fact
 about the chain, and reading apps SHOULD show it for seven days. The vouchers stay in the chain and

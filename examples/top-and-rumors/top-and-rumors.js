@@ -27,7 +27,7 @@ const ALICE = 'https://hub.example/alice', MUM = 'https://hub.example/mum', GRIE
 // Every measurement below is "what did this cost at somebody else's host".
 const cost = async (fn) => { const before = gets, out = await fn(); return { out, gets: gets - before }; };
 const claim = async (k, name, loc) => { const pub = createPublisher({ io, key: k, at: loc });
-  await pub.claim({ anchor: k.x, version: 1, name, chain: [{ key: k.x }], recovery: { k: 0, leaves: [] }, locations: [loc] }); return pub; };
+  await pub.claim({ anchor: k.x, version: 1, name, chain: [{ key: k.x }], recovery: { leaves: [] }, locations: [loc] }); return pub; };
 const index = () => parseBody(splitFile(store.get('alice/index')).body);
 const show = (e) => e.map(([a, b]) => `[${a},${b === null ? 'null' : `"${b.slice(0, 6)}…"`}]`).join(' ');
 const live = (pin) => [...pin.live.keys()].join(', ');

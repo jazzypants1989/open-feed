@@ -64,7 +64,7 @@ identity per pass. (A reply that does not verify never reaches the rumor step at
 and `examples/the-reader/` stages it.)
 
 **Relocation rides along in public replies only.** The `rel`, the `target` and its `loc` of an
-encrypted reply are inside the envelope (§6.6; `examples/envelope/` shows the public members are
+encrypted reply are inside the envelope (§6.5; `examples/envelope/` shows the public members are
 `n`, `at` and `encrypted` and nothing else), so an encrypted reply moves nobody who was not already
 in its audience. That is a real cost of keeping the reply graph off the wire, and §3.7 states it
 rather than pretending the mechanism is universal.

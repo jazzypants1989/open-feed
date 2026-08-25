@@ -44,12 +44,12 @@ export function consumerFetcher(extra = {}) {
 // ---- people ----
 export const person = (name, { salt = `salt-${name}` } = {}) => ({ name, key: file.newSigningKey(), salt });
 export const members = (...ps) => ps.map((p) => ({ key: p.key, salt: p.salt }));
-export const list = (k, ...ps) => profile.commit(k, members(...ps));
+export const list = (...ps) => profile.commit(members(...ps));
 
 /** Claim a name on a hub for `p`: profile at version 1, an empty index. Returns the publisher. */
 export async function claim(io, p, at, { recovery, read, extra = {} } = {}) {
   const pub = createPublisher({ io, key: p.key, at });
-  await pub.claim({ anchor: p.key.x, version: 1, ...(p.name ? { name: p.name } : {}), chain: [{ key: p.key.x }], recovery: recovery ?? { k: 0, leaves: [] }, locations: [at], ...(read ? { read } : {}), ...extra });
+  await pub.claim({ anchor: p.key.x, version: 1, ...(p.name ? { name: p.name } : {}), chain: [{ key: p.key.x }], recovery: recovery ?? { leaves: [] }, locations: [at], ...(read ? { read } : {}), ...extra });
   return pub;
 }
 export const readerOver = (io) => createReader({ get: io.get });

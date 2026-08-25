@@ -32,7 +32,7 @@
 §4.4 — listed in the index, so retention is one rule that reaches encrypted posts
 
   post 7 in the clear   members: n, at, encrypted
-  a media reference?    false — on an encrypted post it is inside the envelope (§5.5, §6.6)
+  a media reference?    false — on an encrypted post it is inside the envelope (§5.5, §6.5)
   the index line        ["CpQDyIo_ztyC2XZR78PjgDON0z4kf4WY3hD6Qbxxcrc"]
 
   The host cannot read post 7 and so cannot know which blobs it needs. The index line tells

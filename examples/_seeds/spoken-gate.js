@@ -21,7 +21,7 @@ function spoken(x) {
 
 console.log('\n1. A contest: Alice\'s branch and the thief\'s share the anchor.\n');
 const G = pub.newKey(), K2 = pub.newKey(), T = pub.newKey();
-const REC = pub.commit(1, [{ key: pub.newKey(), salt: 's' }]);
+const REC = pub.commit([{ key: pub.newKey(), salt: 's' }]);
 const alice = { anchor: G.x, chain: [{ key: G.x }, pub.rotation(G, K2, REC)] };
 const thief = { anchor: G.x, chain: [{ key: G.x }, pub.rotation(G, T, REC)] };
 const asWritten = [spoken(alice.anchor), spoken(thief.anchor)];

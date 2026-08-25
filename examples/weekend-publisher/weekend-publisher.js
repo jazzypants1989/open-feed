@@ -27,7 +27,7 @@ export const restore = (from, to, vouchers, recovery) => ({ key: to.x, recovery,
 export const vouched = (h, from, vouchers) => ({ ...h, vouchers: [...(h.vouchers ?? []), ...restore(from, { x: h.key }, vouchers, h.recovery).vouchers] });
 // The recovery list is committed one member at a time, so a voucher reveals only its own salt and
 // the leaf count says how many there are — which is what a majority is counted against.
-export const commit = (k, members) => ({ k, leaves: members.map(({ key, salt }) => sha256(Buffer.from(`${salt}|${key.x}`))) });
+export const commit = (members) => ({ leaves: members.map(({ key, salt }) => sha256(Buffer.from(`${salt}|${key.x}`))) });
 
 // No `prev` on either overwritten file: nothing reads it. The rollback it would catch is caught by
 // version/version and by the rewrite check, and a field nobody reads is one implementers get wrong.
@@ -111,6 +111,10 @@ if (isMain) {
     return { privateKey, x: crypto.createPublicKey(privateKey).export({ format: 'jwk' }).x };
   };
   const alice = seeded('alice/anchor');
+  // §3.4: nobody else is on the protocol yet, so the recovery list is a backup key on paper. The
+  // spoken code is imported from src/ here, below the marker: it is narration, not the publisher.
+  const { spokenCode } = await import('../../src/spoken.js');
+  const paper = { key: seeded('alice/backup'), salt: 'saltpaper' };
 
   // A hub in eleven lines: create-once on numbered posts, compare-and-swap on the index (§8.1-8.2).
   const files = new Map(), log = [];
@@ -137,12 +141,14 @@ if (isMain) {
   assert.ok(measured < 200, 'the kill criterion was 200 lines');
 
   console.log('§8.4 — claiming a name is a profile, and an index even when it is empty\n');
-  const p1 = profile({ anchor: alice.x, version: 1, name: 'Alice', chain: [{ key: alice.x }], recovery: commit(2, []), locations: [at] }, alice);
+  const p1 = profile({ anchor: alice.x, version: 1, name: 'Alice', chain: [{ key: alice.x }], recovery: commit([paper]), locations: [at] }, alice);
   await io.put(`${at}/profile`, p1, null);
   await amendIndex(io, at, alice, (h) => h);
   console.log(show());
   console.log(`  index  entries [] version ${indexNow().version} top ${indexNow().top}`);
-  console.log('  Without that empty index a brand-new identity reads as `host: no index served`.\n');
+  console.log('  Without that empty index a brand-new identity reads as `host: no index served`.');
+  console.log(`  recovery  one leaf: a backup key she keeps on paper (§3.4) — ${spokenCode(paper.key.x).join(' ')}\n`);
+  assert.equal(commit([paper]).leaves.length, 1);
   assert.deepEqual(indexNow(), { entries: [], version: 1, top: 0 });
 
   console.log('§8.2-8.3 — the post is written first, then folded into the index\n');

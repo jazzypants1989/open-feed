@@ -10,13 +10,13 @@ import { commit, rotation, restore, vouched, vouches, walk, adoptRecoveryLists, 
 const key = (label) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest());
 const A1 = key('alice/anchor'), A2 = key('alice/rotated'), A3 = key('alice/restored');
 const MUM = { key: key('mum'), salt: 'saltmum' }, SIS = { key: key('sis'), salt: 'saltsis' }, BRO = { key: key('bro'), salt: 'saltbro' };
-const REC = commit(2, [MUM, SIS, BRO]);
+const REC = commit([MUM, SIS, BRO]);
 const base = { anchor: A1.x, name: 'Alice', recovery: REC, locations: ['https://alice.example/alice'], read: 'cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc' };
 
 // The only cryptography here: Ed25519 over ASCII bytes. Everything else is bookkeeping.
 const signOver = (text, k) => crypto.sign(null, Buffer.from(text, 'ascii'), k.privateKey).toString('base64url');
 const holds = (chain, lists) => !!walk({ chain }, lists);
-const brief = (h) => (`key ${h.key.slice(0, 8)}…  ` + (h.recovery ? `recovery {k:${h.recovery.k}, ${h.recovery.leaves.length} leaves}  ` : '').padEnd(30)
+const brief = (h) => (`key ${h.key.slice(0, 8)}…  ` + (h.recovery ? `recovery {${h.recovery.leaves.length} leaves}  ` : '').padEnd(30)
   + (h.sig ? `sig ${h.sig.slice(0, 8)}…  ` : '').padEnd(16) + (h.vouchers ? `vouchers ${h.vouchers.map((v) => v.salt.slice(4)).join(', ')}` : '')).trimEnd();
 
 const rot = rotation(A1, A2, REC);                          // a rotation: the owner moved
@@ -60,7 +60,7 @@ for (const [m, v] of [[MUM, res.vouchers[0]], [SIS, res.vouchers[1]]]) {
   console.log(`  ${v.salt.slice(4)}   salt ${v.salt}   sig ${v.sig.slice(0, 12)}…   SHA-256(salt|key) ${leaf.slice(0, 8)}… on the list: ${REC.leaves.includes(leaf)}`);
   assert.deepEqual([v.key, REC.leaves.includes(leaf)], [m.key.x, true]);
 }
-console.log(`  distinct voucher keys that count: ${counts(res.vouchers)}, and k is ${REC.k} — the link is valid.\n`);
+console.log(`  distinct voucher keys that count: ${counts(res.vouchers)} of ${REC.leaves.length} — more than half, so the link is valid.\n`);
 console.log(`  bro, good signature, wrong salt    ${counts([bro('notmysalt')])}   SHA-256("notmysalt|<bro>") is not in recovery.leaves`);
 console.log(`  bro, good signature, his own salt  ${counts([bro('saltbro')])}   the signature was never the question`);
 console.log(`  mum's voucher, listed twice        ${counts([res.vouchers[0], res.vouchers[0]])}   DISTINCT keys — so the chain holds? ${holds(twice, { 1: REC, 2: REC })}\n`);
@@ -106,7 +106,7 @@ console.log(`    locations unchanged                    ${served({}).verdict}`);
 console.log(`    locations changed in the same version  ${moveHome.verdict}   ${moveHome.why}`);
 console.log('\n  Whoever vouched moved the key. They did not move the identity to a hub of their own.\n');
 assert.equal(served({}).verdict, 'ok');
-for (const f of [{ locations: ['https://elsewhere.example/alice'] }, { name: 'Alise' }, { read: A2.x }, { recovery: commit(2, [MUM, SIS]) }])
+for (const f of [{ locations: ['https://elsewhere.example/alice'] }, { name: 'Alise' }, { read: A2.x }, { recovery: commit([MUM, SIS]) }])
   assert.deepEqual([served(f).verdict, served(f).why], ['identity', 'a restore changed more than the key']);
 
 // §3.3: the old key is closed by what it may no longer do, not by an announcement.

@@ -20,8 +20,8 @@
   Appendix B.10 carries the first three: post 2 withdrawn by an appended line, post 5
   encrypted, and one media file listed by its address alone.
 
-  {"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}
-  fkGSeMiVg9ZPdliEnWNU-Y-2bORoaQwmljSVg5HhV4xKGMc-w6K9VJ21cbqGXUMYCUU_om7dyBjz8bXMamruBQ
+  {"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}
+  d3-yqAPg2iItXYasKxmht2vpwfGenGkTXzU-BFPd0sPk64VZzSsDOKL6wS04MPyA1IHk9k0dtqjckoJoCmFRAQ
 
 §4.2 — the live set is the fold of the entries, in order
 
@@ -30,7 +30,7 @@
   [3,"i8fWlv…"]        → 1  2  3
   [2,null]             → 1  3
   [4,"3mnLZn…"]        → 1  3  4
-  [5,"52zvht…"]        → 1  3  4  5
+  [5,"8qFSXw…"]        → 1  3  4  5
   ["fKGh1G…"]          → 1  3  4  5  media fKGh1G…
 
   and the fourth shape takes the media back out: 1  3  4  5
@@ -56,8 +56,8 @@
 
 §4.2, §7.2 — a number has one hash, ever
 
-  {"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}
-  Fwobld26DKwmaKgtZ66wlfAvzDEeH9DrODnh6O2aIuLtZ1MoHiy5i2FyJhGHBEumf2aDn6l0obMsV3Ab7CDJCw
+  {"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}
+  9HJTbv8f48aF1GYk7SySc1aRFK1mm0eSjMo-xr3S3Dowv1OitC_nMVTwta3pJowJ-d27eYYOR1kUYG9eKp1DCQ
 
   Appendix B.11: the lines the withdrawal left behind are gone (§4.7) and post 2 is back
   at the hash it had. It folds — 1  3  4  5  media fKGh1G…  2

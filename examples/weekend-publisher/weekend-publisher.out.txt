@@ -9,6 +9,7 @@ weekend-publisher — §8, written from the text alone
   PUT /alice/index                                  → 200
   index  entries [] version 1 top 0
   Without that empty index a brand-new identity reads as `host: no index served`.
+  recovery  one leaf: a backup key she keeps on paper (§3.4) — dove february mean plate six boy
 
 §8.2-8.3 — the post is written first, then folded into the index
 

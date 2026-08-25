@@ -24,10 +24,9 @@
       2rsCQZAjQMhlxocGQd4baI0tsCQiZqRX8BtHmJ8mihXiGd5DtWA0mmPvzLY0Ite-
 
   and the content, once:
-    plain                           345 bytes of UTF-8 JSON — the audience, then the content members
-    padded                          2-byte big-endian length, plain, zeros to 512 (§6.4 — examples/padding/)
-    ct = ChaCha20-Poly1305(content key, 12 zero bytes, padded, aad = epk || carrier)
-      F0a_r7lGklcYcRiWYCqFFFNp-LVbDvXTILfYICimJP1…   704 characters
+    plain                           345 bytes of UTF-8 JSON — the audience, then the content members — under §2.4's rules
+    ct = ChaCha20-Poly1305(content key, 12 zero bytes, plain, aad = epk || carrier)
+      bT2l-Lxak1AeelnJGWv8BBR7v_ZbRKLIJOr_Wy-mTOM…   482 characters
 
   The all-zero nonce is safe for the reason it is safe in age's key wrap: the content key is 32
   random bytes and MUST NOT be reused across messages, so that (key, nonce) pair is used exactly
@@ -50,8 +49,8 @@
 
 §6.3 — a tag is a hint, never a decision
 
-  scanning for mum's own tag        finds it (slot 2 of 8 here; §6.4 says nothing about placement), and unwraps once
-  ignoring every tag, trying all    2 unwraps here, up to 8 — conformant, merely slower
+  scanning for mum's own tag        finds it (slot 2 of 2 here; nothing fixes placement), and unwraps once
+  ignoring every tag, trying all    2 unwraps here, up to 2 — conformant, merely slower
   the same plaintext either way     true
 
   and a slot carrying mum's own tag whose unwrap fails, placed first:
@@ -64,12 +63,12 @@
 
   mum's tag on post 5               SzNzzQy4o2c
   mum's tag on post 6               lYaMx_t160M
-  slot tags the two posts share     0 of 8
+  slot tags the two posts share     0 of 2
 
   A tag is derived through the message's own ephemeral, so an observer holding every published
   reading key derives none of them, and one recipient's slots do not link across posts.
 
-§6.5 — the audience is inside, and each entry names a person
+§6.4 — the audience is inside, and each entry names a person
 
   mum opens post 6 and finds 4 entries — alice's own among them, or alice could not read her own outbox:
     key pukq6VMQM9…                 read cLoW-OhUZj…   loc https://alice.example/alice
@@ -89,7 +88,7 @@
     alice true   mum true   sis false   bro false
   The thread splits in half and neither half is told.
 
-§6.6 — on an encrypted post, rel, target and media go inside
+§6.5 — on an encrypted post, rel, target and media go inside
 
   mum's post 13, in the clear       {"n":13,"at":"2026-08-19T19:00:00Z","encrypted"…
   "reply" in the public bytes?      false   it is inside: rel="reply"
@@ -101,11 +100,11 @@
 
 §7.4 — a reader outside the audience verifies it completely and hands it back opaque
 
-  post 5 is Appendix B.8 byte for byte, at address 52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM, and the host's own
+  post 5 is Appendix B.8 byte for byte, at address 8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs, and the host's own
   reading key opens null. Opening it is the client's business; the read is examples/the-reader/.
 
-  What the host learns is that an encrypted post exists, when, and roughly how big: post 5 is
-  1574 bytes and post 6, to four people, is 2257. The audience is inside, so a large one shows in the
-  bucket the body lands in; §6.4's floor hides the small end.
+  What the host learns is that an encrypted post exists, when, how big, and how many slots it has:
+  post 5 has 2 slots and is 854 bytes; post 6, to four people, has 4 and is 1405. Nothing hides the
+  size of the audience, and §13.3 says so.
 
 Every line above is asserted.

@@ -1,6 +1,7 @@
 // §3 — identity. The anchor key is the identity; the profile names the keys, the locations and
 // the recovery list; the chain is one link shape carrying its recovery; a reader keeps a recovery per
-// chain length and judges every link by the recovery it holds there (§3.6).
+// chain length and judges every link by the recovery it holds there (§3.6). A restore is valid when
+// more than half of that list vouches — the one bar, used for validity and for a contest alike.
 import crypto from 'node:crypto';
 import { sha256, decodeStrict, publicKey, verifyFile, signFile, splitFile, parseBody } from './file.js';
 
@@ -19,12 +20,15 @@ export const restore = (from, to, members, recovery) => ({ key: to.x, recovery, 
 /** Vouchers added to an existing link — how a rotation made alone is later backed by the recovery. */
 export const vouched = (link, from, members) => ({ ...link, vouchers: [...(link.vouchers ?? []), ...restore(from, { x: link.key }, members, link.recovery).vouchers] });
 /** §3.4: one leaf per member, each under its own salt, so a voucher reveals nobody else. */
-export const commit = (k, members) => ({ k, leaves: members.map(({ key, salt }) => leaf(salt, key.x)) });
+export const commit = (members) => ({ leaves: members.map(({ key, salt }) => leaf(salt, key.x)) });
 export const leaf = (salt, x) => sha256(Buffer.from(`${salt}|${x}`, 'utf8'));
 export const signProfile = (fields, key) => signFile(fields, key);
 
 // ---- verifying (§3.3, §3.6) ----
-const isList = (c) => c && Number.isInteger(c.k) && c.k >= 0 && Array.isArray(c.leaves) && c.leaves.every((l) => typeof l === 'string');
+// §3.4: a recovery list is its leaves, at most MAX_LEAVES of them; §3.3: a chain is at most MAX_LINKS long.
+// Both bound the signature checks a hostile profile can demand of a reader.
+export const MAX_LINKS = 64, MAX_LEAVES = 32;
+const isList = (c) => c && Array.isArray(c.leaves) && c.leaves.length <= MAX_LEAVES && c.leaves.every((l) => typeof l === 'string');
 /** Distinct voucher keys whose signatures verify and whose leaves are in `recovery`. */
 export function vouches(from, link, recovery) {
   const leaves = new Set(recovery?.leaves ?? []);
@@ -34,12 +38,13 @@ export function vouches(from, link, recovery) {
   }
   return ok.size;
 }
+/** §3.3 / §3.6 rule 4: more than half of the held list vouches. An empty list can never restore. */
 const majority = (from, link, recovery) => vouches(from, link, recovery) * 2 > (recovery?.leaves.length ?? Infinity);
 
 /** Shape checks a profile must pass before anything is verified. */
 export function wellFormed(p) {
   return p && typeof p === 'object' && typeof p.anchor === 'string' && Number.isInteger(p.version) && p.version >= 0
-    && Array.isArray(p.chain) && p.chain.length >= 1 && p.chain[0]?.key === p.anchor && p.chain.every((h) => h && typeof h.key === 'string')
+    && Array.isArray(p.chain) && p.chain.length >= 1 && p.chain.length <= MAX_LINKS && p.chain[0]?.key === p.anchor && p.chain.every((h) => h && typeof h.key === 'string')
     && p.chain.slice(1).every((h) => isList(h.recovery)) && isList(p.recovery) && Array.isArray(p.locations) && p.locations.every((l) => typeof l === 'string')
     && (p.read === undefined || typeof p.read === 'string') && (p.name === undefined || typeof p.name === 'string');
 }
@@ -54,12 +59,12 @@ export function adoptRecoveryLists(recoveryLists, p, from) {
   return recoveryLists;
 }
 
-/** §3.3: walk the chain, judging each link by the recovery held at its length. */
+/** §3.3: walk the chain, judging each link by the recovery held at its length: signed, or a majority. */
 export function walk(p, recoveryLists) {
   for (let i = 1; i < p.chain.length; i++) {
     const link = p.chain[i], from = p.chain[i - 1].key, recovery = recoveryLists[i];
     if (!recovery) return null;
-    if (!linkVerifies(from, link.key, from, link.sig) && vouches(from, link, recovery) < recovery.k) return null;
+    if (!linkVerifies(from, link.key, from, link.sig) && !majority(from, link, recovery)) return null;
   }
   return { keys: p.chain.map((h) => h.key), current: p.chain.at(-1).key, restored: p.chain.length > 1 && p.chain.at(-1).sig === undefined };
 }
@@ -98,7 +103,8 @@ export function verifyProfile(bytes, { learned, pin = null }) {
       if (!(chain = walk(p, recoveryLists))) return bad('identity', 'the chain of key changes does not hold');
     } else if (p.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');
     else if (p.version === pin.profileVersion && profile.address !== pin.profileHash) return bad('identity', 'contested: two profiles at one version');
-    else if (chain.restored && p.chain.length === pin.chain.length + 1 && !sameJson(fields, [recoveryLists[pin.chain.length], ...pin.fields.slice(1)])) return bad('identity', 'a restore changed more than the key');
+    // §3.3: a version that added any unsigned link since the pin changed the key and nothing else.
+    else if (p.chain.slice(pin.chain.length).some((h) => h.sig === undefined) && !sameJson(fields, [recoveryLists[pin.chain.length], ...pin.fields.slice(1)])) return bad('identity', 'a restore changed more than the key');
   }
   return { verdict: 'ok', raw: p, chain, profile, recoveryLists, fields };
 }

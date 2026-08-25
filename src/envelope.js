@@ -1,11 +1,11 @@
 // §6 — encrypted content. One X25519 ephemeral per message; per recipient a blinded tag, a wrapped
 // content key; the content under a single-use key with the carrier bound as associated data; the
-// audience inside, naming people; padding to a bucket with random dummies. And §4.4's encrypted media file.
+// audience inside, naming people. And §4.4's encrypted media file.
 import crypto from 'node:crypto';
+import { parseBody } from './file.js';
 
 export const INFO = 'openfeed/v1/slot';
 const ZERO12 = Buffer.alloc(12);
-export const MAX_PLAIN = 65535;
 const b64 = (b) => Buffer.from(b).toString('base64url');
 const unb64 = (s) => Buffer.from(s, 'base64url');
 
@@ -21,31 +21,24 @@ const slotKeys = (z, epk) => { const k = Buffer.from(crypto.hkdfSync('sha256', z
 // key and the post number — so an envelope lifted into another post does not open there.
 const bindAAD = (epk, carrier) => Buffer.concat([epk, Buffer.from(carrier, 'ascii')]);
 export const carrierOf = (anchor, n) => `${anchor}:${n}`;
-export const bucket = (n, floor) => Math.max(floor, 1 << Math.ceil(Math.log2(Math.max(n, 1))));
-export const FLOOR = { slots: 8, body: 512 };
 
 /**
- * Encrypt `content` to `audience` — entries `{ key, read, loc }` (§6.5) — for the post at `carrier`.
- * `policy` is `'floor'` (§6.4's SHOULD) or `'pow2'`; `random`, `ephemeral`, `contentKey` are seams
- * for reproducible vectors and nothing else.
+ * Encrypt `content` to `audience` — entries `{ key, read, loc }` (§6.4) — for the post at `carrier`.
+ * `random`, `ephemeral`, `contentKey` are seams for reproducible vectors and nothing else.
  */
-export function encrypt({ content, audience, carrier, policy = 'floor', random = crypto.randomBytes, ephemeral, contentKey }) {
+export function encrypt({ content, audience, carrier, random = crypto.randomBytes, ephemeral, contentKey }) {
   if (typeof carrier !== 'string' || !carrier) throw new TypeError('a carrier is required (§6.2)');
-  if (!Array.isArray(audience) || !audience.every((a) => a && typeof a.key === 'string' && typeof a.read === 'string' && typeof a.loc === 'string')) throw new TypeError('audience entries are {key, read, loc} (§6.5)');
-  const { slots: slotFloor, body: bodyFloor } = policy === 'floor' ? FLOOR : { slots: 1, body: 32 };
+  if (!Array.isArray(audience) || !audience.every((a) => a && typeof a.key === 'string' && typeof a.read === 'string' && typeof a.loc === 'string')) throw new TypeError('audience entries are {key, read, loc} (§6.4)');
   const eph = ephemeral ?? newReadingKey();
   const epk = unb64(eph.x);
   const ck = contentKey ?? random(32);
   const plain = Buffer.from(JSON.stringify({ audience, ...content }), 'utf8');
-  if (plain.length > MAX_PLAIN) throw new RangeError(`encrypted plaintext is limited to ${MAX_PLAIN} bytes (§6.1)`);
-  const padded = Buffer.alloc(bucket(plain.length + 2, bodyFloor));
-  padded.writeUInt16BE(plain.length, 0); plain.copy(padded, 2);
+  parseBody(plain);                                                 // §2.4 holds inside the envelope: refuse to emit what a reader rejects
   const slots = audience.map((a) => {
     const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: readingPublicKey(a.read) }), epk);
     return [b64(tag), b64(aead(kek, knonce, ck, epk))];
   });
-  for (let i = slots.length; i < bucket(slots.length, slotFloor); i++) { const d = random(56); slots.push([b64(d.subarray(0, 8)), b64(d.subarray(8))]); }
-  return { epk: eph.x, slots, ct: b64(aead(ck, ZERO12, padded, bindAAD(epk, carrier))) };
+  return { epk: eph.x, slots, ct: b64(aead(ck, ZERO12, plain, bindAAD(epk, carrier))) };
 }
 
 /** Open an envelope with a reading key for the post at `carrier`. Null when it is not for us. */
@@ -58,10 +51,8 @@ export function decrypt(env, privateKey, carrier) {
     const t = unb64(slot[0]);
     if (t.length !== tag.length || !crypto.timingSafeEqual(t, tag)) continue;    // a tag is a hint: a malformed or colliding one is a slot to skip
     let ck; try { ck = unaead(kek, knonce, unb64(slot[1]), epk); } catch { continue; }
-    let padded; try { padded = unaead(ck, ZERO12, unb64(env.ct), bindAAD(epk, carrier)); } catch { return null; }
-    const len = padded.readUInt16BE(0);
-    if (len + 2 > padded.length) return null;
-    try { return JSON.parse(padded.subarray(2, 2 + len).toString('utf8')); } catch { return null; }
+    let plain; try { plain = unaead(ck, ZERO12, unb64(env.ct), bindAAD(epk, carrier)); } catch { return null; }
+    try { return parseBody(plain); } catch { return null; }              // §2.4 applies to the plaintext too
   }
   return null;
 }

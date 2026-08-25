@@ -77,7 +77,7 @@ const person = (name, hub) => ({ name, key: pub.newKey(), read: x25519(), at: `$
 const mom = person('mom', M), cousin = person('cousin', M), jesse = person('jesse', J);
 const family = [mom, cousin, jesse];
 const recoverer = { key: pub.newKey(), salt: 's-aunt' };
-const claim = (p, version = 1, extra = {}) => pub.profile({ anchor: p.key.x, version, chain: [{ key: p.key.x }], recovery: pub.commit(1, [recoverer]), locations: [p.at], read: p.read.x, ...extra }, p.key);
+const claim = (p, version = 1, extra = {}) => pub.profile({ anchor: p.key.x, version, chain: [{ key: p.key.x }], recovery: pub.commit([recoverer]), locations: [p.at], read: p.read.x, ...extra }, p.key);
 for (const p of family) await io.put(`${p.at}/profile`, claim(p), null);
 // A profile with no index yet reads as "no index served" — this host is misbehaving — so a brand-new
 // identity writes an empty index before anyone looks (a sentence the spec owes; see the card).
@@ -185,7 +185,7 @@ await rumors(get, stale, new Map([[0, { n: 0, rel: 'reply', target: { key: mom.k
 
 // 3. The naive sealer: the read key taken off the profile without checking it is the verified one.
 const exRead = x25519();
-const exProfile = pub.profile({ anchor: mom.key.x, version: 1, chain: [{ key: mom.key.x }], recovery: pub.commit(1, [recoverer]), locations: [mom.at], read: exRead.x }, pub.newKey());
+const exProfile = pub.profile({ anchor: mom.key.x, version: 1, chain: [{ key: mom.key.x }], recovery: pub.commit([recoverer]), locations: [mom.at], read: exRead.x }, pub.newKey());
 M.swap.set('mom/profile', exProfile);
 const naiveKey = await naiveReadKeyOf(mom), checkedKey = await readKeyOf(mom, momAfter.pin);
 const naiveSealed = encrypt({ text: 'for mom only' }, [{ anchor: mom.key.x, read: naiveKey }]);

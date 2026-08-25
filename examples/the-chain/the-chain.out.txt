@@ -1,8 +1,8 @@
 §3.3 — the chain runs from the anchor key to the key in use now
 
   length 1   key pukq6VMQ…
-  length 2   key kAIz_MtY…  recovery {k:2, 3 leaves}      sig nWLFgpsi…
-  length 3   key 17Ffa8rS…  recovery {k:2, 3 leaves}                      vouchers mum, sis
+  length 2   key kAIz_MtY…  recovery {3 leaves}           sig nWLFgpsi…
+  length 3   key 17Ffa8rS…  recovery {3 leaves}                           vouchers mum, sis
 
   The first link MUST be {"key": <anchor>} and its key MUST equal `anchor`. Every later
   link has one shape and differs only in whether it carries `sig`, `vouchers`, or both.
@@ -25,7 +25,7 @@
   the bytes signed   kAIz_MtY…->17Ffa8rS…   the same shape, one link further on
   mum   salt saltmum   sig zlSag21icaKQ…   SHA-256(salt|key) WU9iV-S-… on the list: true
   sis   salt saltsis   sig ttyqfT-I4auq…   SHA-256(salt|key) wUP6Dx7D… on the list: true
-  distinct voucher keys that count: 2, and k is 2 — the link is valid.
+  distinct voucher keys that count: 2 of 3 — more than half, so the link is valid.
 
   bro, good signature, wrong salt    0   SHA-256("notmysalt|<bro>") is not in recovery.leaves
   bro, good signature, his own salt  1   the signature was never the question
@@ -44,8 +44,8 @@
 
 §3.3 — vouchers may be added to a link after it was made
 
-  the rotation alice made alone   key kAIz_MtY…  recovery {k:2, 3 leaves}      sig nWLFgpsi…
-  backed later by her people      key kAIz_MtY…  recovery {k:2, 3 leaves}      sig nWLFgpsi…   vouchers mum, sis
+  the rotation alice made alone   key kAIz_MtY…  recovery {3 leaves}           sig nWLFgpsi…
+  backed later by her people      key kAIz_MtY…  recovery {3 leaves}           sig nWLFgpsi…   vouchers mum, sis
   same key moved to: true, same sig: true, vouchers that now count: 2
 
   Nothing after this link is disturbed. That is what lets her win a contest AT that link

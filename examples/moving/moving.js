@@ -22,7 +22,7 @@ const io = {
   get: async (u) => { const { origin, host, pathname } = new URL(u), s = sites.get(origin); trace.push(`${host}${pathname}`); if (!s.up) throw new Error('ENOTFOUND'); const r = s.hub.handle({ method: 'GET', path: pathname }); return r.status === 200 ? { bytes: r.body, etag: r.headers.etag } : null; },
   put: async (u, bytes, { ifMatch = null } = {}) => { const { origin, pathname } = new URL(u); const r = sites.get(origin).hub.handle({ method: 'PUT', path: pathname, headers: ifMatch ? { 'if-match': ifMatch } : {}, body: bytes }); return { status: r.status, etag: r.headers?.etag ?? null }; },
 };
-const reader = createReader({ get: io.get }), REC = { k: 0, leaves: [] };
+const reader = createReader({ get: io.get }), REC = { leaves: [] };
 const profileOf = (version, locations) => ({ anchor: alice.x, version, name: 'Alice', chain: [{ key: alice.x }], recovery: REC, locations, read: aliceRead.x });
 const hosts = (locs) => locs.map((l) => new URL(l).host).join(', ');
 const show = (r) => (r.verdict === 'ok' ? `ok — version ${r.pin.profileVersion}, top ${r.pin.top}` : `${r.verdict} — ${r.why}`);
@@ -120,7 +120,7 @@ console.log(walked.map((t, i) => `    ${(t.padEnd(30) + (notes[i] ?? '')).trimEn
 console.log(`    what bro.example served for her: ${show(atBeacon)}`);
 console.log(`    sis still holds for alice:       ${held(seenAgain.get(alice.x))}`);
 console.log(`    rumors raised: ${loud.join('; ')}  — the replier is the only party there is evidence about\n`);
-console.log('  What is served at a `loc` must verify under the anchor key the reader learned (§3.1, §7.1),\n  or the pin does not move. An encrypted reply carries its target inside the envelope (§6.6,\n  examples/envelope/), so relocation rides along in public replies only.\n');
+console.log('  What is served at a `loc` must verify under the anchor key the reader learned (§3.1, §7.1),\n  or the pin does not move. An encrypted reply carries its target inside the envelope (§6.5,\n  examples/envelope/), so relocation rides along in public replies only.\n');
 assert.deepEqual([atBeacon.verdict, atBeacon.why], ['identity', 'the profile is not signed by the key it ends on']);
 assert.deepEqual([loud, beaconHits, held(seenAgain.get(alice.x))], [['bro replied to something I cannot see'], 1, 'version 3, top 2, locations [pence.family, alice.example]']);
 

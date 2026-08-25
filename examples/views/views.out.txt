@@ -87,7 +87,7 @@
 §11 — withdrawn posts are absent, encrypted posts are omitted, and no view carries ciphertext
 
   the index lists   1, 2, 3 live and 4 withdrawn (§4.2), top 4
-  post 3            encrypted (§6) — epk YBHyFmqA…  8 slots  ct fmfgWAPx…
+  post 3            encrypted (§6) — epk YBHyFmqA…  2 slots  ct BAz6Dwbt…
   post 4            "Peonies are back." — withdrawn, so the reader never fetched it
   the three views   items 1 and 2, and nothing else
   any ciphertext?   false

@@ -1,9 +1,10 @@
-// §3.4 — the recovery list: one salted leaf per member, so a voucher reveals only itself, and `k` is
-// the threshold the author set for a restore. Run: node examples/recovery-list/recovery-list.js
+// §3.4 — the recovery list: one salted leaf per member, so a voucher reveals only itself, and more
+// than half of them make a restore. Run: node examples/recovery-list/recovery-list.js
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { signingKeyFromSeed, sha256 } from '../../src/file.js';
 import { commit, leaf, restore, rotation, vouches, walk, adoptRecoveryLists, signProfile, verifyProfile } from '../../src/profile.js';
+import { spokenCode } from '../../src/spoken.js';
 
 // Appendix B's keys and salts, so every hash printed here is the spec's own.
 const key = (label) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest());
@@ -12,7 +13,7 @@ const mum = { who: 'mum', key: key('mum'), salt: 'saltmum' };
 const sis = { who: 'sis', key: key('sis'), salt: 'saltsis' };
 const bro = { who: 'bro', key: key('bro'), salt: 'saltbro' };
 const family = [mum, sis, bro];
-const list = commit(2, family);
+const list = commit(family);
 const who = (x) => family.find((m) => m.key.x === x).who;
 // What a cold reader does: adopt the list every link carries, then walk (§3.3).
 const walks = (links, rec) => walk({ chain: links }, adoptRecoveryLists({}, { chain: links, recovery: rec }, 0));
@@ -23,7 +24,7 @@ for (const m of family) console.log(`  ${m.who.padEnd(8)}${m.salt.padEnd(10)}${m
 console.log(`\n  committed  ${JSON.stringify(list)}`);
 console.log('\n  That is Appendix B.2 of the spec, byte for byte.\n');
 assert.deepEqual(list.leaves, ['WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4', 'wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc', 'frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ']);
-assert.equal(JSON.stringify(list), '{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]}');
+assert.equal(JSON.stringify(list), '{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]}');
 for (const m of family) assert.equal(leaf(m.salt, m.key.x), sha256(Buffer.from(`${m.salt}|${m.key.x}`, 'utf8')));
 
 // Alice lost her rotated key. sis vouches for a move to a key alice made herself.
@@ -55,27 +56,27 @@ assert.equal(list.leaves.length, 3);
 assert.equal(vouches(rotated.x, sisOnly, list), 1);
 assert.ok(1 * 2 <= 3 && 2 * 2 > 3, 'one of three is not a majority; two is');
 
-// mum joins sis, and the restore reaches k. A leaf binds both halves: mum's key under sis's salt
-// hashes to nothing in the list, however good mum's signature is.
+// mum joins sis, and the restore is a majority. A leaf binds both halves: mum's key under sis's
+// salt hashes to nothing in the list, however good mum's signature is.
 const link = restore(rotated, restoredKey, [mum, sis], list);
 const mixed = restore(rotated, restoredKey, [{ key: mum.key, salt: sis.salt }], list);
 const chain = [{ key: alice.x }, rotation(alice, rotated, list), link];
 const profile = { anchor: alice.x, version: 3, name: 'Alice', chain, recovery: list, locations: ['https://alice.example/alice'] };
 const cold = verifyProfile(signProfile(profile, restoredKey), { learned: alice.x });
 
-console.log('§3.4 — `k` is the threshold the author set for a restore to be valid\n');
-console.log(`  k                       ${list.k} of ${list.leaves.length}`);
-console.log(`  sis alone               ${vouches(rotated.x, sisOnly, list)} counted — below k, so the link is not valid`);
+console.log('§3.3 — a restore is valid when more than half of the list vouches\n');
+console.log(`  the list                ${list.leaves.length} leaves, so a restore needs ${Math.floor(list.leaves.length / 2) + 1}`);
+console.log(`  sis alone               ${vouches(rotated.x, sisOnly, list)} counted — not more than half, so the link is not valid`);
 console.log(`  mum and sis             ${vouches(rotated.x, link, list)} counted — the link is valid`);
 console.log(`  mum's key, sis's salt   ${vouches(rotated.x, mixed, list)} counted — a leaf binds the salt and the key together`);
 console.log(`\n  a reader over the whole profile: ${cold.verdict}, chain ending on ${cold.chain.current}\n`);
-console.log('  A *contested* identity is settled not by `k` but by a majority of the list (§3.6).\n');
+console.log('  There is no lower threshold to set. The same bar settles a *contested* identity (§3.6),\n  and examples/contest/ shows why one bar is the point.\n');
 assert.equal(vouches(rotated.x, mixed, list), 0);
-assert.equal(walks([chain[0], chain[1], sisOnly], list), null, 'one of three is below k');
+assert.equal(walks([chain[0], chain[1], sisOnly], list), null, 'one of three is not a majority');
 assert.equal(walks(chain, list).current, restoredKey.x);
 assert.ok(cold.verdict === 'ok' && cold.chain.current === restoredKey.x);
 
-const empty = commit(1, []);
+const empty = commit([]);
 const noHope = restore(alice, restoredKey, [mum, sis], empty);
 console.log('§3.4 — the list MAY be empty\n');
 console.log(`  committed                 ${JSON.stringify(empty)}`);
@@ -85,7 +86,22 @@ console.log('\n  The cost is exact: no restore is possible, and a lost key is a 
 assert.equal(vouches(alice.x, noHope, empty), 0);
 assert.equal(walks([{ key: alice.x }, noHope], empty), null);
 
-const one = commit(1, [bro]);
+// Starting alone. Nobody she knows is on the protocol yet, so the one member is a key she keeps
+// on paper — which is what an app SHOULD set up for her (§3.4), and the spoken code is how (§3.1).
+const paper = { key: key('alice/backup'), salt: 'saltpaper' };
+const solo = commit([paper]);
+const fresh = key('alice/new-phone');
+const selfRestore = restore(alice, fresh, [paper], solo);
+console.log('§3.4 — starting alone: a backup key you keep yourself\n');
+console.log(`  the list                  ${JSON.stringify(solo)}`);
+console.log(`  the backup key, on paper  ${spokenCode(paper.key.x).join(' ')}`);
+console.log(`  her phone is lost; the paper key vouches for a new one   ${vouches(alice.x, selfRestore, solo)} of 1 — a majority`);
+console.log(`  the chain walks, ending on the new key   ${walks([{ key: alice.x }, selfRestore], solo).current === fresh.x}`);
+console.log('\n  A majority of one is one, so one backup key is enough to come back from. When people\n  join later she lists them and rotates (§3.5); until then the paper is the whole recovery.\n');
+assert.equal(vouches(alice.x, selfRestore, solo), 1);
+assert.equal(walks([{ key: alice.x }, selfRestore], solo).current, fresh.x);
+
+const one = commit([bro]);
 const takeover = restore(alice, bro.key, [bro], one);
 const held = adoptRecoveryLists({}, { chain: [{ key: alice.x }], recovery: one }, 0);
 // She replaces the list with the three and rotates, so the change reaches readers (§3.5).
@@ -93,13 +109,13 @@ const later = { chain: [{ key: alice.x }, rotation(alice, rotated, list)], recov
 adoptRecoveryLists(held, later, 1);
 console.log('§3.4 — a list with one other person hands that person the identity\n');
 console.log(`  Alice lists bro, nobody else  ${JSON.stringify(one)}`);
-console.log(`  bro restores to his own key   ${vouches(alice.x, takeover, one)} of 1 counted, and k is 1`);
+console.log(`  bro restores to his own key   ${vouches(alice.x, takeover, one)} of 1 counted — a majority of one is one`);
 console.log(`  the chain walks, ending on    ${walks([{ key: alice.x }, takeover], one).current}  (bro's key)`);
 console.log('\n  Now Alice replaces the list with the three and rotates so the change reaches readers\n  (§3.5). Her new link at chain length 1 carries the new list — and a reader that saw the\n  list of one there keeps it, because a list is never overwritten (§3.6 rule 2):\n');
 console.log(`  her link at length 1 carries  ${JSON.stringify(later.chain[1].recovery)}`);
 console.log(`  the reader still holds        ${JSON.stringify(held[1])}`);
 console.log(`  at length 2, new to it        ${JSON.stringify(held[2])}`);
-console.log('\n  So bro can still restore at length 1, against a list only he is on, for as long as\n  that reader exists. An app SHOULD require two or more members, or the owner alone: a\n  majority of one is one.\n');
+console.log('\n  So bro can still restore at length 1, against a list only he is on, for as long as\n  that reader exists. An app SHOULD require two or more members beyond your own keys:\n  a majority of one is one.\n');
 assert.equal(vouches(alice.x, takeover, one), 1);
 assert.equal(walks([{ key: alice.x }, takeover], one).current, bro.key.x);
 assert.deepEqual(later.chain[1].recovery, list);

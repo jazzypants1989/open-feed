@@ -2,12 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newSigningKey } from '../src/file.js';
-import { rotation, restore, vouched, commit, walk, adoptRecoveryLists, verifyProfile, signProfile, vouches } from '../src/profile.js';
+import { rotation, restore, vouched, commit, walk, adoptRecoveryLists, verifyProfile, signProfile, vouches, wellFormed, MAX_LINKS, MAX_LEAVES } from '../src/profile.js';
 import { spokenIndices, spokenCode } from '../src/spoken.js';
 
 const G = newSigningKey(), K2 = newSigningKey(), K3 = newSigningKey(), T = newSigningKey();
 const mum = { key: newSigningKey(), salt: 's-mum' }, sis = { key: newSigningKey(), salt: 's-sis' }, ex = { key: newSigningKey(), salt: 's-ex' };
-const REC = commit(2, [mum, sis, ex]), HIS = commit(1, [ex]);
+const REC = commit([mum, sis, ex]), HIS = commit([ex]);
 const prof = (version, chain, key, extra = {}) => signProfile({ anchor: G.x, version, chain, recovery: REC, locations: ['https://a.example/a'], ...extra }, key);
 const honest = [{ key: G.x }, rotation(G, K2, REC), rotation(K2, K3, REC)];
 const verify = (bytes, pin = null) => verifyProfile(bytes, { learned: G.x, pin });
@@ -18,7 +18,9 @@ test('§3.3 one link shape: a rotation by signature, a restore by vouchers, both
   const c = walk({ chain: restored, recovery: REC }, adoptRecoveryLists({}, { chain: restored, recovery: REC }, 0));
   assert.equal(c.current, T.x); assert.equal(c.restored, true);
   const oneVoucher = [...honest, restore(K3, T, [mum], REC)];
-  assert.equal(walk({ chain: oneVoucher }, adoptRecoveryLists({}, { chain: oneVoucher, recovery: REC }, 0)), null, 'one of three is below k');
+  assert.equal(walk({ chain: oneVoucher }, adoptRecoveryLists({}, { chain: oneVoucher, recovery: REC }, 0)), null, 'one of three is not a majority');
+  const none = [...honest, restore(K3, T, [], commit([]))];
+  assert.equal(walk({ chain: none }, adoptRecoveryLists({}, { chain: none, recovery: commit([]) }, 0)), null, 'an empty list can never restore');
   const unsigned = [{ key: G.x }, { key: K2.x, recovery: REC }];
   assert.equal(walk({ chain: unsigned }, adoptRecoveryLists({}, { chain: unsigned, recovery: REC }, 0)), null, 'neither evidence');
   const dup = [...honest, restore(K3, T, [mum, mum], REC)];
@@ -74,11 +76,13 @@ test('§3.6 rule 4: a majority at the split wins; a signature is not a vote; Ali
   assert.equal(verify(repaired, coldOnThief).verdict, 'ok', 'two of three out-votes a bare rotation even for a reader that pinned the thief');
   // The ex, listed, vouches for himself against her bare rotation: one of three is not a majority.
   const exAlone = prof(4, [honest[0], honest[1], restore(K2, T, [ex], REC)], T);
-  assert.match(verify(exAlone, pin).why, /does not hold/, 'one voucher is below k=2 under the held recovery');
+  assert.match(verify(exAlone, pin).why, /does not hold/, 'one of three is not a majority under the held recovery');
+  // The same self-vouched restore as an EXTENSION of the pinned chain — no split, so only §3.3 stands between him and the identity.
+  assert.match(verify(prof(4, [...honest, restore(K3, T, [ex], REC)], T), pin).why, /does not hold/, 'a listed member alone cannot extend the chain to his own key');
 });
 
 test('§3.6: a one-member list is a recovery of one', () => {
-  const ONE = commit(1, [ex]);
+  const ONE = commit([ex]);
   const chain = [{ key: G.x }, rotation(G, K2, ONE)];
   const pin = pinOf(signProfile({ anchor: G.x, version: 2, chain, recovery: ONE, locations: [] }, K2));
   const takeover = signProfile({ anchor: G.x, version: 3, chain: [chain[0], restore(G, T, [ex], ONE)], recovery: ONE, locations: [] }, T);
@@ -93,6 +97,29 @@ test('§3.3 a restore changes the key and nothing else — checked by a pinned r
   assert.equal(verify(listChanged, pin).why, 'a restore changed more than the key');
   const clean = signProfile({ anchor: G.x, version: 4, chain: [...honest, restore(K3, T, [mum, sis], REC)], recovery: REC, locations: ['https://a.example/a'] }, T);
   assert.equal(verify(clean, pin).verdict, 'ok');
+});
+
+test('§3.3 a restore alongside a rotation in one version is still a restore: the fields may not change', () => {
+  const pin = pinOf(prof(3, honest, K3));
+  const T2 = newSigningKey();
+  const twoLinks = [...honest, restore(K3, T, [mum, sis], REC), rotation(T, T2, REC)];
+  assert.equal(verify(signProfile({ anchor: G.x, version: 4, chain: twoLinks, recovery: REC, locations: ['https://elsewhere.example/a'] }, T2), pin).why, 'a restore changed more than the key');
+  assert.equal(verify(signProfile({ anchor: G.x, version: 4, chain: twoLinks, recovery: REC, locations: ['https://a.example/a'] }, T2), pin).verdict, 'ok');
+  const rotatedOnly = signProfile({ anchor: G.x, version: 4, chain: [...honest, rotation(K3, T, REC)], recovery: REC, locations: ['https://elsewhere.example/a'] }, T);
+  assert.equal(verify(rotatedOnly, pin).verdict, 'ok', 'a rotation may change anything');
+});
+
+test('§3.3 / §3.4 bounds: a chain past MAX_LINKS or a list past MAX_LEAVES is malformed', () => {
+  const base = { anchor: G.x, version: 1, chain: [{ key: G.x }], recovery: REC, locations: [] };
+  assert.ok(wellFormed(base));
+  assert.equal(wellFormed({ ...base, recovery: { leaves: Array(MAX_LEAVES + 1).fill('x') } }), false);
+  assert.ok(wellFormed({ ...base, recovery: { leaves: Array(MAX_LEAVES).fill('x') } }));
+  let chain = [{ key: G.x }], from = G;
+  while (chain.length <= MAX_LINKS) { const to = newSigningKey(); chain.push(rotation(from, to, REC)); from = to; }
+  assert.equal(chain.length, MAX_LINKS + 1);
+  assert.equal(wellFormed({ ...base, chain }), false);
+  assert.ok(wellFormed({ ...base, chain: chain.slice(0, MAX_LINKS) }));
+  assert.equal(verify(prof(1, [{ key: G.x }], G, { recovery: { k: 2, leaves: [] } })).verdict, 'ok', 'an unknown member on the list is ignored (§2.5)');
 });
 
 test('§3.6 outside a split: version never goes backwards, and the same version at another address is contested', () => {

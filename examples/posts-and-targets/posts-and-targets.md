@@ -89,7 +89,7 @@ a post whose hash they had only seen part of.
 the index lists each file by its address alone and the reader checks that the bytes hash to it
 (§4.4). The encrypted post's public members are exactly `n`, `at`, `encrypted` — no `media`, no
 `rel`, no `target`, because on an encrypted post all three are inside the envelope, and each media
-entry there is `{hash, key}` rather than a bare hash (§6.6). `examples/media/` and
+entry there is `{hash, key}` rather than a bare hash (§6.5). `examples/media/` and
 `examples/envelope/` are where those live.
 
 **A private message is a post.** It sits at `/alice/posts/4` on **alice's own host**, listed in her

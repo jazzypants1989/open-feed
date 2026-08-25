@@ -11,7 +11,7 @@ import { createReader } from '../src/reader.js';
 test('§9 the whole read path works over TLS with a validated (pinned) certificate', async (t) => {
   const { hub, url } = await tlsHub(t);
   const alice = person('alice');
-  await claim(memIo(hub), alice, `${url}/alice`, { recovery: list(0) });
+  await claim(memIo(hub), alice, `${url}/alice`, { recovery: list() });
   const f = consumerFetcher();
   const reader = createReader({ get: (u) => f.get(u) });
   const r = await reader.read({ learned: alice.key.x, at: `${url}/alice` });

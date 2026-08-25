@@ -10,9 +10,11 @@ export class PublishError extends Error { constructor(message, status) { super(m
 
 /**
  * `keep(path, bytes)` is §10: the app MUST keep the signed bytes of everything it publishes. The
- * default keeps them in memory; an app passes its own store.
+ * default keeps them in memory; an app passes its own store. `last` is the bytes of the last index
+ * this app published anywhere (§10): a name claimed at a new hub continues from its `version` and
+ * `top`, so readers pinned elsewhere do not meet a second index at a version they already hold.
  */
-export function createPublisher({ io, key, at, keep = null }) {
+export function createPublisher({ io, key, at, keep = null, last = null }) {
   const copy = new Map();
   const kept = keep ?? ((path, bytes) => copy.set(path, bytes));
   const putKept = async (path, bytes, opts) => { const r = await io.put(`${at}${path}`, bytes, opts); if (r.status === 200 || r.status === 201) kept(path, bytes); return r; };
@@ -49,7 +51,8 @@ export function createPublisher({ io, key, at, keep = null }) {
       const cur = await io.get(`${at}/index`);
       if (cur && !cur.etag) throw new PublishError('the hub sent no ETag', 0);
       let obj = { entries: [], version: 0, top: 0 };
-      if (cur) { try { obj = parseBody(splitFile(cur.bytes).body); } catch { throw new PublishError('the served index does not parse', 0); } }
+      const from = cur?.bytes ?? last ?? copy.get('/index');           // the hub's, else our own last (§10, §3.7)
+      if (from) { try { obj = parseBody(splitFile(from).body); } catch { throw new PublishError('the served index does not parse', 0); } }
       const next = change({ entries: obj.entries, version: obj.version + 1, top: obj.top });
       const r = await putKept('/index', signIndex(next, key), { ifMatch: cur?.etag ?? null });
       if (r.status === 200) return next;

@@ -68,20 +68,21 @@ function parse(text) {
 
 // ---- the profile's chain of key changes ----
 // One link shape. Every link carries the list that stood before it; a link is valid when the previous
-// key signed it (a rotation) or enough distinct listed members vouched for it (a restore), and it
-// may carry both. The reader judges a link by the recovery IT holds at that length — the carried copy
+// key signed it (a rotation) or more than half of the listed members vouched for it (a restore), and
+// it may carry both. The reader judges a link by the recovery IT holds at that length — the carried copy
 // is only for a reader that holds none. `vouches` counts distinct listed members.
 const linkSig = (from, to, x, s) => { const b = sigBytes(s ?? ''); try { return !!b && crypto.verify(null, Buffer.from(`${from}->${to}`), pub(x), b); } catch { return false; } };
 function vouches(from, link, recovery) {
   const leaves = new Set(recovery?.leaves ?? []);
   return new Set((link?.vouchers ?? []).filter((v) => linkSig(from, link.key, v.key, v.sig) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`)))).map((v) => v.key)).size;
 }
+const majority = (from, link, recovery) => vouches(from, link, recovery) * 2 > (recovery?.leaves?.length ?? Infinity);
 const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function walk(p, recoveryLists) {
   for (let i = 1; i < p.chain.length; i++) {
     const link = p.chain[i], from = p.chain[i - 1].key, recovery = recoveryLists[i];
     if (!Array.isArray(link?.recovery?.leaves) || !recovery) return null;
-    if (!linkSig(from, link.key, from, link.sig) && vouches(from, link, recovery) < recovery.k) return null;
+    if (!linkSig(from, link.key, from, link.sig) && !majority(from, link, recovery)) return null;
   }
   return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.length > 1 && p.chain.at(-1).sig === undefined };
 }
@@ -138,8 +139,7 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
     let i = raw.chain.findIndex((h, j) => j < pin.chain.length && pin.chain[j].key !== h.key);
     if (i < 0 && raw.chain.length < pin.chain.length && raw.version > pin.profileVersion) i = raw.chain.length;   // a newer profile that forgets a link is a fork too
     if (i > 0) {
-      const majority = (c) => vouches(c[i - 1].key, c[i], recoveryLists[i]) * 2 > (recoveryLists[i]?.leaves.length ?? Infinity);
-      const mine = majority(pin.chain), theirs = majority(raw.chain);
+      const mine = majority(pin.chain[i - 1].key, pin.chain[i], recoveryLists[i]), theirs = majority(raw.chain[i - 1].key, raw.chain[i], recoveryLists[i]);
       if (mine === theirs) return bad('identity', 'contested: two histories, and no majority settles it');
       if (mine) return bad('host', 'serves a branch the recovery rejected');
       for (const j of Object.keys(recoveryLists)) if (j > i) delete recoveryLists[j];
@@ -147,8 +147,8 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
       if (!(chain = walk(raw, recoveryLists))) return bad('identity', 'the chain of key changes does not hold');
     } else if (raw.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');
     else if (raw.version === pin.profileVersion && profile.address !== pin.profileHash) return bad('identity', 'contested: two profiles at one version');
-    // A restore that arrived since the pin changed the key and nothing else — only a pinned reader can tell.
-    else if (chain.restored && raw.chain.length === pin.chain.length + 1 && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [recoveryLists[pin.chain.length], ...pin.fields])) return bad('identity', 'a restore changed more than the key');
+    // A version that added any unsigned link since the pin changed the key and nothing else — only a pinned reader can tell.
+    else if (raw.chain.slice(pin.chain.length).some((h) => h.sig === undefined) && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [recoveryLists[pin.chain.length], ...pin.fields])) return bad('identity', 'a restore changed more than the key');
   }
   // "Recently restored" is a flag beside a name for seven days of this reader's clock, never a verdict.
   const restoredAt = chain.restored ? (pin?.restoredAt?.[raw.chain.length] ?? now) : null;
@@ -260,7 +260,7 @@ if (isMain) {
   const A1 = seeded('alice/anchor'), A2 = seeded('alice/rotated'), A3 = seeded('alice/restored'), THIEF = seeded('ex');
   const MUM = { key: seeded('mum'), salt: 'saltmum' }, SIS = { key: seeded('sis'), salt: 'saltsis' }, BRO = { key: seeded('bro'), salt: 'saltbro' };
   const EX = { key: THIEF, salt: 'saltex' };
-  const REC = P.commit(2, [MUM, SIS, BRO]);
+  const REC = P.commit([MUM, SIS, BRO]);
   const at = 'https://alice.example/alice', mumAt = 'https://mom.example/mom';
   const NOW = Date.parse('2026-09-01T00:00:00Z');                   // §3.4's seven-day flag needs a clock
 
@@ -338,7 +338,7 @@ if (isMain) {
   await move('a number re-listed at another hash', 'host', () => reindex([...listing, [2, P.address(posts[1])], [2, null], [2, P.address(other2)]], 2, 3));
   await move('a whole other identity at this address', 'identity', () => put(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)));
   await move("a branch vouched only by a list the link brought", 'identity', () => put(`${at}/profile`,
-    P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.restore(A1, THIEF, [EX], P.commit(1, [EX])) ] }, THIEF)));
+    P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.restore(A1, THIEF, [EX], P.commit([EX])) ] }, THIEF)));
   await move('a newer profile that forgets her restore', 'identity',
     () => put(`${at}/profile`, P.profile({ ...base, version: 9, chain: [{ key: A1.x }] }, A1)), { pin: pinRestored });
   await move('an index signed by a rotated-out key, to a cold reader', 'host',
@@ -372,7 +372,7 @@ if (isMain) {
   const speak = (who, key, where, reps) => {
     const made = reps.map(([n, num]) => P.post(num, { at: '2026-08-01T00:00:00Z', text: 'saying something', rel: 'reply', target: target(n) }, key));
     made.forEach((f, i) => put(`${where}/posts/${reps[i][1]}`, f));
-    put(`${where}/profile`, P.profile({ anchor: key.x, version: 1, name: who, chain: [{ key: key.x }], recovery: P.commit(2, []), locations: [where] }, key));
+    put(`${where}/profile`, P.profile({ anchor: key.x, version: 1, name: who, chain: [{ key: key.x }], recovery: P.commit([]), locations: [where] }, key));
     put(`${where}/index`, P.index({ entries: made.map((f, i) => [reps[i][1], P.address(f)]), version: 1, top: reps.length }, key));
     return made;
   };

@@ -6,14 +6,14 @@
     [3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"]
     [2,null]                                            ← left behind by the withdrawal
     [4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"]
-    [5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"]
+    [5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"]
     ["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]
 
   version 3 — the same file, written out again from the fold
     [1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"]
     [3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"]
     [4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"]
-    [5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"]
+    [5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"]
     ["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]
     [2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]   ← §4.2's one legal repeat, below
 

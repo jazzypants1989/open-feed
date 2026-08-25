@@ -45,22 +45,19 @@ that one fact.
 
 The alternative is to define a canonical form and sign that. RFC 8785 (JSON Canonicalization Scheme)
 is the well-made version: sort members by UTF-16 code unit, format numbers by ECMAScript rules,
-escape strings a fixed way. Open Feed's own earlier drafts signed RFC 8785 bytes inside a detached
-JWS.
-
-Three things went wrong with it, in this project's own history:
+escape strings a fixed way. Three things count against it here:
 
 1. **It needs a library, or 200 lines.** Priority 1 in `GOALS.md` is implementability from a
    standard library. No standard library canonicalizes JSON.
 2. **The library is not enough anyway.** `JSON.parse` cannot reject a duplicate member name, so a
-   strict parser was required *in addition* to the canonicalizer (see `json-hygiene/`). Two pieces
-   of machinery where the current design has one small parser and no canonicalizer.
+   strict parser is required *in addition* to the canonicalizer (see `json-hygiene/`). Two pieces
+   of machinery where this design has one small parser and no canonicalizer.
 3. **It reintroduces the gap it was meant to close.** Because the signature covers canonical bytes
-   rather than served bytes, the old spec needed a further rule — "a chained document must arrive as
-   its own canonicalization" — to stop a verifier from pinning a normalization of what it was served
+   rather than served bytes, a further rule is needed — "a document must arrive as its own
+   canonicalization" — to stop a verifier from pinning a normalization of what it was served
    instead of what it was served. That rule is easy to skip, and skipping it is silent.
 
-The trade runs the other way now: publishing is stricter (keep your bytes) and verifying is three
+The trade runs the other way here: publishing is stricter (keep your bytes) and verifying is three
 standard-library calls. For a protocol whose adversary controls the server (`GOALS.md`, the
 divorce), moving the strictness onto the *publisher's stored bytes* and away from the *verifier's
 reconstruction* is also the safer direction — the reader's job gets smaller, and the reader is the

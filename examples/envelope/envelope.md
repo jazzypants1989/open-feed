@@ -1,7 +1,7 @@
 # The envelope
 
 **Spec:** §6 the three visibilities, §6.1 the envelope, §6.2 carrier binding, §6.3 slots and tags,
-§6.5 the audience is inside, §6.6 an encrypted post's target. §6.4's padding is `examples/padding/`.
+§6.4 the audience is inside, §6.5 an encrypted post's target.
 **Run:** `node examples/envelope/envelope.js`
 
 Three visibilities, one mechanism: public; encrypted to a chosen set of reading keys; and a direct
@@ -30,11 +30,10 @@ the output shows.
 `R`: `Z = X25519(ephemeral private, R)`, then
 `tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52)`,
 then `wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = epk)`. The content once:
-`plain` is UTF-8 JSON of the audience followed by the post's content members, length-prefixed and
-padded to a bucket (§6.4), and `ct = ChaCha20-Poly1305(content key, 12 zero bytes, padded,
-aad = epk || carrier)`. Wherever `epk` appears in a derivation — the salt and both AADs — it is the
-32 raw bytes, not the 43-character text; the carrier is ASCII. §6.1 does not say so and the code
-does. The example prints `Z`, the three derived pieces, the wrap and the ciphertext, and asserts
+`plain` is UTF-8 JSON of the audience followed by the post's content members, under §2.4's rules
+like any body, and `ct = ChaCha20-Poly1305(content key, 12 zero bytes, plain, aad = epk || carrier)`.
+Wherever `epk` appears in a derivation — the salt and both AADs — it is the 32 raw bytes, not the
+43-character text; the carrier is ASCII. The example prints `Z`, the three derived pieces, the wrap and the ciphertext, and asserts
 that the slot it built by hand is byte-for-byte the second slot of Appendix B.8 — which is also the
 example's check that `src/envelope.js`'s info string is the spec's, since the derivation here spells
 `"openfeed/v1/slot"` out rather than importing it.
@@ -65,14 +64,13 @@ cannot reach around.** A wrong carrier is not a failed comparison; it is a wrong
 
 **A tag is a hint, never a decision.** A recipient derives its own tag and scans for it. The example
 opens the DM twice: once by scanning, once with an opener that ignores every tag and simply tries to
-unwrap all eight slots. Same plaintext. **An implementation that never looks at a tag is conformant
+unwrap every slot. Same plaintext. **An implementation that never looks at a tag is conformant
 and merely slower** — and that equivalence is the test of whether a tag decides anything. The last
 line makes the failure mode concrete: a slot carrying mum's own tag whose unwrap fails, placed
 first. That is a collision, and §6.3 requires her to keep scanning. A reader that stopped there
-would conclude a message was not for it on eight bytes it does not control. (That mum's real slot
-is the second of eight is `src/envelope.js`'s habit — real slots in audience order, then dummies —
-and Appendix B.8 fixes it for the vector only; §6.4 says nothing about placement, and a publisher
-MAY shuffle. The slots are authenticated by nothing in the AEAD: only the file's Ed25519 signature
+would conclude a message was not for it on eight bytes it does not control. (That mum's slot is
+the second is `src/envelope.js`'s habit — slots in audience order — and Appendix B.8 fixes it for
+the vector only; nothing in §6 fixes placement, and a publisher MAY shuffle. The slots are authenticated by nothing in the AEAD: only the file's Ed25519 signature
 covers them, which is enough, because only the author can sign.)
 
 **Tags are blinded per message.** Mum's tag on post 5 and on post 6 are different strings, and the
@@ -113,11 +111,10 @@ address and shows the host's own reading key opening nothing. A reader outside t
 hands `encrypted` back whole; `examples/the-reader/` stages that read, and this file does not repeat
 it.
 
-**What the host learns**, said plainly: that an encrypted post exists, when it was written, and
-roughly how big it is. It does not learn who it is for, how many people it is for, or what it
-answers. Because the audience is inside the plaintext, a large audience does show in the bucket the
-body lands in; §6.4's floor is what hides the small end, so that a message to one person is the size
-of a message to the family. That floor is priced in `examples/padding/`. Two facts a family app has
+**What the host learns**, said plainly: that an encrypted post exists, when it was written, how
+big it is, and how many slots it has — so how many people it is for. It does not learn who they are
+or what it answers. Hiding the size of the audience from the host is not a goal of this design, and
+§13.3 says so. Two facts a family app has
 to hold that neither example stages, because they are one `decrypt` call each: a later post to a
 smaller audience is simply a post bro cannot open, and he keeps post 6 forever (§13.3, no forward
 secrecy); and a new `read` key in a later profile version opens new posts only — old posts still
@@ -127,18 +124,12 @@ open with the old private key, and nothing re-encrypts the past (§3.8).
 
 None of this construction is novel; the interesting part is what each of the alternatives costs.
 
-**The JWE construction this replaced** (`archive/open-feed-spec.md` §15, `archive/src/enc.js`; the
-record is under `archive/redesign/`) was a JWE JSON Serialization (RFC 7516) with `ECDH-ES+A256KW`,
-`A256GCM`, an X25519 ephemeral per RFC 8037 and RFC 7518's Concat KDF — hand-rolled rather than
-imported, which is the worst of both: a wire format whose rules live in four RFCs, implemented by
-hand. The good ideas are all still here: one shared ephemeral, per-recipient slots found by a
-blinded 8-byte tag with `kid` forbidden, the audience encrypted inside rather than in a header. What
-went was the JOSE shape, and with it a per-recipient header that was **not covered by the JWE's own
-AEAD** — so carrier binding had to be a MUST that a decrypting client performed by comparing three
-plaintext fields afterwards. §6.2 is the same defence in one line of associated data. Re-measured
-against the current code: about 3,600 spec words against about 900; 381 implementation lines
-against 76, media included; 160 bytes per recipient slot against 83; an OPTIONAL audience of
-identity URLs against a MUST of `{key, read, loc}`; no padding against §6.4's floor.
+**JWE** (RFC 7516, JSON Serialization with `ECDH-ES+A256KW` and `A256GCM`) is the standards-track
+way to say the same thing — one shared ephemeral, a wrapped content key per recipient — and it
+costs a wire format whose rules live in four RFCs (7516, 7518, 8037, and the Concat KDF), with no
+standard library that implements them. Its per-recipient header is **not covered by the JWE's own
+AEAD**, so carrier binding has to be a rule a decrypting client performs by comparing plaintext
+fields afterwards; §6.2 is the same defence in one line of associated data.
 
 **HPKE (RFC 9180) and age** are the closest well-specified relatives — HPKE in spirit, age in shape.
 HPKE's base mode is the DHKEM half: an ephemeral X25519, HKDF-SHA256, ChaCha20-Poly1305. age's
@@ -157,16 +148,15 @@ neither a multi-recipient mode nor a zero nonce. Where §6 deviates from HPKE, p
   the trade, and `GOALS.md` lists the construction as an open question for outside review, not a
   closed one.
 
-**NIP-44** (Nostr's encrypted payloads, Cure53-reviewed) is the other close relative, and
-`archive/redesign/CANDIDATES.md` records that swapping to its construction was the cheapest answer
-to this envelope's "never independently reviewed" status. The cipher suite is nearly the same
-— ChaCha20 with HKDF-SHA256 over a secp256k1 ECDH secret (Nostr's curve), with padding — and §6's
-padding buckets are its idea. Two differences matter. NIP-44 is a **two-party** format: a conversation key from a
+**NIP-44** (Nostr's encrypted payloads, Cure53-reviewed) is the other close relative, and the
+nearest reviewed construction this one could be swapped for. The cipher suite is nearly the same
+— ChaCha20 with HKDF-SHA256 over a secp256k1 ECDH secret (Nostr's curve), with padding. Two
+differences matter. NIP-44 is a **two-party** format: a conversation key from a
 *static* pair of keys, so it has no ephemeral, no slots, and no audience; a group is N pairwise
 copies. And it encrypts-then-MACs with HMAC-SHA256 rather than using an AEAD, which is a choice §6
-does not need to make because ChaCha20-Poly1305 is in the standard library too. What §6 takes from
-it is the padding discipline; what it cannot take is the shape, because a family post to four people
-is one object with four slots, not four objects.
+does not need to make because ChaCha20-Poly1305 is in the standard library too. What §6 cannot take
+from it is the shape, because a family post to four people is one object with four slots, not four
+objects.
 
 **Signal and MLS (RFC 9420)** are the comparison people reach for, and this is not in that family
 at all. There is **no ratchet, no forward secrecy after the fact, and no
@@ -183,8 +173,8 @@ floor item 2 in reverse: the audience of a family-only post is exactly the socia
 operator in `GOALS.md`'s divorce scenario wants. A key identifier per slot would do the same thing
 permanently, since reading keys are long-lived and published. A blinded tag needs one of the two
 private halves and is fresh per message, so an observer with every published key and the whole feed
-learns that an encrypted post exists, when, and roughly how big — and with §6.4's floor, not even a
-DM-versus-group distinction. The cost of putting the audience inside is that recipients learn each
+learns that an encrypted post exists, when, how big, and to how many. The cost of putting the
+audience inside is that recipients learn each
 other, which is the intended trade: it is what makes a reply reach the same people.
 
 **The scenarios this serves.** `GOALS.md` floor item 2 — *the host cannot read what wasn't meant for
@@ -193,5 +183,5 @@ attribution it chose. Scenario 3, *two hubs, one thread*, is the other: Jesse on
 on another exchange a family-only post, a reply and a reaction **with no access control anywhere**.
 No server checks membership, because there is no membership; the audience is a list of people
 written into the plaintext by the author, and every hub in the path is serving bytes it cannot read
-to anyone who asks. That is why §6.5's entry has to name a person and not just a key — it is the
+to anyone who asks. That is why §6.4's entry has to name a person and not just a key — it is the
 only thing that lets the second hub's reader answer the first hub's post.

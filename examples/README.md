@@ -40,20 +40,19 @@ runs in well under a second, and `npm run examples` runs all of them.
 | 04 | [first-contact](first-contact/) | §3.1, §3.2 | the link fragment and the six-word spoken code |
 | 05 | [the-chain](the-chain/) | §3.3, §3.5 | rotating, restoring, and vouchers added to a link later |
 | 06 | [recovery-list](recovery-list/) | §3.4 | salted leaves: a voucher reveals only itself |
-| 07 | [contest](contest/) | §3.6 | the split, majority over `k`, the abuser on the list |
+| 07 | [contest](contest/) | §3.6 | the split, the one bar, the abuser on the list |
 | 08 | [moving](moving/) | §3.7, §5.4, §13.3 | locations, and relocation riding along in a reply |
 | 09 | [the-index](the-index/) | §4–4.2, §4.6 | entries, the fold, one hash per number, and who may sign |
 | 10 | [top-and-rumors](top-and-rumors/) | §4.3, §7.5 | why `top` outlives its post; both bounds of the rumor rule |
 | 11 | [media](media/) | §4.4 | listed by the index, checked by the hash; encrypted media |
 | 12 | [rewrite](rewrite/) | §4.7 | withdrawal lines vanish and readers are indifferent |
 | 13 | [posts-and-targets](posts-and-targets/) | §5 | the number inside the bytes; the full target hash |
-| 14 | [envelope](envelope/) | §6.1–6.3, §6.5–6.6 | slots, blinded tags, and the carrier bound as associated data |
-| 15 | [padding](padding/) | §6.4 | a message to one person is the size of a message to the family |
-| 16 | [the-reader](the-reader/) | §7 | the order of steps; three verdicts and the notes on an ok read |
-| 17 | [publish-interface](publish-interface/) | §8 | compare-and-swap, create-once, reclaim, the media twin |
-| 18 | [fetching](fetching/) | §9 | non-public addresses, redirects, and caps that are no verdict |
-| 19 | [your-copy](your-copy/) | §10 | rebuilding from the bytes and your own last index |
-| 20 | [views](views/) | §11 | JSON Feed, Atom, and an h-card generated from the index |
+| 14 | [envelope](envelope/) | §6 | slots, blinded tags, and the carrier bound as associated data |
+| 15 | [the-reader](the-reader/) | §7 | the order of steps; three verdicts and the notes on an ok read |
+| 16 | [publish-interface](publish-interface/) | §8 | compare-and-swap, create-once, reclaim, the media twin |
+| 17 | [fetching](fetching/) | §9 | non-public addresses, redirects, and caps that are no verdict |
+| 18 | [your-copy](your-copy/) | §10 | rebuilding from the bytes and your own last index |
+| 19 | [views](views/) | §11 | JSON Feed, Atom, and an h-card generated from the index |
 | — | [weekend-reader](weekend-reader/) | §7 | **capstone**: the whole reader in one file, standard library only |
 | — | [weekend-publisher](weekend-publisher/) | §8 | **capstone**: the whole publisher in one file |
 

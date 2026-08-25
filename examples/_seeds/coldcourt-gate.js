@@ -20,7 +20,7 @@ const who = (r, T) => (r.verdict !== 'ok' ? `${r.verdict}: ${r.why}` : r.chain.c
 // ex: he holds his own key and nothing of hers.
 const G = pub.newKey(), K2 = pub.newKey(), K3 = pub.newKey(), T = pub.newKey();
 const mum = { key: pub.newKey(), salt: 's-mum' }, sis = { key: pub.newKey(), salt: 's-sis' }, ex = { key: pub.newKey(), salt: 's-ex' };
-const REC = pub.commit(2, [mum, sis, ex]), HIS = pub.commit(1, [ex]);
+const REC = pub.commit([mum, sis, ex]), HIS = pub.commit([ex]);
 const AT = '/alice';
 // The chain as the text was written (no list on a rotation link) and as ruled (every link carries it).
 const bare = [{ key: G.x }, pub.rotation(G, K2), pub.rotation(K2, K3)];

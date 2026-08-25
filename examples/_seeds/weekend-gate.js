@@ -59,7 +59,7 @@ const hub = await (new Hub()).listen();
 const net = io(hub);
 const A = pub.newKey(), A2 = pub.newKey(), A3 = pub.newKey();
 const mum = { key: pub.newKey(), salt: 's-mum' }, sis = { key: pub.newKey(), salt: 's-sis' };
-const REC = pub.commit(1, [mum, sis]);
+const REC = pub.commit([mum, sis]);
 const AT = '/alice', LOC = ['https://alice.example'];
 const chain0 = [{ key: A.x }];
 const p1 = pub.profile({ anchor: A.x, version: 1, chain: chain0, recovery: REC, locations: LOC }, A);
@@ -81,7 +81,7 @@ await net.put(`${AT}/profile`, p2, hub.tag('alice/profile'));
 const midRotation = await read(net.get, { learned: A.x, at: AT, pin: afterRewrite.pin });   // index still under the old key
 await pub.resignIndex(net, AT, A2);
 const afterRotate = await read(net.get, { learned: A.x, at: AT, pin: afterRewrite.pin });
-const p3 = pub.profile({ anchor: A.x, version: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2, REC), pub.restore(A2, A3, [mum], REC)], recovery: REC, locations: LOC }, A3);
+const p3 = pub.profile({ anchor: A.x, version: 3, prev: pub.address(p2), chain: [...chain0, pub.rotation(A, A2, REC), pub.restore(A2, A3, [mum, sis], REC)], recovery: REC, locations: LOC }, A3);
 await net.put(`${AT}/profile`, p3, hub.tag('alice/profile'));
 await pub.resignIndex(net, AT, A3);
 const afterRestore = await read(net.get, { learned: A.x, at: AT, pin: afterRotate.pin });
@@ -121,7 +121,7 @@ const smuggled = await read(net.get, { learned: A.x, at: AT, pin: good });
 
 // ---- the rumor, over a second identity on the same hub ----
 const B = pub.newKey(), BAT = '/bob';
-await net.put(`${BAT}/profile`, pub.profile({ anchor: B.x, version: 1, chain: [{ key: B.x }], recovery: pub.commit(1, [mum]), locations: ['https://bob.example'] }, B), null);
+await net.put(`${BAT}/profile`, pub.profile({ anchor: B.x, version: 1, chain: [{ key: B.x }], recovery: pub.commit([mum]), locations: ['https://bob.example'] }, B), null);
 const target = (n) => ({ key: A.x, n, hash: good.live.get(n) ?? 'unknown', loc: AT });
 await pub.publish(net, BAT, B, 1, { at: '2026-08-06', rel: 'reply', target: target(1), text: 'to a post I can see' });
 await pub.publish(net, BAT, B, 2, { at: '2026-08-06', rel: 'reply', target: { ...target(2), n: 2 }, text: 'to one she withdrew' });

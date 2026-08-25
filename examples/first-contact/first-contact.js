@@ -16,7 +16,7 @@ assert.deepEqual([alice.x, rotated.x, restored.x, mum.x, sis.x, bro.x], ['pukq6V
 
 const LOC = 'https://alice.example/alice';
 const MEMBERS = [{ key: mum, salt: 'saltmum' }, { key: sis, salt: 'saltsis' }, { key: bro, salt: 'saltbro' }];
-const REC = commit(2, MEMBERS);                                                 // B.2, two of three
+const REC = commit(MEMBERS);                                                 // B.2, two of three
 const sign = (anchor, version, chain, signer, rec = REC) => signProfile({ anchor, version, chain, recovery: rec, locations: [LOC], name: 'Alice' }, signer);
 const v1 = sign(alice.x, 1, [{ key: alice.x }], alice);
 const branch = [{ key: alice.x }, rotation(alice, rotated, REC), restore(rotated, restored, MEMBERS.slice(0, 2), REC)];
@@ -24,7 +24,7 @@ const v3 = sign(alice.x, 3, branch, restored);
 
 // A key the host generated for itself. Everything it signs is well formed; none of it is alice.
 const impostor = key('hostile-host');
-const hostile = sign(impostor.x, 7, [{ key: impostor.x }], impostor, commit(1, [{ key: bro, salt: 'salthost' }]));
+const hostile = sign(impostor.x, 7, [{ key: impostor.x }], impostor, commit([{ key: bro, salt: 'salthost' }]));
 const read = (bytes, learned) => verifyProfile(bytes, { learned });
 
 console.log('§3.1 — a reader that learns your key from the host has learned nothing\n');

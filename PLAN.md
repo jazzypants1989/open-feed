@@ -37,6 +37,17 @@ Every stage ends in an artifact that can fail — `npm run check` — not a pros
 
 ---
 
+## Rulings (2026-08-25)
+
+- `k` is gone from the wire: a restore is valid when **more than half** of the recovery list vouches,
+  the same bar §3.6 uses for a contest. An empty list cannot be restored.
+- The solo user is an app concern, not a protocol mechanism: §3.4 says an app SHOULD create and list
+  a backup key at setup; the spoken code puts it on paper.
+- §6.4's padding floor is cut: hiding the size of an audience from the host is not a goal.
+- Project history is cut from the example `.md`s; conceptual contrasts stay, and the Contrast
+  sections are left as they are for now (they may be collected into one essay later).
+- `_seeds/`, `SPEC-CUTS.md`, the README rewrite and the Contrast sections are deferred.
+
 ## Stage A — consolidate — CLOSED 2026-08-24
 
 - [x] Checkpoint commit of the in-flight spec vocabulary pass (`caca5ed`)
@@ -88,19 +99,19 @@ imports them and must keep working.
 - [x] 04–08 identity — `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
 - [x] 09–12 the index — `the-index`, `top-and-rumors`, `media`, `rewrite`
 - [x] 13 posts — `posts-and-targets`
-- [x] 14–15 encrypted content — `envelope`, `padding`
-- [x] 16 the reader — `the-reader`
-- [x] 17 the publish interface — `publish-interface`
-- [x] 18–20 fetching, your copy, views — `fetching`, `your-copy`, `views`
+- [x] 14 encrypted content — `envelope`
+- [x] 15 the reader — `the-reader`
+- [x] 16 the publish interface — `publish-interface`
+- [x] 17–19 fetching, your copy, views — `fetching`, `your-copy`, `views`
 - [x] capstones documented and printing — each carries a demo below a `// ====` marker; the file
       reports its own measurement (reader 171 lines, publisher 51, non-blank and non-comment above
       the marker), and `court-gate`/`weekend-gate` count the same slice. `tools/regen.js` still
       imports both
 - [ ] `_seeds/` empty; `seeds` script removed from `package.json`; `examples/README.md` links complete
 
-**All twenty examples and both capstones are written, and `npm run check` is green: 54 tests, 49
-vector checks under two readers, 22 examples matching their committed output, seeds green, and
-`npm run revert` catching all 136 mutations (96 of them new).** `tools/revert.js` resolves a row's
+**All nineteen examples and both capstones are written, and `npm run check` is green: 56 tests, 49
+vector checks under two readers, 21 examples matching their committed output, seeds green, and
+`npm run revert` catching every mutation.** `tools/revert.js` resolves a row's
 gate as an example directory first and a seed second, so a row moves with its subject.
 
 What is left in this stage is only the seed deletion, and it is harder than it looks. **Measured
@@ -122,8 +133,8 @@ there, and empty `_seeds/` — it is a test, not teaching material, and this is 
 (3) Keep `_seeds/` and strike the checkbox. Whichever is chosen, do it seed by seed, not in one
 sweep, and re-run `npm run revert` after each.
 
-**Writing the examples found defects. They are in `FINDINGS.md`, unfixed, and two of them are
-security defects in `k` — read that file before Stage D, and before touching §3.3, §3.4 or §3.6.**
+**What writing the examples found and is still open is in `FINDINGS.md`** — read it before Stage D.
+The `k` defect it found was ruled on and fixed on 2026-08-25 (the rulings above).
 
 ## Stage C — the root documents (~1 session)
 
@@ -160,11 +171,12 @@ by a novice in an hour or two. Input: `SPEC-CUTS.md`, and `FINDINGS.md`. Every e
 `npm run check` — the vectors under two readers, the examples, the tests — so shortening cannot
 silently change meaning.
 
-**Do the rulings first.** `FINDINGS.md` §1 holds two security defects that are one protocol change,
-and §2–§4 hold about two dozen places the spec and the code disagree. Rewriting prose around rules
-that are about to change is wasted work, and the `k` change would restage `examples/contest/`.
+**Do the rulings first.** `FINDINGS.md` holds the places the spec and the code still disagree.
+Rewriting prose around rules that are about to change is wasted work.
 
-- [ ] Rule on `FINDINGS.md` §1 (the `k` change), then §1.2 (§2.4 inside the envelope), then the rest
+- [x] `FINDINGS.md` §1 (the `k` change and §2.4 inside the envelope) and the user-visible items of
+      §2–§4 — ruled and fixed 2026-08-25
+- [ ] Rule on the rest of `FINDINGS.md`
 - [ ] Section-by-section pass with `SPEC-CUTS.md` in hand — start with "Shorter by design"
 - [ ] Re-read as a novice; time it
 - [ ] Owner review

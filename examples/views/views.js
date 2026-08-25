@@ -9,7 +9,7 @@ import { createReader } from '../../src/reader.js';
 import { encrypt, carrierOf, readingKeyFromSeed } from '../../src/envelope.js';
 import { jsonFeed, atom, hcard } from '../../src/views.js';
 
-// Appendix B's keys, and a seeded stream where §6.4 wants random bytes, so every byte here reproduces.
+// Appendix B's keys, and a seeded stream for the content keys, so every byte here reproduces.
 const key = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
 const xkey = (l) => readingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
 const seeded = (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', 'openfeed/v1/vector:views', '', String(i++), n)); })();
@@ -31,7 +31,7 @@ const post = {
   3: signFile({ n: 3, at: '2026-08-03T21:15:00Z', encrypted: sealed }, alice),
   4: signFile({ n: 4, at: '2026-08-04T08:00:00Z', text: 'Peonies are back.' }, alice),
 };
-const profileAt = (version, locations) => signProfile({ anchor: alice.x, version, name: 'Alice', chain: [{ key: alice.x }], recovery: { k: 0, leaves: [] }, locations, read: xkey('alice-read').x }, alice);
+const profileAt = (version, locations) => signProfile({ anchor: alice.x, version, name: 'Alice', chain: [{ key: alice.x }], recovery: { leaves: [] }, locations, read: xkey('alice-read').x }, alice);
 const store = new Map([[`${AT}/profile`, profileAt(1, [AT])], ...Object.entries(post).map(([n, f]) => [`${AT}/posts/${n}`, f])]);
 const entries = [[1, address(post[1])], [2, address(post[2])], [3, address(post[3])], [4, address(post[4])], [4, null]];
 const listing = { entries, version: 2, top: 4 };

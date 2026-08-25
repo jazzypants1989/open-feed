@@ -27,7 +27,7 @@ assert.equal(photoHash, 'fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g');
 assert.equal(verifyFile(photo, alice.x), null);
 
 // One identity, one chain link: enough for a reader to check an index and every file it lists.
-const profile = signProfile({ anchor: alice.x, version: 1, chain: [{ key: alice.x }], recovery: { k: 0, leaves: [] }, locations: [AT] }, alice);
+const profile = signProfile({ anchor: alice.x, version: 1, chain: [{ key: alice.x }], recovery: { leaves: [] }, locations: [AT] }, alice);
 const post4 = signFile({ n: 4, at: '2026-08-15T07:00:00Z', text: 'the morning after', media: [photoHash] }, alice);
 const hub = new Map([[`${AT}/profile`, profile], [`${AT}/posts/4`, post4], [`${AT}/media/${photoHash}`, photo]]);
 const reader = createReader({ get: async (p) => (hub.has(p) ? { bytes: hub.get(p), etag: '"t"' } : null) });
@@ -75,7 +75,6 @@ const env = encrypt({
   audience: [{ key: mum.x, read: xkey('mum-read').x, loc: 'https://mom.example/mom' }],
   carrier: carrierOf(alice.x, 7), ephemeral: xkey('ephemeral/7'),
   contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/7').digest(),
-  random: (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', 'openfeed/v1/vector:dummies/7', '', String(i++), n)); })(),
 });
 const post7 = signFile({ n: 7, at: '2026-08-18T21:40:00Z', encrypted: env }, alice);
 hub.set(`${AT}/posts/7`, post7).set(`${AT}/media/${sealed.hash}`, sealed.bytes);
@@ -84,7 +83,7 @@ const withSealed = await now();
 const clear = parseBody(splitFile(post7).body);
 console.log('§4.4 — listed in the index, so retention is one rule that reaches encrypted posts\n');
 console.log(`  post 7 in the clear   members: ${Object.keys(clear).join(', ')}`);
-console.log(`  a media reference?    ${'media' in clear} — on an encrypted post it is inside the envelope (§5.5, §6.6)`);
+console.log(`  a media reference?    ${'media' in clear} — on an encrypted post it is inside the envelope (§5.5, §6.5)`);
 console.log(`  the index line        ["${sealed.hash}"]`);
 console.log('\n  The host cannot read post 7 and so cannot know which blobs it needs. The index line tells\n  it anyway: keep this one. That is the whole argument for listing media in the index rather\n  than leaving retention to the posts that reference it.\n');
 assert.deepEqual(Object.keys(clear), ['n', 'at', 'encrypted']); assert.equal('media' in clear, false);

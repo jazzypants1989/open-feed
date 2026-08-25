@@ -13,7 +13,7 @@ const key = (label) => signingKeyFromSeed(crypto.createHash('sha256').update(`op
 const xkey = (label) => readingKeyFromSeed(crypto.createHash('sha256').update(`envelope:${label}`).digest());
 const A1 = key('alice/anchor'), A2 = key('alice/rotated'), A3 = key('alice/restored'), AT = 'https://alice.example/alice';
 const mum = { key: key('mum'), salt: 'saltmum' }, sis = { key: key('sis'), salt: 'saltsis' }, bro = { key: key('bro'), salt: 'saltbro' };
-const REC = commit(2, [mum, sis, bro]), chain = [{ key: A1.x }, rotation(A1, A2, REC), restore(A2, A3, [mum, sis], REC)];
+const REC = commit([mum, sis, bro]), chain = [{ key: A1.x }, rotation(A1, A2, REC), restore(A2, A3, [mum, sis], REC)];
 const profile = signProfile({ anchor: A1.x, version: 3, name: 'Alice', chain, recovery: REC, locations: [AT], read: xkey('vector:alice-read').x }, A3);
 
 const post = (n, fields, k) => signFile({ n, ...fields }, k);
@@ -24,8 +24,7 @@ const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1'), pngHas
 const p4 = post(4, { at: '2026-08-15T07:00:00Z', text: 'the morning after', media: [pngHash] }, A3);
 // Post 5 is Appendix B.8's encrypted post, reproduced only so the indexes below are the spec's exact bytes.
 const p5 = post(5, { at: '2026-08-18T21:40:00Z', encrypted: encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, carrier: carrierOf(A1.x, 5), ephemeral: xkey('vector:ephemeral/5'), contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/5').digest(),
-  audience: [{ key: A1.x, read: xkey('vector:alice-read').x, loc: AT }, { key: mum.key.x, read: xkey('vector:mum-read').x, loc: 'https://mom.example/mom' }],
-  random: (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', 'openfeed/v1/vector:dummies/5', '', String(i++), n)); })() }) }, A3);
+  audience: [{ key: A1.x, read: xkey('vector:alice-read').x, loc: AT }, { key: mum.key.x, read: xkey('vector:mum-read').x, loc: 'https://mom.example/mom' }] }) }, A3);
 const p6 = post(6, { at: '2026-09-02T08:00:00Z', text: 'the first cold morning' }, A3);
 const h = Object.fromEntries([p1, p2, p3, p4, p5, p6].map((f, i) => [i + 1, address(f)]));
 
@@ -48,10 +47,10 @@ console.log(`\n  ${bodyOf(v[2]).length} bytes of body, ${bytes(orphaned)} of the
 console.log(`  version 3 is ${bodyOf(v[3]).length} because it re-lists post 2. How often is the publisher's setting (§4.7),`);
 console.log('  and a suggested default is once a month.\n');
 assert.equal(orphaned.length, 2);
-assert.equal(bodyOf(v[2]), '{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}');
-assert.equal(bodyOf(v[3]), '{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}');
-assert.equal(splitFile(v[2]).sigLine, 'fkGSeMiVg9ZPdliEnWNU-Y-2bORoaQwmljSVg5HhV4xKGMc-w6K9VJ21cbqGXUMYCUU_om7dyBjz8bXMamruBQ');
-assert.equal(splitFile(v[3]).sigLine, 'Fwobld26DKwmaKgtZ66wlfAvzDEeH9DrODnh6O2aIuLtZ1MoHiy5i2FyJhGHBEumf2aDn6l0obMsV3Ab7CDJCw');
+assert.equal(bodyOf(v[2]), '{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}');
+assert.equal(bodyOf(v[3]), '{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}');
+assert.equal(splitFile(v[2]).sigLine, 'd3-yqAPg2iItXYasKxmht2vpwfGenGkTXzU-BFPd0sPk64VZzSsDOKL6wS04MPyA1IHk9k0dtqjckoJoCmFRAQ');
+assert.equal(splitFile(v[3]).sigLine, '9HJTbv8f48aF1GYk7SySc1aRFK1mm0eSjMo-xr3S3Dowv1OitC_nMVTwta3pJowJ-d27eYYOR1kUYG9eKp1DCQ');
 
 // The rewrite is a re-spelling of the fold's answer (§4.2), which is what makes it safe to do at all.
 const shown = (s) => `posts ${[...s.live.keys()].filter(Number.isInteger).sort((a, b) => a - b).join(', ')} and ${[...s.live.keys()].filter((k) => typeof k === 'string').length} media file`;

@@ -62,7 +62,7 @@ const io = (hub) => ({
 // ---- one identity, seven posts, 3 withdrawn and the file rewritten, on a fresh hub each time ----
 const A = pub.newKey(), A2 = pub.newKey(), ex = pub.newKey(), B = pub.newKey();
 const mum = { key: pub.newKey(), salt: 's-mum' };
-const REC = pub.commit(1, [mum]);
+const REC = pub.commit([mum]);
 const AT = '/alice', BAT = '/bob', LOC = ['https://alice.example'];
 const hubs = [];
 async function fresh() {

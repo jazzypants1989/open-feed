@@ -24,11 +24,11 @@ const get = async (url) => { const r = GET(new URL(url).pathname); return r.stat
 const reader = createReader({ get });
 const post = (n, fields, k) => signFile({ n, ...fields }, k);
 const obj = (f) => parseBody(splitFile(f).body), text = (f) => splitFile(f).body.toString();
-const member = (k, salt) => ({ key: k, salt }), REC = commit(2, [member(MUM, 'saltmum'), member(SIS, 'saltsis'), member(BRO, 'saltbro')]);
+const member = (k, salt) => ({ key: k, salt }), REC = commit([member(MUM, 'saltmum'), member(SIS, 'saltsis'), member(BRO, 'saltbro')]);
 
 // Two identities: alice, with one rotation in her chain, and mum, who has two files saying "post 12".
 put('/alice/profile', signProfile({ anchor: A1.x, name: 'Alice', version: 2, chain: [{ key: A1.x }, rotation(A1, A2, REC)], recovery: REC, locations: [AT], read: xk('vector:alice-read').x }, A2));
-put('/mom/profile', signProfile({ anchor: MUM.x, name: 'Mum', version: 1, chain: [{ key: MUM.x }], recovery: commit(1, [member(SIS, 'saltsis')]), locations: [MUMAT], read: xk('vector:mum-read').x }, MUM));
+put('/mom/profile', signProfile({ anchor: MUM.x, name: 'Mum', version: 1, chain: [{ key: MUM.x }], recovery: commit([member(SIS, 'saltsis')]), locations: [MUMAT], read: xk('vector:mum-read').x }, MUM));
 const twelveA = post(12, { at: '2026-07-18T20:00:00Z', text: 'we set a date' }, MUM);
 const twelveB = post(12, { at: '2026-07-18T20:00:00Z', text: 'we called it off' }, MUM);
 put('/mom/posts/12', twelveA);
@@ -157,7 +157,7 @@ assert.deepEqual([onA.target.unresolved, onB.target.unresolved, onC.target.unres
 say('§5.5 — media is a list of addresses, and an encrypted post carries none\n', `  post 3   ${text(p[3])}\n`,
   `  the index lists that file by its address alone and the reader checks the bytes: ${sha256(edited.media.get(pngHash)) === pngHash}`,
   `  post 4's public members:  ${Object.keys(obj(p[4])).join(', ')}  — no media, no rel, no target\n`,
-  '  On an encrypted post media, rel and target are inside the envelope, and each media entry is\n  {hash, key} rather than a bare hash (§6.6). See examples/media/ and examples/envelope/.\n');
+  '  On an encrypted post media, rel and target are inside the envelope, and each media entry is\n  {hash, key} rather than a bare hash (§6.5). See examples/media/ and examples/envelope/.\n');
 assert.deepEqual([obj(p[3]).media, sha256(edited.media.get(pngHash))], [[pngHash], pngHash]);
 assert.deepEqual(Object.keys(obj(p[4])), ['n', 'at', 'encrypted']);
 

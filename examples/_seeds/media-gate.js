@@ -44,7 +44,7 @@ const io = (hub) => ({
 });
 
 const A = pub.newKey(), ex = pub.newKey();
-const REC = pub.commit(1, [{ key: pub.newKey(), salt: 's' }]);
+const REC = pub.commit([{ key: pub.newKey(), salt: 's' }]);
 const AT = '/alice', LOC = ['https://alice.example'];
 const png = crypto.randomBytes(20_000), hP = sha(png);
 const hubs = [];

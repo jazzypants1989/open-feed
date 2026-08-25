@@ -12,7 +12,7 @@ const claims = [];
 const claim = (what, ok) => { claims.push([what, ok]); console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); };
 
 const G = pub.newKey(), K2 = pub.newKey(), S = pub.newKey();
-const REC = pub.commit(1, [{ key: pub.newKey(), salt: 's' }]);
+const REC = pub.commit([{ key: pub.newKey(), salt: 's' }]);
 const AT = '/alice';
 const prof = (version, chain, key) => pub.profile({ anchor: G.x, version, chain, recovery: REC, locations: ['https://alice.example'] }, key);
 const c1 = [{ key: G.x }], c2 = [...c1, pub.rotation(G, K2, REC)];

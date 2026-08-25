@@ -1,9 +1,9 @@
-// audience-gate: whether the reply to a encrypted post can be encrypted at all. §6.5 puts the audience
+// audience-gate: whether the reply to a encrypted post can be encrypted at all. §6.4 puts the audience
 // inside "so a recipient learns who else can answer", as a list of reading keys; §3.8 says a
 // publisher MUST encrypt only to a `read` key taken from a profile it verified. A replier who knows
 // a member only from the envelope holds an X25519 key and nothing that leads to a profile.
 // Findings A6 and A9 (the 2-byte length) of the 2026-08-23 review.
-// Kill criteria: the replier able to reach the third member's profile from what §6.5 gives it; a
+// Kill criteria: the replier able to reach the third member's profile from what §6.4 gives it; a
 // encrypted body above 65,535 bytes accepted by the reference envelope.
 import crypto from 'node:crypto';
 import { read } from '../weekend-reader/weekend-reader.js';
@@ -17,7 +17,7 @@ const claim = (what, ok) => { claims.push([what, ok]); console.log(`  ${ok ? 'ok
 // Three people on two hubs. Jesse has read Mom; he has never read Sis, who lives on Mom's hub.
 const person = (name) => ({ name, key: pub.newKey(), read: xKey(name) });
 const mom = person('mom'), jesse = person('jesse'), sis = person('sis');
-const REC = pub.commit(1, [{ key: pub.newKey(), salt: 's' }]);
+const REC = pub.commit([{ key: pub.newKey(), salt: 's' }]);
 const M = await new Hub().listen(), J = await new Hub().listen();
 const at = { mom: `${M.url}/mom`, sis: `${M.url}/sis`, jesse: `${J.url}/jesse` };
 const get = async (p) => { const r = await fetch(p); return r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null; };
@@ -26,7 +26,7 @@ await claimName(M, mom, at.mom); await claimName(M, sis, at.sis); await claimNam
 const momRead = await read(get, { learned: mom.key.x, at: at.mom });
 const pins = new Map([[mom.key.x, momRead]]);                         // what Jesse holds: Mom, verified
 
-console.log('\n1. Mom seals to Jesse and Sis, as §6.5 says: the audience is their reading keys.\n');
+console.log('\n1. Mom seals to Jesse and Sis, as §6.4 says: the audience is their reading keys.\n');
 const audience = [mom.read.x, jesse.read.x, sis.read.x];
 const env = encrypt({ content: { text: 'family only' }, audience, carrier: carrierOf(mom.key.x, 1) });
 const inner = decrypt(env, jesse.read.privateKey, carrierOf(mom.key.x, 1));

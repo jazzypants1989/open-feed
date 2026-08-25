@@ -90,15 +90,15 @@
 
   A hub that accepts writes MUST check the proof. The entity tag is no part of it:
 
-  PUT /alice/profile       If-Match: "bSrj_qdG…" → 403   not signed by the key the chain ends on
-  PUT /alice/profile       If-Match: "bSrj_qdG…" → 403   the chain does not walk
-  PUT /alice/profile       If-Match: "bSrj_qdG…" → 409   the name is taken, by someone else
-  PUT /alice/profile       If-Match: "bSrj_qdG…" → 409   a version that has not advanced
+  PUT /alice/profile       If-Match: "eBhjoCAN…" → 403   not signed by the key the chain ends on
+  PUT /alice/profile       If-Match: "eBhjoCAN…" → 403   the chain does not walk
+  PUT /alice/profile       If-Match: "eBhjoCAN…" → 409   the name is taken, by someone else
+  PUT /alice/profile       If-Match: "eBhjoCAN…" → 409   a version that has not advanced
   PUT /alice/index         If-Match: "nU0p2_UG…" → 403   not the key alice's profile ends on
 
   and the honest case those checks must not break — a rotation, then the index re-signed:
 
-  PUT /alice/profile       If-Match: "bSrj_qdG…" → 200
+  PUT /alice/profile       If-Match: "eBhjoCAN…" → 200
   PUT /alice/index         If-Match: "nU0p2_UG…" → 403   the rotated-away key no longer signs it
   GET /alice/index                               → 200
   PUT /alice/index         If-Match: "nU0p2_UG…" → 200

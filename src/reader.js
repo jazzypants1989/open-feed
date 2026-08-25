@@ -10,8 +10,10 @@ import { verifyProfile } from './profile.js';
 import { fold, checkIndex, checkAgainstPin, verifyIndex } from './index.js';
 
 const WEEK = 7 * 86400e3;
+/** §9: how many identities one pass will look again at. Past it a target is unchecked, which is no verdict. */
+export const MAX_IDENTITIES_PER_PASS = 200;
 
-export function createReader({ get }) {
+export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
   async function read({ learned, at, pin = null, now = Date.now() }) {
     const note = [], say = (v) => note.includes(v) || note.push(v);
     const bad = (verdict, why) => ({ verdict, why, note });
@@ -83,6 +85,7 @@ export function createReader({ get }) {
       if (listed !== undefined && listed !== t.hash) { t.unresolved = true; continue; }
       if (t.n <= s.top) continue;                                    // withdrawn or superseded: quiet
       if (!refreshed.has(t.key)) {                                   // look again, once per identity per pass
+        if (refreshed.size >= maxIdentities) continue;               // §9's cap: unchecked, so no line — no verdict
         refreshed.add(t.key);
         // The locations already held are tried before the address in the reply (§7.5): the reply's
         // `loc` is both the relocation mechanism and a beacon, and it is hit last.

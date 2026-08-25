@@ -1,12 +1,13 @@
 // §11 — generated views: a JSON Feed 1.1 document, an Atom feed, an h-card page, from the index and
 // the posts. Nothing in a view is signed and a view is never the index. Ids are
-// `urn:openfeed:<anchor>:<n>`; withdrawn posts are absent; encrypted posts are omitted.
+// `urn:openfeed:<anchor>:<n>`; withdrawn posts are absent; encrypted posts are omitted. A post with
+// media and no text is a post (§4.4), and it is listed.
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** `live` is the ok read's `posts` map; `loc` the location (`https://hub/name`). */
 function items(read, loc) {
-  return [...read.posts.entries()].filter(([, p]) => p.encrypted === undefined && typeof p.text === 'string').sort(([a], [b]) => a - b)
-    .map(([n, p]) => ({ n, p, id: `urn:openfeed:${read.anchor}:${n}`, url: `${loc}/posts/${n}`, title: p.text.split('\n')[0].slice(0, 60) }));
+  return [...read.posts.entries()].filter(([, p]) => p.encrypted === undefined).sort(([a], [b]) => a - b)
+    .map(([n, p]) => ({ n, p, id: `urn:openfeed:${read.anchor}:${n}`, url: `${loc}/posts/${n}`, title: (p.text ?? '').split('\n')[0].slice(0, 60) }));
 }
 
 export function jsonFeed(read, loc) {
@@ -14,7 +15,7 @@ export function jsonFeed(read, loc) {
   return JSON.stringify({
     version: 'https://jsonfeed.org/version/1.1', title: name, home_page_url: `${loc}/`, feed_url: `${loc}/feed.json`,
     authors: [{ name, url: `${loc}/` }],
-    items: items(read, loc).map(({ p, id, url }) => ({ id, url, date_published: p.at, content_text: p.text, ...(p.target?.loc ? { external_url: `${p.target.loc}/posts/${p.target.n}` } : {}) })),
+    items: items(read, loc).map(({ p, id, url }) => ({ id, url, date_published: p.at, content_text: p.text ?? '', ...(p.target?.loc ? { external_url: `${p.target.loc}/posts/${p.target.n}` } : {}) })),
   }, null, 1);
 }
 
@@ -34,7 +35,7 @@ ${list.map(({ p, id, url, title }) => `  <entry>
     <title>${esc(title)}</title>
     <updated>${esc(p.at)}</updated>
     <link rel="alternate" href="${esc(url)}"/>
-    <content type="text">${esc(p.text)}</content>
+    <content type="text">${esc(p.text ?? '')}</content>
   </entry>`).join('\n')}
 </feed>
 `;
@@ -49,7 +50,7 @@ export function hcard(read, loc) {
 <link rel="alternate" type="application/atom+xml" href="${esc(`${loc}/feed.xml`)}"></head>
 <body><div class="h-card"><a class="p-name u-url" href="${esc(`${loc}/#${read.anchor}`)}">${esc(name)}</a></div>
 <ul class="h-feed">
-${items(read, loc).map(({ p, url }) => `<li class="h-entry"><a class="u-url" href="${esc(url)}"><time class="dt-published" datetime="${esc(p.at)}">${esc(p.at)}</time></a> <span class="e-content">${esc(p.text)}</span></li>`).join('\n')}
+${items(read, loc).map(({ p, url }) => `<li class="h-entry"><a class="u-url" href="${esc(url)}"><time class="dt-published" datetime="${esc(p.at)}">${esc(p.at)}</time></a> <span class="e-content">${esc(p.text ?? '')}</span></li>`).join('\n')}
 </ul></body></html>
 `;
 }

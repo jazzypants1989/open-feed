@@ -1,17 +1,17 @@
-// §6.1–6.3, §6.5–6.6 — encrypted content: one X25519 ephemeral per message, a blinded slot per
+// §6.1–6.5 — encrypted content: one X25519 ephemeral per message, a blinded slot per
 // recipient, the carrier bound as associated data, and the audience inside naming people.
 // Run: node examples/envelope/envelope.js
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { signFile, splitFile, verifyFile, address, signingKeyFromSeed } from '../../src/file.js';
-import { encrypt, decrypt, carrierOf, bucket, readingKeyFromSeed, readingPublicKey, INFO, FLOOR } from '../../src/envelope.js';
+import { encrypt, decrypt, carrierOf, readingKeyFromSeed, readingPublicKey, INFO } from '../../src/envelope.js';
 
-// Appendix B's keys and its seeded randomness. A real publisher draws the ephemeral, the content
-// key and the dummy slots at random, and no two of its posts look alike.
+// Appendix B's keys and its seeded randomness. A real publisher draws the ephemeral and the
+// content key at random, and no two of its posts look alike.
 const ed = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
 const xk = (l) => readingKeyFromSeed(crypto.createHash('sha256').update(`envelope:${l}`).digest());
 const ck = (l) => crypto.createHash('sha256').update(l).digest();
-const dummies = (l) => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', l, '', String(i++), n)); };
+const seeded = (l) => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', l, '', String(i++), n)); };
 const b64 = (b) => Buffer.from(b).toString('base64url');
 const unb64 = (s) => Buffer.from(s, 'base64url');
 const aead = (k, iv, d, aad) => { const c = crypto.createCipheriv('chacha20-poly1305', k, iv, { authTagLength: 16 }); c.setAAD(aad, { plaintextLength: d.length }); return Buffer.concat([c.update(d), c.final(), c.getAuthTag()]); };
@@ -24,13 +24,13 @@ const alice = { ed: ed('alice/anchor'), read: xk('vector:alice-read'), loc: AT }
 const mum = { ed: ed('mum'), read: xk('vector:mum-read'), loc: 'https://mom.example/mom' };
 const sis = { ed: ed('sis'), read: xk('vector:sis-read'), loc: 'https://sis.example/sis' };
 const bro = { ed: ed('bro'), read: xk('vector:bro-read'), loc: 'https://bro.example/bro' };
-const who = (p) => ({ key: p.ed.x, read: p.read.x, loc: p.loc });          // §6.5's audience entry
+const who = (p) => ({ key: p.ed.x, read: p.read.x, loc: p.loc });          // §6.4's audience entry
 const A3 = ed('alice/restored'), thief = ed('thief');
 
 // Post 5 is Appendix B.8, alice's direct message to mum; post 6 is the same mechanism to four people.
 const c5 = carrierOf(alice.ed.x, 5), c6 = carrierOf(alice.ed.x, 6);
-const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [who(alice), who(mum)], carrier: c5, ephemeral: xk('vector:ephemeral/5'), contentKey: ck('openfeed/v1/vector:contentkey/5'), random: dummies('openfeed/v1/vector:dummies/5') });
-const fam = encrypt({ content: { text: 'the divorce is final, come for dinner', rel: 'root' }, audience: [who(alice), who(mum), who(sis), who(bro)], carrier: c6, ephemeral: xk('example:ephemeral/6'), contentKey: ck('example:contentkey/6'), random: dummies('example:dummies/6') });
+const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [who(alice), who(mum)], carrier: c5, ephemeral: xk('vector:ephemeral/5'), contentKey: ck('openfeed/v1/vector:contentkey/5') });
+const fam = encrypt({ content: { text: 'the divorce is final, come for dinner', rel: 'root' }, audience: [who(alice), who(mum), who(sis), who(bro)], carrier: c6, ephemeral: xk('example:ephemeral/6'), contentKey: ck('example:contentkey/6') });
 const post1 = signFile({ n: 1, at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, alice.ed);
 const post5 = signFile({ n: 5, at: '2026-08-18T21:40:00Z', encrypted: dm }, A3);
 const post6 = signFile({ n: 6, at: '2026-08-19T08:05:00Z', encrypted: fam }, A3);
@@ -57,13 +57,10 @@ rows(['  Z = X25519(eph priv, R)', `${Z.toString('hex').slice(0, 32)}…`], ['  
 console.log(`    wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = epk)\n      ${b64(wrapped)}`);
 assert.deepEqual([b64(tag), b64(wrapped)], dm.slots[1]);
 const plain = Buffer.from(JSON.stringify({ audience: [who(alice), who(mum)], text: 'I am leaving him on Friday', rel: 'root' }), 'utf8');
-const padded = Buffer.alloc(bucket(plain.length + 2, FLOOR.body));
-padded.writeUInt16BE(plain.length, 0); plain.copy(padded, 2);
-const ct = aead(key5, Z12, padded, Buffer.concat([epk, Buffer.from(c5, 'ascii')]));
+const ct = aead(key5, Z12, plain, Buffer.concat([epk, Buffer.from(c5, 'ascii')]));
 console.log('\n  and the content, once:');
-rows(['  plain', `${plain.length} bytes of UTF-8 JSON — the audience, then the content members`],
-  ['  padded', `2-byte big-endian length, plain, zeros to ${padded.length} (§6.4 — examples/padding/)`]);
-console.log(`    ct = ChaCha20-Poly1305(content key, 12 zero bytes, padded, aad = epk || carrier)\n      ${b64(ct).slice(0, 43)}…   ${b64(ct).length} characters`);
+rows(['  plain', `${plain.length} bytes of UTF-8 JSON — the audience, then the content members — under §2.4's rules`]);
+console.log(`    ct = ChaCha20-Poly1305(content key, 12 zero bytes, plain, aad = epk || carrier)\n      ${b64(ct).slice(0, 43)}…   ${b64(ct).length} characters`);
 console.log('\n  The all-zero nonce is safe for the reason it is safe in age\'s key wrap: the content key is 32\n  random bytes and MUST NOT be reused across messages, so that (key, nonce) pair is used exactly\n  once. The same holds one level up — knonce is derived from the ephemeral, so an ephemeral reused\n  across two posts wraps two content keys under one (kek, knonce). One ephemeral per message.\n');
 assert.equal(b64(ct), dm.ct); assert.equal(INFO, 'openfeed/v1/slot');
 
@@ -75,11 +72,11 @@ rows(["the thief's post 1 verifies", `${verifyFile(lifted, thief.x) !== null}   
   ['mum opens it at his carrier', `${decrypt(dm, mum.read.privateKey, cT)}   (${cT.slice(0, 10)}…:1)`],
   ['a client that passes no carrier', `${decrypt(dm, mum.read.privateKey, '')}`],
   ['at the post it was published in', `"${decrypt(dm, mum.read.privateKey, c5).text}"`]);
-const unbound = aead(key5, Z12, padded, epk);
-console.log(`\n  There is no "forgot to compare": the carrier is not a field checked afterwards, it is what\n  the unwrap is keyed against. Had the associated data been epk alone, the unwrap would take no\n  carrier at all, and the same bytes would open wherever they were pasted:\n    "${JSON.parse(unaead(key5, Z12, unbound, epk).subarray(2, 2 + plain.length)).text}" — her words, under his name.\n  (That counterfactual reuses the content key and nonce over the identical plaintext on purpose;\n  only the associated data differs, and nothing leaks. It is not a thing a publisher may do.)\n`);
+const unbound = aead(key5, Z12, plain, epk);
+console.log(`\n  There is no "forgot to compare": the carrier is not a field checked afterwards, it is what\n  the unwrap is keyed against. Had the associated data been epk alone, the unwrap would take no\n  carrier at all, and the same bytes would open wherever they were pasted:\n    "${JSON.parse(unaead(key5, Z12, unbound, epk)).text}" — her words, under his name.\n  (That counterfactual reuses the content key and nonce over the identical plaintext on purpose;\n  only the associated data differs, and nothing leaks. It is not a thing a publisher may do.)\n`);
 assert.equal(decrypt(dm, mum.read.privateKey, cT), null); assert.equal(decrypt(dm, mum.read.privateKey, ''), null);
 assert.equal(decrypt(dm, mum.read.privateKey, c5).text, 'I am leaving him on Friday');
-assert.equal(JSON.parse(unaead(key5, Z12, unbound, epk).subarray(2, 2 + plain.length)).text, 'I am leaving him on Friday');
+assert.equal(JSON.parse(unaead(key5, Z12, unbound, epk)).text, 'I am leaving him on Friday');
 
 // §6.3: an implementation that ignores tags entirely and tries every slot is conformant.
 let tries = 0;
@@ -90,14 +87,14 @@ const openBlind = (env, priv, carrier) => {
     tries++;
     let c; try { c = unaead(k.subarray(8, 40), k.subarray(40, 52), unb64(w), e); } catch { continue; }   // no tag consulted
     const p = unaead(c, Z12, unb64(env.ct), Buffer.concat([e, Buffer.from(carrier, 'ascii')]));
-    return JSON.parse(p.subarray(2, 2 + p.readUInt16BE(0)).toString('utf8'));
+    return JSON.parse(p.toString('utf8'));
   }
   return null;
 };
 const blind = openBlind(dm, mum.read.privateKey, c5);
-const collided = { ...dm, slots: [[dm.slots[1][0], b64(dummies('collision')(48))], ...dm.slots] };
+const collided = { ...dm, slots: [[dm.slots[1][0], b64(seeded('collision')(48))], ...dm.slots] };
 console.log('§6.3 — a tag is a hint, never a decision\n');
-rows(["scanning for mum's own tag", `finds it (slot 2 of ${dm.slots.length} here; §6.4 says nothing about placement), and unwraps once`],
+rows(["scanning for mum's own tag", `finds it (slot 2 of ${dm.slots.length} here; nothing fixes placement), and unwraps once`],
   ['ignoring every tag, trying all', `${tries} unwraps here, up to ${dm.slots.length} — conformant, merely slower`],
   ['the same plaintext either way', JSON.stringify(blind) === JSON.stringify(decrypt(dm, mum.read.privateKey, c5))]);
 console.log("\n  and a slot carrying mum's own tag whose unwrap fails, placed first:");
@@ -115,21 +112,21 @@ assert.notEqual(mumTag(dm), mumTag(fam));
 assert.equal(dm.slots.filter(([t]) => fam.slots.some(([u]) => u === t)).length, 0);
 assert.ok(dm.slots.some(([t]) => t === mumTag(dm)) && fam.slots.some(([t]) => t === mumTag(fam)));
 
-// §6.5: the entry names a person, so a replier can reach that person's profile (§3.1) and take the
+// §6.4: the entry names a person, so a replier can reach that person's profile (§3.1) and take the
 // reading key from the profile it verified (§3.8) instead of one that arrived inside a message.
-const profile = (p, anchor = p.ed) => signFile({ anchor: anchor.x, version: 1, chain: [{ key: anchor.x }], recovery: { k: 0, leaves: [] }, locations: [p.loc], read: p.read.x }, anchor);
+const profile = (p, anchor = p.ed) => signFile({ anchor: anchor.x, version: 1, chain: [{ key: anchor.x }], recovery: { leaves: [] }, locations: [p.loc], read: p.read.x }, anchor);
 const hosted = new Map([alice, mum, sis, bro].map((p) => [p.loc, profile(p)]));
 const readKeyFor = (a) => { const v = verifyFile(hosted.get(a.loc) ?? Buffer.alloc(0), a.key); return v && v.obj.anchor === a.key ? v.obj.read : null; };
 const inside = decrypt(fam, mum.read.privateKey, c6);
-console.log('§6.5 — the audience is inside, and each entry names a person\n');
+console.log('§6.4 — the audience is inside, and each entry names a person\n');
 console.log(`  mum opens post 6 and finds ${inside.audience.length} entries — alice's own among them, or alice could not read her own outbox:`);
 rows(...inside.audience.map((a) => [`  key ${a.key.slice(0, 10)}…`, `read ${a.read.slice(0, 10)}…   loc ${a.loc}`]));
 assert.equal(inside.audience.length, 4); assert.ok(inside.audience.some((a) => a.key === alice.ed.x));
 
 const c13 = carrierOf(mum.ed.x, 13), c14 = carrierOf(mum.ed.x, 14);
 const answer = { text: 'we are with you', rel: 'reply', target: { key: alice.ed.x, n: 6, hash: address(post6), loc: AT } };
-const reply = encrypt({ content: answer, audience: inside.audience.map((a) => ({ ...a, read: readKeyFor(a) })), carrier: c13, ephemeral: xk('example:ephemeral/13'), contentKey: ck('example:contentkey/13'), random: dummies('example:dummies/13') });
-const split = encrypt({ content: answer, audience: [who(mum), who(alice)], carrier: c14, ephemeral: xk('example:ephemeral/14'), contentKey: ck('example:contentkey/14'), random: dummies('example:dummies/14') });
+const reply = encrypt({ content: answer, audience: inside.audience.map((a) => ({ ...a, read: readKeyFor(a) })), carrier: c13, ephemeral: xk('example:ephemeral/13'), contentKey: ck('example:contentkey/13') });
+const split = encrypt({ content: answer, audience: [who(mum), who(alice)], carrier: c14, ephemeral: xk('example:ephemeral/14'), contentKey: ck('example:contentkey/14') });
 const post13 = signFile({ n: 13, at: '2026-08-19T19:00:00Z', encrypted: reply }, mum.ed);
 const opens = (env, c) => [alice, mum, sis, bro].map((p, i) => `${['alice', 'mum', 'sis', 'bro'][i]} ${decrypt(env, p.read.privateKey, c) !== null}`).join('   ');
 console.log('\n  Mum replies, and a comment on an encrypted post is encrypted in turn (§6). For each entry she\n  reads the profile at `loc`, refuses it unless its `anchor` is that entry\'s `key` (§3.1), and\n  encrypts to the `read` key that profile carries (§3.8):');
@@ -143,7 +140,7 @@ assert.deepEqual([alice, mum, sis, bro].map((p) => decrypt(split, p.read.private
 assert.equal(readKeyFor(who(bro)), null);
 
 const b13 = splitFile(post13).body.toString();
-console.log('§6.6 — on an encrypted post, rel, target and media go inside\n');
+console.log('§6.5 — on an encrypted post, rel, target and media go inside\n');
 rows(["mum's post 13, in the clear", `${b13.slice(0, 47)}…`],
   ['"reply" in the public bytes?', `${b13.includes('reply')}   it is inside: rel="${decrypt(reply, alice.read.privateKey, c13).rel}"`],
   ["alice's key in the public bytes?", `${b13.includes(alice.ed.x)}   the target is inside, all four members of it`]);
@@ -152,7 +149,7 @@ assert.equal(b13.includes('reply'), false); assert.equal(b13.includes(alice.ed.x
 assert.equal(decrypt(reply, alice.read.privateKey, c13).target.hash, address(post6));
 
 console.log('§7.4 — a reader outside the audience verifies it completely and hands it back opaque\n');
-console.log(`  post 5 is Appendix B.8 byte for byte, at address ${address(post5)}, and the host's own\n  reading key opens ${decrypt(dm, xk('example:host-read').privateKey, c5)}. Opening it is the client's business; the read is examples/the-reader/.\n\n  What the host learns is that an encrypted post exists, when, and roughly how big: post 5 is\n  ${post5.length} bytes and post 6, to four people, is ${post6.length}. The audience is inside, so a large one shows in the\n  bucket the body lands in; §6.4's floor hides the small end.\n`);
-assert.equal(address(post5), '52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM'); assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
+console.log(`  post 5 is Appendix B.8 byte for byte, at address ${address(post5)}, and the host's own\n  reading key opens ${decrypt(dm, xk('example:host-read').privateKey, c5)}. Opening it is the client's business; the read is examples/the-reader/.\n\n  What the host learns is that an encrypted post exists, when, how big, and how many slots it has:\n  post 5 has ${dm.slots.length} slots and is ${post5.length} bytes; post 6, to four people, has ${fam.slots.length} and is ${post6.length}. Nothing hides the\n  size of the audience, and §13.3 says so.\n`);
+assert.equal(address(post5), '8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs'); assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
 
 console.log('Every line above is asserted.');

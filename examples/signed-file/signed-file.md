@@ -59,8 +59,7 @@ layer is where the interoperability bugs live.
 - **JWS compact serialization** base64url-encodes the payload, so what a reader receives is not
   what the signer signed. RFC 7797's unencoded-payload option fixes that, at the cost of a header
   with `"b64":false` and a `crit` list every verifier must negotiate before it can even look at the
-  signature. Open Feed's earlier drafts used exactly this (detached JWS, `b64:false`, Ed25519); the
-  header disappeared when the file format became "body, newline, signature".
+  signature. "Body, newline, signature" is that option with the header removed.
 - **Canonical JSON (RFC 8785 / JCS)** signs a re-serialization. A verifier must parse what it was
   served, re-serialize it by the canonicalization rules, and hope its number formatting, string
   escaping and member sorting agree with the producer's. Every parser divergence lives in that gap.

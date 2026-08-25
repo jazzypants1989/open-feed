@@ -87,12 +87,9 @@ second is §3.4 and §3.6.
 
 **A feed is a view, not the object.** `GOALS.md` records the decision in one line: "the JSON Feed /
 Atom feed and the h-card page are *generated views* — the interop surface, required of publishers,
-never the signed object." Earlier drafts of this project did the other thing. They made the JSON
-Feed document *the* wire format: every extension field lived under an `_openfeed` member of a JSON
-Feed item, the signature lived beside it as `_sig`, and a manifest listed the item ids and their
-versions. That design is preserved verbatim in `archive/` (`archive/README.md` is the index), and
-the root `README.md` still carries its banner until the owner walks the rewrite; read either for
-the contrast and not as current. What went wrong with it: signing JSON Feed items means the
+never the signed object." The other choice is to make the JSON Feed document *the* wire format —
+extension fields under an `_openfeed` member of each item, a signature beside it, a manifest listing
+item ids and versions. What goes wrong with that: signing JSON Feed items means the
 *interop* format is also the *security* format, so every question about one becomes a question about
 the other, and JSON Feed's own requirements leak into the signed bytes — a "like" had to be an item
 with `content_text: ""`. Splitting the two makes each one small: the signed files answer only to §2,

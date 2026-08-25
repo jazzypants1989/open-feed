@@ -123,7 +123,7 @@ const io = (hub) => ({
 });
 const hubA = await new Hub().listen(), hubT = await new Hub().listen();
 const netA = io(hubA), netT = io(hubT);
-const REC = pub.commit(1, [{ key: pub.newKey(), salt: 's' }]);
+const REC = pub.commit([{ key: pub.newKey(), salt: 's' }]);
 await netA.put('/alice/profile', pub.profile({ anchor: alice.ed.x, version: 1, chain: [{ key: alice.ed.x }], recovery: REC, locations: ['https://alice.example'], read: alice.x.x }, alice.ed), null);
 await netT.put('/thief/profile', pub.profile({ anchor: thief.ed.x, version: 1, chain: [{ key: thief.ed.x }], recovery: REC, locations: ['https://thief.example'], read: thief.x.x }, thief.ed), null);
 

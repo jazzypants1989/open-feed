@@ -17,7 +17,7 @@ const H = (b) => crypto.createHash('sha256').update(b).digest('base64url');
 
 const G = pub.newKey(), K2 = pub.newKey(), K3 = pub.newKey();
 const mum = { key: pub.newKey(), salt: 's-mum' }, sis = { key: pub.newKey(), salt: 's-sis' }, ex = { key: pub.newKey(), salt: 's-ex' };
-const REC = pub.commit(2, [mum, sis, ex]);
+const REC = pub.commit([mum, sis, ex]);
 const AT = '/alice';
 const prof = (version, chain, key) => pub.profile({ anchor: G.x, version, chain, recovery: REC, locations: ['https://alice.example'] }, key);
 const c2 = [{ key: G.x }, pub.rotation(G, K2, REC)];

@@ -13,7 +13,7 @@ const run = async (argv, fetcher) => {
 test('verify: ok, misbehaving, and no-verdict each have an exit code', async (t) => {
   const { hub, url } = await tlsHub(t);
   const alice = person('alice');
-  const pub = await claim(memIo(hub), alice, `${url}/alice`, { recovery: list(0) });
+  const pub = await claim(memIo(hub), alice, `${url}/alice`, { recovery: list() });
   await pub.publish(1, { at: '2026-08-01T00:00:00Z', text: 'hello' });
   const f = consumerFetcher();
   const ok = await run(['verify', alice.key.x, `${url}/alice`], f);

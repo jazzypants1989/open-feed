@@ -56,7 +56,7 @@
     rumors raised: bro replied to something I cannot see  — the replier is the only party there is evidence about
 
   What is served at a `loc` must verify under the anchor key the reader learned (§3.1, §7.1),
-  or the pin does not move. An encrypted reply carries its target inside the envelope (§6.6,
+  or the pin does not move. An encrypted reply carries its target inside the envelope (§6.5,
   examples/envelope/), so relocation rides along in public replies only.
 
 Every line above is asserted.

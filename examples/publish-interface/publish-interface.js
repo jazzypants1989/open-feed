@@ -12,7 +12,7 @@ import { createReader } from '../../src/reader.js';
 // Appendix B's seeded keys, plus one for the squatter, so every byte below reproduces.
 const key = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
 const alice = key('alice/anchor'), next = key('alice/rotated'), mum = key('mum'), sis = key('sis'), bro = key('bro'), thief = key('squatter');
-const REC = commit(2, [{ key: mum, salt: 'saltmum' }, { key: sis, salt: 'saltsis' }, { key: bro, salt: 'saltbro' }]);
+const REC = commit([{ key: mum, salt: 'saltmum' }, { key: sis, salt: 'saltsis' }, { key: bro, salt: 'saltbro' }]);
 const hub = createHub(), AT = 'https://hub.example/alice', BRO = 'https://hub.example/bro';
 let trace = true, pin = null;
 const cut = (t) => (t.length > 12 ? `${t.slice(0, 9)}…"` : t), brief = (p) => p.replace(/[A-Za-z0-9_-]{43}/, (h) => `${h.slice(0, 6)}…`);

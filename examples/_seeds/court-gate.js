@@ -74,7 +74,7 @@ async function bothOrders(s, alice, aliceKey, thief, thiefKey) {
 
 // 1. the thief holds A2 and picks a higher version: a plain rotation to his key at version 4. Alice restores
 //    to A3 at version 3, vouched by mum and sis — two of three.
-const REC3 = pub.commit(2, [mum, sis, ex]);
+const REC3 = pub.commit([mum, sis, ex]);
 const s1 = await scene(REC3);
 const thiefRot = prof(4, [...c2of(REC3), pub.rotation(A2, T, REC3)], REC3, T);
 const aliceRestore = prof(3, [...c2of(REC3), pub.restore(A2, A3, [mum, sis], REC3)], REC3, A3);
@@ -84,12 +84,12 @@ await s1.serve(thiefRot, T); const coldThief = await s1.cold();
 // 2. the thief IS the ex, on the list: his branch is a restore vouched by himself — one of three,
 //    which the honest list's k=2 refuses, so he carries a recovery of his own making (k=1, himself).
 const s2 = await scene(REC3);
-const HIS = pub.commit(1, [ex]);
+const HIS = pub.commit([ex]);
 const exRestore = prof(4, [...c2of(REC3), pub.restore(A2, T, [ex], HIS)], HIS, T);
 const listedEx = await bothOrders(s2, aliceRestore, A3, exRestore, T);
 
 // 3. the tie weekend-gate stages: a list of two, one voucher each.
-const REC2 = pub.commit(1, [mum, sis]);
+const REC2 = pub.commit([mum, sis]);
 const s3 = await scene(REC2);
 const tie = await bothOrders(s3, prof(3, [...c2of(REC2), pub.restore(A2, A3, [mum], REC2)], REC2, A3), A3, prof(4, [...c2of(REC2), pub.restore(A2, T, [sis], REC2)], REC2, T), T);
 
@@ -126,7 +126,7 @@ await s7b.serve(aliceRestore, A3); const coldThiefThenAlice = await s7b.see(cold
 //    her chain, because the restore link carries the list it satisfied.
 const s8 = await scene(REC3);
 await s8.serve(aliceRestore, A3);
-await s8.serve(prof(4, aliceRestore && [...c2of(REC3), pub.restore(A2, A3, [mum, sis], REC3)], pub.commit(2, [mum, ex, baby]), A3), A3);
+await s8.serve(prof(4, aliceRestore && [...c2of(REC3), pub.restore(A2, A3, [mum, sis], REC3)], pub.commit([mum, ex, baby]), A3), A3);
 const editedAfterRestore = await s8.cold();
 
 // 9. the same rule, as a pure function, under the three candidate rules — for the owner's table.

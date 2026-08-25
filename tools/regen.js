@@ -51,7 +51,7 @@ const A1 = edKey('alice/anchor'), A2 = edKey('alice/rotated'), A3 = edKey('alice
 const MUM = { key: edKey('mum'), salt: 'saltmum' };
 const SIS = { key: edKey('sis'), salt: 'saltsis' };
 const BRO = { key: edKey('bro'), salt: 'saltbro' };
-const REC = pub.commit(2, [MUM, SIS, BRO]);
+const REC = pub.commit([MUM, SIS, BRO]);
 const AT = 'https://alice.example/alice';
 
 const READ_ALICE = xKey('vector:alice-read');
@@ -78,15 +78,13 @@ const post3 = pub.post(3, {
 const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
 const pngHash = sha256(png);
 const post4 = pub.post(4, { at: '2026-08-15T07:00:00Z', text: 'the morning after', media: [pngHash] }, A3);
-// A encrypted post: n and at in the clear, everything else — text, rel, target, media — inside (§6.6).
+// A encrypted post: n and at in the clear, everything else — text, rel, target, media — inside (§6.5).
 const envelope = encrypt({
   content: { text: 'I am leaving him on Friday', rel: 'root' },
   audience: [{ key: A1.x, read: READ_ALICE.x, loc: AT }, { key: MUM.key.x, read: READ_MUM.x, loc: 'https://mom.example/mom' }],
   carrier: carrierOf(A1.x, 5),
   ephemeral: xKey('vector:ephemeral/5'),
   contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/5').digest(),
-  // Dummy slots are random bytes (§6.4); a seeded stream stands in so the vector reproduces.
-  random: (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', 'openfeed/v1/vector:dummies/5', '', String(i++), n)); })(),
 });
 const post5 = pub.post(5, { at: '2026-08-18T21:40:00Z', encrypted: envelope }, A3);
 
@@ -149,8 +147,8 @@ check('lifted into another post, the same envelope does not open — the carrier
   unseal(post5FieldOf(), READ_MUM.privateKey, carrierOf(edKey('thief').x, 1)) === null
   && unseal(post5FieldOf(), READ_MUM.privateKey, '') === null);
 check('a non-recipient cannot open it', unseal(post5FieldOf(), xKey('vector:host-read').privateKey, carrierOf(A1.x, 5)) === null);
-check('every slot is the same width, real or dummy, and the audience is padded to the floor of eight',
-  envelope.slots.length === 8 && new Set(envelope.slots.map(([t, w]) => `${t.length}/${w.length}`)).size === 1);
+check('one slot per recipient, every slot the same width',
+  envelope.slots.length === 2 && new Set(envelope.slots.map(([t, w]) => `${t.length}/${w.length}`)).size === 1);
 
 const idx = spokenIndices(A1.x);
 check('the spoken code is six 11-bit indices', idx.length === 6 && idx.every((i) => Number.isInteger(i) && i >= 0 && i < 2048));
@@ -202,8 +200,8 @@ const appendix = [
   '',
   '### B.2. The recovery commitment (§3.4)',
   '',
-  'Two of three, committed one member at a time. `sis` vouching reveals `saltsis` and her key, and',
-  'nothing about `mum` or `bro`.',
+  'Three members, committed one member at a time; two of them are a majority (§3.3). `sis` vouching',
+  'reveals `saltsis` and her key, and nothing about `mum` or `bro`.',
   '',
   '```',
   `salts             mum "${MUM.salt}"  sis "${SIS.salt}"  bro "${BRO.salt}"`,
@@ -214,11 +212,11 @@ const appendix = [
   vec('B.3. Profile, `version` 1 (anchor)', 'The chain is one link long and the file is signed by the anchor key.', f(p1)),
   vec('B.4. Profile, `version` 2 (a rotation)', 'The link carries the list that stood before it and is signed by the key it replaces, over the ASCII\nbytes `<previous>-><new>` (§3.3).', f(p2)),
   vec('B.5. Profile, `version` 3 (a restore)',
-    'The same link shape with vouchers instead of a signature: two of three, each revealing only its own\nsalt, counted against the `recovery` the link carries (§3.3).', f(p3)),
+    'The same link shape with vouchers instead of a signature: two of three — a majority — each revealing\nonly its own salt, counted against the `recovery` the link carries (§3.3).', f(p3)),
   vec('B.6. Post', 'The number is inside the signed bytes (§5.1).', f(post1)),
   vec('B.7. Post — a reply', 'The target names the author\'s anchor key, the number, all 43 characters of the address, and where\nthe replier last knew that author to live (§5.4).', f(post3)),
   vec('B.8. Post — encrypted',
-    `Only \`n\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.6), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.5). The audience is padded to eight slots (§6.4); the six dummies are random bytes, drawn\nhere from a seeded stream so the vector reproduces. The carrier bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
+    `Only \`n\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.4): one slot per recipient. The carrier bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
   vec('B.9. Index, `version` 1', 'Three posts live.', f(head1)),
   vec('B.10. Index, `version` 2 — a withdrawal, a media file',
     `Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the media file is listed by its\naddress alone. The media file's bytes are ${png.length} bytes hashing to \`${pngHash}\`.`, f(head2)),

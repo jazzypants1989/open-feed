@@ -18,7 +18,7 @@ const claims = [];
 const claim = (what, ok) => { claims.push([what, ok]); console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}`); };
 
 const G = pub.newKey(), AT = '/alice';
-const REC = pub.commit(1, [{ key: pub.newKey(), salt: 's' }]);
+const REC = pub.commit([{ key: pub.newKey(), salt: 's' }]);
 const profile = pub.profile({ anchor: G.x, version: 1, chain: [{ key: G.x }], recovery: REC, locations: ['https://alice.example'] }, G);
 const view = (r) => (r.verdict === 'ok' ? `ok [${[...r.posts.keys()].join(',')}]${r.note.length ? ' ' + r.note.join(';') : ''}` : `${r.verdict}: ${r.why}`);
 

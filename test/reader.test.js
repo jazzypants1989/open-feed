@@ -7,11 +7,12 @@ import { createPublisher } from '../src/publish.js';
 import { signFile, address, splitFile } from '../src/file.js';
 import { rotation, restore, signProfile } from '../src/profile.js';
 import { signIndex } from '../src/index.js';
+import { createReader } from '../src/reader.js';
 import { memIo, readerOver, person, list, claim } from './helpers/site.js';
 
 async function scene() {
   const hub = createHub(), io = memIo(hub), alice = person('alice'), mum = person('mum'), sis = person('sis'), ex = person('ex');
-  const REC = list(2, mum, sis, ex), AT = 'https://x/alice';
+  const REC = list(mum, sis, ex), AT = 'https://x/alice';
   const pub = await claim(io, alice, AT, { recovery: REC });
   for (let n = 1; n <= 3; n++) await pub.publish(n, { at: '2026-08-01T00:00:00Z', text: `post ${n}` });
   const reader = readerOver(io);
@@ -42,7 +43,7 @@ test('§7.1 what a missing, garbled, substituted or unsigned profile reads as', 
   s.files.delete('alice/profile'); assert.equal(view(await s.read()), 'host: no profile served');
   s.files.set('alice/profile', Buffer.from('not a file')); assert.equal((await s.read()).verdict, 'identity');
   const other = person('other');
-  s.files.set('alice/profile', signProfile({ anchor: other.key.x, version: 9, chain: [{ key: other.key.x }], recovery: { k: 0, leaves: [] }, locations: [] }, other.key));
+  s.files.set('alice/profile', signProfile({ anchor: other.key.x, version: 9, chain: [{ key: other.key.x }], recovery: { leaves: [] }, locations: [] }, other.key));
   assert.equal(view(await s.read()), 'identity: not the identity this reader learned');
   s.files.set('alice/profile', signProfile({ anchor: s.alice.key.x, version: 9, chain: [{ key: s.alice.key.x }], recovery: s.REC, locations: [] }, other.key));
   assert.equal(view(await s.read()), 'identity: the profile is not signed by the key it ends on');
@@ -138,6 +139,10 @@ test('§7.5 the rumor rule: quiet below top, one look per identity per pass, one
   gets = 0;
   assert.deepEqual(await r.rumors(seen, noisy, 'griefer'), ['griefer replied to something I cannot see']);
   assert.ok(gets <= 6, `${gets} fetches for 1,000 replies`);
+  // §9's cap on identities per pass: past it a target is not looked at, and an unchecked target is no verdict — no line.
+  gets = 0;
+  assert.deepEqual(await createReader({ get: counting.get, maxIdentities: 0 }).rumors(seen, noisy, 'griefer'), []);
+  assert.equal(gets, 0, 'nothing fetched past the cap');
   // Alice actually publishes 4: the look-again finds it and the rumor goes quiet.
   await s.pub.publish(4, { at: 'x', text: 'post 4' });
   assert.deepEqual(await r.rumors(seen, new Map([[0, { target: target(4, 'x') }]]), 'bob'), [], 'the look-again updated the pin; the hash mismatch then makes it unresolved');

@@ -12,7 +12,7 @@ import { createReader } from '../../src/reader.js';
 const key = (label) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest());
 const [A1, A2, A3] = ['alice/anchor', 'alice/rotated', 'alice/restored'].map(key);
 const [MUM, SIS] = ['mum', 'sis'].map((l) => ({ key: key(l), salt: `salt${l}` }));
-const REC = commit(2, [MUM, SIS, { key: key('bro'), salt: 'saltbro' }]);
+const REC = commit([MUM, SIS, { key: key('bro'), salt: 'saltbro' }]);
 const AT = 'https://alice.example/alice';
 const chain = [{ key: A1.x }, rotation(A1, A2, REC), restore(A2, A3, [MUM, SIS], REC)];
 const profile = signProfile({ anchor: A1.x, version: 3, name: 'Alice', chain, recovery: REC, locations: [AT], read: 'cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc' }, A3);
@@ -22,7 +22,7 @@ const post3 = signFile({ n: 3, at: '2026-07-19T09:30:00Z', text: 'congratulation
 const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
 const post4 = signFile({ n: 4, at: '2026-08-15T07:00:00Z', text: 'the morning after', media: [sha256(png)] }, A3);
 const [h1, h2, h3, h4, hp] = [address(post1), address(post2), address(post3), address(post4), sha256(png)];
-const h5 = '52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM';        // the encrypted post of B.10; §6 builds it
+const h5 = '8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs';        // the encrypted post of B.10; §6 builds it
 const hAlt = address(signFile({ n: 2, at: '2026-07-11T18:02:00Z', text: 'rewritten by somebody' }, A3));
 
 const body = (f) => splitFile(f).body, sig = (f) => splitFile(f).sigLine;
@@ -37,8 +37,8 @@ const v3 = signIndex({ entries: [[1, h1], [3, h3], [4, h4], [5, h5], [hp], [2, h
 const vector = (f, b, s) => { assert.equal(body(f).toString(), b); assert.equal(sig(f), s); };
 assert.deepEqual([h1, h2, h3, h4, hp], ['hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY', 'AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs', 'i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4', '3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo', 'fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g']);
 vector(v1, `{"entries":[[1,"${h1}"],[2,"${h2}"],[3,"${h3}"]],"version":1,"top":3}`, 'XnVqNxHU5m3eu4qelsg77HFs7tngexX7YLv-y7MgxX00DH61GdGr9Lhms_65vxnCMHLYDYKiA5C_lQF7-10qDQ');
-vector(v2, `{"entries":[[1,"${h1}"],[2,"${h2}"],[3,"${h3}"],[2,null],[4,"${h4}"],[5,"${h5}"],["${hp}"]],"version":2,"top":5}`, 'fkGSeMiVg9ZPdliEnWNU-Y-2bORoaQwmljSVg5HhV4xKGMc-w6K9VJ21cbqGXUMYCUU_om7dyBjz8bXMamruBQ');
-vector(v3, `{"entries":[[1,"${h1}"],[3,"${h3}"],[4,"${h4}"],[5,"${h5}"],["${hp}"],[2,"${h2}"]],"version":3,"top":5}`, 'Fwobld26DKwmaKgtZ66wlfAvzDEeH9DrODnh6O2aIuLtZ1MoHiy5i2FyJhGHBEumf2aDn6l0obMsV3Ab7CDJCw');
+vector(v2, `{"entries":[[1,"${h1}"],[2,"${h2}"],[3,"${h3}"],[2,null],[4,"${h4}"],[5,"${h5}"],["${hp}"]],"version":2,"top":5}`, 'd3-yqAPg2iItXYasKxmht2vpwfGenGkTXzU-BFPd0sPk64VZzSsDOKL6wS04MPyA1IHk9k0dtqjckoJoCmFRAQ');
+vector(v3, `{"entries":[[1,"${h1}"],[3,"${h3}"],[4,"${h4}"],[5,"${h5}"],["${hp}"],[2,"${h2}"]],"version":3,"top":5}`, '9HJTbv8f48aF1GYk7SySc1aRFK1mm0eSjMo-xr3S3Dowv1OitC_nMVTwta3pJowJ-d27eYYOR1kUYG9eKp1DCQ');
 
 console.log('§4 — one signed file, at /<name>/index, saying what exists now\n');
 console.log(`  ${body(v1)}\n  ${sig(v1)}\n`);

@@ -1,8 +1,8 @@
-// §6 — the envelope: carrier binding, blinded tags, padding, the audience inside; §4.4 encrypted media.
+// §6 — the envelope: carrier binding, blinded tags, §2.4 inside, the audience inside; §4.4 encrypted media.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { encrypt, decrypt, carrierOf, newReadingKey, encryptMedia, decryptMedia, bucket, MAX_PLAIN } from '../src/envelope.js';
+import { encrypt, decrypt, carrierOf, newReadingKey, encryptMedia, decryptMedia } from '../src/envelope.js';
 import { newSigningKey } from '../src/file.js';
 
 const alice = { key: newSigningKey(), read: newReadingKey() }, mum = { key: newSigningKey(), read: newReadingKey() }, host = newReadingKey();
@@ -36,29 +36,26 @@ test('§6.3 a tag is a hint: a malformed or colliding slot is skipped, never a c
 
 test('§6.3 tags are blinded per message: the same recipient\'s tag differs on every post', () => {
   const a = encrypt({ content: { text: 'x' }, audience: fam, carrier }), b = encrypt({ content: { text: 'x' }, audience: fam, carrier });
-  assert.equal(new Set([...a.slots, ...b.slots].map(([t]) => t)).size, 16);
+  assert.equal(new Set([...a.slots, ...b.slots].map(([t]) => t)).size, 4);
 });
 
-test('§6.4 padding: a DM is the size of a family post under the floor; dummies are random and uniform in width', () => {
-  const dm = encrypt({ content: { text: 'call me' }, audience: [fam[1]], carrier }), family = encrypt({ content: { text: 'the scan came back clear, and more words here to make it longer' }, audience: fam, carrier });
-  assert.equal(dm.slots.length, 8); assert.equal(family.slots.length, 8);
-  assert.equal(dm.ct.length, family.ct.length);
-  assert.equal(new Set(dm.slots.map(([t, w]) => `${t.length}/${w.length}`)).size, 1);
-  const again = encrypt({ content: { text: 'call me' }, audience: [fam[1]], carrier });
-  assert.notDeepEqual(dm.slots.slice(1), again.slots.slice(1), 'dummies differ between two seals — nothing derives them');
-  assert.equal(encrypt({ content: { text: 'x' }, audience: fam, carrier, policy: 'pow2' }).slots.length, 2);
-  assert.equal(bucket(513, 512), 1024); assert.equal(bucket(3, 8), 8);
+test('§6.1 one slot per recipient, all the same width, and the ciphertext is the plaintext\'s length plus the tag', () => {
+  const dm = encrypt({ content: { text: 'call me' }, audience: [fam[1]], carrier }), family = encrypt({ content: { text: 'call me' }, audience: fam, carrier });
+  assert.equal(dm.slots.length, 1); assert.equal(family.slots.length, 2);
+  assert.equal(new Set(family.slots.map(([t, w]) => `${t.length}/${w.length}`)).size, 1);
+  const plain = Buffer.from(JSON.stringify({ audience: [fam[1]], text: 'call me' }));
+  assert.equal(Buffer.from(dm.ct, 'base64url').length, plain.length + 16);
 });
 
-test('§6.1 the two-byte length caps the plaintext at 65,535 bytes, and a length past the body does not open', () => {
-  assert.throws(() => encrypt({ content: { text: 'x'.repeat(70000) }, audience: fam, carrier }), RangeError);
-  const room = MAX_PLAIN - JSON.stringify({ audience: fam, text: '' }).length;
-  assert.ok(encrypt({ content: { text: 'x'.repeat(room) }, audience: fam, carrier }));
-  const env = encrypt({ content: { text: 'x' }, audience: fam, carrier, policy: 'pow2' });
+test('§6.1 / §2.4 the rules for a body hold inside the envelope: a producer refuses to emit them, a reader refuses to open them', () => {
+  assert.throws(() => encrypt({ content: { n: 2 ** 53 }, audience: fam, carrier }), /2\^53/);
+  assert.throws(() => encrypt({ content: { text: '\ud800' }, audience: fam, carrier }), /surrogate/);
+  assert.throws(() => encrypt({ content: { ['__proto__']: { text: 'x' } }, audience: fam, carrier }), /__proto__/);
+  const env = encrypt({ content: { text: 'x' }, audience: fam, carrier });
   assert.equal(decrypt(env, mum.read.privateKey, carrier).text, 'x');
 });
 
-test('§6.5 the audience must name people, and the publisher includes itself', () => {
+test('§6.4 the audience must name people, and the publisher includes itself', () => {
   assert.throws(() => encrypt({ content: {}, audience: [mum.read.x], carrier }), /audience entries/);
   const env = encrypt({ content: { text: 'to mum only' }, audience: [fam[1]], carrier });
   assert.equal(decrypt(env, alice.read.privateKey, carrier), null, 'a publisher that leaves itself out cannot read its own outbox');

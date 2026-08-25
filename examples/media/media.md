@@ -1,6 +1,6 @@
 # Media
 
-**Spec:** §4.4 media and attachments, §5.5 `media` on a post, §6.6 the key inside the envelope,
+**Spec:** §4.4 media and attachments, §5.5 `media` on a post, §6.5 the key inside the envelope,
 Appendix A media types.
 **Run:** `node examples/media/media.js`
 
@@ -39,7 +39,7 @@ until a signed index says so.
 
 **Listed in the index, so retention is one rule that reaches encrypted posts.** Post 7 is encrypted.
 The file the hub serves has three members — `n`, `at`, `encrypted` — and no `media` at all, because
-on an encrypted post the reference lives inside the envelope (§5.5, §6.6). The host cannot read it,
+on an encrypted post the reference lives inside the envelope (§5.5, §6.5). The host cannot read it,
 so it cannot work out which blobs the post needs. The index line `["CpQDyIo_…"]` tells it anyway:
 keep this one. That is the whole argument. If media were only ever named by the posts that reference
 them, a hub's retention rule would be "parse every post and collect its references", which is a rule

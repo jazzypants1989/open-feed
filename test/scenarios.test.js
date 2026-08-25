@@ -14,7 +14,7 @@ import { memIo, readerOver, person, list, members, claim } from './helpers/site.
 test('the divorce: he cannot post as her, read what is encrypted past him, alter or backdate her words, keep her, or keep her identity', async () => {
   const hub = createHub(), io = memIo(hub);                                  // the ex runs this hub
   const alice = person('alice'), mum = person('mum'), sis = person('sis'), ex = person('ex');
-  const REC = list(2, mum, sis, ex), AT = 'https://ex.example/alice';
+  const REC = list(mum, sis, ex), AT = 'https://ex.example/alice';
   const aliceRead = newReadingKey(), mumRead = newReadingKey();
   const pub = await claim(io, alice, AT, { recovery: REC, read: aliceRead.x });
   const audience = [{ key: alice.key.x, read: aliceRead.x, loc: AT }, { key: mum.key.x, read: mumRead.x, loc: 'https://mum.example/mum' }];
@@ -72,7 +72,7 @@ test('the divorce: he cannot post as her, read what is encrypted past him, alter
 test('Grandma onboards: an app, a name, no key ever shown; back by calling her daughter', async () => {
   const hub = createHub(), io = memIo(hub);
   const grandma = person('grandma'), daughter = person('daughter');
-  const REC = list(1, daughter), AT = 'https://family.example/grandma';
+  const REC = list(daughter), AT = 'https://family.example/grandma';
   const pub = await claim(io, grandma, AT, { recovery: REC });
   await pub.publish(1, { at: '2026-08-01T00:00:00Z', text: 'hello from the garden' });
   const reader = readerOver(io);
@@ -95,9 +95,9 @@ test('two hubs, one thread: a encrypted post, a encrypted reply and a reaction c
   const mom = person('mom'), jesse = person('jesse'), sis = person('sis');
   const reads = { mom: newReadingKey(), jesse: newReadingKey(), sis: newReadingKey() };
   const at = { mom: 'https://m.example/mom', jesse: 'https://j.example/jesse', sis: 'https://m.example/sis' };
-  const mpub = await claim(io, mom, at.mom, { recovery: list(1, jesse), read: reads.mom.x });
-  const jpub = await claim(io, jesse, at.jesse, { recovery: list(1, mom), read: reads.jesse.x });
-  await claim(io, sis, at.sis, { recovery: list(1, mom), read: reads.sis.x });
+  const mpub = await claim(io, mom, at.mom, { recovery: list(jesse), read: reads.mom.x });
+  const jpub = await claim(io, jesse, at.jesse, { recovery: list(mom), read: reads.jesse.x });
+  await claim(io, sis, at.sis, { recovery: list(mom), read: reads.sis.x });
   const reader = readerOver(io);
   const seen = new Map();
   for (const [who, p] of [['mom', mom], ['jesse', jesse], ['sis', sis]]) seen.set(p.key.x, (await reader.read({ learned: p.key.x, at: at[who] })).pin);
@@ -125,35 +125,40 @@ test('the domain goes: everyone relocates, nobody\'s identity changes, readers f
   const oio = memIo(old), fio = memIo(fresh);
   const io = { get: async (u) => (u.includes('//new.example') ? fio.get(u) : oio.get(u)), put: (u, b, o) => (u.includes('//new.example') ? fio.put(u, b, o) : oio.put(u, b, o)) };
   const a = person('alice'), AT = 'https://pence.family/alice', NEW = 'https://new.example/alice';
-  const pub = await claim(io, a, AT, { recovery: list(0) });
+  const pub = await claim(io, a, AT, { recovery: list() });
   await pub.publish(1, { at: 'x', text: 'before the move' });
+  await pub.publish(2, { at: 'x', text: 'also before the move' });
   const reader = readerOver(io);
   const pin = (await reader.read({ learned: a.key.x, at: AT })).pin;
-  await pub.updateProfile({ anchor: a.key.x, version: 2, name: 'alice', chain: [{ key: a.key.x }], recovery: list(0), locations: [AT, NEW] });
+  await pub.updateProfile({ anchor: a.key.x, version: 2, name: 'alice', chain: [{ key: a.key.x }], recovery: list(), locations: [AT, NEW] });
   const moved = await reader.read({ learned: a.key.x, at: AT, pin });
-  // Move the files, then the old domain dies.
-  const pubNew = createPublisher({ io, key: a.key, at: NEW });
-  await pubNew.claim({ anchor: a.key.x, version: 3, name: 'alice', chain: [{ key: a.key.x }], recovery: list(0), locations: [NEW] });
+  // Move the files, then the old domain dies. The new name continues from her own last index (§10):
+  // a fresh index at version 1 would meet every pinned reader as a second index at a version it holds.
+  const pubNew = createPublisher({ io, key: a.key, at: NEW, last: pub.copy.get('/index') });
+  await pubNew.claim({ anchor: a.key.x, version: 3, name: 'alice', chain: [{ key: a.key.x }], recovery: list(), locations: [NEW] });
   for (const [path, bytes] of pub.copy) if (path.startsWith('/posts/')) await io.put(`${NEW}${path}`, bytes);
-  await pubNew.amendIndex((h) => ({ ...h, entries: [[1, pin.live.get(1)]], top: 1 }));
   old.store.clear();
   // The reader tries the locations it holds.
   let found = null;
   for (const loc of moved.pin.locations) { try { const r = await reader.read({ learned: a.key.x, at: loc, pin: moved.pin }); if (r.verdict === 'ok') { found = { loc, r }; break; } } catch { /* keep trying */ } }
   assert.equal(found?.loc, NEW);
-  assert.ok(found.r.posts.has(1));
+  assert.ok(found.r.posts.has(1) && found.r.posts.has(2));
+  assert.equal(found.r.pin.indexVersion, moved.pin.indexVersion + 1, 'the index version carried across the move');
 });
 
 test('the stranger: a public journal reaches a plain feed reader through the generated views, which are never evidence', async () => {
   const hub = createHub(), io = memIo(hub);
   const a = person('alice'), AT = 'https://a.example/alice';
-  const pub = await claim(io, a, AT, { recovery: list(0) });
+  const pub = await claim(io, a, AT, { recovery: list() });
   await pub.publish(1, { at: '2026-08-01T00:00:00Z', text: 'First day of the holidays.\nThe kids are feral already.' });
   await pub.publish(2, { at: '2026-08-02T00:00:00Z', text: 'Rain. Board games. <b>Not</b> HTML & such.' });
   await pub.publish(3, { at: '2026-08-03T00:00:00Z', encrypted: { epk: 'x', slots: [], ct: 'y' } });
+  const photo = await pub.publishMedia(Buffer.from('a photograph'));
+  await pub.publish(4, { at: '2026-08-04T00:00:00Z', media: [photo] });
   const r = await readerOver(io).read({ learned: a.key.x, at: AT });
   const feed = JSON.parse(views.jsonFeed(r, AT));
-  assert.equal(feed.items.length, 2, 'encrypted posts are omitted from views');
+  assert.equal(feed.items.length, 3, 'encrypted posts are omitted from views; a post with media and no text is listed (§4.4)');
+  assert.equal(feed.items[2].content_text, '');
   assert.equal(feed.items[0].id, `urn:openfeed:${a.key.x}:1`, 'ids survive a relocation');
   assert.ok(views.atom(r, AT).includes('&lt;b&gt;'), 'text is escaped, never trusted');
   assert.ok(views.hcard(r, AT).includes(`#${a.key.x}`), 'the h-card link carries the anchor key in its fragment');

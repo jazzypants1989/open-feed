@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { signingKeyFromSeed } from '../../src/file.js';
 import { isPublicAddress, isPublicOrLoopbackAddress, parseIPv4 } from '../../src/addresses.js';
-import { createFetcher, guardedLookup, FetchError, TIMEOUT_MS, MAX_REDIRECTS, MAX_SOCKETS_PER_ORIGIN, MAX_BYTES, MAX_IDENTITIES_PER_PASS } from '../../src/fetch.js';
+import { createFetcher, guardedLookup, FetchError, TIMEOUT_MS, MAX_REDIRECTS, MAX_SOCKETS_PER_ORIGIN, MAX_BYTES } from '../../src/fetch.js';
+import { MAX_IDENTITIES_PER_PASS } from '../../src/reader.js';
 import { createReader } from '../../src/reader.js';
 
 const table = (rows) => { const w = (i) => Math.max(...rows.map((r) => r[i].length)) + 2; for (const r of rows) console.log(`  ${r[0].padEnd(w(0))}${r[1].padEnd(w(1))}${r[2]}`); };

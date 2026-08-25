@@ -147,8 +147,8 @@ through a person, never through the host.
 
 ```json
 {"anchor":"<key>","version":3,"name":"Alice",
- "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"k":2,"leaves":["<hash>","<hash>","<hash>"]},"sig":"<86 chars>"}],
- "recovery":{"k":2,"leaves":["<hash>","<hash>","<hash>"]},
+ "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"leaves":["<hash>","<hash>","<hash>"]},"sig":"<86 chars>"}],
+ "recovery":{"leaves":["<hash>","<hash>","<hash>"]},
  "locations":["https://alice.example/alice"],
  "read":"<x25519 key>"}
 ```
@@ -175,7 +175,7 @@ The chain is an array of links. The first link MUST be `{"key": <anchor>}` and i
 
 ```json
 {"key":"<new key>",
- "recovery":{"k":2,"leaves":["<hash>","<hash>","<hash>"]},
+ "recovery":{"leaves":["<hash>","<hash>","<hash>"]},
  "sig":"<86 chars>",
  "vouchers":[{"key":"<voucher key>","salt":"<salt>","sig":"<86 chars>"}]}
 ```
@@ -190,8 +190,12 @@ The chain is an array of links. The first link MUST be `{"key": <anchor>}` and i
   voucher counts when its signature verifies **and** `SHA-256(salt ‖ "|" ‖ voucher key)`, base64url,
   is one of `recovery.leaves`. This is a **restore**: the owner's people moved them.
 
-A link is **valid** when `sig` verifies, or when the number of **distinct** voucher keys that count
-is at least `recovery.k`. A reader MUST reject a profile whose chain contains a link that is neither.
+A link is **valid** when `sig` verifies, or when the **distinct** voucher keys that count are **more
+than half** of `recovery.leaves`. A reader MUST reject a profile whose chain contains a link that is
+neither. There is no lower threshold: a majority is the one bar, for a link's validity and for a
+contest (§3.6) alike, because any lower bar is a second door into the identity that the contest rule
+never watches — one listed member, the abuser, could extend the chain to a key of his own without
+holding any key of Alice's. An empty list can never restore.
 
 A link may carry both `sig` and `vouchers`. Vouchers MAY be **added to a link after it was made** — a
 rotation the owner made alone can later be backed by their people, which lets them win a contest at
@@ -204,8 +208,13 @@ already holding one ignores it (§3.6 rule 3).
 
 **A restore changes the key and nothing else.** A link with no `sig` MUST NOT be accompanied, in the
 same profile version, by a change to `locations`, `recovery`, `name`, or `read`. A pinned reader MUST
-check this: a profile whose chain has grown by a link with no `sig` since the pin, and whose
-`recovery`, `locations`, `name`, or `read` differ from what the pin holds, is **identity**.
+check this: a profile whose chain has grown by **any** link with no `sig` since the pin — alone or
+beside a rotation — and whose `recovery`, `locations`, `name`, or `read` differ from what the pin
+holds, is **identity**.
+
+A chain MUST NOT exceed 64 links, and a reader MUST reject a profile whose chain is longer: every
+link costs a signature check, the profile is attacker-supplied, and §9's byte cap alone would admit
+thousands.
 
 A key rotated away from stays in the chain and keeps its posts valid — but it cannot sign an index
 (§4.6) and cannot hold a number against the owner (§8.5). That is how a stolen old key is closed
@@ -214,19 +223,25 @@ without a revocation mechanism.
 ### 3.4. The recovery list
 
 ```json
-"recovery": {"k": 2, "leaves": ["<hash>", "<hash>", "<hash>"]}
+"recovery": {"leaves": ["<hash>", "<hash>", "<hash>"]}
 ```
 
 Each leaf is `SHA-256(salt ‖ "|" ‖ member key)` in base64url, with a distinct random salt per
 member. A member vouching reveals only their own salt and key, so the rest of the list stays hidden.
 
-The **count** of leaves is public and MUST be, because a majority has to be counted against something
-(§3.6). `k` is the threshold the author set for a restore to be valid.
+The **count** of leaves is public and MUST be, because a majority has to be counted against it
+(§3.3, §3.6). A list MUST NOT exceed 32 leaves, for the reason the chain is bounded (§3.3).
 
-The list MAY be empty. Members can be people, a backup key you keep yourself, or your host. An app
-SHOULD require two or more members (or the owner alone), because **a list with one other person gives
-that person the identity at that chain length** — a majority of one is one, and it stays given after
-a rotation, because a recovery list is never overwritten once a reader has seen it (§3.6).
+The list MAY be empty, and an empty list means **this identity cannot be restored**: lose the key and
+the identity is gone. Members can be people, a backup key you keep yourself, or your host. An app
+SHOULD create a backup key at setup and list it, so that a person starting alone — with no one else
+on the protocol yet — is recoverable from a piece of paper: the spoken code (§3.1) is how a key
+lives there. People can be added later; a changed list reaches readers through a rotation (§3.5).
+
+An app SHOULD require two or more members beyond the owner's own keys, because **a list with one
+other person gives that person the identity at that chain length** — a majority of one is one, and
+it stays given after a rotation, because a recovery list is never overwritten once a reader has seen
+it (§3.6).
 
 A restored identity SHOULD be flagged "recently restored" for seven days by reading apps. That flag
 is presentation, not a verdict (§7.3), and the record of who vouched stays in the chain.
@@ -264,14 +279,6 @@ apply all four.
    **contested** (§7.3) and the reader follows no branch until a person hands it the current key
    (§3.1).
 
-**Majority, and not `k`.** They differ on one case, and it is the case the protocol exists for: the
-abuser is on the recovery list, and he vouches for himself, while Alice merely rotates her key. Under
-a threshold of `k`, one listed adversary hands himself her identity. Under a majority he cannot,
-ever, alone. **The price:** a one-of-two restore against a bare rotation stays contested until a
-second member vouches. What the single link shape (§3.3) buys here is that Alice does not restore
-*again* to pay it — her people add their vouchers to the link she already made, and the keys and
-posts after it stand.
-
 Two limits a reader cannot escape and an app MUST NOT hide:
 
 - **A cold reader's recovery list is whatever the first profile it saw carried.** A reader that first
@@ -296,7 +303,7 @@ target's location as the replier currently knows it, and a reader that sees a ne
 post it has verified follows it there. Someone with any social path to the departing person finds
 them; a reader with none does not. §13.3 states what that reader sees.
 
-Because an encrypted post's target is inside the envelope (§6.6), relocation rides along in
+Because an encrypted post's target is inside the envelope (§6.5), relocation rides along in
 **public** replies only.
 
 ### 3.8. The reading key
@@ -390,7 +397,7 @@ the media is absent.
 A media file attached to an encrypted post is encrypted too: the publisher draws a random 32-byte
 key, computes `ChaCha20-Poly1305(key, nonce = 12 zero bytes, plaintext = the media bytes, aad = "")`,
 and lists and serves the ciphertext — so the listed hash is the hash of the ciphertext. The key is
-carried as `{"hash": <listed hash>, "key": <key, base64url>}` in the envelope's `media` (§6.6). The
+carried as `{"hash": <listed hash>, "key": <key, base64url>}` in the envelope's `media` (§6.5). The
 key MUST NOT be reused for a second media file. The reference is inside the envelope, and the hub
 learns only that a blob of some size exists.
 
@@ -490,8 +497,9 @@ A direct message is a post encrypted to one person, living on the sender's own h
 inbox, no dead-drop, and no push.
 
 Two consequences worth stating. The host cannot read it (§6), but it learns **the shape of the
-correspondence** — how many, how often, how big, fetched by whom — and it can withhold any of them,
-which to the recipient looks like the sender going quiet. And **a signed private message is provable
+correspondence** — how many, how often, how big, fetched by whom. It cannot withhold one quietly: a
+direct message is a listed post, so a pinned reader that is not served it reads **host** (§7.4); to
+look like silence the host must freeze the index as well (§7.2, §13.3). And **a signed private message is provable
 by its recipient forever**, withdrawn or not: that is what per-post signatures mean.
 
 ## 6. Encrypted content
@@ -527,14 +535,16 @@ and the content, once:
 
 ```
 plain   = UTF-8 JSON of {"audience": [...], ...the post's content members...}
-padded  = 2-byte big-endian length of plain, then plain, then zeros to a bucket (§6.4)
-ct      = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = padded,
+ct      = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain,
           aad = epk || carrier)
 ```
 
-`epk` is the ephemeral public key, base64url. Every slot is a `[tag, wrapped]` pair of base64url
-strings. The content key MUST be 32 random bytes and MUST NOT be reused across messages; the all-zero
-nonce is safe for exactly that reason, as in HPKE.
+`epk` is the ephemeral public key, base64url; where it is used as bytes — the HKDF salt and both
+associated data — it is the 32 raw key bytes, not the text. Every slot is a `[tag, wrapped]` pair of
+base64url strings, one per recipient. The content key MUST be 32 random bytes and MUST NOT be reused
+across messages; the all-zero nonce is safe for exactly that reason. `plain` is a JSON object body
+and §2.4 applies to it: a publisher MUST NOT emit inside an envelope what it may not emit in a file,
+and a reader SHOULD reject it there too.
 
 ### 6.2. Carrier binding
 
@@ -559,22 +569,7 @@ every slot is conformant and merely slower — which is the test of whether a ta
 Tags are blinded per message: they are derived through the message's own ephemeral, so the same
 recipient's tag differs on every post and an observer cannot derive them from public reading keys.
 
-### 6.4. Padding
-
-`bucket(n, floor)` is the greater of `floor` and the next power of two at or above `n`. Slots are
-padded to `bucket(slot count, slot floor)` with dummies — a dummy is random bytes, a tag nobody can
-derive and a wrap nobody can open, and MUST be indistinguishable in width from a real slot. It MUST
-NOT be derived from anything a recipient holds, or a recipient counts the true audience. The body is
-padded to `bucket(length + 2, body floor)`.
-
-**A publisher SHOULD use a floor of 8 slots and 512 bytes**, so that a message to one person is the
-same size as a message to the family. Without it, the host can tell a DM from a group post by file
-size alone.
-
-It is a SHOULD and not a MUST: the floor costs about 1.1 KB per direct message, and a minimal
-implementation that skips it is still conformant.
-
-### 6.5. The audience is inside
+### 6.4. The audience is inside
 
 `audience` MUST be an array of the recipients, encrypted in the plaintext, each identifying the
 recipient:
@@ -593,9 +588,9 @@ entry, the replier reads the member's profile at `loc`, refuses it unless its `a
 (§3.1), and encrypts to the `read` key that profile carries.
 
 The audience is never in a header, and the slot tags never name a key. What the host learns is that
-an encrypted post exists, when, and roughly how big.
+an encrypted post exists, when, how big, and how many slots it has.
 
-### 6.6. An encrypted post's target
+### 6.5. An encrypted post's target
 
 **On an encrypted post, `rel`, `target`, and `media` go inside the envelope.** The public file
 carries `n`, `at`, and `encrypted`, and nothing else about what it answers. Inside, each `media`
@@ -891,8 +886,7 @@ is a level of the others.
 §4.6), maintain the chain (§3.3), write posts before indexes (§8.3), write an index when it claims a
 name (§8.4), fold correctly when it rewrites (§4.7), keep the bytes it publishes (§10), re-read and
 re-fold on a lost compare-and-swap (§8.1), and encrypt only to verified reading keys (§3.8) with the
-audience named inside (§6.5). It SHOULD write the views of §11, and SHOULD pad encrypted content to
-§6.4's floor.
+audience named inside (§6.4). It SHOULD write the views of §11.
 
 **A reader** MUST obtain the anchor key out of band (§3.1), perform §7's steps in order, apply the
 contest rules of §3.6 with a recovery list at every length its pin reaches, honour §7.3's three
@@ -951,13 +945,12 @@ A wall clock never gates a security verdict. This list is the check on that clai
 - **A cold reader's recovery list is whatever its first profile carried** (§3.6). A reader that first
   meets an identity on a thief's branch will reject the real one when it appears.
 - **The shape of a correspondence is visible even when its contents are not.** How many encrypted
-  posts, when, roughly how big, fetched by which address. §6.4's floor hides one distinction — a
-  message to one person from a message to the group — and nothing hides the rest.
+  posts, when, how big, to how many, fetched by which address. Nothing hides it.
 - **A signed private message is provable by its recipient forever** (§5.6).
 - **There is no forward secrecy.** A reading key that leaks opens every encrypted post ever addressed
   to it. `read` can be changed by a new profile version, and nothing re-encrypts the past.
 - **A recovery list of one other person is that person's identity** at that chain length, for every
-  reader that saw the list (§3.4).
+  reader that saw the list (§3.4). **An empty list is an identity that cannot be restored.**
 - **First contact after a hijack is unprotectable**, by definition: a reader with no prior knowledge
   of the identity accepts the first key it is shown, and §3.1's whole purpose is to make sure that
   key came from somewhere else.
@@ -1014,15 +1007,15 @@ mum reading     (X25519 public)   Yu9nDDrlZOLjeg9rT9ZOffojS6Kne4lF4m93Ag8NGiU
 
 ### B.2. The recovery commitment (§3.4)
 
-Two of three, committed one member at a time. `sis` vouching reveals `saltsis` and her key, and
-nothing about `mum` or `bro`.
+Three members, committed one member at a time; two of them are a majority (§3.3). `sis` vouching
+reveals `saltsis` and her key, and nothing about `mum` or `bro`.
 
 ```
 salts             mum "saltmum"  sis "saltsis"  bro "saltbro"
 SHA-256(salt|key) WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4
                   wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc
                   frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ
-committed         {"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]}
+committed         {"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]}
 ```
 
 ### B.3. Profile, `version` 1 (anchor)
@@ -1030,8 +1023,8 @@ committed         {"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4"
 The chain is one link long and the file is signed by the anchor key.
 
 ```
-{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":1,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"}],"recovery":{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
-3hr5IrF5L9-Raq1tK0F06WC0Rrqi1214OSOaMUL7_XEKUIZUqbkLTOP4Oe3GvxPHbNURmjSgojawDIesZ8w8Bw
+{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":1,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
+ns9k4GGpvO_nrDqF7kX0XDqZS-cYEMO_te5dERd7cR7VdX2UL5BQa8ZgjlHwtqwsJRuQ4anFeWCB1J7FTVKMBw
 ```
 
 ### B.4. Profile, `version` 2 (a rotation)
@@ -1040,18 +1033,18 @@ The link carries the list that stood before it and is signed by the key it repla
 bytes `<previous>-><new>` (§3.3).
 
 ```
-{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":2,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"sig":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"}],"recovery":{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
-0bd9LLwdhcpP2xPVDV5kEBSnIaLCWv89GhtBamAMB_ROWi3stbLEwLSeYhaFJS2vU6QDNuQqCOu4gwUwN0HwCg
+{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":2,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"sig":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
+fEaUyfiExFhauLWOoDi37at9BUYyrC-MNsnvXLVusx2BFhJzi8fOTHzaxLgClZlmUW-cSiVIbHxL3Yin04GTBg
 ```
 
 ### B.5. Profile, `version` 3 (a restore)
 
-The same link shape with vouchers instead of a signature: two of three, each revealing only its own
-salt, counted against the `recovery` the link carries (§3.3).
+The same link shape with vouchers instead of a signature: two of three — a majority — each revealing
+only its own salt, counted against the `recovery` the link carries (§3.3).
 
 ```
-{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":3,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"sig":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"},{"key":"17Ffa8rSZgnuFbV_5lfpNbt29t3qbWSOZgD2Qzfwy2M","recovery":{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"vouchers":[{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","salt":"saltmum","sig":"zlSag21icaKQIgVI-iopptghcCruIYne8uv1aI9P94VOSm-CoFQ3e44Ajp5zR0DPmvCwl3KJNKbJgCyFi-ZxBg"},{"key":"lSsNjsT3evpDW6UbuftsCqsxJ4eTe8pS21eX5p9QTNQ","salt":"saltsis","sig":"ttyqfT-I4auqFG0udf45r76o5gavmZEnStB0E5oAcQAKIAYNpkJRz9LjIqJfu8ZiolEB9Gtabq9w-RYtVOIHDw"}]}],"recovery":{"k":2,"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
-aRA3RY4Hj8XWNKHKIiscdNEsLj0A31PFFXkZgNILidFwKIY2XVfnY06ho0kOIX7_zkY0LDznbTR6UjzQYRXjAA
+{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":3,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"sig":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"},{"key":"17Ffa8rSZgnuFbV_5lfpNbt29t3qbWSOZgD2Qzfwy2M","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"vouchers":[{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","salt":"saltmum","sig":"zlSag21icaKQIgVI-iopptghcCruIYne8uv1aI9P94VOSm-CoFQ3e44Ajp5zR0DPmvCwl3KJNKbJgCyFi-ZxBg"},{"key":"lSsNjsT3evpDW6UbuftsCqsxJ4eTe8pS21eX5p9QTNQ","salt":"saltsis","sig":"ttyqfT-I4auqFG0udf45r76o5gavmZEnStB0E5oAcQAKIAYNpkJRz9LjIqJfu8ZiolEB9Gtabq9w-RYtVOIHDw"}]}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
+cFu5nHM58WG2v12ax_h67RMagOUjSOy6yCVMZSTlOrej-YPl-ycPGO7rZ3sGirpDIhymc_ajtCV6uKCHxyjnDA
 ```
 
 ### B.6. Post
@@ -1076,14 +1069,13 @@ S4mRckyGslGrhS5n9O6KmD0qqweGXOzu784PMH3sUHgrDqD5SliKvKiecBa6JWbIm9y1hkFTzor1_Bzq
 ### B.8. Post — encrypted
 
 Only `n` and `at` are in the clear; the text, the relation, the target and the media references are
-inside the envelope (§6.6), and so is the audience, naming each recipient by anchor key, reading key and
-location (§6.5). The audience is padded to eight slots (§6.4); the six dummies are random bytes, drawn
-here from a seeded stream so the vector reproduces. The carrier bound into the associated data is
+inside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and
+location (§6.4): one slot per recipient. The carrier bound into the associated data is
 `pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5`.
 
 ```
-{"n":5,"at":"2026-08-18T21:40:00Z","encrypted":{"epk":"bulurRC1e4YYuDGwVZj_Yh9ZgswZoponWSc5JsAp5z8","slots":[["cwNqOZ1KtPU","LRz0F-kLZzeE3HcRmOcfbdxrFr7PIszC4GJ6JiiQBW2D_2yuzRMWiemDHEawzpsH"],["SzNzzQy4o2c","2rsCQZAjQMhlxocGQd4baI0tsCQiZqRX8BtHmJ8mihXiGd5DtWA0mmPvzLY0Ite-"],["ILHlw-FK67c","EEU5dLZYx6yEemQZP08spx3Y5pQzWwofzUulmWSGNbIMT8a2knmNjUfsl3cdChDa"],["zopSOkIKgJA","851y70OHR0pocIlM2xXn1AFGJov5I1-8AJetsUZZUg7IIrUsAvVD6EjNSBpyIOrV"],["hRdE2dQilV0","jhRdmjLCLWphJNUnZB51gFsZx-SDyhst09cIU4dTvTb6WBoMgcb-WU_CQG_8A0Bv"],["qjOkXqGsg6A","y5a0GA8nhNIcQ-VUZaRm57oApXBpsrVeAfknLoePEjG9WI3xDrKBOCyAbOFC9c4M"],["O0DMO8iWfSg","hlttXoxLa4Lsnku2aci3pMQXbxAJ4_yL6C2JWC2kwdreCKdwNS55MlDW48XLlFLr"],["egvAYnVIubU","R9Xb_tWYWN9e9jD7MRIMvW_yDhRunvH2X6UEtOaFOMGmTBondgMEGsOQMNXVWWbK"]],"ct":"F0a_r7lGklcYcRiWYCqFFFNp-LVbDvXTILfYICimJP134PN360lOaRl4_2lw9qEbHtyqrom3PlngcSImLvZj0hfVSoB-43mWafOWXphvPemBv9vQysIpreYdZN80gXmqrwgEU1FX6pkPbnhh_Ar1d9e_Cr_tFMaf9ZEjOjp7l9o6hCnVWMqdhMarC-Dqz9l61Pb7YW5__E1Anz_RvGWdZdMr1YJoFUWpvaXZPLpPlrDB60scEDCOlIKGYIHbpAM_LDO_j_UUviXfq6H7akDGDt2ookJtvaLSbiwXmPo-hU5ONM5PFMylYsPp5HNXs5Kv1wuaTQb0asjrl8pJ7uSCsIAspXZyLgXX4IlHI97ks2P1_6s9xmiYn9gFxekNQX9l98xbfXHkMw4mYTS_mwafKcQYVt6ihiZc3FDjD_22BZJ9u3h65mBtodt9OKw4FC1YnDyy3Omd7_jQpzzh40vYRIz3j7dDRXtykla-n4QjscunP7Eg3SQjErNJk86HWyFLMFFuFjdHpZvddYan_Yscgf8M3Vkir0lWrr-ux0UFcqxNyr7afJK3D0pJLuHb_qqpCyntEnz743_xEJ2iNN6B9bsJjzP1y9Kqm_za9Ea4Z-CygTZP7LX_RB1OJjeDZCDKr3oD5GkNmllSxKXiAlby8emchzLqjNu-pjRfm--gBAhNlRr9lhkBTsubzlQR5yMM"}}
-of4DvgHLfMNW6qH9U5E1VuHVDh3TGYPmMdZKXBXTCwatYpLK7TOdr0Wbe18LrThOzU1VyhgwieuRxkkdYBhACw
+{"n":5,"at":"2026-08-18T21:40:00Z","encrypted":{"epk":"bulurRC1e4YYuDGwVZj_Yh9ZgswZoponWSc5JsAp5z8","slots":[["cwNqOZ1KtPU","LRz0F-kLZzeE3HcRmOcfbdxrFr7PIszC4GJ6JiiQBW2D_2yuzRMWiemDHEawzpsH"],["SzNzzQy4o2c","2rsCQZAjQMhlxocGQd4baI0tsCQiZqRX8BtHmJ8mihXiGd5DtWA0mmPvzLY0Ite-"]],"ct":"bT2l-Lxak1AeelnJGWv8BBR7v_ZbRKLIJOr_Wy-mTOMsw6Vmuh8aPGJw1khx8Y8nFNm7surpaSrQA0FoVrlovHagSt458HjVN_PPMJR0f_HEpenv5Mw1mMwJfPgjmQ3i3HQHZH1k7OAdAkxrigitWvW2KafkXYmftdwsd2N7xYwmgC6fBN_Tx86kB63qmd1vxffuImo89EJM3iffumuNIsFsloJnTge6pqP2KLwavavh61BNIDLZsOmNfZjYlgY8WhnK_4VPwALUibrTWn_8XaSo_AV-vOGMbk9A-OFDr3hmHO1ZMeWoPtaEr30hj7um2zfGVV7aMMGZz-FEsJzWyalTgmQ5VwWXrYYKet625X_x-OFh0yrYn5kNk-0YUH5wtMQbfTz0TF9ZOXOzilzRKbcafpPjh2NRz1j7AbO5TJc0uTY1zjJCt9Nge_k4SmpG22qylKSA9LXZT1VcsfW9CctzBRhf4LpSCA"}}
+bN2ROy23DEOd_SBE55RYioGMlTHxb0zyQqoVVzK85-fQg8Nq2mV_dHR3OSrsyPB3jdBfjHpBILQnlnbFoMZeBg
 ```
 
 ### B.9. Index, `version` 1
@@ -1101,8 +1093,8 @@ Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the me
 address alone. The media file's bytes are 26 bytes hashing to `fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g`.
 
 ```
-{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}
-fkGSeMiVg9ZPdliEnWNU-Y-2bORoaQwmljSVg5HhV4xKGMc-w6K9VJ21cbqGXUMYCUU_om7dyBjz8bXMamruBQ
+{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}
+d3-yqAPg2iItXYasKxmht2vpwfGenGkTXzU-BFPd0sPk64VZzSsDOKL6wS04MPyA1IHk9k0dtqjckoJoCmFRAQ
 ```
 
 ### B.11. Index, `version` 3 — the rewrite, and a number that comes back
@@ -1112,8 +1104,8 @@ The lines the withdrawal left behind are gone (§4.7), and post 2 is re-listed a
 coming back are not a change.
 
 ```
-{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}
-Fwobld26DKwmaKgtZ66wlfAvzDEeH9DrODnh6O2aIuLtZ1MoHiy5i2FyJhGHBEumf2aDn6l0obMsV3Ab7CDJCw
+{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}
+9HJTbv8f48aF1GYk7SySc1aRFK1mm0eSjMo-xr3S3Dowv1OitC_nMVTwta3pJowJ-d27eYYOR1kUYG9eKp1DCQ
 ```
 
 ### B.12. The spoken code (§3.1)
