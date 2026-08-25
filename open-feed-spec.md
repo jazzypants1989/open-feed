@@ -76,3 +76,102 @@ one that accepts `__proto__` MUST parse into an object that does not inherit fro
 
 Unknown members MUST be preserved; they are inside the signature. Extension members SHOULD begin
 with `_`.
+
+## 3. Identity
+
+Your identity is your anchor key: a 32-byte Ed25519 public key. A reader MUST obtain it by a route the
+host does not control (§3.7) and MUST refuse a profile whose `anchor` differs from it.
+
+### 3.1. The profile
+
+```json
+{"anchor":"<key>","version":3,"name":"Alice",
+ "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"leaves":["<hash>","<hash>","<hash>"]},"sig":"<86 chars>"}],
+ "recovery":{"leaves":["<hash>","<hash>","<hash>"]},
+ "locations":["https://alice.example/alice"],
+ "read":"<x25519 key>"}
+```
+
+| member | | meaning |
+|---|---|---|
+| `anchor` | MUST | the identity |
+| `version` | MUST | a non-negative integer; MUST NOT go backwards |
+| `chain` | MUST | the links from the anchor key to the key in use now (§3.2) |
+| `recovery` | MUST | the recovery list (§3.3); MAY be empty |
+| `locations` | MUST | every place this identity is served from (§3.5) |
+| `read` | SHOULD | the X25519 key others encrypt to (§3.6) |
+| `name` | MAY | a display name; MUST NOT be used to resolve or match an identity |
+
+The profile MUST be signed by the key its chain ends on.
+
+### 3.2. The chain
+
+The chain is an array of links. The first MUST be `{"key": <anchor>}`. Every later link is
+`{"key", "recovery", "sig"?, "vouchers"?}`: `key` is the key this link moves to; `recovery` is the recovery
+list as it stood before this link; `sig` is an Ed25519 signature by the previous link's key over the ASCII
+bytes `<previous key>-><new key>`, checked as §2.1 checks a signature line — a **rotation**; `vouchers`
+are `{key, salt, sig}` signatures over the same bytes by recovery-list members, and one counts when its
+signature verifies and `SHA-256(salt ‖ "|" ‖ key)` in base64url is one of `recovery.leaves` — a
+**restore**.
+
+A link is valid when `sig` verifies, or when the distinct voucher keys that count are more than half of
+`recovery.leaves`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
+list cannot restore. Vouchers MAY be added to a link after it was made.
+
+A restore changes the key and nothing else: a pinned reader MUST report **identity** for a profile whose
+chain has grown by any link without `sig` and whose `recovery`, `locations`, `name`, or `read` differ from
+the pin.
+
+A chain MUST NOT exceed 64 links, and a reader MUST reject a longer one. A key rotated away from keeps its
+posts valid but cannot sign an index (§4.4) or hold a number against the owner (§8.5).
+
+### 3.3. The recovery list
+
+`{"leaves": ["<hash>", …]}`. Each leaf is `SHA-256(salt ‖ "|" ‖ member key)` in base64url with a distinct
+random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed 32 leaves. It
+MAY be empty, and an empty list means the identity cannot be restored.
+
+An app SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
+owner's own keys. An app SHOULD rotate when the list changes, because a changed list reaches readers only
+through a new link; changing the key means writing the profile and then the index (§4.4). A reading app
+SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
+verdict (§7.2).
+
+### 3.4. Contests
+
+A reader MUST apply four rules to a served profile:
+
+1. The pin holds the chain, and a served chain MUST extend it key for key. The first index at which they
+   differ is the **split**; a higher `version` whose chain is a strict prefix of the pinned chain is a
+   split at the end of the prefix.
+2. A recovery list is kept per chain length — the first one the reader saw at that length — and MUST NOT
+   be overwritten.
+3. A link is judged by the list the reader holds at that length, never by the copy the link carries. A
+   pinned reader MUST NOT adopt a carried list at any length its chain already reaches.
+4. More than half of the recovery list at the split, vouching on exactly one side, wins. `sig` is not a
+   vote. If both sides reach a majority, or neither, the identity is **contested** (§7.2) and the reader
+   follows no branch until handed the current key (§3.7).
+
+Outside a split, `version` MUST NOT go backwards, and the same `version` at a different address is
+contested.
+
+### 3.5. Locations
+
+`locations` lists every base the paths of §2 hang off. A reader MUST remember every location a verified
+profile has ever named. Moving is publishing a profile with a higher `version` naming the new place. A
+reply carries its target's location as the replier knows it (§5.4), and a reader that sees a newer
+location in a verified post follows it.
+
+### 3.6. The reading key
+
+`read` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to a
+`read` taken from a profile it verified. A restore does not recover it.
+
+### 3.7. First contact
+
+A link is the location with the anchor key in its fragment, `https://alice.example/alice#<anchor key>`;
+the app compares and refuses on mismatch. A spoken code is six words: `HKDF-SHA256(ikm = key, salt = "",
+info = "openfeed/v1/spoken", 9 bytes)`, the first 66 bits read as six 11-bit big-endian indices into the
+BIP-39 English wordlist, which implementations MUST use. When a reader is contested, either route MAY carry
+the key the owner's chain currently ends on; a reader given that key MUST follow the branch containing it
+and pin there.

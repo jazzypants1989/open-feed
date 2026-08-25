@@ -32,11 +32,8 @@ runs in well under a second, and `npm run spec` runs all of them.
 | # | example | spec | shows |
 | - | ------- | ---- | ----- |
 | 01 | [files](files/) | §2 | body + `\n` + signature; the address; the four paths; bytes served are bytes signed; the four JSON hazards; unknown members |
-| 04 | [first-contact](first-contact/) | §3.1, §3.2 | the link fragment and the six-word spoken code |
-| 05 | [the-chain](the-chain/) | §3.3, §3.5 | rotating, restoring, and vouchers added to a link later |
-| 06 | [recovery-list](recovery-list/) | §3.4 | salted leaves: a voucher reveals only itself |
-| 07 | [contest](contest/) | §3.6 | the split, the one bar, the abuser on the list |
-| 08 | [moving](moving/) | §3.7, §5.4, §13.3 | locations, and relocation riding along in a reply |
+| 02 | [identity](identity/) | §3 | the anchor key, the profile, the chain, the recovery list, the reading key, first contact |
+| 03 | [contests](contests/) | §3.4–3.5 | two profiles claiming one identity; locations and moving |
 | 09 | [the-index](the-index/) | §4–4.2, §4.6 | entries, the fold, one hash per number, and who may sign |
 | 10 | [top-and-rumors](top-and-rumors/) | §4.3, §7.5 | why `top` outlives its post; both bounds of the rumor rule |
 | 11 | [media](media/) | §4.4 | listed by the index, checked by the hash; encrypted media |

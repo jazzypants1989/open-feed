@@ -15,8 +15,7 @@ const write = process.argv.includes('--write');
 
 // Reading order (examples/README.md), capstones last.
 const ORDER = [
-  'files',
-  'first-contact', 'the-chain', 'recovery-list', 'contest', 'moving',
+  'files', 'identity', 'contests',
   'the-index', 'top-and-rumors', 'media', 'rewrite',
   'posts-and-targets', 'envelope', 'the-reader', 'publish-interface',
   'fetching', 'your-copy', 'views',
@@ -27,7 +26,7 @@ const SECTIONS = [
   ['2', 'Files'], ['2.1', 'The format'], ['2.2', 'The address'], ['2.3', 'No canonicalization'],
   ['2.4', 'JSON hygiene'], ['2.5', 'Unknown members'],
   ['3', 'Identity'], ['3.1', 'The profile'], ['3.2', 'The chain'], ['3.3', 'The recovery list'],
-  ['3.4', 'Contests'], ['3.5', 'Locations'], ['3.6', 'The reading key'], ['3.7', 'The spoken code'],
+  ['3.4', 'Contests'], ['3.5', 'Locations'], ['3.6', 'The reading key'], ['3.7', 'First contact'],
   ['4', 'The index'], ['4.1', 'Entries and the fold'], ['4.2', '`top`'], ['4.3', 'Media'],
   ['4.4', 'Who signs the index'], ['4.5', 'Rewriting'],
   ['5', 'Posts'], ['5.1', '`n`'], ['5.2', '`at`'], ['5.3', '`rel`'], ['5.4', '`target`'], ['5.5', '`media`'],

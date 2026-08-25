@@ -22,8 +22,8 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 
 ## Sections
 
-- [ ] §2 Files ← `files` (was `signed-file` + `no-canonicalization` + `json-hygiene`)
-- [ ] §3 Identity ← `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
+- [x] §2 Files ← `files` (was `signed-file` + `no-canonicalization` + `json-hygiene`)
+- [x] §3 Identity ← `identity` (was `first-contact` + `the-chain` + `recovery-list`), `contests` (was `contest` + `moving`)
 - [ ] §4 The index ← `the-index`, `top-and-rumors`, `media`, `rewrite` (scheduled posts stay out until a script proves them)
 - [ ] §5 Posts ← `posts-and-targets`
 - [ ] §6 Encrypted content ← `envelope`
@@ -39,8 +39,6 @@ section, two for the big ones; the old scripts are raw material, merged or delet
   or not at all.
 - `TLDR.md`: says the host learns "that, when, and roughly how big"; §13.3 also said "and how many".
   Add the three words or not? The guarantees section is at 99/100 words.
-- §3.3 caps a chain at 64 links and §3.4 a recovery list at 32 leaves. Both numbers were picked by an
-  agent and never discussed.
 - The Contrast sections in the example `.md`s (~800 lines). Left as they are until the owner raises it.
 - §4.5 scheduled posts: write the script that proves it, or leave it out.
 - `GOALS.md` scenario 7 (interop / bridges) is promised and cashed nowhere in the repo;
