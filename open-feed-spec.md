@@ -370,10 +370,6 @@ do not make sense* rather than as an accusation against the operator.
 
   Re-listing at the identical hash is allowed because it is harmless — and because it is the way back
   from a thief who held the current key and withdrew everything the owner wrote.
-
-  That is as far as the rule reaches. Once a rewrite (§4.7) has dropped the `[n, null]` line, an index
-  that lists `n` again at another hash folds cleanly, and only a reader that held a pin across the
-  rewrite can tell. A cold reader has nothing to compare against.
 - **A withdrawal MUST refer to something live.** `[n, null]` for a number that is not currently live
   makes the index invalid. So does `[hash, null]` for a media file that is not listed.
 - **Numbers start at 1.** `n` is a positive integer; `top` is `0` until a number has been issued.
@@ -870,9 +866,7 @@ This is one rule with three consequences:
   proves nothing about completeness — a fallback, not a guarantee.
 - **Your own last index is the table of contents.** It says which numbers exist, so an app rebuilding
   after a phone loss knows exactly what is missing and can ask a named relative for a named list,
-  rather than hoping. For an encrypted post the index gives the number and the address but not the
-  audience, which is inside the envelope (§6.4): the app knows which numbers it lacks and not whom to
-  ask, which is why the first rule is about the bytes, not the index.
+  rather than hoping.
 
 Leaving is therefore writing the same files somewhere else. The host is asked for nothing, and there
 is nothing for it to refuse.

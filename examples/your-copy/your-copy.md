@@ -80,6 +80,10 @@ not reach a copy.** §5.6 says the same thing from the other side: a private mes
 its recipient forever. The answer to that operator is exit, not secrecy — and §13.1 makes it a MUST
 NOT to market it as anything else.
 
+One limit of the rebuild: for an encrypted post the index gives the number and the address but not
+the audience, which is inside the envelope (§6.4). The app knows which numbers it lacks and not whom
+to ask — which is why §10's first rule is about the bytes, not the index.
+
 ## Contrast
 
 **Why "keep the bytes" is a protocol rule and not app advice.** This is the payoff of a decision

@@ -71,6 +71,10 @@ the line, the hash, and the hour he served it. That is `GOALS.md` scenario 1, th
 scenario 5, the same operator at commercial scale: against him the protocol's answer is never
 confidentiality after the fact, it is **exit** (§10, §13.1).
 
+That is also as far as §4.2's "one hash, ever" reaches. Once the rewrite has dropped the `[3,null]`
+line, an index that lists 3 again at another hash folds cleanly, and only a reader that held a pin
+across the rewrite can tell. A cold reader has nothing to compare against.
+
 ## Contrast
 
 Every protocol that lets people publish has to answer "what does delete mean," and the honest
