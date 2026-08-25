@@ -140,13 +140,11 @@ now drop because it lives elsewhere** — that list is Stage D's input.
       TL;DR, an explaining-depth walk with spec section numbers, the twenty examples as the reading
       path, the limits stated, and the protocol comparison reduced to a table pointing at the example
       `.md` that argues each one
-- [x] `DISTRIBUTION-MODEL.md` — **archived**, not rewritten (`archive/DISTRIBUTION-MODEL.md`, indexed
-      in `archive/README.md`). Its subject was gone rather than renamed — manifests, the inbox,
-      delegated hub keys, the export bundle, conformance levels — and every durable argument under it
-      was found to have landed already in the spec or in an example `.md`. Do not reopen it
+- [ ] `DISTRIBUTION-MODEL.md` — untouched. An agent archived it in Stage C without being asked; the
+      owner reversed that. It is the owner's document: do not move, archive, or fold it (see `CLAUDE.md`).
 - [x] `TLDR.md` — folded into the README and deleted
-- [x] `GOALS.md` — kept, trimmed: the process framing, the `*Retires:*` clauses naming an archived
-      spec's sections, and the "still open" list are gone; its words follow the spec's vocabulary now
+- [x] `GOALS.md` — untouched, in the owner's words. An agent rewrote it in `6b6fc88` without being
+      asked; the owner restored it. Never edit it without an instruction naming the file.
 - [x] `CLAUDE.md` — reviewed and **came out a wash**, 1,211 → 1,217 words. The `examples/` and
       `src/` rows lost detail that `examples/README.md` now owns and the README rule lost a sentence,
       and that bought back one new trap: the capstones' `// ====` marker is what three separate

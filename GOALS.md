@@ -1,9 +1,10 @@
 # Open Feed — goals and scenarios
 
-**The floor the spec is judged against, in plain words.** Written from the owner's answers, before
-any rule was written, and kept because a spec cannot tell you whether it is solving the right
-problem. Nothing below is normative — `open-feed-spec.md` is — but every rule in the spec should
-point back at a line here, and a rule that points at nothing is a rule to argue with.
+**Draft, 2026-08-20. Written by an agent from the owner's answers in one long conversation, for the
+owner to argue with.** This is the document every previous rewrite was missing: the floor the spec
+is judged against, in plain words, before anyone writes a rule. Nothing below is normative. When
+this survives the owner, the sketch is written *from* it, and every section of the sketch must
+point back at a line here or be cut.
 
 ## Why this exists
 
@@ -45,16 +46,19 @@ across key loss (they are strangers by definition); millions of items per identi
 scales across identities — many people on a few big hubs is the case that must work, and it is
 the sister's case at commercial scale).
 
-## The decisions this rests on
+## Decisions taken in this conversation
 
-Each of these reversed something an earlier design did. What each one retired, and why the old
-position was held, is in `archive/` — consult `archive/README.md` before re-litigating one.
+Each reverses or retires something the current spec spends thousands of words on. The recorded
+reasoning for the old position is answered in `rejections.md` as the sketch lands.
 
 - **Identity is a key.** A signed profile names current location(s), keys, and recovery
   arrangement. The URL is where you live, not who you are. Apps show a name and an address; the
-  key is an implementation detail users never see.
+  key is an implementation detail users never see. *Retires:* URL normalization and its
+  percent-encoding question, migration/successor/predecessor links, predecessor equivalence and
+  its seven sites, recovery pins.
 - **The device is the only signer; the hub is storage and serving.** Scheduled posts are
-  pre-signed by the device and released by the hub.
+  pre-signed by the device and released by the hub. *Retires:* delegated keys, cadence batching,
+  the export bundle (you always had the copy), on-demand-export custody rules.
 - **Bring-your-own-client is the security property**, since a hub that ships the app can take the
   key. Therefore **the spec gains a small publish interface** — how any client writes signed files
   to any hub — so clients and hubs are a market, not a pairing.
@@ -62,40 +66,44 @@ position was held, is in `archive/` — consult `archive/README.md` before re-li
   (rotation) or by enough peers a reader already trusts (social recovery — at family scale,
   identity continuity *is* social, and the ex cannot fool the sister's own mother). Backup UX —
   keychain sync, passphrase-locked backup, recovery contacts, printed code — is app-level and
-  the spec mandates none.
+  the spec mandates none. *Retires:* recovery keys held outside the home, `_recovery_sig`, fork
+  resolution, the anchor-fingerprint ceremony.
 - **Relocation is a signed location list.** Readers remember every location a profile ever named
   and check the others when the primary goes stale; a new location statement with a higher
-  `version` wins; the departing client offers "send this link to your people." Strangers who only
+  sequence wins; the departing client offers "send this link to your people." Strangers who only
   knew the old location may be lost; a resolver is an extension slot, not a mechanism.
 - **The publisher forgets; readers remember.** No retained versions, no permanent deletion
-  record. Withdrawal is a signed line; what a reader already fetched is the reader's.
-- **The completeness story is one paragraph.** A signed, versioned index lists what exists; a
-  reader may pin it and notice when something it saw vanishes without a withdrawal.
-- **Everything is pull.** An interaction is a post in its *author's* feed naming its target. Push
+  record. Deletion is a signed tombstone; what a reader already fetched is the reader's. *Retires:*
+  derived version URLs, skip links, history budgets, the walk, the `deleted` map, §13.8's leak.
+- **The completeness story is one paragraph.** A signed, sequenced head lists what exists; a
+  reader may pin it and notice when something it saw vanishes without a tombstone. *Retires:*
+  derived item URLs, `items: true`, the lag/withheld/violation/stale lattice, freshness deadlines,
+  item-carried pins as a mechanism, the compare-rule apparatus.
+- **Everything is pull.** An interaction is an item in its *author's* feed naming its target. Push
   (a ping endpoint), inbound interop, and DMs that must not exist on a feed are extensions, each a
   few restrictions: rate-limit by IP before fetching, fetch only from the author's known
-  location, never republish what was delivered.
+  location, never republish what was delivered. *Retires:* the inbox pipeline, dedup/oracle rules,
+  delivery chains, the published/delivered split.
 - **Three tiers, one mechanism:** public; encrypted to a chosen set of keys with the names encrypted
-  inside; a DM is that with one recipient. Comments and reactions are posts, encrypted if the
-  parent was. The hub learns that an encrypted post exists, when, roughly how big, and nothing
+  inside; a DM is that with one recipient. Comments and reactions are items, encrypted if the
+  parent was. The hub learns that an encrypted item exists, when, roughly how big, and nothing
   about whom; clients poll on a fixed cadence so a fetch proves nothing. The envelope is
   re-chosen for simplicity (audited primitives, box-per-recipient), not kept for JWE's sake.
-- **Signed posts are files, signed as the bytes served.** No canonicalization. The JSON Feed /
+- **Signed items are files, signed as the bytes served.** No canonicalization. The JSON Feed /
   Atom feed and the h-card page are *generated views* — the interop surface, required of
   publishers, never the signed object.
 
-## The scenarios
+## Scenarios the gates must stage
 
-Code defends scenarios, not rules. These seven are staged end to end in `test/scenarios.test.js`,
-and every example's `.md` names the one it serves.
+Code defends scenarios, not rules. Every gate in the redesign answers one of these:
 
 1. **The divorce.** Sister on the ex's hub: he cannot post as her, read her family-only posts,
    alter or backdate what she wrote, or stop her leaving; after she leaves, Mom's app follows her
    with one tap and reads his frozen copy as an older version of her, not as her. *(Reworded
    2026-08-21, the owner's ruling on `REVIEW-final.md` Q8 / intent-map sign-off 4: the original said
    "reads as stale", and it does not for a reader with no social path to her — that reader sees an
-   unmarked page. Location-through-replies (§3.7, §5.4) is how people learn; every mechanism that
-   would tell everyone else was priced and rejected. §13.3 states the limit.)*
+   unmarked page. Ruling 7 chose location-through-replies as how people learn, and every mechanism
+   that would tell everyone else was priced and rejected. Spec-2 §14.3 states the limit.)*
 2. **Grandma onboards.** Installs an app, picks a name, is never shown a key, never told to store
    a file outside the house. Loses her phone a year later and is back by calling her daughter.
 3. **Two hubs, one thread.** Jesse on `jessepence.com`, Mom on the family hub; a family-only post,
@@ -109,19 +117,13 @@ and every example's `.md` names the one it serves.
 7. **The stranger.** Someone follows a public journal in a plain feed reader, sees it on Mastodon
    via a bridge with nothing built, and — after the author's key loss — re-meets them.
 
-## What was open here, and where it was answered
+## Still open (the sketch must answer, in this order)
 
-All five questions this document left open have answers in the spec now. They are listed so that a
-reader can check the answer against the question rather than taking it on trust.
-
-1. The publish interface's shape — §8: signed PUT at conventional paths, four paths and two verbs.
-2. The encryption construction — §6: box-per-recipient from an ephemeral X25519, built from
-   primitives a standard library already has. The NIP-44-class comparison is in `examples/envelope/`.
-3. How many peers constitute social recovery, and whether a reader's trust set is ever published —
-   §3.4 and §3.6: a committed list of salted leaves, settled by a majority and not by `k`, and never
-   published beyond its size. `FINDINGS.md` records that `k` is still trusted in two places where a
-   majority is meant.
-4. The index's shape — §4: a third small signed file, and never the feed. §11 makes the feed a view.
-5. Which implementation comes second — the weekend reader and publisher
-   (`examples/weekend-reader/`, `examples/weekend-publisher/`), written from the text alone, plus a
-   hub small enough to fit in eleven lines of an example.
+1. The publish interface's shape — signed PUT of files at conventional paths is the candidate.
+2. The encryption construction — the NIP-44-class evaluation stands commissioned.
+3. How many trusted peers constitute social recovery, and whether a reader's trust set is ever
+   published (today's answer: never).
+4. The head's shape when items are separate files: whether a feed view is also the head, or the
+   head is a third tiny signed file.
+5. Which implementation comes second — recommended: a dumb hub plus a CLI client, because that
+   pair proves bring-your-own-client and static hosting at once.
