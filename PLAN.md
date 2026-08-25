@@ -16,11 +16,6 @@ spec has less to hold at once: consolidate the repo (A), curate the examples (B)
 root documents (C), and only then rewrite the spec (D). By D it should be obvious what has to remain
 in the spec, because everything else will have somewhere to live.
 
-**Reviewing Stages B and C?** `HANDOFF-review.md` at the root is the context a reviewer needs and
-this file does not carry — what is machine-checked and what is nobody's evidence, the judgement calls
-that were mine rather than the owner's, and how to reproduce the two security findings. It is
-temporary; delete it when the review is done.
-
 **Working rule**, inherited: if you are about to act on a number or a claim, re-derive it first.
 Every stage ends in an artifact that can fail — `npm run check` — not a prose claim.
 
@@ -98,14 +93,14 @@ imports them and must keep working.
 - [x] 17 the publish interface — `publish-interface`
 - [x] 18–20 fetching, your copy, views — `fetching`, `your-copy`, `views`
 - [x] capstones documented and printing — each carries a demo below a `// ====` marker; the file
-      reports its own measurement (reader 170 lines, publisher 51, non-blank and non-comment above
+      reports its own measurement (reader 171 lines, publisher 51, non-blank and non-comment above
       the marker), and `court-gate`/`weekend-gate` count the same slice. `tools/regen.js` still
       imports both
 - [ ] `_seeds/` empty; `seeds` script removed from `package.json`; `examples/README.md` links complete
 
 **All twenty examples and both capstones are written, and `npm run check` is green: 54 tests, 49
 vector checks under two readers, 22 examples matching their committed output, seeds green, and
-`npm run revert` catching all 129 mutations (89 of them new).** `tools/revert.js` resolves a row's
+`npm run revert` catching all 136 mutations (96 of them new).** `tools/revert.js` resolves a row's
 gate as an example directory first and a seed second, so a row moves with its subject.
 
 What is left in this stage is only the seed deletion, and it is harder than it looks. **Measured
@@ -153,9 +148,10 @@ now drop because it lives elsewhere** — that list is Stage D's input.
       no fat left in it that is not load-bearing
 - [x] The "may now drop" list — `SPEC-CUTS.md`, section by section. **Its headline is the finding:
       the drops come to about 520 words of 10,277, five per cent.** The spec is already tight; what
-      would actually shorten it is its last section, "Shorter by design", twelve places where one
-      thing is said twice or three paragraphs stand where a table belongs — worth another ~570 words,
-      and where the "a novice reads it in an hour" goal is won or lost. Read that section first
+      would actually shorten it is its last section, "Shorter by design", thirteen places where one
+      thing is said twice or three paragraphs stand where a table belongs — worth another ~300 words
+      once the three unsound ones (D, G, J) are struck, and where the "a novice reads it in an hour"
+      goal is won or lost. Read that section first
 
 ## Stage D — the spec rewrite (~1–2 sessions)
 

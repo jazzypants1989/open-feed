@@ -52,24 +52,22 @@ reader tries the location she already holds first (§7.5), finds nothing answeri
 the address in the reply — and comes back holding `version` 3 and `top` 2. No rumor is raised,
 because having followed she can now see the post the reply names.
 
-**And only a post the reader has verified moves anybody.** Two halves, because both are
-load-bearing. First, bro rewrites mum's post 1 to name alice at an address he controls: the read of
-mum's feed stops at `host — post 1 is not what the index lists`, hands back no posts at all, and the
-rumor step never runs — zero fetches to his address. Second, his *own* post says the same thing,
-signed by him and listed in his own index. It verifies, and the reader does fetch the address it
-names — once, after the locations it already holds (§7.5). What is served there is a profile
-carrying alice's anchor and bro's signature, and the verdict is `identity — the profile is not
-signed by the key it ends on`. The pin does not move. **A `loc` aims a fetch and nothing more**;
-what is at the far end still has to verify under the anchor key the reader learned out of band
-(§3.1, §7.1). Without that check this would be an open redirect for the whole network. The fetch
-itself is the price, and §7.5 names it: following a reply's `loc` is both the feature and a beacon,
-which is why it is bounded to once per identity per pass.
+**A `loc` aims a fetch, and only what verifies there moves anybody.** bro's own post names alice at
+an address he controls, signed by him and listed in his own index. It verifies, and the reader does
+fetch the address it names — once, after the locations it already holds (§7.5). What is served there
+is a profile carrying alice's anchor and bro's signature, and the verdict is `identity — the profile
+is not signed by the key it ends on`. The pin does not move. What is at the far end still has to
+verify under the anchor key the reader learned out of band (§3.1, §7.1); without that check this
+would be an open redirect for the whole network. The fetch itself is the price, and §7.5 names it:
+following a reply's `loc` is both the feature and a beacon, which is why it is bounded to once per
+identity per pass. (A reply that does not verify never reaches the rumor step at all — that is §7.4,
+and `examples/the-reader/` stages it.)
 
-**Relocation rides along in public replies only.** The public members of an encrypted reply are `n`,
-`at` and `encrypted`; the `rel`, the `target` and its `loc` are inside the envelope (§6.6 — see
-`envelope/` for the construction). A passing reader sees no location there, so an encrypted reply
-moves nobody who was not already in its audience. That is a real cost of keeping the reply graph off
-the wire, and §3.7 states it rather than pretending the mechanism is universal.
+**Relocation rides along in public replies only.** The `rel`, the `target` and its `loc` of an
+encrypted reply are inside the envelope (§6.6; `examples/envelope/` shows the public members are
+`n`, `at` and `encrypted` and nothing else), so an encrypted reply moves nobody who was not already
+in its audience. That is a real cost of keeping the reply graph off the wire, and §3.7 states it
+rather than pretending the mechanism is universal.
 
 ## Contrast
 

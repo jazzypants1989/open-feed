@@ -1,7 +1,7 @@
 weekend-reader — §7, written from the text alone
 
-  170 non-blank, non-comment lines above the marker, standard library only.
-  About a quarter of it is the strict JSON scan, which exists because JSON.parse
+  171 non-blank, non-comment lines above the marker, standard library only.
+  About a sixth of it is the strict JSON scan, which exists because JSON.parse
   cannot see a duplicate member (§2.4). It imports nothing from the publisher.
 
 §7 — an honest read
@@ -25,8 +25,10 @@ weekend-reader — §7, written from the text alone
   a branch vouched only by a list the link brought   identity — the chain of key changes does not hold
   a newer profile that forgets her restore           identity — contested: two histories, and no majority settles it
   an index signed by a rotated-out key, to a cold reader host — the index is not signed by the key the profile ends on
+  a genuine post listed at another number, to a cold reader host — post 3 is not what the index lists
+  an index with `entries` not first                  host — the index does not fold: entries is not the first member
 
-  13 moves, 3 distinct verdicts: host, identity, ok
+  15 moves, 3 distinct verdicts: host, identity, ok
   §7.3 allows exactly three, and a reader that invents a fourth cries wolf.
 
 §7.2 — an index it cannot verify is not an accusation

@@ -46,12 +46,12 @@ assert.equal(clear(post5), 'n, at, encrypted'); assert.equal(clear(post6), 'n, a
 // §6.1 derived here from node:crypto alone, so a second implementer can follow every step.
 const eph = xk('vector:ephemeral/5'), epk = unb64(eph.x), key5 = ck('openfeed/v1/vector:contentkey/5');
 const Z = crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: readingPublicKey(mum.read.x) });
-const k52 = Buffer.from(crypto.hkdfSync('sha256', Z, epk, INFO, 52));
+const k52 = Buffer.from(crypto.hkdfSync('sha256', Z, epk, 'openfeed/v1/slot', 52));        // the literal, not src's INFO
 const [tag, kek, knonce] = [k52.subarray(0, 8), k52.subarray(8, 40), k52.subarray(40, 52)];
 const wrapped = aead(kek, knonce, key5, epk);
 console.log('§6.1 — one ephemeral per message, one slot per recipient, the content once\n');
 rows(['epk', eph.x], ['content key', `${b64(key5)}   32 random bytes, used once`], ['carrier', c5]);
-console.log(`\n  mum's slot, from her reading key R and this message's ephemeral:\n    tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "${INFO}", 52)`);
+console.log('\n  mum\'s slot, from her reading key R and this message\'s ephemeral. Wherever epk appears in a\n  derivation it is the 32 raw bytes; the carrier is ASCII text:\n    tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52)');
 rows(['  Z = X25519(eph priv, R)', `${Z.toString('hex').slice(0, 32)}…`], ['  tag(8)', b64(tag)],
   ['  kek(32)', `${kek.toString('hex').slice(0, 32)}…`], ['  knonce(12)', knonce.toString('hex')]);
 console.log(`    wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = epk)\n      ${b64(wrapped)}`);
@@ -64,8 +64,8 @@ console.log('\n  and the content, once:');
 rows(['  plain', `${plain.length} bytes of UTF-8 JSON — the audience, then the content members`],
   ['  padded', `2-byte big-endian length, plain, zeros to ${padded.length} (§6.4 — examples/padding/)`]);
 console.log(`    ct = ChaCha20-Poly1305(content key, 12 zero bytes, padded, aad = epk || carrier)\n      ${b64(ct).slice(0, 43)}…   ${b64(ct).length} characters`);
-console.log('\n  The all-zero nonce is safe for the reason it is safe in HPKE: the content key is 32 random\n  bytes and MUST NOT be reused across messages, so that (key, nonce) pair is used exactly once.\n');
-assert.equal(b64(ct), dm.ct);
+console.log('\n  The all-zero nonce is safe for the reason it is safe in age\'s key wrap: the content key is 32\n  random bytes and MUST NOT be reused across messages, so that (key, nonce) pair is used exactly\n  once. The same holds one level up — knonce is derived from the ephemeral, so an ephemeral reused\n  across two posts wraps two content keys under one (kek, knonce). One ephemeral per message.\n');
+assert.equal(b64(ct), dm.ct); assert.equal(INFO, 'openfeed/v1/slot');
 
 // §6.2: the thief lifts alice's envelope into a post of his own, signed by his key, listed in his index.
 const lifted = signFile({ n: 1, at: '2026-08-19T02:00:00Z', encrypted: dm }, thief);
@@ -76,7 +76,7 @@ rows(["the thief's post 1 verifies", `${verifyFile(lifted, thief.x) !== null}   
   ['a client that passes no carrier', `${decrypt(dm, mum.read.privateKey, '')}`],
   ['at the post it was published in', `"${decrypt(dm, mum.read.privateKey, c5).text}"`]);
 const unbound = aead(key5, Z12, padded, epk);
-console.log(`\n  There is no "forgot to compare": the carrier is not a field checked afterwards, it is what\n  the unwrap is keyed against. Had the associated data been epk alone, the unwrap would take no\n  carrier at all, and the same bytes would open wherever they were pasted:\n    "${JSON.parse(unaead(key5, Z12, unbound, epk).subarray(2, 2 + plain.length)).text}" — her words, under his name.\n`);
+console.log(`\n  There is no "forgot to compare": the carrier is not a field checked afterwards, it is what\n  the unwrap is keyed against. Had the associated data been epk alone, the unwrap would take no\n  carrier at all, and the same bytes would open wherever they were pasted:\n    "${JSON.parse(unaead(key5, Z12, unbound, epk).subarray(2, 2 + plain.length)).text}" — her words, under his name.\n  (That counterfactual reuses the content key and nonce over the identical plaintext on purpose;\n  only the associated data differs, and nothing leaks. It is not a thing a publisher may do.)\n`);
 assert.equal(decrypt(dm, mum.read.privateKey, cT), null); assert.equal(decrypt(dm, mum.read.privateKey, ''), null);
 assert.equal(decrypt(dm, mum.read.privateKey, c5).text, 'I am leaving him on Friday');
 assert.equal(JSON.parse(unaead(key5, Z12, unbound, epk).subarray(2, 2 + plain.length)).text, 'I am leaving him on Friday');
@@ -97,7 +97,7 @@ const openBlind = (env, priv, carrier) => {
 const blind = openBlind(dm, mum.read.privateKey, c5);
 const collided = { ...dm, slots: [[dm.slots[1][0], b64(dummies('collision')(48))], ...dm.slots] };
 console.log('§6.3 — a tag is a hint, never a decision\n');
-rows(["scanning for mum's own tag", `finds slot 2 of ${dm.slots.length}, and unwraps once`],
+rows(["scanning for mum's own tag", `finds it (slot 2 of ${dm.slots.length} here; §6.4 says nothing about placement), and unwraps once`],
   ['ignoring every tag, trying all', `${tries} unwraps here, up to ${dm.slots.length} — conformant, merely slower`],
   ['the same plaintext either way', JSON.stringify(blind) === JSON.stringify(decrypt(dm, mum.read.privateKey, c5))]);
 console.log("\n  and a slot carrying mum's own tag whose unwrap fails, placed first:");
@@ -151,17 +151,8 @@ console.log('\n  A public post keeps rel and target in the clear, so public thre
 assert.equal(b13.includes('reply'), false); assert.equal(b13.includes(alice.ed.x), false);
 assert.equal(decrypt(reply, alice.read.privateKey, c13).target.hash, address(post6));
 
-const B8_BODY = '{"n":5,"at":"2026-08-18T21:40:00Z","encrypted":{"epk":"bulurRC1e4YYuDGwVZj_Yh9ZgswZoponWSc5JsAp5z8","slots":[["cwNqOZ1KtPU","LRz0F-kLZzeE3HcRmOcfbdxrFr7PIszC4GJ6JiiQBW2D_2yuzRMWiemDHEawzpsH"],["SzNzzQy4o2c","2rsCQZAjQMhlxocGQd4baI0tsCQiZqRX8BtHmJ8mihXiGd5DtWA0mmPvzLY0Ite-"],["ILHlw-FK67c","EEU5dLZYx6yEemQZP08spx3Y5pQzWwofzUulmWSGNbIMT8a2knmNjUfsl3cdChDa"],["zopSOkIKgJA","851y70OHR0pocIlM2xXn1AFGJov5I1-8AJetsUZZUg7IIrUsAvVD6EjNSBpyIOrV"],["hRdE2dQilV0","jhRdmjLCLWphJNUnZB51gFsZx-SDyhst09cIU4dTvTb6WBoMgcb-WU_CQG_8A0Bv"],["qjOkXqGsg6A","y5a0GA8nhNIcQ-VUZaRm57oApXBpsrVeAfknLoePEjG9WI3xDrKBOCyAbOFC9c4M"],["O0DMO8iWfSg","hlttXoxLa4Lsnku2aci3pMQXbxAJ4_yL6C2JWC2kwdreCKdwNS55MlDW48XLlFLr"],["egvAYnVIubU","R9Xb_tWYWN9e9jD7MRIMvW_yDhRunvH2X6UEtOaFOMGmTBondgMEGsOQMNXVWWbK"]],"ct":"F0a_r7lGklcYcRiWYCqFFFNp-LVbDvXTILfYICimJP134PN360lOaRl4_2lw9qEbHtyqrom3PlngcSImLvZj0hfVSoB-43mWafOWXphvPemBv9vQysIpreYdZN80gXmqrwgEU1FX6pkPbnhh_Ar1d9e_Cr_tFMaf9ZEjOjp7l9o6hCnVWMqdhMarC-Dqz9l61Pb7YW5__E1Anz_RvGWdZdMr1YJoFUWpvaXZPLpPlrDB60scEDCOlIKGYIHbpAM_LDO_j_UUviXfq6H7akDGDt2ookJtvaLSbiwXmPo-hU5ONM5PFMylYsPp5HNXs5Kv1wuaTQb0asjrl8pJ7uSCsIAspXZyLgXX4IlHI97ks2P1_6s9xmiYn9gFxekNQX9l98xbfXHkMw4mYTS_mwafKcQYVt6ihiZc3FDjD_22BZJ9u3h65mBtodt9OKw4FC1YnDyy3Omd7_jQpzzh40vYRIz3j7dDRXtykla-n4QjscunP7Eg3SQjErNJk86HWyFLMFFuFjdHpZvddYan_Yscgf8M3Vkir0lWrr-ux0UFcqxNyr7afJK3D0pJLuHb_qqpCyntEnz743_xEJ2iNN6B9bsJjzP1y9Kqm_za9Ea4Z-CygTZP7LX_RB1OJjeDZCDKr3oD5GkNmllSxKXiAlby8emchzLqjNu-pjRfm--gBAhNlRr9lhkBTsubzlQR5yMM"}}';
-const B8_SIG = 'of4DvgHLfMNW6qH9U5E1VuHVDh3TGYPmMdZKXBXTCwatYpLK7TOdr0Wbe18LrThOzU1VyhgwieuRxkkdYBhACw';
-const seen = verifyFile(post5, [alice.ed.x, ed('alice/rotated').x, A3.x]);
-console.log('§7.4 — a reader who is not in the audience verifies it completely and hands it back opaque\n');
-rows(["signed by a key in alice's chain", `${seen.by === A3.x}   (her restored key)`],
-  ['the address the index lists', seen.address], ['n equals the number served at', seen.obj.n === 5],
-  ['encrypted comes back as', `an opaque object: ${Object.keys(seen.obj.encrypted).join(', ')}`],
-  ["the host's own reading key opens", `${decrypt(dm, xk('example:host-read').privateKey, c5)}`]);
-console.log(`\n  Not an error and not a verdict: opening it is the client's business, never the reader's. This\n  post is Appendix B.8 byte for byte — ${splitFile(post5).body.length} body bytes, ${post5.length} on the wire.\n\n  What the host learns is that an encrypted post exists, when (${seen.obj.at}), and roughly\n  how big: post 5 is ${post5.length} bytes and post 6, to four people, is ${post6.length}. The audience is inside, so a\n  large one shows in the bucket the body lands in; §6.4's floor hides the small end.\n`);
-assert.equal(splitFile(post5).body.toString(), B8_BODY); assert.equal(splitFile(post5).sigLine, B8_SIG);
-assert.equal(seen.by, A3.x); assert.equal(seen.obj.n, 5);
-assert.deepEqual(Object.keys(seen.obj.encrypted), ['epk', 'slots', 'ct']); assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
+console.log('§7.4 — a reader outside the audience verifies it completely and hands it back opaque\n');
+console.log(`  post 5 is Appendix B.8 byte for byte, at address ${address(post5)}, and the host's own\n  reading key opens ${decrypt(dm, xk('example:host-read').privateKey, c5)}. Opening it is the client's business; the read is examples/the-reader/.\n\n  What the host learns is that an encrypted post exists, when, and roughly how big: post 5 is\n  ${post5.length} bytes and post 6, to four people, is ${post6.length}. The audience is inside, so a large one shows in the\n  bucket the body lands in; §6.4's floor hides the small end.\n`);
+assert.equal(address(post5), '52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM'); assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
 
 console.log('Every line above is asserted.');

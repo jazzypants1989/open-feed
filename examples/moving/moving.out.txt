@@ -42,13 +42,9 @@
   sis holds for alice:  version 3, top 2, locations [pence.family, alice.example]
   rumors raised:        none — she can see the post now
 
-§5.4 — and only a post the reader has verified moves anybody
+§5.4 — a `loc` aims a fetch, and only what verifies there moves anybody
 
-  the forged post, in mum's feed:  host — post 1 is not what the index lists
-    posts handed on: none — a post that does not verify never reaches the rumor step (§7.4)
-    fetches to the address it named: 0
-
-  bro's own post, which does verify. What her reader fetched, in order:
+  bro's own post, which verifies as his. What her reader fetched, in order:
     pence.family/alice/profile    the locations she already holds are tried first (§7.5)
     alice.example/alice/profile
     alice.example/alice/index
@@ -59,14 +55,8 @@
     sis still holds for alice:       version 3, top 2, locations [pence.family, alice.example]
     rumors raised: bro replied to something I cannot see  — the replier is the only party there is evidence about
 
-  A `loc` aims a fetch and nothing more. What is served there must verify under the
-  anchor key the reader learned (§3.1, §7.1), or the pin does not move.
-
-§6.6 — relocation rides along in public replies only
-
-  the public members of an encrypted reply:      n, at, encrypted
-  "alice.example" anywhere in the bytes served:  false
-  The rel, the target and its loc are inside the envelope (§6.6, examples/envelope/),
-  so an encrypted reply moves nobody who was not already in its audience.
+  What is served at a `loc` must verify under the anchor key the reader learned (§3.1, §7.1),
+  or the pin does not move. An encrypted reply carries its target inside the envelope (§6.6,
+  examples/envelope/), so relocation rides along in public replies only.
 
 Every line above is asserted.

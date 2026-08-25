@@ -6,9 +6,9 @@ import crypto from 'node:crypto';
 import { createHub } from '../../src/hub.js';
 import { createPublisher } from '../../src/publish.js';
 import { createReader } from '../../src/reader.js';
-import { signFile, verifyFile, sha256, signingKeyFromSeed } from '../../src/file.js';
+import { signFile, verifyFile, splitFile, parseBody, sha256, signingKeyFromSeed } from '../../src/file.js';
 import { commit, rotation, restore, signProfile, verifyProfile } from '../../src/profile.js';
-import { fold, verifyIndex } from '../../src/index.js';
+import { fold, signIndex, verifyIndex } from '../../src/index.js';
 import { encrypt, carrierOf, readingKeyFromSeed } from '../../src/envelope.js';
 
 // Appendix B's seeds, so every byte printed here is the spec's own.
@@ -154,11 +154,15 @@ const move = async (what, k, v) => {
   return [what, r];
 };
 const swap1 = signFile({ n: 1, at: '2026-08-09T00:00:00Z', text: 'not what she wrote' }, A3);
+const cur = parseBody(splitFile(store.get('alice/index')).body);         // the index the pin holds
 const battery = [
   await move('withholds a listed post', 'alice/posts/3', null),
   await move('serves an older index', 'alice/index', oldIndex),
+  await move('rolls the index back, keeping top', 'alice/index', signIndex({ ...cur, version: cur.version - 1 }, A3)),
+  await move('serves a second index at one version', 'alice/index', signIndex({ ...cur, entries: [...cur.entries, [sha256(Buffer.from('a blob nobody listed'))]] }, A3)),
   await move('swaps a post for another she signed', 'alice/posts/1', swap1),
   await move('serves genuine post 3 at number 1', 'alice/posts/1', store.get('alice/posts/3')),
+  await move('serves a post signed by a key that was never hers', 'alice/posts/3', signFile({ n: 3, at: '2026-08-01T10:15:00Z', text: 'post 3' }, THIEF)),
   await move('withholds a listed media file', `alice/media/${PHOTO}`, null),
   await move('alters the media bytes', `alice/media/${PHOTO}`, Buffer.from('a different photograph')),
   await move('substitutes a whole other identity', 'alice/profile', imp),
@@ -168,14 +172,15 @@ const battery = [
 ];
 const verdicts = new Set(battery.map(([, r]) => r.verdict));
 console.log(`§7.3 — ${battery.length} hostile moves, ${verdicts.size} verdicts\n`);
-console.log(`  ${'move'.padEnd(49)}${'verdict'.padEnd(10)}what the reader said`);
-for (const [what, r] of battery) row(what, r, 49);
+console.log(`  ${'move'.padEnd(52)}${'verdict'.padEnd(10)}what the reader said`);
+for (const [what, r] of battery) row(what, r, 52);
 console.log(`\n  distinct verdicts across the battery: ${verdicts.size}  (${[...verdicts].sort().join(', ')})\n`);
 console.log('  The last row is why the third verdict is `ok`. A file signed by a key that was hers is not');
 console.log('  a post: the index admits posts (§4), it does not list 9, and the read is ordinary. Nothing');
 console.log('  is left over for a fourth verdict to be, and a conforming reader MUST NOT invent one.\n');
-assert.deepEqual([battery.length, verdicts.size, [...verdicts].sort()], [10, 3, ['host', 'identity', 'ok']]);
-assert.equal(battery.map(([, r]) => r.verdict).join(), 'host,host,host,host,host,host,identity,identity,host,ok');
+assert.deepEqual([battery.length, verdicts.size, [...verdicts].sort()], [13, 3, ['host', 'identity', 'ok']]);
+assert.equal(battery.map(([, r]) => r.verdict).join(), 'host,host,host,host,host,host,host,host,host,identity,identity,host,ok');
+assert.deepEqual(battery.slice(2, 4).map(([, r]) => r.why), ['an index older than the one this reader saw', 'two indexes at one version']);
 assert.equal(battery.at(-1)[1].posts.has(9), false);
 
 console.log('§7.5 — step 11, the one place a read reaches past this identity\n');

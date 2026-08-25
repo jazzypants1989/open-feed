@@ -16,7 +16,8 @@ list because he was on it before the divorce, and he will not cooperate (`CLAUDE
 
 Four rules settle a contest, and a reader MUST apply all four. Each is staged here so that the rule,
 and not the fact that a chain walks, is what decides the verdict; `tools/revert.js` holds the edit
-to `src/` that turns each one off and must turn this example red.
+to `src/` that turns each one off and must turn this example red. The verdict *strings* printed
+below are `src/profile.js`'s wording; the spec fixes only the three verdicts (§7.3).
 
 ## What the output shows
 
@@ -58,24 +59,38 @@ contested. **A link's `sig` is not a vote.** It proves that whoever held the pre
 he held it too. Row 5 is the other tie — mum was made to vouch for him, so both branches reach a
 majority — and it also resolves to contested. Both sides, or neither: the reader follows nobody.
 
-**Majority, and not `k`.** The single most important block. The recovery list is three people with
-`k` = 1, which is a setting a real app would offer ("any one of your people can bring you back"),
-and the ex is one of the three. He vouches for himself. Alice, meanwhile, has done nothing dramatic
-— she rotated her key, alone, as anybody does when they get a new phone. The example runs that one
-split under both candidate rules and prints both outcomes:
+**He moves first.** The threat model (`CLAUDE.md`) gives the operator the serving path and first
+move, and the key he holds is not one she rotated away from but her *live* one. So the block stages
+the order he would actually choose: a reader pinned at `version` 2, whose chain ends on A2, is served
+his rotation A2 → his key. No split — the chain extends the pin — and the reader follows him, `ok`.
+Then her restore, vouched by mum and sis, reaches the same reader at `version` 4: now there is a
+split at index 2, hers has the majority, his does not, and the reader switches back to A3. That is
+the arm of rule 4 that works *for* the reader, and it is also the honest limit of it: on his hub her
+restore may never arrive. Withholding is the move no rule in §3.6 answers, and §13.3 says so.
+
+**Majority, and not `k`.** The recovery list is three people with `k` = 1, which is a setting a real
+app would offer ("any one of your people can bring you back"), and the ex is one of the three. He
+vouches for himself. Alice, meanwhile, has done nothing dramatic — she rotated her key, alone, as
+anybody does when they get a new phone. The example runs that one split under both candidate rules
+and prints both outcomes:
 
 - **under a threshold of `k`:** his 1 ≥ 1, her 0 < 1 — *he is Alice now*.
 - **under a majority:** 1 of 3 is not more than half, and neither is 0 — *contested*.
 
-One listed adversary, acting alone, takes her identity under `k` and cannot take it under a
-majority. That is the whole difference between the two rules, and it is the case the protocol exists
-for.
+One listed adversary, acting alone, takes her identity under `k` and cannot take it under a majority
+— **at a split.** The block then stages the open defect, `FINDINGS.md` §1.1(b), against the same
+pin: he does not fork at all, he *appends* a self-vouched restore A3 → his key to the chain the
+reader already holds. A chain that extends the pin has no split, rule 4 never runs, and the only
+gate left is §3.3's validity rule, which is `k`. One of three is at least one, and the reader
+follows him: `ok`. The example asserts that verdict because it is what the current spec says; the
+fix under review (a restore needs `k` **and** a majority) turns that line into `identity`, and this
+example is restaged when the owner rules on it.
 
 **The price, and the repair.** The majority rule is not free, and the spec says so where the rule is
 stated rather than in a footnote. On a list of two with `k` = 1, a restore mum vouched alone is
 *enough for `k` and is not a majority*, so it draws against the ex's bare rotation and the reader is
-stuck at contested. Alice needs a second member, and until she gets one nobody following her sees
-anything new.
+stuck at contested. Alice needs a second member, and until she gets one a reader served his branch
+follows nobody — a reader that pinned her restore and keeps reading her files is fine.
 
 What the single link shape (§3.3) buys is that she does not pay that price twice. Vouchers MAY be
 added to a link **after it was made**, so sis signs the same `A2 -> A3` move Alice already
@@ -87,15 +102,17 @@ be to restore *again* to a fresh key, abandoning A3 and every post it signed.
 saw carried. The example runs a reader with no pin against the ex's branch: it follows him, adopts
 his list of one, and thereafter rejects Alice's real profile outright — *the real Alice is the one
 it turns away*. Nothing in the protocol repairs that, and an app MUST NOT hide it (§13.3). The
-second limit is quieter: a list change reaches other readers only through a link, so Alice adding
-her brother at the same chain length changes nothing for a pinned reader until she rotates and a
-link carries the new list — which is why §3.5 asks an app to rotate when the list changes.
+second limit is quieter: a list change reaches other readers only through a new chain length, so
+Alice adding her brother at the same chain length changes nothing for a pinned reader until she
+rotates and the profile carries the new list at the new length — which is why §3.5 asks an app to
+rotate when the list changes.
 
 The exit is §3.1, and it runs through a person: somebody hands the reader the key the owner's chain
-**currently ends on**, by link or by spoken code, and the reader follows the branch whose chain
-contains that key. Alice's chain contains A3; his does not. See `examples/first-contact/` for the
-two routes. There is no other way out of a contest, and the design says so rather than inventing
-one.
+**currently ends on**, by link or by spoken code, and the reader MUST follow the branch whose chain
+contains that key. Alice's chain contains A3; his does not. The example checks only that — which
+chain contains the key — because `src/reader.js` has no current-key path yet. See
+`examples/first-contact/` for the two routes. There is no other way out of a contest, and the design
+says so rather than inventing one.
 
 ## Contrast
 
@@ -112,8 +129,9 @@ the abuser. Open Feed settles it by *who vouched*, counted against a list the re
   person at the moment they are least able to answer it. Open Feed's `contested` verdict is the same
   admission with a rule attached: the reader keeps following nobody until the recovery list settles
   it or a person hands over the current key.
-- **Matrix cross-signing and device verification.** A master key signs your devices and your
-  contacts sign your master key. It solves the multi-device problem well; it does not answer *two
+- **Matrix cross-signing and device verification.** A master key stands over your devices (through
+  a self-signing key) and your contacts sign your master key. It solves the multi-device problem
+  well; it does not answer *two
   profiles claiming one identity* without a user comparing emoji again. The closest analogue to a
   recovery list is the social layer around it, which is not part of the resolution rule.
 - **Key transparency and CONIKS-style logs.** Genuinely strong, and the wrong shape for this

@@ -63,13 +63,16 @@ arriving cold has no second claim and reads an unmarked page — §13.3 states t
 `top-and-rumors/` shows the one mechanism (§3.7, through public replies) that reaches anybody else
 at all.
 
-**Ten hostile moves, three verdicts.** A hub withholds a listed post, rolls the index back, swaps a
-post for another she signed, serves a genuine post at the wrong number, withholds a listed media
-file, alters media bytes, substitutes a whole other identity, serves a second profile at one
-version, serves nothing at all — and finally smuggles in a post signed by a key that really was
-hers. The verdict for each is printed, and then the number that matters: **the set of distinct
-verdicts across the whole battery has exactly three members**, measured from the run rather than
-counted from the design.
+**Thirteen hostile moves, three verdicts.** A hub withholds a listed post, serves an older index,
+rolls the index's `version` back while keeping `top` and every entry, serves a second index at the
+same `version`, swaps a post for another she signed, serves a genuine post at the wrong number,
+serves a post signed by a key that was never hers, withholds a listed media file, alters media
+bytes, substitutes a whole other identity, serves a second profile at one version, serves nothing
+at all — and finally smuggles in a post signed by a key that really was hers. The verdict for each
+is printed, and then the number that matters: **the set of distinct verdicts across the whole
+battery has exactly three members**, measured from the run rather than counted from the design. The
+two index rows are there because they are caught by nothing else: an older index usually has a
+lower `top` too, and only §7.2's `version` rule sees a rollback that keeps it.
 
 The last row is why one of those three is `ok`. A file signed by a key that was hers is not a post.
 The index admits posts (§4), the index does not list 9, and the read is entirely ordinary — the file
@@ -114,17 +117,17 @@ it is identical: click through. A security UI with many states degrades into one
 state is *yes*. Open Feed does not get to be smarter than browser vendors here; it gets to have less
 to say.
 
-**PGP's trust levels** — unknown, none, marginal, full, ultimate, plus separate validity — are the
-same lesson at the identity layer. The model is more expressive than Open Feed's and almost nobody
-ever set the values, so in practice the whole lattice collapsed to "I have this key" versus "I do
-not". Open Feed's chain and recovery list (§3.3, §3.4) produce a verdict, not a score, and the
-reader does not ask its user to arbitrate.
+**GnuPG's trust levels** — unknown, undefined, never, marginal, full, ultimate, plus separate
+validity — are the same lesson at the identity layer. The model is more expressive than Open Feed's
+and, by most accounts, almost nobody ever set the values, so in practice the whole lattice collapsed
+to "I have this key" versus "I do not". Open Feed's chain and recovery list (§3.3, §3.4) produce a
+verdict, not a score, and the reader does not ask its user to arbitrate.
 
 **Signal's "safety number changed"** is the closest relative and it is deliberately binary. It maps
 almost exactly onto `identity`: something about who this is has changed and cannot be settled from
-here. Open Feed adds one state Signal has no need for, `host`, because Open Feed's serving path is
-untrusted by design and a hub can withhold and roll back where a Signal server cannot rewrite a
-ratchet.
+here. Open Feed adds one state Signal has no need for, `host`, because Open Feed's reader re-fetches
+a history a hub could withhold or roll back, while a Signal server relays messages it cannot replay
+or reorder into an earlier state.
 
 The general rule this example is built around: **the number of states is a UI budget, not a
 correctness budget.** The protocol can detect far more than three conditions — the reader's `why`

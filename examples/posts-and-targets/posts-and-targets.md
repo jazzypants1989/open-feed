@@ -81,6 +81,9 @@ marked unresolved — and, correctly, the reader says nothing about it, because 
 not evidence against anybody in particular (§7.5). Both replies are genuine and signed. What the
 rule denies is the *author* who shows one room one post 12 and another room a different one: only
 one of them is in the index a given reader verified, so only one of the two threads can look right.
+The third reply names a 16-character prefix of the right hash, and it lands nowhere too: the
+comparison is the whole string, and a reader that matched a prefix would let a replier thread under
+a post whose hash they had only seen part of.
 
 **`media`, and none on an encrypted post.** A public post carries `media` as an array of addresses;
 the index lists each file by its address alone and the reader checks that the bytes hash to it
@@ -92,20 +95,12 @@ entry there is `{hash, key}` rather than a bare hash (§6.6). `examples/media/` 
 **A private message is a post.** It sits at `/alice/posts/4` on **alice's own host**, listed in her
 own index, and there is no inbox anywhere for it to be delivered to — the example PUTs at a
 plausible inbox path on mum's hub and gets a `404`, because the path does not exist in the protocol.
-A non-recipient's reading key opens nothing; mum's opens it. Then the two costs §5.6 insists on
-stating, both shown rather than asserted:
-
-- **The host learns the shape of the correspondence.** It holds the file, so it knows a message
-  exists, when it was written, how big it is, and — from its own logs — who fetched it and when.
-  §6.4's padding hides exactly one distinction, a message to one person from a message to the
-  family; nothing hides the rest (§13.3).
-- **The host can withhold it.** The example deletes the file and reads again: the verdict is **this
-  host is misbehaving** with `post 4 is listed and not served`. That verdict is real, and it does
-  not give mum the message. A host that has gone quiet and a sender who has gone quiet look the same
-  from where she is standing (§13.3).
-- **A signed private message is provable by its recipient forever.** Alice's signature covers this
-  ciphertext; mum holds the key that opens it and her own copy of the bytes (§10). Withdrawing post
-  4 unmakes neither.
+A non-recipient's reading key opens nothing; mum's opens it. The costs §5.6 insists on stating are
+staged where they belong: what the host learns from the shape of the file, and that it can withhold
+the file and be named for it (`host: post 4 is listed and not served` — which does not give mum the
+message), are `examples/envelope/` and `examples/the-reader/`; that alice's signature over this
+ciphertext makes it provable by mum forever, and that withdrawing it reaches neither her copy nor
+her proof, is `examples/your-copy/`.
 
 ## Contrast
 

@@ -11,10 +11,11 @@ addressed exactly as any other post (§2), the index lists it exactly as any oth
 reader that cannot open it verifies it completely and hands it back with the field opaque (§7.4).
 There is no second signing construction in this protocol.
 
-The whole envelope is about fifty lines of a standard library: one X25519 ephemeral, HKDF-SHA256,
+The whole envelope is about 75 lines over a standard library: one X25519 ephemeral, HKDF-SHA256,
 ChaCha20-Poly1305. The example derives a slot from `node:crypto` alone and checks the result against
 Appendix B.8, so a second implementer can follow every intermediate value and know when they have
-it right.
+it right — by running this script, since Appendix B.1 publishes public keys only and the seeds
+behind B.8 live in `tools/regen.js`.
 
 ## What the output shows
 
@@ -31,15 +32,22 @@ the output shows.
 then `wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = epk)`. The content once:
 `plain` is UTF-8 JSON of the audience followed by the post's content members, length-prefixed and
 padded to a bucket (§6.4), and `ct = ChaCha20-Poly1305(content key, 12 zero bytes, padded,
-aad = epk || carrier)`. The example prints `Z`, the three derived pieces, the wrap and the
-ciphertext, and asserts that the slot it built by hand is byte-for-byte the second slot of Appendix
-B.8.
+aad = epk || carrier)`. Wherever `epk` appears in a derivation — the salt and both AADs — it is the
+32 raw bytes, not the 43-character text; the carrier is ASCII. §6.1 does not say so and the code
+does. The example prints `Z`, the three derived pieces, the wrap and the ciphertext, and asserts
+that the slot it built by hand is byte-for-byte the second slot of Appendix B.8 — which is also the
+example's check that `src/envelope.js`'s info string is the spec's, since the derivation here spells
+`"openfeed/v1/slot"` out rather than importing it.
 
-**The all-zero nonce.** It is safe for the reason it is safe in HPKE, and for no other: the content
-key is 32 random bytes and MUST NOT be reused across messages, so that `(key, nonce)` pair is used
-exactly once in the life of the key. Reuse the content key across two posts and you have reused a
-nonce, which for a stream cipher means the two plaintexts XOR to a readable difference. There is no
-counter to get wrong because there is nothing to count.
+**The all-zero nonce.** It is safe for the reason it is safe in age's key wrap, and for no other:
+the content key is 32 random bytes and MUST NOT be reused across messages, so that `(key, nonce)`
+pair is used exactly once in the life of the key. Reuse the content key across two posts and you
+have reused a nonce, which for a stream cipher means the two plaintexts XOR to a readable
+difference. There is no counter to get wrong because there is nothing to count. The same discipline
+holds one level up, and §6.1 states it without a MUST: `knonce` is derived from the ephemeral, so an
+ephemeral reused across two posts wraps two content keys under one `(kek, knonce)` — a two-time pad
+over the content keys, and the same tag for that recipient on both posts. One ephemeral per message
+is a rule, not a habit. (`FINDINGS.md` §1 is where the missing MUST is filed.)
 
 **The carrier is associated data.** This is the sharpest block. The thief lifts alice's envelope out
 of her post 5 and drops it into a post of his own — number 1, signed by his key, listed in his
@@ -61,7 +69,11 @@ unwrap all eight slots. Same plaintext. **An implementation that never looks at 
 and merely slower** — and that equivalence is the test of whether a tag decides anything. The last
 line makes the failure mode concrete: a slot carrying mum's own tag whose unwrap fails, placed
 first. That is a collision, and §6.3 requires her to keep scanning. A reader that stopped there
-would conclude a message was not for it on eight bytes it does not control.
+would conclude a message was not for it on eight bytes it does not control. (That mum's real slot
+is the second of eight is `src/envelope.js`'s habit — real slots in audience order, then dummies —
+and Appendix B.8 fixes it for the vector only; §6.4 says nothing about placement, and a publisher
+MAY shuffle. The slots are authenticated by nothing in the AEAD: only the file's Ed25519 signature
+covers them, which is enough, because only the author can sign.)
 
 **Tags are blinded per message.** Mum's tag on post 5 and on post 6 are different strings, and the
 two posts share none of their sixteen slot tags. The tag is derived through the message's own
@@ -95,84 +107,69 @@ two other examples: public threading, relocation riding along in a reply (§3.7)
 (§7.5) all read `rel` and `target`, so they work for everything a stranger could see anyway and are
 simply unavailable for anything encrypted — see `examples/moving/` and `examples/top-and-rumors/`.
 
-**Verified completely, opaque to everyone else.** The last block runs §7.4's three checks on post 5
-from outside the audience: the signature verifies under a key in alice's chain, the address is the
-one the index lists, and `n` equals the number it was served at. The verdict is *ok* and the
-`encrypted` member comes back as an object with three members nobody outside the audience can do
-anything with. Not an error, not a verdict — opening it is the client's business, never the
-reader's. The host's own reading key opens nothing. `examples/the-reader/` owns the full order of
-steps; this block is the one line of it that concerns §6.
+**Verified completely, opaque to everyone else.** The last block ties post 5 to Appendix B.8 by its
+address and shows the host's own reading key opening nothing. A reader outside the audience runs
+§7.4's three checks on it exactly as on any post — signature under a chain key, address, `n` — and
+hands `encrypted` back whole; `examples/the-reader/` stages that read, and this file does not repeat
+it.
 
 **What the host learns**, said plainly: that an encrypted post exists, when it was written, and
 roughly how big it is. It does not learn who it is for, how many people it is for, or what it
 answers. Because the audience is inside the plaintext, a large audience does show in the bucket the
 body lands in; §6.4's floor is what hides the small end, so that a message to one person is the size
-of a message to the family. That floor is priced in `examples/padding/`.
+of a message to the family. That floor is priced in `examples/padding/`. Two facts a family app has
+to hold that neither example stages, because they are one `decrypt` call each: a later post to a
+smaller audience is simply a post bro cannot open, and he keeps post 6 forever (§13.3, no forward
+secrecy); and a new `read` key in a later profile version opens new posts only — old posts still
+open with the old private key, and nothing re-encrypts the past (§3.8).
 
 ## Contrast
 
-This construction was deliberately re-chosen. The design it replaced was not broken, and the
-replacement is not novel — the interesting part is what each of the alternatives costs.
+None of this construction is novel; the interesting part is what each of the alternatives costs.
 
-**The JWE construction this replaced.** The archived §15 (`archive/open-feed-spec.md`, implemented
-in `archive/src/enc.js`) put a **JWE JSON Serialization** (RFC 7516) in the field: `alg`
-`ECDH-ES+A256KW`, `enc` `A256GCM`, an X25519 ephemeral per RFC 8037, key derivation by RFC 7518's
-Concat KDF. The good ideas are all still here: one shared ephemeral, per-recipient slots found by a
+**The JWE construction this replaced** (`archive/open-feed-spec.md` §15, `archive/src/enc.js`; the
+record is under `archive/redesign/`) was a JWE JSON Serialization (RFC 7516) with `ECDH-ES+A256KW`,
+`A256GCM`, an X25519 ephemeral per RFC 8037 and RFC 7518's Concat KDF — hand-rolled rather than
+imported, which is the worst of both: a wire format whose rules live in four RFCs, implemented by
+hand. The good ideas are all still here: one shared ephemeral, per-recipient slots found by a
 blinded 8-byte tag with `kid` forbidden, the audience encrypted inside rather than in a header. What
-went was the JOSE shape around them.
+went was the JOSE shape, and with it a per-recipient header that was **not covered by the JWE's own
+AEAD** — so carrier binding had to be a MUST that a decrypting client performed by comparing three
+plaintext fields afterwards. §6.2 is the same defence in one line of associated data. Re-measured
+against the current code: about 3,600 spec words against about 900; 381 implementation lines
+against 76, media included; 160 bytes per recipient slot against 83; an OPTIONAL audience of
+identity URLs against a MUST of `{key, read, loc}`; no padding against §6.4's floor.
 
-The price it was paying, re-measured against the current code:
-
-| | archived §15 | §6 |
-| --- | --- | --- |
-| spec words | 3,606 | 905 |
-| implementation | 381 lines (`archive/src/enc.js`) | 76 lines (`src/envelope.js`), media included |
-| bytes per recipient slot | 160 | 83 |
-| carrier binding | three plaintext fields compared by the client | associated data |
-| audience | OPTIONAL, identity URLs | MUST, `{key, read, loc}` |
-| padding | none | §6.4, with a floor |
-
-`GOALS.md` priority 1 is "implementable from a language's standard library… no canonicalizer, no
-JOSE library". The old envelope hand-rolled JWE rather than importing one, which is the worst of
-both: a wire format whose rules live in four RFCs, implemented by us. And its per-recipient header
-was **not covered by the JWE's own AEAD** — the archived §15.2 says so — so it leaned on the item
-signature for integrity, and lost that protection the moment anything lifted the envelope out of its
-carrier. Carrier binding then had to be re-added as a MUST that a decrypting client performs by
-comparing `id`, `authors[0].url` and `feed_url`, with a further rule that "absent against present is
-a mismatch, in both directions", because that is what happens when a check lives beside the data
-instead of underneath it. §6.2 is the same defence in one line of associated data, and two of those
-three fields no longer exist.
-
-**HPKE (RFC 9180)** is the closest well-specified relative, and the honest description of §6 is
-*HPKE's base mode in spirit, hand-rolled from primitives a standard library already has*, plus the
-box-per-recipient pattern that multi-recipient HPKE uses on top of it. Same shape: an ephemeral
-X25519, HKDF-SHA256, ChaCha20-Poly1305, a content key encrypted once per recipient, an all-zero
-nonce justified by a single-use key. Where it deviates, plainly:
+**HPKE (RFC 9180) and age** are the closest well-specified relatives — HPKE in spirit, age in shape.
+HPKE's base mode is the DHKEM half: an ephemeral X25519, HKDF-SHA256, ChaCha20-Poly1305. age's
+X25519 recipient stanza is the rest: a file key wrapped once per recipient under a single-use key
+with a nonce fixed at twelve zero bytes, exactly §6's justification for its own. RFC 9180 itself has
+neither a multi-recipient mode nor a zero nonce. Where §6 deviates from HPKE, plainly:
 
 - HPKE derives through `LabeledExtract`/`LabeledExpand` with a version prefix and a ciphersuite
   identifier mixed into the key schedule. §6 derives straight from the raw X25519 output with
-  HKDF salted by `epk`, and `"openfeed/v1/slot"` is the whole of the domain separation. That is
-  cheaper and it means a future cipher change is a change to that string, not a parameter.
+  HKDF salted by `epk`, and `"openfeed/v1/slot"` is the whole of the domain separation.
 - HPKE's `Seal` takes a nonce from the key schedule XORed with a sequence number, because an HPKE
   context encrypts many messages. Here a content key encrypts exactly one, so there is no sequence.
 - HPKE offers an authenticated mode. §6 does not need one: the sender is authenticated by the
   Ed25519 signature on the file the envelope rides in, and §6.2 binds the envelope to that file.
-- HPKE is a reviewed, tested, widely implemented standard, and this is not. That is a real cost of
-  the trade and `GOALS.md` records the evaluation as commissioned rather than closed.
+- HPKE and age are reviewed, tested, widely implemented, and this is not. That is a real cost of
+  the trade, and `GOALS.md` lists the construction as an open question for outside review, not a
+  closed one.
 
 **NIP-44** (Nostr's encrypted payloads, Cure53-reviewed) is the other close relative, and
 `archive/redesign/CANDIDATES.md` records that swapping to its construction was the cheapest answer
 to this envelope's "never independently reviewed" status. The cipher suite is nearly the same
-— ChaCha20 with HKDF-SHA256 over an X25519 shared secret, with padding — and §6's padding buckets
-are its idea. Two differences matter. NIP-44 is a **two-party** format: a conversation key from a
+— ChaCha20 with HKDF-SHA256 over a secp256k1 ECDH secret (Nostr's curve), with padding — and §6's
+padding buckets are its idea. Two differences matter. NIP-44 is a **two-party** format: a conversation key from a
 *static* pair of keys, so it has no ephemeral, no slots, and no audience; a group is N pairwise
 copies. And it encrypts-then-MACs with HMAC-SHA256 rather than using an AEAD, which is a choice §6
 does not need to make because ChaCha20-Poly1305 is in the standard library too. What §6 takes from
 it is the padding discipline; what it cannot take is the shape, because a family post to four people
 is one object with four slots, not four objects.
 
-**Signal and MLS (RFC 9420)** are the comparison people reach for, and the honest answer is that
-this is not in that family at all. There is **no ratchet, no forward secrecy after the fact, and no
+**Signal and MLS (RFC 9420)** are the comparison people reach for, and this is not in that family
+at all. There is **no ratchet, no forward secrecy after the fact, and no
 group state.** A recipient's reading key opens every post ever addressed to it; compromise that key
 and the archive goes with it. Nobody is *added to* or *removed from* anything, because there is no
 group to be a member of — an audience is fixed at the moment a post is written, and the next post

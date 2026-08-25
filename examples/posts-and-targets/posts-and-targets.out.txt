@@ -86,6 +86,7 @@
 
   sis's reply to the first    threads; unresolved? false
   sis's reply to the second   unresolved? true, and the reader says []
+  a 16-character prefix       unresolved? true — all 43 characters, or it is another post
 
   Both replies are genuine, signed, and name post 12. Threading on the number alone would show two
   coherent threads under one post; the hash makes the second land nowhere at all.
@@ -102,19 +103,10 @@
 
 §5.6 — a private message is a post
 
-  it lives at /alice/posts/4 on alice's own host, listed in her own index. There is no inbox:
-    PUT /mom/inbox → 404   no such path exists, on mum's hub or on anyone's
+  it lives at /alice/posts/4, listed by alice's index, and there is no inbox: PUT /mom/inbox → 404
+  a non-recipient's reading key opens null; mum's opens "I am leaving him on Friday"
 
-  the host cannot read it   a non-recipient's reading key opens null
-  mum can                   "I am leaving him on Friday"
-  it learns the shape       one message, at 2026-08-18T21:40:00Z, 1574 bytes,
-                            fetched 4 times from this hub so far
-  and it can withhold it    host: post 4 is listed and not served — and mum still has no
-                            message. A host gone quiet and a sender gone quiet look the same to
-                            her (§13.3).
-
-  And mum can prove it forever: alice's signature covers this ciphertext and mum holds the key that
-  opens it. Withdrawing post 4 unmakes neither, and mum keeps her own copy (§10). That is what a
-  per-post signature buys, and what it costs.
+  What the host learns and can withhold is examples/envelope/ and examples/the-reader/; that mum can
+  prove it forever, and keeps her copy, is examples/your-copy/.
 
 Every line above is asserted.

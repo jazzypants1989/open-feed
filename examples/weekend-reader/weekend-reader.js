@@ -162,7 +162,9 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
   const hf = await get(`${at}/index`);
   let index = hf && openFile(hf, chain.current);
   let set = index && fold(index.obj.entries);
-  if (index && (!set || !(Number.isInteger(index.obj.top) && index.obj.top >= set.top))) return bad('host', 'the index does not fold');
+  // §4.2 is the fold; `entries` first, a non-negative `version` and `top`'s floor are §4's shape.
+  const shape = index && (!set ? 'the index does not fold' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.top) && index.obj.top >= set.top) ? 'top is below the highest number issued' : null);
+  if (shape) return bad('host', shape === 'the index does not fold' ? shape : `the index does not fold: ${shape}`);
   if (!index) {
     if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
     say('no index I can verify');
@@ -283,7 +285,7 @@ if (isMain) {
 
   console.log('weekend-reader — §7, written from the text alone\n');
   console.log(`  ${measured} non-blank, non-comment lines above the marker, standard library only.`);
-  console.log('  About a quarter of it is the strict JSON scan, which exists because JSON.parse');
+  console.log('  About a sixth of it is the strict JSON scan, which exists because JSON.parse');
   console.log('  cannot see a duplicate member (§2.4). It imports nothing from the publisher.\n');
   assert.ok(measured < 200, 'the kill criterion was 200 lines');
 
@@ -341,6 +343,9 @@ if (isMain) {
     () => put(`${at}/profile`, P.profile({ ...base, version: 9, chain: [{ key: A1.x }] }, A1)), { pin: pinRestored });
   await move('an index signed by a rotated-out key, to a cold reader', 'host',
     () => reindex([], 2, 3, THIEF), { pin: null });
+  await move('a genuine post listed at another number, to a cold reader', 'host',
+    () => { put(`${at}/posts/3`, posts[1]); reindex([[1, P.address(posts[0])], [3, P.address(posts[1])], [mediaHash]], 1, 3); }, { pin: null });
+  await move('an index with `entries` not first', 'host', () => put(`${at}/index`, P.file({ version: 2, top: 3, entries: listing }, A1)));
   const verdicts = new Set(moves.map(([, v]) => v));
   console.log(`\n  ${moves.length} moves, ${verdicts.size} distinct verdicts: ${[...verdicts].sort().join(', ')}`);
   console.log('  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.\n');

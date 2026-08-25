@@ -17,10 +17,10 @@ const xk = (l) => readingKeyFromSeed(crypto.createHash('sha256').update(`envelop
 const AT = 'https://alice.example/alice', MUMAT = 'https://mom.example/mom';
 
 // One hub as a pure handler (§8): the publisher's PUTs and the reader's fetches are both `handle`.
-const hub = createHub(), log = [], say = (...lines) => console.log(lines.join('\n'));
+const hub = createHub(), say = (...lines) => console.log(lines.join('\n'));
 const GET = (path) => hub.handle({ method: 'GET', path });
 const put = (path, bytes) => hub.handle({ method: 'PUT', path, body: bytes, headers: { 'if-match': GET(path).headers?.etag ?? null } });
-const get = async (url) => { const at = new URL(url).pathname; log.push(at); const r = GET(at); return r.status === 200 ? { bytes: r.body, etag: r.headers.etag } : null; };
+const get = async (url) => { const r = GET(new URL(url).pathname); return r.status === 200 ? { bytes: r.body, etag: r.headers.etag } : null; };
 const reader = createReader({ get });
 const post = (n, fields, k) => signFile({ n, ...fields }, k);
 const obj = (f) => parseBody(splitFile(f).body), text = (f) => splitFile(f).body.toString();
@@ -142,15 +142,17 @@ assert.deepEqual([splitFile(b7).sigLine, obj(b7).target.hash.length], ['S4mRckyG
 // §5.4: mum has two files that each say "post 12"; her signed index lists one of them.
 const onA = obj(post(3, { at: '2026-07-19T09:00:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, n: 12, hash: address(twelveA), loc: MUMAT } }, SIS));
 const onB = obj(post(4, { at: '2026-07-19T09:05:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, n: 12, hash: address(twelveB), loc: MUMAT } }, SIS));
-const said = await reader.rumors(new Map([[MUM.x, mumPin]]), new Map([[3, onA], [4, onB]]), 'sis');
+const onC = obj(post(5, { at: '2026-07-19T09:06:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, n: 12, hash: address(twelveA).slice(0, 16), loc: MUMAT } }, SIS));
+const said = await reader.rumors(new Map([[MUM.x, mumPin]]), new Map([[3, onA], [4, onB], [5, onC]]), 'sis');
 say('§5.4 — a reply whose target hash the index does not list is a reply to something else\n',
   `  ${`"${obj(twelveA).text}"`.padEnd(20)}${address(twelveA)}   ← what mum's index lists`,
   `  ${`"${obj(twelveB).text}"`.padEnd(20)}${address(twelveB)}   ← what she showed somebody else\n`,
   `  sis's reply to the first    threads; unresolved? ${onA.target.unresolved === true}`,
-  `  sis's reply to the second   unresolved? ${onB.target.unresolved === true}, and the reader says [${said}]\n`,
+  `  sis's reply to the second   unresolved? ${onB.target.unresolved === true}, and the reader says [${said}]`,
+  `  a 16-character prefix       unresolved? ${onC.target.unresolved === true} — all 43 characters, or it is another post\n`,
   '  Both replies are genuine, signed, and name post 12. Threading on the number alone would show two\n  coherent threads under one post; the hash makes the second land nowhere at all.\n');
 assert.notEqual(address(twelveA), address(twelveB));
-assert.deepEqual([onA.target.unresolved, onB.target.unresolved, said], [undefined, true, []]);
+assert.deepEqual([onA.target.unresolved, onB.target.unresolved, onC.target.unresolved, said], [undefined, true, true, []]);
 
 say('§5.5 — media is a list of addresses, and an encrypted post carries none\n', `  post 3   ${text(p[3])}\n`,
   `  the index lists that file by its address alone and the reader checks the bytes: ${sha256(edited.media.get(pngHash)) === pngHash}`,
@@ -159,22 +161,11 @@ say('§5.5 — media is a list of addresses, and an encrypted post carries none\
 assert.deepEqual([obj(p[3]).media, sha256(edited.media.get(pngHash))], [[pngHash], pngHash]);
 assert.deepEqual(Object.keys(obj(p[4])), ['n', 'at', 'encrypted']);
 
-// §5.6: a message to one person, on the sender's own host. The last lines are the honest costs.
-const opened = decrypt(obj(p[4]).encrypted, xk('vector:mum-read').privateKey, carrierOf(A1.x, 4));
-const toStranger = decrypt(obj(p[4]).encrypted, xk('vector:host-read').privateKey, carrierOf(A1.x, 4));
-hub.store.delete('alice/posts/4');
-const withheld = await reader.read({ learned: A1.x, at: AT, pin: edited.pin });
-hub.store.set('alice/posts/4', p[4]);
+// §5.6: a message to one person is post 4, on alice's own host, listed in her own index.
 say('§5.6 — a private message is a post\n',
-  '  it lives at /alice/posts/4 on alice\'s own host, listed in her own index. There is no inbox:',
-  `    PUT /mom/inbox → ${hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status}   no such path exists, on mum's hub or on anyone's\n`,
-  `  the host cannot read it   a non-recipient's reading key opens ${toStranger}`,
-  `  mum can                   "${opened.text}"`,
-  `  it learns the shape       one message, at ${obj(p[4]).at}, ${p[4].length} bytes,`,
-  `                            fetched ${log.filter((l) => l === '/alice/posts/4').length} times from this hub so far`,
-  `  and it can withhold it    ${withheld.verdict}: ${withheld.why} — and mum still has no\n                            message. A host gone quiet and a sender gone quiet look the same to\n                            her (§13.3).\n`,
-  '  And mum can prove it forever: alice\'s signature covers this ciphertext and mum holds the key that\n  opens it. Withdrawing post 4 unmakes neither, and mum keeps her own copy (§10). That is what a\n  per-post signature buys, and what it costs.\n');
-assert.deepEqual([hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status, toStranger, opened.text], [404, null, 'I am leaving him on Friday']);
-assert.deepEqual([withheld.verdict, withheld.why, verifyFile(p[4], first.chain.keys).by], ['host', 'post 4 is listed and not served', A2.x]);
+  `  it lives at /alice/posts/4, listed by alice's index, and there is no inbox: PUT /mom/inbox → ${hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status}`,
+  `  a non-recipient's reading key opens ${decrypt(obj(p[4]).encrypted, xk('vector:host-read').privateKey, carrierOf(A1.x, 4))}; mum's opens "${decrypt(obj(p[4]).encrypted, xk('vector:mum-read').privateKey, carrierOf(A1.x, 4)).text}"\n`,
+  '  What the host learns and can withhold is examples/envelope/ and examples/the-reader/; that mum can\n  prove it forever, and keeps her copy, is examples/your-copy/.\n');
+assert.deepEqual([hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status, decrypt(obj(p[4]).encrypted, xk('vector:host-read').privateKey, carrierOf(A1.x, 4))], [404, null]);
 
 console.log('Every line above is asserted.');

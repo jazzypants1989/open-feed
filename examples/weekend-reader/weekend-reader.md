@@ -17,18 +17,19 @@ the text does not say, that is a finding about the text, not about the code.
 
 **The measurement, first.** The script reads its own source and reports the non-blank, non-comment
 lines above the marker that separates the reader from the demo below it. It is around 170 lines,
-about a quarter of which is the strict JSON scan of §2.4 — which exists only because `JSON.parse`
+about a sixth of which is the strict JSON scan of §2.4 — which exists only because `JSON.parse`
 cannot see a duplicate member (see `examples/json-hygiene/`). Everything else — the file format, the
 chain walk, the recovery lists, the contest rules, the fold, admission, the rumor rule — is the rest.
 
 **An honest read**, so the shape of a result is visible: a verdict, the posts, the notes.
 
-**The hostile moves, and the verdict each one earns.** Thirteen moves — a listed post withheld, post
+**The hostile moves, and the verdict each one earns.** Fifteen moves — a listed post withheld, post
 1 served at the path for post 3, a post signed by a key that was never hers, an older index, a listed
 media file withheld and then altered, a number below the top that was never there, a number re-listed
 at another hash inside one index, a whole other identity at the address, a branch vouched only by the
-list its own link brought, a profile that forgets her restore, and an index signed by a rotated-out
-key — and **each one names the verdict it must earn**, which matters: counting three distinct
+list its own link brought, a profile that forgets her restore, an index signed by a rotated-out key,
+a genuine post listed at a number its body does not declare, and an index with `entries` not first —
+and **each one names the verdict it must earn**, which matters: counting three distinct
 verdicts at the end is not enough by itself, because a check that stopped working would move one row
 to another verdict and leave the count at three. The count is asserted too, and it is §7.3's rule
 confirmed by measurement rather than by design document: `ok`, `host`, `identity`, and no fourth.
@@ -46,6 +47,10 @@ rotates, and between her two writes (§3.5) the host is serving an index signed 
 profile no longer ends on. A pinned reader keeps the index it verified itself and notes *"no index I
 can verify"*; a cold reader, holding none, reports `host`. Nobody is accused of anything, and the
 reader cannot tell that case from a 404 or a garbled file — which is the trade §7.2 makes on purpose.
+
+Two SHOULDs it does not implement, so that the measurement stays honest about what a weekend buys:
+§7.2's cold-reader retry, and §3.7's fallback to another remembered location. Both are app-level
+loops around `read`, and `src/reader.js` leaves them to the app as well (`FINDINGS.md` §2).
 
 ## What writing it found
 

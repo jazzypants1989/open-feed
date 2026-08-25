@@ -2,7 +2,7 @@
 // somewhere else and publishing a higher `version` naming it. Run: node examples/moving/moving.js
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { signFile, signingKeyFromSeed, createHub, createPublisher, createReader, encrypt, carrierOf } from '../../src/openfeed.js';
+import { signingKeyFromSeed, createHub, createPublisher, createReader } from '../../src/openfeed.js';
 import { signProfile } from '../../src/profile.js';
 import { readingKeyFromSeed } from '../../src/envelope.js';
 
@@ -99,17 +99,10 @@ console.log(`  sis holds for alice:  ${held(seen.get(alice.x))}`);
 console.log(`  rumors raised:        ${quiet.length ? quiet.join('; ') : 'none — she can see the post now'}\n`);
 assert.deepEqual([quiet, trace.length, held(seen.get(alice.x))], [[], 5, 'version 3, top 2, locations [pence.family, alice.example]']);
 
-// bro rewrites mum's post to name alice at an address he controls. It is not mum's file any more.
+// bro's own post names alice at an address he controls. It verifies — as his — and he also serves
+// a profile there carrying alice's anchor and his own signature. (A post that does not verify never
+// reaches the rumor step at all: §7.4, examples/the-reader/.)
 const griefTarget = { key: alice.x, n: 99, hash: 'x'.repeat(43), loc: BEACON };
-const store = sites.get(new URL(MUM).origin).hub.store, real = store.get('mom/posts/1');
-store.set('mom/posts/1', signFile({ n: 1, at: '2026-08-20T11:00:00Z', rel: 'reply', target: griefTarget, text: 'she moved here' }, bro));
-trace.length = 0;
-const spoiled = await reader.read({ learned: mum.x, at: MUM, pin: mumFeed.pin });
-const forgedHits = trace.filter((t) => t.startsWith('bro.example')).length;
-store.set('mom/posts/1', real);
-
-// His own post says the same thing and does verify — as his. He also serves a profile at that
-// address carrying alice's anchor and his own signature.
 const broPub = createPublisher({ io, key: bro, at: BRO });
 await broPub.claim({ anchor: bro.x, version: 1, name: 'Bro', chain: [{ key: bro.x }], recovery: REC, locations: [BRO] });
 await broPub.publish(1, { at: '2026-08-21T08:00:00Z', rel: 'reply', target: griefTarget, text: 'she is over here now' });
@@ -121,27 +114,14 @@ const walked = [...trace], beaconHits = walked.filter((t) => t.startsWith('bro.e
 const atBeacon = await reader.read({ learned: alice.x, at: BEACON, pin: seenAgain.get(alice.x) });
 const notes = { 0: 'the locations she already holds are tried first (§7.5)', [walked.length - 1]: 'the address in his reply, tried last' };
 
-console.log('§5.4 — and only a post the reader has verified moves anybody\n');
-console.log(`  the forged post, in mum's feed:  ${show(spoiled)}`);
-console.log(`    posts handed on: ${spoiled.posts ?? 'none'} — a post that does not verify never reaches the rumor step (§7.4)`);
-console.log(`    fetches to the address it named: ${forgedHits}\n`);
-console.log(`  bro's own post, which does verify. What her reader fetched, in order:`);
+console.log('§5.4 — a `loc` aims a fetch, and only what verifies there moves anybody\n');
+console.log(`  bro's own post, which verifies as his. What her reader fetched, in order:`);
 console.log(walked.map((t, i) => `    ${(t.padEnd(30) + (notes[i] ?? '')).trimEnd()}`).join('\n'));
 console.log(`    what bro.example served for her: ${show(atBeacon)}`);
 console.log(`    sis still holds for alice:       ${held(seenAgain.get(alice.x))}`);
 console.log(`    rumors raised: ${loud.join('; ')}  — the replier is the only party there is evidence about\n`);
-console.log('  A `loc` aims a fetch and nothing more. What is served there must verify under the\n  anchor key the reader learned (§3.1, §7.1), or the pin does not move.\n');
-assert.deepEqual([spoiled.verdict, spoiled.why, spoiled.posts, forgedHits], ['host', 'post 1 is not what the index lists', undefined, 0]);
+console.log('  What is served at a `loc` must verify under the anchor key the reader learned (§3.1, §7.1),\n  or the pin does not move. An encrypted reply carries its target inside the envelope (§6.6,\n  examples/envelope/), so relocation rides along in public replies only.\n');
 assert.deepEqual([atBeacon.verdict, atBeacon.why], ['identity', 'the profile is not signed by the key it ends on']);
 assert.deepEqual([loud, beaconHits, held(seenAgain.get(alice.x))], [['bro replied to something I cannot see'], 1, 'version 3, top 2, locations [pence.family, alice.example]']);
-
-// §6.6 — an encrypted post's target is inside the envelope, so a passing reader sees no location.
-const audience = [{ key: alice.x, read: aliceRead.x, loc: NEW }, { key: mum.x, read: mumRead.x, loc: MUM }];
-const sealed = { n: 2, at: '2026-08-20T11:05:00Z', encrypted: encrypt({ content: { rel: 'reply', target, text: 'welcome home' }, audience, carrier: carrierOf(mum.x, 2) }) };
-console.log('§6.6 — relocation rides along in public replies only\n');
-console.log(`  the public members of an encrypted reply:      ${Object.keys(sealed).join(', ')}`);
-console.log(`  "alice.example" anywhere in the bytes served:  ${JSON.stringify(sealed).includes('alice.example')}`);
-console.log('  The rel, the target and its loc are inside the envelope (§6.6, examples/envelope/),\n  so an encrypted reply moves nobody who was not already in its audience.\n');
-assert.deepEqual([Object.keys(sealed), JSON.stringify(sealed).includes('alice.example')], [['n', 'at', 'encrypted'], false]);
 
 console.log('Every line above is asserted.');

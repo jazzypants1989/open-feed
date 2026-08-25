@@ -86,6 +86,13 @@ for (const [mine, link] of [[restA3, exRot], [rotA3, exRot], [rotA3, exRest], [r
 }
 console.log('\n  A `sig` is not a vote: row 2 is two signed rotations, and each proves only that whoever');
 console.log('  held A2 moved. He held it too. Row 5 is a majority on both sides — mum vouched for him.\n');
+// Rule 4's other arm, in the order the threat model gives him: first move, holding her LIVE key.
+const grabbed = read(prof(3, [anchor, L1, exRot], family), EX, early), pulled = read(prof(4, [anchor, L1, restA3], family), A3, pinOf(grabbed));
+console.log('§3.6 — he moves first: the key he holds is her live key, and he rotates it to his own\n');
+console.log(`  a reader pinned at version 2, whose chain ends on A2   he rotates A2 → his key:  ${say(grabbed)} — no split, and it follows him`);
+console.log(`  her restore, mum and sis, reaches it at version 4       ${say(pulled)} — a split at 2, hers has the majority, it follows her: ${label[pulled.chain.current]}`);
+console.log('  On his hub her restore may never arrive. Withholding is the move no rule here answers (§13.3).\n');
+assert.deepEqual([got(grabbed), grabbed.chain.current, got(pulled), pulled.chain.current], [['ok', undefined], EX.x, ['ok', undefined], A3.x]);
 // The case the protocol exists for, staged under both candidate rules over the same counts.
 const byK = (a, b, k) => ((a >= k) === (b >= k) ? 'contested' : a >= k ? 'alice' : 'the ex');
 const byMajority = (a, b, n) => ((a * 2 > n) === (b * 2 > n) ? 'contested' : a * 2 > n ? 'alice' : 'the ex');   // more than half
@@ -97,8 +104,12 @@ console.log(`  settled by a threshold k  his 1 >= 1 and her 0 < 1           → 
 console.log(`  settled by a majority     1 of 3 is not more than half       → ${byMajority(0, 1, 3)}: he is nobody`);
 console.log(`  the reader's verdict      ${say(r3)}\n`);
 console.log('  Under a threshold of `k`, one listed adversary hands himself her identity while she is');
-console.log('  merely rotating a key. Under a majority he cannot, alone, ever.\n');
-assert.deepEqual([byK(0, 1, family.k), byMajority(0, 1, 3), got(r3)], ['the ex', 'contested', TIE]);
+console.log('  merely rotating a key. Under a majority he cannot, alone — at a split. And that is the open');
+console.log('  defect (FINDINGS.md §1.1(b)): a link that EXTENDS the pin is judged by §3.3, which is `k`:\n');
+const grab = read(prof(4, [anchor, L1, rotA3, restore(A3, EX, [ex], family)], family), EX, rotPin);
+console.log(`  he appends A3 → his key, vouched by himself alone, 1 of 3 with k=1   ${say(grab)}, now following ${label[grab.chain.current]}`);
+console.log('  No split, so rule 4 never runs. The fix under review makes a restore need k AND a majority.\n');
+assert.deepEqual([byK(0, 1, family.k), byMajority(0, 1, 3), got(r3), got(grab), grab.chain.current], ['the ex', 'contested', TIE, ['ok', undefined], EX.x]);
 // The price of that, and the repair the single link shape buys.
 const L1p = rotation(A, A2, pair), hers = restore(A2, A3, [mum], pair), hisRot = rotation(A2, EX, pair), mended = vouched(hers, A2, [sis]);
 const post = signFile({ n: 1, at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, A3);   // signed by A3 before the split
@@ -124,10 +135,10 @@ console.log(`  alice's real profile then reads       ${say(c7)}`);
 console.log('  The real Alice is the one it rejects, and nothing in the protocol repairs that.\n');
 console.log('  a list change reaches other readers only through a link (§3.5):');
 console.log(`  alice adds bro at the same chain length   the pinned reader still holds ${size(edited.recoveryLists[2])} at length 2`);
-console.log(`  she rotates, and the link carries it      now ${size(onward.recoveryLists[3])} at length 3\n`);
+console.log(`  she rotates, and the new length carries it   now ${size(onward.recoveryLists[3])} at length 3\n`);
 console.log('  the exit (§3.1): a person hands the reader the key her chain currently ends on — A3 — and');
-console.log(`  it follows the branch whose chain contains it. hers does: ${alice.chain.some((h) => h.key === A3.x)}; his does not: ${served.chain.some((h) => h.key === A3.x)}.`);
-console.log('  Through a person, never through the host. See examples/first-contact/.\n');
+console.log(`  it MUST follow the branch whose chain contains it. hers does: ${alice.chain.some((h) => h.key === A3.x)}; his does not: ${served.chain.some((h) => h.key === A3.x)}.`);
+console.log('  Through a person, never through the host. See examples/first-contact/. (src/reader.js has no\n  such path yet; this line checks only which chain contains the key.)\n');
 assert.deepEqual([cold.recoveryLists[2], got(c7), edited.recoveryLists[2], onward.recoveryLists[3]], [his, ['identity', 'the chain of key changes does not hold'], family, wider]);
 assert.ok(alice.chain.some((h) => h.key === A3.x) && !served.chain.some((h) => h.key === A3.x));
 

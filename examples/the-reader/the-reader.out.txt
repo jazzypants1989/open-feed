@@ -73,19 +73,22 @@
   play and this reader saw the newer one, so the question is which of them is her. A cold
   reader has no second claim, and sees an unmarked page (§13.3).
 
-§7.3 — 10 hostile moves, 3 verdicts
+§7.3 — 13 hostile moves, 3 verdicts
 
-  move                                             verdict   what the reader said
-  withholds a listed post                          host      post 3 is listed and not served
-  serves an older index                            host      an index older than the one this reader saw
-  swaps a post for another she signed              host      post 1 is not what the index lists
-  serves genuine post 3 at number 1                host      post 1 is not what the index lists
-  withholds a listed media file                    host      media file ot0dUv… is listed and not served
-  alters the media bytes                           host      media file ot0dUv… is not what the index lists
-  substitutes a whole other identity               identity  not the identity this reader learned
-  serves a second profile at one version           identity  contested: two profiles at one version
-  serves no profile at all                         host      no profile served
-  smuggles in a post signed by a key that was hers ok
+  move                                                verdict   what the reader said
+  withholds a listed post                             host      post 3 is listed and not served
+  serves an older index                               host      an index older than the one this reader saw
+  rolls the index back, keeping top                   host      an index older than the one this reader saw
+  serves a second index at one version                host      two indexes at one version
+  swaps a post for another she signed                 host      post 1 is not what the index lists
+  serves genuine post 3 at number 1                   host      post 1 is not what the index lists
+  serves a post signed by a key that was never hers   host      post 3 is not what the index lists
+  withholds a listed media file                       host      media file ot0dUv… is listed and not served
+  alters the media bytes                              host      media file ot0dUv… is not what the index lists
+  substitutes a whole other identity                  identity  not the identity this reader learned
+  serves a second profile at one version              identity  contested: two profiles at one version
+  serves no profile at all                            host      no profile served
+  smuggles in a post signed by a key that was hers    ok
 
   distinct verdicts across the battery: 3  (host, identity, ok)
 

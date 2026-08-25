@@ -41,6 +41,12 @@
   A `sig` is not a vote: row 2 is two signed rotations, and each proves only that whoever
   held A2 moved. He held it too. Row 5 is a majority on both sides — mum vouched for him.
 
+§3.6 — he moves first: the key he holds is her live key, and he rotates it to his own
+
+  a reader pinned at version 2, whose chain ends on A2   he rotates A2 → his key:  ok — no split, and it follows him
+  her restore, mum and sis, reaches it at version 4       ok — a split at 2, hers has the majority, it follows her: A3
+  On his hub her restore may never arrive. Withholding is the move no rule here answers (§13.3).
+
 §3.6 — majority, and not `k`: the case the protocol exists for
 
   the list at the split     k=1 of 3 — mum, sis, and the ex. any one of them can bring her back
@@ -51,7 +57,11 @@
   the reader's verdict      identity: contested: two histories, and no majority settles it
 
   Under a threshold of `k`, one listed adversary hands himself her identity while she is
-  merely rotating a key. Under a majority he cannot, alone, ever.
+  merely rotating a key. Under a majority he cannot, alone — at a split. And that is the open
+  defect (FINDINGS.md §1.1(b)): a link that EXTENDS the pin is judged by §3.3, which is `k`:
+
+  he appends A3 → his key, vouched by himself alone, 1 of 3 with k=1   ok, now following his key
+  No split, so rule 4 never runs. The fix under review makes a restore need k AND a majority.
 
 §3.6 — the price of the majority rule, and the repair the single link shape buys
 
@@ -76,10 +86,11 @@
 
   a list change reaches other readers only through a link (§3.5):
   alice adds bro at the same chain length   the pinned reader still holds k=1 of 3 at length 2
-  she rotates, and the link carries it      now k=1 of 4 at length 3
+  she rotates, and the new length carries it   now k=1 of 4 at length 3
 
   the exit (§3.1): a person hands the reader the key her chain currently ends on — A3 — and
-  it follows the branch whose chain contains it. hers does: true; his does not: false.
-  Through a person, never through the host. See examples/first-contact/.
+  it MUST follow the branch whose chain contains it. hers does: true; his does not: false.
+  Through a person, never through the host. See examples/first-contact/. (src/reader.js has no
+  such path yet; this line checks only which chain contains the key.)
 
 Every line above is asserted.

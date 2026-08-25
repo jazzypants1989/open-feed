@@ -60,8 +60,9 @@ is wrong.
 profile only, and reads cold as `host: no index served` — a brand-new identity accusing a perfectly
 honest host at the moment someone signs up. One empty index fixes it. Then the checks a hub that
 accepts writes MUST make: a profile signed by somebody other than the key its chain ends on (403), a
-profile whose chain does not walk (403), a different `anchor` claiming a name already held (409),
-and an index not signed by the key the held profile ends on (403). The entity tag is no part of the
+profile whose chain does not walk (403), a different `anchor` claiming a name already held (409), a
+profile whose `version` has not advanced (409), and an index not signed by the key the held profile
+ends on (403). The entity tag is no part of the
 proof — every one of those refusals carried the *correct* tag, read from a public `GET`. The block
 closes on the honest case those checks must not break: a real rotation, the old key refused for the
 index afterwards, and the index re-signed under the new one.
@@ -105,9 +106,10 @@ copy. `examples/rewrite/` is where that argument lives.
 ## Contrast
 
 **"The request is the signed file" versus a publishing API.** Micropub, the Mastodon API and AT
-Protocol's `com.atproto.repo.*` all put an authorization layer between a client and a repository: an
-app registration, an OAuth flow, a bearer token with a lifetime, a scope model, a refresh path, and
-revocation. Open Feed has none of those, and the absence is not a simplification of the same design
+Protocol's `com.atproto.repo.*` all put an authorization layer between a client and a repository —
+some mix of app registration, an OAuth flow, bearer tokens, scopes, refresh and revocation (IndieAuth
+skips the registration, Mastodon's tokens are long-lived, AT Protocol has the whole list). Open Feed
+has none of those, and the absence is not a simplification of the same design
 — it is a different one. In a token model the server decides what a client may write and can
 therefore write it itself; the token proves you asked, not that you meant it. Here the *file* is the
 credential: a hub that wants to publish as alice needs her Ed25519 private key, which never leaves
@@ -125,8 +127,8 @@ This costs interoperability work that a paired product gets for free, and it is 
 scenario 6 (a second implementer writes a publisher and a reader from the text, a third writes a
 dumb hub that serves both) is a test of.
 
-**Compare-and-swap over HTTP.** `If-Match` and `ETag` are HTTP/1.1's conditional requests (RFC 2616,
-1999; now RFC 9110) doing exactly the job they were specified for. The design uses them rather than
+**Compare-and-swap over HTTP.** `If-Match` and `ETag` are HTTP/1.1's conditional requests (RFC 2068,
+1997; then RFC 2616, now RFC 9110) doing exactly the job they were specified for. The design uses them rather than
 inventing a version field on the wire, and buys two things: nothing new to learn, and a serving path
 that an ordinary static host already implements. Where it is thin: conditional `PUT` is far less
 widely implemented than conditional `GET`, and several popular object stores have only recently

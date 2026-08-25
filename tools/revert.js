@@ -20,10 +20,10 @@ const M = [
   ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',
     'let index = hf && openFile(hf, chain.current);',
     'let index = hf && openFile(hf, chain.keys);'],
-  ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',
+  ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.4 the address half; the `n` half is the weekend-reader row below
     "if (!post || post.address !== e.hash || post.obj.n !== n) return bad('host', `post ${n} is not what the index lists`);",
     "if (!post) return bad('host', `post ${n} is not what the index lists`);"],
-  ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',
+  ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.5 one line per person (this gate sees only the de-dup half)
     'if (t.n > seen.get(t.key).top && !out.includes(line)) out.push(line);',
     'out.push(line);'],
   ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',
@@ -35,10 +35,10 @@ const M = [
   ['gapless-gate', 'examples/weekend-reader/weekend-reader.js',
     "if (!Array.isArray(e) || e.length > 2 || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;",
     "if (!Array.isArray(e) || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;"],
-  ['gapless-gate', 'examples/weekend-reader/weekend-reader.js',
+  ['gapless-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.2 step 9 — the whole back-check; a `>=` slip is not staged on this side
     "if (typeof n !== 'number' || n > pin.top) continue;",
     'if (true) continue;'],
-  ['gapless-gate', 'examples/_seeds/gapless-gate.js',
+  ['gapless-gate', 'examples/_seeds/gapless-gate.js',                              // §8.5 — the seed's stand-in hub, not an implementation
     'if (this.owners(m[1], this.files.get(key), n) || !this.owners(m[1], b, n)) return { status: 409 };',
     'if (!this.owners(m[1], b, n)) return { status: 409 };'],
   ['court-gate', 'examples/weekend-reader/weekend-reader.js',
@@ -62,21 +62,21 @@ const M = [
   ['envelope-gate', 'examples/_seeds/envelope.js',
     'const bindAAD = (epk, carrier) => Buffer.concat([epk, Buffer.from(carrier)]);',
     'const bindAAD = (epk, carrier) => epk;'],
-  ['envelope-gate', 'examples/_seeds/envelope.js',
+  ['envelope-gate', 'examples/_seeds/envelope.js',                                // §6.4 the floor is a SHOULD
     "export const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 8, bodyFloor: 512 } };",
     "export const POLICY = { pow2: { slotFloor: 1, bodyFloor: 32 }, floor: { slotFloor: 1, bodyFloor: 32 } };"],
-  ['envelope-gate', 'examples/_seeds/envelope.js',
+  ['envelope-gate', 'examples/_seeds/envelope.js',                                // §6.1 one ephemeral per message; §6.3's blinding is what the gate measures
     'const eph = ephemeral ?? xKey(`eph:${b64(crypto.randomBytes(8))}`);',
     "const eph = ephemeral ?? xKey('eph:fixed');"],
-  ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',
+  ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',                              // §5.4 — mutates the seed's own thread(); the weekend reader's §5.4 line is unobservable by any gate
     'p.target.n === 1 && p.target.hash === momRead.pin.live.get(1)',
     'p.target.n === 1'],
   ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',
     'checkedKey = await readKeyOf(mom, momAfter.pin);',
     'checkedKey = await naiveReadKeyOf(mom);'],
-  ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',
-    'rumorFetches.M === 3 && rumorFetches.J === 0',
-    'rumorFetches.J === 3 && rumorFetches.M === 0'],
+  ['twohubs-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.5 look again at the author's hub
+    'if (!refreshed.has(t.key)) {',
+    'if (false) {'],
   ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',
     "loc: momNew }, text: 'welcome home' }",
     "loc: mom.at }, text: 'welcome home' }"],
@@ -124,6 +124,13 @@ const M = [
   ['spoken-gate', 'examples/_seeds/spoken-gate.js',
     "const repaired = [spoken(alice.chain.at(-1).key), spoken(thief.chain.at(-1).key)];",
     "const repaired = [spoken(alice.anchor), spoken(thief.anchor)];"],
+  // ---- The capstone's own demo: the rows the seed gates cannot see. ----
+  ['weekend-reader', 'examples/weekend-reader/weekend-reader.js',                  // §7.4 `n` equals the number served at
+    "if (!post || post.address !== e.hash || post.obj.n !== n) return bad('host', `post ${n} is not what the index lists`);",
+    "if (!post || post.address !== e.hash) return bad('host', `post ${n} is not what the index lists`);"],
+  ['weekend-reader', 'examples/weekend-reader/weekend-reader.js',                  // §4 `entries` MUST come first
+    "Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' :",
+    "false ? 'entries is not the first member' :"],
   // ---- Stage B's examples. Every row here targets `src/`, which is what the examples run. ----
   // ---- §2's three, written first; they set the house style. ----
   ['signed-file', 'src/file.js',
@@ -231,9 +238,9 @@ const M = [
   ["media", "src/reader.js",
     "if (!f) return bad('host',",
     "if (!f) continue; if (false) return bad('host',"],
-  ["media", "src/index.js",
-    "if (e.length === 1) { if (live.has(a)) return null; live.set(a, { hash: a }); continue; }",
-    "if (e.length === 1) return null;"],
+  ["media", "src/reader.js",                                                     // §4.4 a media file the index does not list is not there
+    "      posts.set(n, post.obj);",
+    "      posts.set(n, post.obj); for (const h of post.obj.media ?? []) { const mf = await get(`${at}/media/${h}`); if (mf) media.set(h, mf.bytes); }"],
   ["media", "src/envelope.js",
     "crypto.createHash('sha256').update(bytes).digest('base64url')",
     "crypto.createHash('sha256').update(plain).digest('base64url')"],
@@ -241,7 +248,7 @@ const M = [
   ["rewrite", "src/index.js",
     "for (const e of entries) { const [a, b] = e; if (e.length === 2 && b === null) m.delete(a); else m.set(a, typeof a === 'string' ? [a] : [a, b]); }",
     "for (const e of entries) { const [a, b] = e; m.set(a, typeof a === 'string' ? [a] : [a, b]); }"],
-  ["rewrite", "src/index.js",
+  ["rewrite", "src/index.js",                                                    // §4.2 the fold's withdrawal; the rewrite's safety argument is live-set identity
     "if (b === null) { if (!live.has(a)) return null; live.delete(a); continue; }",
     "if (b === null) { if (!live.has(a)) return null; continue; }"],
   ["rewrite", "src/index.js",
@@ -250,6 +257,9 @@ const M = [
   ["rewrite", "src/index.js",
     "if (was !== e.hash) return bad(`post ${n} changed after the reader saw it`);",
     "if (false) return bad(`post ${n} changed after the reader saw it`);"],
+  ["rewrite", "src/index.js",                                                    // §7.2 step 9 — media files are exempt
+    "if (typeof n !== 'number' || n > pin.top) continue;",
+    "if (n > pin.top) continue;"],
   // padding
   ["padding", "src/envelope.js",
     "Math.ceil(Math.log2(",
@@ -276,9 +286,6 @@ const M = [
   ["moving", "src/profile.js",
     "  const profile = verifyFile(bytes, chain.current);",
     "  const profile = verifyFile(bytes, chain.current) ?? { address: sha256(bytes) };"],
-  ["moving", "src/reader.js",
-    "      const post = verifyFile(f.bytes, chain.keys);",
-    "      const post = verifyFile(f.bytes, chain.keys) || { address: e.hash, obj: { n } };"],
   ["moving", "src/profile.js",
     "else if (p.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');",
     "else if (false) return bad('identity', 'an older profile than the one this reader saw');"],
@@ -308,10 +315,10 @@ const M = [
   ["views", "src/views.js",
     "export function hcard(read, loc) {\n  const name = read.name ?? loc.split('/').pop();",
     "export function hcard(read, loc) {\n  const name = loc.split('/').pop();"],
-  ["views", "src/views.js",
+  ["views", "src/views.js",                                                      // §11 says MAY: this pins src/views.js's choice, not a rule
     "href=\"${esc(`${loc}/#${read.anchor}`)}\"",
     "href=\"${esc(`${loc}/`)}\""],
-  ["views", "src/index.js",
+  ["views", "src/index.js",                                                      // §4.2 the fold; "withdrawn posts are absent" holds by construction in views.js
     "if (b === null) { if (!live.has(a)) return null; live.delete(a); continue; }",
     "if (b === null) { if (!live.has(a)) return null; continue; }"],
   // contest
@@ -368,6 +375,18 @@ const M = [
   ["the-reader", "src/reader.js",
     "if (restoredAt !== null && now - restoredAt < WEEK) say('recently restored');",
     "if (false) say('recently restored');"],
+  ["the-reader", "src/index.js",                                                 // §7.2 step 9 index `version` MUST NOT go backwards (a rollback that keeps `top`)
+    "if (index.obj.version < pin.indexVersion) return bad('an index older than the one this reader saw');",
+    "if (false) return bad('an index older than the one this reader saw');"],
+  ["the-reader", "src/index.js",                                                 // §7.2 step 9 the same `version` at a different address is host
+    "if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('two indexes at one version');",
+    "if (false) return bad('two indexes at one version');"],
+  ["the-reader", "src/reader.js",                                                // §7.4 a post that verifies under no chain key is host
+    "      const post = verifyFile(f.bytes, chain.keys);",
+    "      const post = verifyFile(f.bytes, chain.keys) || { address: e.hash, obj: { n } };"],
+  ["the-reader", "src/reader.js",                                                // §7.4 a listed file that is not served is host
+    "if (!f) return bad('host', `${isMedia ? 'media file' : 'post'} ${n} is listed and not served`);",
+    "if (!f) continue;"],
   // your-copy
   ["your-copy", "src/publish.js",
     "const kept = keep ?? ((path, bytes) => copy.set(path, bytes));",
@@ -375,7 +394,7 @@ const M = [
   ["your-copy", "src/publish.js",
     "if (r.status === 200 || r.status === 201) kept(path, bytes); return r; };",
     "if (r.status === 200 || r.status === 201) kept(path, Buffer.concat([bytes, Buffer.from('\\n')])); return r; };"],
-  ["your-copy", "src/index.js",
+  ["your-copy", "src/index.js",                                                  // §4.2 the fold; §10's "last index is the table of contents" is downstream of it
     "if (b === null) { if (!live.has(a)) return null; live.delete(a); continue; }",
     "if (b === null) { if (!live.has(a)) return null; continue; }"],
   ["your-copy", "src/reader.js",
@@ -385,9 +404,12 @@ const M = [
   ["publish-interface", "src/hub.js",
     "if ((cur ? etag(cur) : null) !== ifMatch) return { status: 412",
     "if (ifMatch && (cur ? etag(cur) : null) !== ifMatch) return { status: 412"],
-  ["publish-interface", "src/publish.js",
-    "if (cur) { try { obj = parseBody(splitFile(cur.bytes).body); } catch { throw new PublishError('the served index does not parse', 0); } }",
-    "if (false) { try { obj = parseBody(splitFile(cur.bytes).body); } catch { throw new PublishError('the served index does not parse', 0); } }"],
+  ["publish-interface", "src/publish.js",                                        // §8.1 the loser folds into what is served — the naive retry, its own entries under the hub's tag
+    "const next = change({ entries: obj.entries, version: obj.version + 1, top: obj.top });",
+    "const next = change({ entries: [], version: obj.version + 1, top: obj.top });"],
+  ["publish-interface", "src/hub.js",                                            // §8.4 a later profile write MUST carry a `version` that has advanced
+    "if (old && (old.anchor !== o.anchor || !(o.version > old.version))) return { status: 409, headers: CORS };",
+    "if (old && old.anchor !== o.anchor) return { status: 409, headers: CORS };"],
   ["publish-interface", "src/hub.js",
     "if (ownersFile(name, cur, n) || !ownersFile(name, bytes, n)) return { status: 409, headers: CORS };",
     "if (!ownersFile(name, bytes, n)) return { status: 409, headers: CORS };"],
@@ -419,12 +441,12 @@ const M = [
   ["posts-and-targets", "src/reader.js",
     "if (listed !== undefined && listed !== t.hash) { t.unresolved = true; continue; }",
     "if (false && listed !== undefined && listed !== t.hash) { t.unresolved = true; continue; }"],
+  ["posts-and-targets", "src/reader.js",                                         // §5.4 all 43 characters: a prefix match is another post
+    "if (listed !== undefined && listed !== t.hash) { t.unresolved = true; continue; }",
+    "if (listed !== undefined && !listed.startsWith(t.hash)) { t.unresolved = true; continue; }"],
   ["posts-and-targets", "src/index.js",
     "for (const [n, h] of pin.live) if (!set.live.has(n)) { notes.push(`withdrawn: ${n}`); withdrawn.set(n, h); }",
     "for (const [n, h] of pin.live) if (!set.live.has(n)) { notes.push(`withdrawn: ${n}`); }"],
-  ["posts-and-targets", "src/reader.js",
-    "if (!f) return bad('host', `${isMedia ? 'media file' : 'post'} ${n} is listed and not served`);",
-    "if (!f) continue;"],
 ];
 
 // A row's first column names either a seed (`examples/_seeds/<gate>.js`) or an example

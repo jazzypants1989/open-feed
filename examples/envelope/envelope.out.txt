@@ -13,7 +13,8 @@
   content key                       ignPR4B2H28CyC3JWdlMWpBKY9enPyRVYs4O9CatkIw   32 random bytes, used once
   carrier                           pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5
 
-  mum's slot, from her reading key R and this message's ephemeral:
+  mum's slot, from her reading key R and this message's ephemeral. Wherever epk appears in a
+  derivation it is the 32 raw bytes; the carrier is ASCII text:
     tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52)
     Z = X25519(eph priv, R)         7d8c28c57811b9f2df3f8dd04859ffd8…
     tag(8)                          SzNzzQy4o2c
@@ -28,8 +29,10 @@
     ct = ChaCha20-Poly1305(content key, 12 zero bytes, padded, aad = epk || carrier)
       F0a_r7lGklcYcRiWYCqFFFNp-LVbDvXTILfYICimJP1…   704 characters
 
-  The all-zero nonce is safe for the reason it is safe in HPKE: the content key is 32 random
-  bytes and MUST NOT be reused across messages, so that (key, nonce) pair is used exactly once.
+  The all-zero nonce is safe for the reason it is safe in age's key wrap: the content key is 32
+  random bytes and MUST NOT be reused across messages, so that (key, nonce) pair is used exactly
+  once. The same holds one level up — knonce is derived from the ephemeral, so an ephemeral reused
+  across two posts wraps two content keys under one (kek, knonce). One ephemeral per message.
 
 §6.2 — the carrier is associated data, so a lifted envelope does not open
 
@@ -42,10 +45,12 @@
   the unwrap is keyed against. Had the associated data been epk alone, the unwrap would take no
   carrier at all, and the same bytes would open wherever they were pasted:
     "I am leaving him on Friday" — her words, under his name.
+  (That counterfactual reuses the content key and nonce over the identical plaintext on purpose;
+  only the associated data differs, and nothing leaks. It is not a thing a publisher may do.)
 
 §6.3 — a tag is a hint, never a decision
 
-  scanning for mum's own tag        finds slot 2 of 8, and unwraps once
+  scanning for mum's own tag        finds it (slot 2 of 8 here; §6.4 says nothing about placement), and unwraps once
   ignoring every tag, trying all    2 unwraps here, up to 8 — conformant, merely slower
   the same plaintext either way     true
 
@@ -94,19 +99,13 @@
   in a reply (§3.7) and the rumor rule (§7.5) are unaffected for anything a stranger could see
   anyway — and unavailable for anything encrypted. examples/moving/ and examples/top-and-rumors/.
 
-§7.4 — a reader who is not in the audience verifies it completely and hands it back opaque
+§7.4 — a reader outside the audience verifies it completely and hands it back opaque
 
-  signed by a key in alice's chain  true   (her restored key)
-  the address the index lists       52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM
-  n equals the number served at     true
-  encrypted comes back as           an opaque object: epk, slots, ct
-  the host's own reading key opens  null
+  post 5 is Appendix B.8 byte for byte, at address 52zvhtC1WqYWvwKJqqqfxkzXBNSyrGMHFCGNLBEhhcM, and the host's own
+  reading key opens null. Opening it is the client's business; the read is examples/the-reader/.
 
-  Not an error and not a verdict: opening it is the client's business, never the reader's. This
-  post is Appendix B.8 byte for byte — 1487 body bytes, 1574 on the wire.
-
-  What the host learns is that an encrypted post exists, when (2026-08-18T21:40:00Z), and roughly
-  how big: post 5 is 1574 bytes and post 6, to four people, is 2257. The audience is inside, so a
-  large one shows in the bucket the body lands in; §6.4's floor hides the small end.
+  What the host learns is that an encrypted post exists, when, and roughly how big: post 5 is
+  1574 bytes and post 6, to four people, is 2257. The audience is inside, so a large one shows in the
+  bucket the body lands in; §6.4's floor hides the small end.
 
 Every line above is asserted.

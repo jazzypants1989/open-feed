@@ -131,6 +131,7 @@ const ptag = quiet('GET', '/alice/profile').headers.etag;
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2 }, thief), ifMatch: ptag, expect: 403, note: 'not signed by the key the chain ends on' });
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2, chain: [{ key: alice.x }, { key: next.x, recovery: REC }] }, next), ifMatch: ptag, expect: 403, note: 'the chain does not walk' });
 call('PUT', '/alice/profile', { body: signProfile({ anchor: thief.x, version: 2, chain: [{ key: thief.x }], recovery: REC, locations: [AT] }, thief), ifMatch: ptag, expect: 409, note: 'the name is taken, by someone else' });
+call('PUT', '/alice/profile', { body: signProfile({ ...fields, name: 'alice again' }, alice), ifMatch: ptag, expect: 409, note: 'a version that has not advanced' });
 call('PUT', '/alice/index', { body: signIndex({ entries: [], version: 99, top: 6 }, thief), ifMatch: etag(), expect: 403, note: 'not the key alice\'s profile ends on' });
 console.log('\n  and the honest case those checks must not break — a rotation, then the index re-signed:\n');
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2, chain: [{ key: alice.x }, rotation(alice, next, REC)] }, next), ifMatch: ptag, expect: 200 });
