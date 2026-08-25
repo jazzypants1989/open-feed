@@ -1,7 +1,7 @@
-// Regenerates Appendix B of open-feed-spec.md and checks the published spec against it.
+// Regenerates test-vectors.md and checks the committed file against it.
 //
-//   node tools/regen.js           verify the vectors and check the spec carries them verbatim
-//   node tools/regen.js --write   regenerate Appendix B into open-feed-spec.md
+//   node tools/regen.js           verify the vectors and check test-vectors.md carries them verbatim
+//   node tools/regen.js --write   regenerate test-vectors.md
 //
 // NO SECOND IMPLEMENTATION LIVES HERE. The files are produced by the weekend publisher
 // (examples/weekend-publisher) and the envelope by src/envelope.js. Verification runs TWO readers
@@ -20,8 +20,7 @@ import { encrypt, decrypt as unseal, carrierOf, readingKeyFromSeed } from '../sr
 // A deterministic X25519 key from a label — for vectors only, never for a real identity.
 const xKey = (label) => ({ label, ...readingKeyFromSeed(crypto.createHash('sha256').update(`envelope:${label}`).digest()) });
 
-const SPEC = new URL('../open-feed-spec.md', import.meta.url);
-const MARKER = '## Appendix B: Test Vectors';
+const OUT = new URL('../test-vectors.md', import.meta.url);
 const write = process.argv.includes('--write');
 
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('base64url');
@@ -172,21 +171,22 @@ serveIndex(head3);
 
 // ---- render ----
 const f = (bytes) => bytes.toString('utf8');
-const vec = (title, note, text) => `### ${title}\n\n${note}\n\n\`\`\`\n${text}\n\`\`\`\n`;
+const vec = (title, note, text) => `## ${title}\n\n${note}\n\n\`\`\`\n${text}\n\`\`\`\n`;
 
 const appendix = [
-  MARKER,
+  '# Open Feed test vectors',
   '',
-  'Every vector below is produced by `tools/regen.js`, which signs them with the weekend publisher, verifies',
-  'them by running **two independent readers** over them in the order §7 states, and then checks',
-  'that this document carries them verbatim. Run `node tools/regen.js` after any change to a schema, to',
-  'the signing format, or to the envelope; it exits non-zero on drift.',
+  'Known-good files for every construction in `open-feed-spec.md`. Each is produced by `tools/regen.js`,',
+  'which signs them with the weekend publisher, verifies them by running **two independent readers** over',
+  'them in the order §7 states, and then checks that this file carries them verbatim. Run',
+  '`node tools/regen.js` after any change to a schema, the signing format, or the envelope; it exits',
+  'non-zero on drift.',
   '',
   'Keys are deterministic so the bytes reproduce. Note that a *different* signature line for the same',
   'body is equally valid (§2.2): a verifier hashes the body and checks the signature, and never compares',
   'files byte for byte.',
   '',
-  '### B.1. Keys',
+  '## 1. Keys',
   '',
   '```',
   `alice anchor   (Ed25519 public)  ${A1.x}`,
@@ -199,7 +199,7 @@ const appendix = [
   `mum reading     (X25519 public)   ${READ_MUM.x}`,
   '```',
   '',
-  '### B.2. The recovery commitment (§3.4)',
+  '## 2. The recovery commitment (§3.4)',
   '',
   'Three members, committed one member at a time; two of them are a majority (§3.3). `sis` vouching',
   'reveals `saltsis` and her key, and nothing about `mum` or `bro`.',
@@ -210,20 +210,20 @@ const appendix = [
   `committed         ${JSON.stringify(REC)}`,
   '```',
   '',
-  vec('B.3. Profile, `version` 1 (anchor)', 'The chain is one link long and the file is signed by the anchor key.', f(p1)),
-  vec('B.4. Profile, `version` 2 (a rotation)', 'The link carries the list that stood before it and is signed by the key it replaces, over the ASCII\nbytes `<previous>-><new>` (§3.3).', f(p2)),
-  vec('B.5. Profile, `version` 3 (a restore)',
+  vec('3. Profile, `version` 1 (anchor)', 'The chain is one link long and the file is signed by the anchor key.', f(p1)),
+  vec('4. Profile, `version` 2 (a rotation)', 'The link carries the list that stood before it and is signed by the key it replaces, over the ASCII\nbytes `<previous>-><new>` (§3.3).', f(p2)),
+  vec('5. Profile, `version` 3 (a restore)',
     'The same link shape with vouchers instead of a signature: two of three — a majority — each revealing\nonly its own salt, counted against the `recovery` the link carries (§3.3).', f(p3)),
-  vec('B.6. Post', 'The number is inside the signed bytes (§5.1).', f(post1)),
-  vec('B.7. Post — a reply', 'The target names the author\'s anchor key, the number, all 43 characters of the address, and where\nthe replier last knew that author to live (§5.4).', f(post3)),
-  vec('B.8. Post — encrypted',
+  vec('6. Post', 'The number is inside the signed bytes (§5.1).', f(post1)),
+  vec('7. Post — a reply', 'The target names the author\'s anchor key, the number, all 43 characters of the address, and where\nthe replier last knew that author to live (§5.4).', f(post3)),
+  vec('8. Post — encrypted',
     `Only \`n\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.4): one slot per recipient. The carrier bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
-  vec('B.9. Index, `version` 1', 'Three posts live.', f(head1)),
-  vec('B.10. Index, `version` 2 — a withdrawal, a media file',
+  vec('9. Index, `version` 1', 'Three posts live.', f(head1)),
+  vec('10. Index, `version` 2 — a withdrawal, a media file',
     `Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the media file is listed by its\naddress alone. The media file's bytes are ${png.length} bytes hashing to \`${pngHash}\`.`, f(head2)),
-  vec('B.11. Index, `version` 3 — the rewrite, and a number that comes back',
+  vec('11. Index, `version` 3 — the rewrite, and a number that comes back',
     'The lines the withdrawal left behind are gone (§4.7), and post 2 is re-listed at the hash it had\n(§4.2). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes\ncoming back are not a change.', f(head3)),
-  '### B.12. The spoken code (§3.1)',
+  '## 12. The spoken code (§3.1)',
   '',
   'Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.1).',
   '',
@@ -241,15 +241,13 @@ if (fail.length) {
   process.exit(1);
 }
 
-const spec = fs.readFileSync(SPEC, 'utf8');
 if (write) {
-  const i = spec.indexOf(MARKER);
-  fs.writeFileSync(SPEC, (i < 0 ? `${spec.trimEnd()}\n\n` : spec.slice(0, i)) + appendix);
-  console.log(`wrote ${appendix.split('\n').length} lines of Appendix B into open-feed-spec.md`);
-} else if (!spec.includes(appendix.trimEnd())) {
-  console.error('DRIFT: open-feed-spec.md does not carry Appendix B verbatim. Run with --write.');
+  fs.writeFileSync(OUT, appendix);
+  console.log(`wrote ${appendix.split('\n').length} lines to test-vectors.md`);
+} else if (!fs.existsSync(OUT) || fs.readFileSync(OUT, 'utf8') !== appendix) {
+  console.error('DRIFT: test-vectors.md is not what the vectors produce. Run with --write.');
   process.exit(1);
 } else {
-  console.log('Appendix B is in the spec verbatim.');
+  console.log('test-vectors.md is current.');
 }
 console.log(`all ${11 * 3 + 16} vector checks hold`);

@@ -31,9 +31,7 @@ runs in well under a second, and `npm run spec` runs all of them.
 
 | # | example | spec | shows |
 | - | ------- | ---- | ----- |
-| 01 | [signed-file](signed-file/) | §2.1–2.2, §2.5 | a file is body + `\n` + signature; the address is the hash of the body; unknown members ride inside it |
-| 02 | [no-canonicalization](no-canonicalization/) | §2.3, §8.7 | pretty-printing, sorting, or a trailing newline reads as forged |
-| 03 | [json-hygiene](json-hygiene/) | §2.4 | the four ways `JSON.parse` lets two readers disagree |
+| 01 | [files](files/) | §2 | body + `\n` + signature; the address; the four paths; bytes served are bytes signed; the four JSON hazards; unknown members |
 | 04 | [first-contact](first-contact/) | §3.1, §3.2 | the link fragment and the six-word spoken code |
 | 05 | [the-chain](the-chain/) | §3.3, §3.5 | rotating, restoring, and vouchers added to a link later |
 | 06 | [recovery-list](recovery-list/) | §3.4 | salted leaves: a voucher reveals only itself |

@@ -5,19 +5,17 @@
 //
 // Every rule in the spec is a line an example printed with rule() (tools/rule.js) after the
 // assertion that proves it. What is hand-held here: the title, §1, and the section headings. A
-// section no example prints a rule for is omitted, heading and all. Everything from Appendix B's
-// heading down belongs to tools/regen.js and is carried over untouched.
+// section no example prints a rule for is omitted, heading and all.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 
 const SPEC = new URL('../open-feed-spec.md', import.meta.url);
 const EXAMPLES = new URL('../examples/', import.meta.url);
-const MARKER = '## Appendix B: Test Vectors';
 const write = process.argv.includes('--write');
 
 // Reading order (examples/README.md), capstones last.
 const ORDER = [
-  'signed-file', 'no-canonicalization', 'json-hygiene',
+  'files',
   'first-contact', 'the-chain', 'recovery-list', 'contest', 'moving',
   'the-index', 'top-and-rumors', 'media', 'rewrite',
   'posts-and-targets', 'envelope', 'the-reader', 'publish-interface',
@@ -26,48 +24,46 @@ const ORDER = [
 ];
 
 const SECTIONS = [
-  ['2', 'Files'], ['2.1', 'The file format'], ['2.2', 'Addresses'], ['2.3', 'No canonicalization'],
-  ['2.4', 'JSON hygiene'], ['2.5', 'Extension fields'],
-  ['3', 'Identity'], ['3.1', 'First contact'], ['3.2', 'The profile'], ['3.3', 'The chain'],
-  ['3.4', 'The recovery list'], ['3.5', 'Rotating and restoring in practice'],
-  ['3.6', 'Contests: two profiles claiming one identity'], ['3.7', 'Locations and moving'],
-  ['3.8', 'The reading key'],
-  ['4', 'The index'], ['4.1', 'What the entries mean'], ['4.2', 'The fold'], ['4.3', '`top`'],
-  ['4.4', 'Media and attachments'], ['4.6', 'The index is signed by the current key'], ['4.7', 'Rewriting'],
-  ['5', 'Posts'], ['5.1', '`n` — the post\'s own number'], ['5.2', '`at` — content time'],
-  ['5.3', '`rel` — what kind of post this is'], ['5.4', '`target` — what this post answers'],
-  ['5.5', '`media`'], ['5.6', 'Private messages are posts'],
-  ['6', 'Encrypted content'], ['6.1', 'The envelope'], ['6.2', 'Carrier binding'],
-  ['6.3', 'Slots, and what a tag is'], ['6.4', 'The audience is inside'], ['6.5', 'An encrypted post\'s target'],
-  ['7', 'The reader'], ['7.1', 'Profile, chain, recovery list'], ['7.2', 'The index'],
-  ['7.3', 'Three verdicts, and notes'], ['7.4', 'Posts'], ['7.5', 'Targets, and the rumor rule'],
-  ['8', 'The publish interface'], ['8.1', 'Compare-and-swap on the two overwritable files'],
-  ['8.2', 'Create-once on numbered posts'], ['8.3', 'Write order'], ['8.4', 'Claiming a name'],
-  ['8.5', 'Reclaiming a squatted number'], ['8.6', 'The same rule for media'], ['8.7', 'What a hub MUST do'],
-  ['8.8', 'Withdrawal, and whether anything is ever deleted'],
-  ['9', 'Fetching'], ['10', 'Your copy'], ['11', 'Generated views'], ['12', 'Conformance'],
-  ['13', 'Security considerations'], ['13.1', 'The adversary this is built against'],
-  ['13.2', 'Where a clock appears — the whole list'], ['13.3', 'What is not defended, stated plainly'],
-  ['A', 'Media types'],
+  ['2', 'Files'], ['2.1', 'The format'], ['2.2', 'The address'], ['2.3', 'No canonicalization'],
+  ['2.4', 'JSON hygiene'], ['2.5', 'Unknown members'],
+  ['3', 'Identity'], ['3.1', 'The profile'], ['3.2', 'The chain'], ['3.3', 'The recovery list'],
+  ['3.4', 'Contests'], ['3.5', 'Locations'], ['3.6', 'The reading key'], ['3.7', 'The spoken code'],
+  ['4', 'The index'], ['4.1', 'Entries and the fold'], ['4.2', '`top`'], ['4.3', 'Media'],
+  ['4.4', 'Who signs the index'], ['4.5', 'Rewriting'],
+  ['5', 'Posts'], ['5.1', '`n`'], ['5.2', '`at`'], ['5.3', '`rel`'], ['5.4', '`target`'], ['5.5', '`media`'],
+  ['5.6', 'Private messages'],
+  ['6', 'Encrypted content'], ['6.1', 'The envelope'], ['6.2', 'Carrier binding'], ['6.3', 'Slots and tags'],
+  ['6.4', 'The audience'], ['6.5', 'An encrypted post\'s target'],
+  ['7', 'Reading'], ['7.1', 'The steps'], ['7.2', 'Verdicts'], ['7.3', 'The pin'], ['7.4', 'Targets and the rumor rule'],
+  ['8', 'Publishing'], ['8.1', 'Compare-and-swap'], ['8.2', 'Create-once'], ['8.3', 'Write order'],
+  ['8.4', 'Claiming a name'], ['8.5', 'Reclaiming a number'], ['8.6', 'Media'], ['8.7', 'What a hub must do'],
+  ['8.8', 'Withdrawal and deletion'], ['8.9', 'Your copy'],
+  ['9', 'Fetching'], ['10', 'Views'],
 ];
 
 const PREAMBLE = `# Open Feed Protocol Specification
 
 **Version 0.1.0 — Draft, unreleased.**
 
-## 1. Conventions and terminology
+## Summary
 
-Open Feed is a protocol for publishing from a place you control with an identity that is a key.
-Everything on the wire is a signed file at a stable path, verified by the reader without trusting the
-host, built from primitives found in most languages' standard libraries: Ed25519, X25519, SHA-256,
-ChaCha20-Poly1305, HKDF, JSON, HTTP.
+Open Feed is a protocol for publishing from your own domain with an identity you control. Your
+identity is a cryptographic key — not a URL, not an account — so it travels with you if you move.
+Everything you publish is a signed file at a stable URL, and readers can verify it without trusting
+your host. The entire protocol is built from primitives found in most languages' standard libraries.
 
-The key words MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD NOT, RECOMMENDED, MAY, and
-OPTIONAL are to be interpreted as described in RFC 2119 and RFC 8174.
+Your host is just storage — a static file server is a fully conforming host. People on different
+hosts reply, react, and share encrypted content with each other as easily as people on the same one.
+The protocol is designed for the case where your host operator can look at everything, refuse to
+cooperate, and may not be on your side — and content for chosen people is encrypted to their keys.
 
-**base64url** means base64url encoding without padding (RFC 4648 §5). Every key, hash, and signature
-in this document is a base64url string: an Ed25519 or X25519 public key is 43 characters, a SHA-256
-hash is 43 characters, an Ed25519 signature is 86 characters.
+## 1. Terms
+
+The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted as described in
+RFC 2119 and RFC 8174.
+
+**base64url** is base64url without padding (RFC 4648 §5). An Ed25519 or X25519 public key is 43
+characters, a SHA-256 hash is 43, an Ed25519 signature is 86.
 
 | term | meaning |
 |---|---|
@@ -81,11 +77,8 @@ hash is 43 characters, an Ed25519 signature is 86 characters.
 | **withdraw** | remove a post from the live set by appending a line to the index |
 | **hub** | anything that stores and serves the files. It holds no key of yours and makes no decision about who you are |
 
-**Roles.** A **publisher** writes files. A **reader** verifies them. A **hub** stores and serves
-them. None is more of the protocol than another (§12).
-
-Every rule below is printed by the example in \`examples/\` that proves it, after the assertion that
-proves it; this document is assembled from that output by \`tools/spec.js\`.
+A **publisher** writes files, a **reader** verifies them, a **hub** stores and serves them. Known-good
+files for every construction below are in \`test-vectors.md\`.
 `;
 
 // Run the examples, collect the rules.
@@ -113,7 +106,7 @@ for (const slug of ORDER) {
 }
 
 // Assemble.
-const level = (n) => (n === 'A' ? '## Appendix A: ' : n.includes('.') ? `### ${n}. ` : `## ${n}. `);
+const level = (n) => (n.includes('.') ? `### ${n}. ` : `## ${n}. `);
 const has = (n) => rules.get(n).length > 0 || [...rules.keys()].some((k) => k.startsWith(`${n}.`) && rules.get(k).length > 0);
 let out = PREAMBLE;
 for (const [n, title] of SECTIONS) {
@@ -128,9 +121,7 @@ for (const [n, title] of SECTIONS) {
 }
 
 const current = fs.existsSync(SPEC) ? fs.readFileSync(SPEC, 'utf8') : '';
-const i = current.indexOf(MARKER);
-const appendix = i < 0 ? '' : current.slice(i);
-const next = appendix ? `${out}\n${appendix}` : out;
+const next = out;
 
 if (write) {
   fs.writeFileSync(SPEC, next);

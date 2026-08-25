@@ -2,29 +2,36 @@
 
 **The mechanism.** An example script proves a rule with an assertion, then prints it with `rule()`
 (`tools/rule.js`). `tools/spec.js` runs every example in reading order and assembles the printed
-rules, under a hand-held list of section headings, into `open-feed-spec.md` above Appendix B;
-`tools/regen.js` keeps owning Appendix B. A rule no script proves is not in the spec. Hand-written
-content in the spec is the headings and a short §1 — nothing else. `node tools/spec.js` fails on
+rules, under a hand-held list of section headings, into `open-feed-spec.md`; `tools/regen.js`
+generates `test-vectors.md` the same way. A rule no script proves is not in the spec. Hand-written
+content in the spec is the Summary, §1 Terms, and the headings — nothing else. `node tools/spec.js` fails on
 drift; `--write` regenerates.
 
 **The cadence.** One section at a time, in spec order. The owner reads the generated section and
 approves it before the next. Wording is written fresh from what each assertion shows; the old text
 is `archive/spec-before-generation.md`, for reference only.
 
+## The outline (ruled 2026-08-25)
+
+Summary (the old Abstract, verbatim — the one approved wording) · 1 Terms · 2 Files · 3 Identity ·
+4 The index · 5 Posts · 6 Encrypted content · 7 Reading · 8 Publishing (your copy is its last rule) ·
+9 Fetching · 10 Views (media types are a table here). No appendices: the vectors are `test-vectors.md`.
+Conformance, security considerations and implementation notes are not sections; a rule that lived
+there gets a home in the section it belongs to or is cut. Rules only, no motivation; one script per
+section, two for the big ones; the old scripts are raw material, merged or deleted as a section needs.
+
 ## Sections
 
-- [ ] tool built; §2 files ← `signed-file`, `no-canonicalization`, `json-hygiene`
-- [ ] §3 identity ← `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
-- [ ] §4 the index ← `the-index`, `top-and-rumors`, `media`, `rewrite` (§4.5 stays out until a script proves it)
-- [ ] §5 posts ← `posts-and-targets`
-- [ ] §6 encrypted content ← `envelope`
-- [ ] §7 the reader ← `the-reader`, `top-and-rumors`, `moving`, `fetching`
-- [ ] §8 the publish interface ← `publish-interface`, `weekend-publisher`
-- [ ] §9 fetching ← `fetching`
-- [ ] §10 your copy ← `your-copy`
-- [ ] §11 views ← `views` (Appendix A exists only if `views` prints it)
-- [ ] §12 conformance, §13 security — whatever survives as rules of its own; §13.4 is gone
-- [ ] `CLAUDE.md` updated for the generated spec
+- [ ] §2 Files ← `files` (was `signed-file` + `no-canonicalization` + `json-hygiene`)
+- [ ] §3 Identity ← `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
+- [ ] §4 The index ← `the-index`, `top-and-rumors`, `media`, `rewrite` (scheduled posts stay out until a script proves them)
+- [ ] §5 Posts ← `posts-and-targets`
+- [ ] §6 Encrypted content ← `envelope`
+- [ ] §7 Reading ← `the-reader`, `top-and-rumors`, `moving`, `fetching`
+- [ ] §8 Publishing ← `publish-interface`, `weekend-publisher`, `your-copy`
+- [ ] §9 Fetching ← `fetching`
+- [ ] §10 Views ← `views`
+- [ ] `CLAUDE.md` and `examples/README.md` reflect the final script set
 
 ## Open — the owner's questions, not decided
 
@@ -57,6 +64,6 @@ is `archive/spec-before-generation.md`, for reference only.
 
 ## Traps
 
-- `tools/regen.js --write` rewrites Appendix B from its heading to the end of the spec; `tools/spec.js
-  --write` rewrites everything above it. Anything hand-typed into `open-feed-spec.md` is lost on the
-  next `--write` — edit the `rule()` in the script instead.
+- `tools/spec.js --write` rewrites all of `open-feed-spec.md` and `tools/regen.js --write` all of
+  `test-vectors.md`. Anything hand-typed into either is lost on the next `--write` — edit the
+  `rule()` in the script instead.
