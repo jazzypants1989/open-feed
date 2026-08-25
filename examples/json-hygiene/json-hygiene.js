@@ -1,6 +1,7 @@
 // §2.4 — the four things `JSON.parse` cannot see, each of them a way two readers disagree about
 // what one signed body says. Run: node examples/json-hygiene/json-hygiene.js
 import assert from 'node:assert/strict';
+import { rule } from '../../tools/rule.js';
 import crypto from 'node:crypto';
 import { signFile, verifyFile, parseStrict, parseBody, signingKeyFromSeed, FileError } from '../../src/file.js';
 
@@ -50,6 +51,7 @@ for (const [what, obj] of [['__proto__', { ['__proto__']: 1 }], ['an integer pas
   console.log(`  ${what.padEnd(21)} ${refused}`);
   assert.ok(refused, what);
 }
+rule('2.4', 'A producer MUST NOT emit a body containing a duplicate member name, a member named `__proto__`, an\ninteger outside ±(2^53 − 1), or an unpaired UTF-16 surrogate. `JSON.parse` and its equivalents cannot\nsee the first, treat the second as data, silently round the third, and accept the fourth — four ways\ntwo readers can disagree about what one signed body says. A reader SHOULD reject a body containing any\nof them.');
 console.log('\n  A duplicate member has no fourth line here: a JavaScript object cannot hold one, and');
 console.log('  no serializer emits one. That is the shape of all four — unreachable by accident,');
 console.log('  reachable on purpose, which is why the reader checks anyway.\n');
@@ -67,6 +69,7 @@ console.log('  inherit from — Object.create(null) — so a member never arrive
 assert.equal(copied.n, 9);
 assert.equal(Object.hasOwn(copied, 'n'), false);
 assert.equal(Object.create(null).n, undefined);
+rule('2.4', 'A reader that does not reject `__proto__` MUST at least parse into an object it does not inherit from.');
 
 // What survives: everything JSON legitimately says — including the largest safe integer, and an
 // emoji spelled either way. Which spelling is signed is settled by §2.3: whichever one was served.

@@ -2,6 +2,7 @@
 // a trailing newline makes every file it touches read as forged.
 // Run: node examples/no-canonicalization/no-canonicalization.js
 import assert from 'node:assert/strict';
+import { rule } from '../../tools/rule.js';
 import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { signFile, splitFile, verifyFile, parseBody, signingKeyFromSeed } from '../../src/file.js';
@@ -31,6 +32,7 @@ for (const [what, text] of Object.entries(helpful)) {
 assert.equal(verifyFile(refile(helpful['pretty-printed']), alice.x), null);
 assert.equal(verifyFile(refile(helpful['members sorted']), alice.x), null);
 assert.ok(verifyFile(refile(helpful['re-serialized']), alice.x), 'this producer happens to round-trip');
+rule('2.3', '**The bytes served are the bytes signed.** There is no canonical form, no member ordering rule, and no\nre-serialization step. A producer serializes once and signs what it serialized; a verifier hashes and\nverifies the bytes it received and never rebuilds them.');
 console.log('  All three parse to the object alice signed. Two of them are not her file.');
 console.log('  The third verifies only because this serializer happens to reproduce these bytes —');
 console.log('  which is luck, not a rule, and the next case shows how thin the luck is.\n');
@@ -59,6 +61,7 @@ console.log(`  verifies  ${verifyFile(withNewline, alice.x) !== null}\n`);
 assert.equal(split.body.length, body.length + 1 + sigLine.length);
 assert.equal(split.sigLine, '');
 assert.equal(verifyFile(withNewline, alice.x), null);
+rule('2.3', 'A host that pretty-prints, sorts members, or adds a trailing newline makes every file it touches read\nas forged. Ordinary servers and proxies do all three unasked, which is why §8.7 makes serving the\nexact bytes a MUST.');
 
 // The rule this puts on a hub (§8.7): serve back exactly what was written.
 const proxies = {
@@ -72,6 +75,7 @@ for (const [name, proxy] of Object.entries(proxies)) {
   console.log(`  a hub that ${name.padEnd(16)} → the reader sees ${read ? "alice's post" : 'a file signed by nobody'}`);
   assert.equal(read !== null, name === 'byte-for-byte');
 }
+rule('8.7', 'A hub MUST serve a file as exactly the bytes that were written — no re-serialization, no trailing\nnewline, no whitespace (§2.3).');
 console.log('\n  A hub cannot regenerate a file from a database row. It stores bytes and returns them.');
 console.log('  That is the whole cost of having no canonicalizer, and the hub pays it once.\n');
 

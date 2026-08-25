@@ -9,6 +9,7 @@ can be run by hand.
 
 | Path | What | Belongs to |
 | ---- | ---- | ---------- |
+| `spec-before-generation.md` | The hand-written draft of the current spec as it stood before `tools/spec.js` began generating it from the examples (2026-08-25). Reference for wording only | Spec 2 |
 | `open-feed-spec.md` | The first specification: URL identities, JWS/JOSE signing, RFC 8785 canonicalization, chained manifests, an inbox, conformance levels | Spec 1 |
 | `src/` · `test/` · `bin/` | Its reference implementation (7.4k lines), suite (7.9k lines), and CLI shim | Spec 1 |
 | `tmp/regen.js` · `tmp/rules.js` · `tmp/prove.js` · `tmp/proofs.js` | Its vector regenerator, normative-inventory report, and rule-proving harness | Spec 1 |
