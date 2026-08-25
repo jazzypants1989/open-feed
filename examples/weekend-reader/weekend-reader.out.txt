@@ -26,7 +26,7 @@ weekend-reader — §7, written from the text alone
   a newer profile that forgets her restore           identity — contested: two histories, and no majority settles it
   an index signed by a rotated-out key, to a cold reader host — the index is not signed by the key the profile ends on
   a genuine post listed at another number, to a cold reader host — post 3 is not what the index lists
-  an index with `entries` not first                  host — the index does not fold: entries is not the first member
+  an index with `entries` not first                  host — entries is not the first member
 
   15 moves, 3 distinct verdicts: host, identity, ok
   §7.3 allows exactly three, and a reader that invents a fourth cries wolf.

@@ -176,7 +176,7 @@ Rewriting prose around rules that are about to change is wasted work.
 
 - [x] `FINDINGS.md` §1 (the `k` change and §2.4 inside the envelope) and the user-visible items of
       §2–§4 — ruled and fixed 2026-08-25
-- [ ] Rule on the rest of `FINDINGS.md`
+- [x] Rule on the rest of `FINDINGS.md`
 - [ ] Section-by-section pass with `SPEC-CUTS.md` in hand — start with "Shorter by design"
 - [ ] Re-read as a novice; time it
 - [ ] Owner review

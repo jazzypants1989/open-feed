@@ -164,7 +164,7 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
   let set = index && fold(index.obj.entries);
   // §4.2 is the fold; `entries` first, a non-negative `version` and `top`'s floor are §4's shape.
   const shape = index && (!set ? 'the index does not fold' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.top) && index.obj.top >= set.top) ? 'top is below the highest number issued' : null);
-  if (shape) return bad('host', shape === 'the index does not fold' ? shape : `the index does not fold: ${shape}`);
+  if (shape) return bad('host', shape);
   if (!index) {
     if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
     say('no index I can verify');

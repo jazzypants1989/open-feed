@@ -31,7 +31,7 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
     const hf = await get(`${at}/index`);
     let index = hf && verifyIndex(hf.bytes, chain.current);
     let set = index && fold(index.obj.entries);
-    if (index) { const why = !set ? 'the index does not fold' : checkIndex(index.obj, set); if (why) return bad('host', why === 'the index does not fold' ? why : `the index does not fold: ${why}`); }
+    if (index) { const why = !set ? 'the index does not fold' : checkIndex(index.obj, set); if (why) return bad('host', why); }   // §4.2 fold, then §4 shape
     if (!index) {
       if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
       say('no index I can verify');

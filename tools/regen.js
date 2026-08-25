@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import * as pub from '../examples/weekend-publisher/weekend-publisher.js';
 import { read } from '../examples/weekend-reader/weekend-reader.js';
 import { createReader } from '../src/reader.js';
-import { spokenIndices as spokenIndicesRef } from '../src/spoken.js';
+import { spokenIndices as spokenIndicesRef, spokenCode } from '../src/spoken.js';
 import { encrypt, decrypt as unseal, carrierOf, readingKeyFromSeed } from '../src/envelope.js';
 
 // A deterministic X25519 key from a label — for vectors only, never for a real identity.
@@ -166,6 +166,7 @@ check('the spoken code is six 11-bit indices', idx.length === 6 && idx.every((i)
   const w2 = await r2.read({ learned: A1.x, at: AT, pin: p2r.pin });
   check('src: the rewrite and the re-listing agree', w2.verdict === 'ok' && [...w2.posts.keys()].sort().join(',') === '1,2,3,4,5' && w2.read === READ_ALICE.x);
   check("src: the spoken code agrees", spokenIndicesRef(A1.x).join() === idx.join());
+  check('src: the six words are the BIP-39 words at those indices', spokenCode(A1.x).length === 6 && spokenCode(A1.x).every((w) => /^[a-z]+$/.test(w)));
 }
 serveIndex(head3);
 
@@ -224,11 +225,12 @@ const appendix = [
     'The lines the withdrawal left behind are gone (§4.7), and post 2 is re-listed at the hash it had\n(§4.2). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes\ncoming back are not a change.', f(head3)),
   '### B.12. The spoken code (§3.1)',
   '',
-  'Six 11-bit indices into a 2,048-word list, from the anchor key above — or from any key (§3.1).',
+  'Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.1).',
   '',
   '```',
   `HKDF-SHA256(ikm = key, salt = "", info = "openfeed/v1/spoken", 9 bytes)`,
   `indices  ${idx.join(' ')}`,
+  `words    ${spokenCode(A1.x).join(' ')}`,
   '```',
   '',
 ].join('\n');

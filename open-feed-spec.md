@@ -47,7 +47,8 @@ verifies them. A **hub** stores and serves them. None is more of the protocol th
 
 ## 2. Files
 
-Everything on the wire is one of four kinds, at conventional paths under a name the hub assigns:
+Everything on the wire is one of four kinds, at conventional paths under a name the writer claims
+(§8.4):
 
 | kind | path | overwritten? | signed by |
 |---|---|---|---|
@@ -293,9 +294,12 @@ different address is contested.
 
 ### 3.7. Locations and moving
 
-`locations` lists every place this identity is served from. A reader MUST remember every location a
-verified profile has ever named and SHOULD try the others when one stops answering. Moving is writing
-your files somewhere else and publishing a profile with a higher `version` naming the new place.
+`locations` lists every place this identity is served from. A location is the base the paths of §2
+hang off — `https://alice.example/alice`, so that the profile is at `<location>/profile` and a post at
+`<location>/posts/<n>`. A reader MUST remember every location a verified profile has ever named. A
+read is against one location; the app that drives it SHOULD try the others when one stops answering,
+and a look-again (§7.5) tries every location held. Moving is writing your files somewhere else and
+publishing a profile with a higher `version` naming the new place.
 
 Readers who never learn the new location are the honest limit of this design. The mechanism that
 reaches them is **the address riding along in other people's posts** (§5.4): a reply carries its
@@ -366,6 +370,10 @@ do not make sense* rather than as an accusation against the operator.
 
   Re-listing at the identical hash is allowed because it is harmless — and because it is the way back
   from a thief who held the current key and withdrew everything the owner wrote.
+
+  That is as far as the rule reaches. Once a rewrite (§4.7) has dropped the `[n, null]` line, an index
+  that lists `n` again at another hash folds cleanly, and only a reader that held a pin across the
+  rewrite can tell. A cold reader has nothing to compare against.
 - **A withdrawal MUST refer to something live.** `[n, null]` for a number that is not currently live
   makes the index invalid. So does `[hash, null]` for a media file that is not listed.
 - **Numbers start at 1.** `n` is a positive integer; `top` is `0` until a number has been issued.
@@ -398,8 +406,9 @@ A media file attached to an encrypted post is encrypted too: the publisher draws
 key, computes `ChaCha20-Poly1305(key, nonce = 12 zero bytes, plaintext = the media bytes, aad = "")`,
 and lists and serves the ciphertext — so the listed hash is the hash of the ciphertext. The key is
 carried as `{"hash": <listed hash>, "key": <key, base64url>}` in the envelope's `media` (§6.5). The
-key MUST NOT be reused for a second media file. The reference is inside the envelope, and the hub
-learns only that a blob of some size exists.
+key MUST NOT be reused for a second media file: under a fixed nonce, a second use is a two-time pad,
+and a holder of both files can forge a third that authenticates. The reference is inside the
+envelope, and the hub learns only that a blob of some size exists.
 
 ### 4.5. Scheduled posts
 
@@ -424,11 +433,12 @@ an accusation.
 
 A withdrawal is an appended line, and the lines it leaves behind go when the author next rewrites the
 whole file. **How often is the publisher's setting, and readers are indifferent.** A reader that last
-saw `version` 1 and returns at `version` 6, across two rewrites and an append it never saw, accepts
-and is told what was withdrawn.
+saw `version` 1 and returns at `version` 6, across rewrites and appends it never saw, accepts and is
+told what was withdrawn.
 
-A suggested default is once a month. It is a **privacy decision and never a size one**: the leftover
-lines are about 6% of the file. What rewriting buys is that a withdrawn post's line stops being
+A suggested default is once a month. It is a **privacy decision and never a size one**: each withdrawal
+leaves one extra line, so at one withdrawal in every twenty posts the leftovers are about 6% of the
+file, and fewer withdrawals leave proportionally less. What rewriting buys is that a withdrawn post's line stops being
 visible to later readers and to the public. What it does not buy is anything against a host operator
 who kept every version they ever served (§13.1).
 
@@ -458,7 +468,8 @@ file *this* post.
 
 `at` is an RFC 3339 timestamp, and it is what apps display and order by. **It is never a verdict.**
 Nothing in this protocol decides an authenticity, freshness, or precedence question from a wall clock
-(§13.2).
+(§13.2). For the same reason a reader MUST NOT reject a post for a missing or malformed `at`; an app
+SHOULD display such a post as undated.
 
 ### 5.3. `rel` — what kind of post this is
 
@@ -539,6 +550,7 @@ ct      = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext 
           aad = epk || carrier)
 ```
 
+An implementation MUST reject an all-zero `Z` (RFC 7748 §6.1's contributory check), on both sides.
 `epk` is the ephemeral public key, base64url; where it is used as bytes — the HKDF salt and both
 associated data — it is the 32 raw key bytes, not the text. Every slot is a `[tag, wrapped]` pair of
 base64url strings, one per recipient. The content key MUST be 32 random bytes and MUST NOT be reused
@@ -608,8 +620,8 @@ supplies what the next one checks, and a reader that reorders them is checking s
 ### 7.1. Profile, chain, recovery list
 
 1. Fetch `/<name>/profile`. A profile that is not served at all is **host**. A body that does not
-   parse under §2.4's rules is **identity**: the reader cannot tell a garbled file from a substituted
-   one.
+   parse under §2.4's rules is **identity**, reported in the same words as step 2: the reader cannot
+   tell a garbled file from a substituted one, so it MUST NOT claim to.
 2. If `anchor` is not the key this reader learned, stop: **identity**.
 3. Record a recovery list for every chain length beyond those the pinned chain reaches, from the
    links' `recovery` members and the profile's `recovery`, keeping any list already held (§3.6 rules
@@ -631,9 +643,9 @@ supplies what the next one checks, and a reader that reorders them is checking s
    holding none reports **host**.
 
    A garbled file, a 404, an index signed by a rotated-out key, and an honest host caught
-   mid-rotation all produce exactly this, and the reader cannot tell them apart. A **cold** reader —
-   one with no pin — SHOULD retry the whole read once before reporting `host`, re-fetching both the
-   profile and the index.
+   mid-rotation all produce exactly this, and the reader cannot tell them apart. The app driving a
+   **cold** reader — one with no pin — SHOULD run the whole read once more, re-fetching both the
+   profile and the index, before showing `host`.
 9. Against a pin: `version` MUST NOT go backwards; the same `version` at a different address is
    **host**; `top` MUST NOT go backwards; and for every live numbered entry at or below the pinned
    `top`, the post MUST have been live before — or withdrawn before — at the identical hash. A number
@@ -674,13 +686,13 @@ has.
 
     A listed file that is not served is **host**. An encrypted post is verified exactly like any other
     and returned with `encrypted` opaque; opening it is the client's business (§6), not the reader's.
-    A post whose `target.hash` is not what that author's index lists for `target.n` — now, or when
-    the reader saw it withdrawn — is returned with the target marked unresolved (§5.4).
 
 ### 7.5. Targets, and the rumor rule
 
-11. For each post naming a target whose author this reader holds a pin for: if the target number is
-    at or below that author's `top`, say nothing — it is a withdrawal or a supersession, and the
+11. For each post naming a target whose author this reader holds a pin for: if `target.hash` is not
+    what that author's index lists for `target.n` — now, or when the reader saw it withdrawn — mark
+    the target unresolved (§5.4) and say nothing. Otherwise, if the target number is at or below that
+    author's `top`, say nothing — it is a withdrawal or a supersession, and the
     index is signed, so the host cannot have edited it. If it is **above** the top, look again.
 
 Two bounds are REQUIRED, and a reader without both is a weapon:
@@ -701,7 +713,7 @@ try the locations it already holds before the address in the reply.
 
 ## 8. The publish interface
 
-Four paths, two verbs, one conditional header. **There is no account, no token, and no session: the
+Four signed kinds and the views beside them, two verbs, one conditional header. **There is no account, no token, and no session: the
 request is the signed file.** Anyone's client can write to anyone's hub — bring-your-own-client is a
 security property, because a hub that ships the app can take the key.
 
@@ -709,10 +721,13 @@ security property, because a hub that ships the app can take the key.
 PUT /<name>/profile        If-Match: <etag>      -> 200 | 412
 PUT /<name>/index          If-Match: <etag>      -> 200 | 412
 PUT /<name>/posts/<n>                            -> 201 | 200 (reclaimed) | 409
-PUT /<name>/media/<hash>                         -> 201 | 200 (replaced) | 409
+PUT /<name>/media/<hash>                         -> 201 | 200 (replaced) | 409 | 400 (bytes do not hash to the address)
 PUT /<name>/feed.json | feed.xml | index.html    If-Match: <etag>      -> 200 | 412   (views, §11)
 GET any of the above                             -> 200 | 404
 ```
+
+A hub that checks the proof (§8.4) answers 400 for a profile it cannot parse, 403 for a profile or
+index that does not verify, and 404 for an index under a name nobody has claimed.
 
 ### 8.1. Compare-and-swap on the two overwritable files
 
@@ -723,7 +738,7 @@ a strong tag, compared byte for byte, and opaque to the writer: a writer reads i
 header and never computes it. A hub MAY use the SHA-256 of the bytes it is serving.
 
 **A writer that loses the race MUST re-read the file the hub is now serving and fold its own line
-into that**, not re-send its own version. The naive retry silently drops the other device's post, and
+into that file's `entries`** — not re-send the `entries` it holds under a fresh tag and `version`. The naive retry silently drops the other device's post, and
 the loss reads to every reader as an ordinary withdrawal.
 
 ### 8.2. Create-once on numbered posts
@@ -821,7 +836,10 @@ of attacker-supplied addresses by design.
   IPv6: the unspecified address, loopback, link-local, unique-local, and **every embedded-IPv4 form
   judged as the IPv4 address it carries** — `::ffff:a.b.c.d`, the deprecated `::a.b.c.d`, the
   translated `::ffff:0:a.b.c.d`, NAT64's `64:ff9b::/96` and `64:ff9b:1::/48`, and 6to4's
-  `2002::/16`.
+  `2002::/16`. Refused outright: Teredo's `2001::/32`, which tunnels an arbitrary and possibly
+  private IPv4 destination behind a routable-looking prefix; multicast `ff00::/8`; the discard
+  prefix `100::/64`; documentation `2001:db8::/32`; and ORCHID's `2001:10::/28` and `2001:20::/28`,
+  which name hashes, not hosts.
 
   A dotted quad with a leading zero MUST be refused rather than guessed at: `0177.0.0.1` is octal to
   some resolvers and decimal to others, and that disagreement is itself the bypass.
@@ -852,7 +870,9 @@ This is one rule with three consequences:
   proves nothing about completeness — a fallback, not a guarantee.
 - **Your own last index is the table of contents.** It says which numbers exist, so an app rebuilding
   after a phone loss knows exactly what is missing and can ask a named relative for a named list,
-  rather than hoping.
+  rather than hoping. For an encrypted post the index gives the number and the address but not the
+  audience, which is inside the envelope (§6.4): the app knows which numbers it lacks and not whom to
+  ask, which is why the first rule is about the bytes, not the index.
 
 Leaving is therefore writing the same files somewhere else. The host is asked for nothing, and there
 is nothing for it to refuse.
@@ -868,7 +888,8 @@ protocol reaches readers that have never heard of it.
 regenerate; the index is something only the author's key can produce. An implementation MUST NOT
 treat a view as evidence of anything.
 
-- **Item ids are `urn:openfeed:<anchor key>:<n>`.** Not the URL: a URL id makes every post reappear
+- **Item ids are `urn:openfeed:<anchor key>:<n>`, and the feed's own id is `urn:openfeed:<anchor
+  key>`.** Not the URL: a URL id makes every post reappear
   as unread in every plain feed reader on the day the author relocates.
 - **Withdrawn posts are absent** from every view.
 - **Encrypted posts are omitted**, or rendered as an empty placeholder item at their number. A view
@@ -1110,9 +1131,10 @@ coming back are not a change.
 
 ### B.12. The spoken code (§3.1)
 
-Six 11-bit indices into a 2,048-word list, from the anchor key above — or from any key (§3.1).
+Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.1).
 
 ```
 HKDF-SHA256(ikm = key, salt = "", info = "openfeed/v1/spoken", 9 bytes)
 indices  923 1951 1851 172 1664 898
+words    inflict view trash better source icon
 ```

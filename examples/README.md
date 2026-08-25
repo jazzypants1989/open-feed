@@ -59,8 +59,7 @@ runs in well under a second, and `npm run examples` runs all of them.
 `GOALS.md`'s seven scenarios are staged as tests (`test/scenarios.test.js`), not as examples; each
 example's `.md` names the scenario it serves.
 
-What writing these found is in `FINDINGS.md` at the repo root — two security defects and a couple of
-dozen smaller disagreements between the spec and the code. None of it is fixed; it is Stage D's input.
+What writing these found went to `FINDINGS.md` at the repo root; what is still open is there.
 
 `_seeds/` holds the gates from the redesign that stage the current spec. Each is raw material for one
 or more of the examples above, and is deleted when the example that consumes it lands. They run under

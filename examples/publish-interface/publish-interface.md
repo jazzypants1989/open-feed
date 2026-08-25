@@ -5,7 +5,7 @@ name, §8.5 reclaiming a squatted number, §8.6 the same rule for media, §8.7 w
 withdrawal. §12's hub paragraph is the summary.
 **Run:** `node examples/publish-interface/publish-interface.js`
 
-Four paths, two verbs, one conditional header. **There is no account, no token, and no session: the
+Four signed kinds and the views beside them, two verbs, one conditional header. **There is no account, no token, and no session: the
 request is the signed file.** A hub does not know who alice is and is never told; it holds bytes,
 compares an entity tag, and — if it accepts writes at all — checks that the profile and index it is
 handed hang together under their own keys. Everything else the interface does is arithmetic about
