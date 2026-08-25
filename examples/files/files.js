@@ -42,10 +42,10 @@ assert.equal(decodeStrict(respelled, 64), null);
 assert.equal(verifyFile(refile(body, respelled), alice.x), null);
 console.log(`  respelled   ...${respelled.slice(-4)} decodes to the same bytes as ...${sigLine.slice(-4)} and does not verify\n`);
 rule('2.1', `A signed file is its body, one \`\\n\` byte, then the signature. The body MUST be a JSON object encoded as
-UTF-8 and serialized without whitespace, so it contains no raw \`\\n\` (a newline inside a string is the
-two characters \`\\n\`); a verifier splits the file at its last \`\\n\`. The signature MUST be Ed25519 over
-the body bytes, encoded as exactly 86 base64url characters that decode to 64 bytes and re-encode to
-the same 86 characters.`);
+UTF-8 and MUST NOT contain a raw \`\\n\` byte — a newline inside a string is the two characters \`\\n\` —
+because a verifier splits the file at its last \`\\n\`. The signature MUST be Ed25519 over the body bytes,
+encoded as exactly 86 base64url characters that decode to 64 bytes and re-encode to the same 86
+characters.`);
 
 // ---- §2.2 the address ----
 const mumsCopy = signFile(post, mum);

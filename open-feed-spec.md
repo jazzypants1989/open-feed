@@ -51,10 +51,10 @@ Everything on the wire is one of four kinds of file, under a name the writer cla
 ### 2.1. The format
 
 A signed file is its body, one `\n` byte, then the signature. The body MUST be a JSON object encoded as
-UTF-8 and serialized without whitespace, so it contains no raw `\n` (a newline inside a string is the
-two characters `\n`); a verifier splits the file at its last `\n`. The signature MUST be Ed25519 over
-the body bytes, encoded as exactly 86 base64url characters that decode to 64 bytes and re-encode to
-the same 86 characters.
+UTF-8 and MUST NOT contain a raw `\n` byte — a newline inside a string is the two characters `\n` —
+because a verifier splits the file at its last `\n`. The signature MUST be Ed25519 over the body bytes,
+encoded as exactly 86 base64url characters that decode to 64 bytes and re-encode to the same 86
+characters.
 
 ### 2.2. The address
 
