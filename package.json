@@ -17,6 +17,7 @@
     "examples": "node tools/examples.js",
     "revert": "node tools/revert.js",
     "seeds": "sh -c 'for f in examples/_seeds/*-gate.js; do node \"$f\" >/dev/null || { echo \"RED: $f\"; exit 1; }; done; echo \"all seeds green\"'",
-    "check": "npm test && npm run vectors && npm run examples && npm run seeds"
+    "tldr": "node tools/tldr.js",
+    "check": "npm test && npm run vectors && npm run examples && npm run seeds && npm run tldr"
   }
 }
