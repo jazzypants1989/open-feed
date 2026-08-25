@@ -1,36 +1,33 @@
 # Examples
 
 One directory per concept, in the order the spec introduces them. Each is a small program you can
-read in a few minutes, the document that explains what it shows, and the output it produces. They
-are the teaching material for `open-feed-spec.md`; the spec itself stays normative and stands alone.
+read in a few minutes and the document that explains what it shows. **The spec is generated from
+them**: a script proves a rule with an assertion and then prints it with `rule()` (`tools/rule.js`);
+`tools/spec.js` runs every example and assembles the printed rules, in section order, into
+`open-feed-spec.md`. A rule no script proves is not in the spec.
 
 ## The contract
 
-`examples/<slug>/` holds exactly three files:
+`examples/<slug>/` holds exactly two files:
 
 - **`<slug>.js`** — imports `src/` (the reference implementation), uses seeded keys so its output
-  reproduces byte for byte, prints a narration of what it is doing, and **asserts every claim it
-  makes**, exiting non-zero on surprise. One concept per script; comments of one line; no dependency
+  reproduces byte for byte, prints a narration of what it is doing, **asserts every claim it
+  makes**, exiting non-zero on surprise, and prints each spec rule with `rule()` only after the
+  assertion that proves it. One concept per script; comments of one line; no dependency
   beyond Node's standard library. **Length: about 120 lines.** The examples that take a whole chapter
   rather than one rule — `the-reader` (§7) and `publish-interface` (§8) — run to roughly 200, and the
   extra is printed narration, not machinery. If yours is long for any other reason it is two examples.
 - **`<slug>.md`** — the concept in plain words: the spec section it illustrates, what the output
   shows, and any contrast with how other protocols do it. This is where supporting prose lives when
   it leaves the spec. It should read well beside the script and its output on a docs page.
-- **`<slug>.out.txt`** — the script's stdout, committed. `npm run examples` re-runs every script and
-  diffs; a difference is a failure.
 
 Every example illustrates the **current spec only**. Designs that were considered and not adopted
 belong in `archive/`, or in a `.md` as a contrast — never in a script.
 
-`tools/revert.js` holds a row for each rule an example proves: the edit to `src/` (or to the
-example) that must turn it red. `npm run revert` applies each in turn and checks. An example that
-survives every mutation of the thing it claims to test is a claim, not evidence — add the row.
-
 ## Reading order
 
 The list follows the spec's sections. Read them in order and you have read the protocol; each one
-runs in well under a second, and `npm run examples` runs all of them.
+runs in well under a second, and `npm run spec` runs all of them.
 
 | # | example | spec | shows |
 | - | ------- | ---- | ----- |
@@ -58,9 +55,3 @@ runs in well under a second, and `npm run examples` runs all of them.
 
 `GOALS.md`'s seven scenarios are staged as tests (`test/scenarios.test.js`), not as examples; each
 example's `.md` names the scenario it serves.
-
-What writing these found went to `FINDINGS.md` at the repo root; what is still open is there.
-
-`_seeds/` holds the gates from the redesign that stage the current spec. Each is raw material for one
-or more of the examples above, and is deleted when the example that consumes it lands. They run under
-`npm run seeds` until then so they cannot rot.

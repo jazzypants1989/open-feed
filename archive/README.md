@@ -19,4 +19,4 @@ can be run by hand.
 | `redesign/RULINGS.md` · `redesign/rejections.md` | **The owner's decisions and every recorded rejection answered by name.** A reversal of anything in the current spec must answer the reasoning recorded here | Redesign |
 | `redesign/outside/` | Six non-Anthropic models designing from the brief and attacking it; `SYNTHESIS.md` is the decision briefs | Redesign |
 | `redesign/decisions/` | 34 illustrations staging those briefs (never gates) | Redesign |
-| `redesign/gates/` | The candidate gates that did not survive as examples: the JWS-substrate gates (`lib.js`), the `lastline.js` gates (superseded by the rulings — the cards say which), and the old revert table. The twelve that stage the current spec moved to `examples/_seeds/` | Redesign |
+| `redesign/gates/` | The candidate gates that did not survive as examples: the JWS-substrate gates (`lib.js`), the `lastline.js` gates (superseded by the rulings — the cards say which), and the old revert table. The twelve that staged the current spec were consumed by the examples and deleted | Redesign |

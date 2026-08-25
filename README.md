@@ -1,7 +1,7 @@
 # Open Feed Protocol
 
 > **This document describes the previous design** (`archive/open-feed-spec.md`) and is being rewritten
-> for the current `open-feed-spec.md` — see `PLAN.md`, Stage C. Read the spec, `TLDR.md`, and
+> for the current `open-feed-spec.md` with the owner, section by section. Read the spec, `TLDR.md`, and
 > `GOALS.md` for the current design.
 
 A minimal specification for decentralized publishing and interaction, built entirely on existing standards.

@@ -27,14 +27,13 @@ standard library's primitives (Ed25519, X25519, SHA-256, ChaCha20-Poly1305, HKDF
 | `open-feed-spec.md` | **The specification.** Normative; the only source of truth. §2 files, §3 identity, §4 the index, §5 posts, §6 encrypted content, §7 the reader, §8 the publish interface, §9 fetching, §10 your copy, §11 views, §12 conformance, §13 security; Appendix A media types, Appendix B test vectors |
 | `src/` | **The reference implementation**, zero dependencies, one module per spec chapter: `file.js` §2 (the strict JSON parser lives here — `JSON.parse` cannot enforce §2.4), `profile.js` §3, `index.js` §4, `envelope.js` §6, `spoken.js` + `wordlist.js` §3.1, `reader.js` §7 over an injected fetcher, `publish.js` §8-client + §10, `hub.js` §8-server as a pure handler, `addresses.js` + `fetch.js` §9, `views.js` §11, `cli.js`. `openfeed.js` is the barrel. **`fetch.js` is the only module that opens a socket — keep it that way** |
 | `test/` | `npm test`. One file per module plus `scenarios.test.js`, which stages `GOALS.md`'s scenarios end to end. `helpers/site.js` is the shared TLS origin (certificate hand-encoded in `helpers/tls.js`) |
-| `examples/` | **The teaching material**, one directory per concept in spec order. Contract and reading order in `examples/README.md`; read that before adding one. `weekend-reader/` and `weekend-publisher/` are the capstones, and the weekend reader is the **second reader** vector regeneration checks against. `_seeds/` is what Stage B has not converted — see `PLAN.md` before deleting any of it |
-| `tools/` | `tldr.js` holds `TLDR.md` to its budget — **≤200 words how-it-works, ≤100 words guarantees, ≤10 glossary terms** (`npm run tldr`); `regen.js` regenerates Appendix B and verifies it with **both** readers (`npm run vectors`; `--write` to regenerate); `examples.js` runs the examples against their outputs (`npm run examples`); `revert.js` is the mutation table — every rule an example proves, the edit that must turn it red (`npm run revert`, minutes) |
-| `FINDINGS.md` | **What writing the examples found and is still open**: places the spec and the code disagree, and clauses an implementer needs. Fixed items leave the file. Read it before the spec rewrite |
+| `examples/` | **The teaching material**, one directory per concept in spec order. Contract and reading order in `examples/README.md`; read that before adding one. `weekend-reader/` and `weekend-publisher/` are the capstones, and the weekend reader is the **second reader** vector regeneration checks against. |
+| `tools/` | `tldr.js` holds `TLDR.md` to its budget — **≤200 words how-it-works, ≤100 words guarantees, ≤10 glossary terms** (`npm run tldr`); `regen.js` regenerates Appendix B and verifies it with **both** readers (`npm run vectors`; `--write` to regenerate) |
 | `README.md` · `TLDR.md` · `GOALS.md` | Human-facing docs. README explains, the spec defines; `TLDR.md` is the budgeted summary. `GOALS.md` is the live statement of values and scenarios — the floor the spec is judged against |
 | `archive/` | Everything the redesign superseded, verbatim, never run by CI: the old spec and its implementation, the prototype fleet, and the redesign record (rulings, rejections, reviews, outside review). `archive/README.md` is the index. Consult it before re-litigating a design choice — most near-misses are already priced there |
 | `tmp/` | Gitignored scratch. Nothing here is tracked |
 
-`npm run check` = tests + vectors + examples + seeds + the TL;DR budget. Run it before every commit.
+`npm run check` = tests + vectors + the TL;DR budget. Run it before every commit.
 
 ## The threat model that drives the design
 
@@ -93,7 +92,5 @@ example that argues a thing rather than re-arguing it.
   missing cache; a cross-read cache silently stops fork detection.
 - `tools/regen.js` checks every hash-shaped literal in Appendix B against the current run; a vector
   quoted twice needs the rule to reach both.
-- Never edit `src/`, the spec, or an example while `npm run revert` is in flight: it mutates files
-  in place and restores them, and a half-landed edit reads as a failure.
-- The capstones carry a demo below a `// ====` marker. The measurement — theirs, and
-  `court-gate`/`weekend-gate`'s — is the implementation above it, so do not move the marker.
+- The capstones carry a demo below a `// ====` marker. The measurement they report is
+  the implementation above it, so do not move the marker.

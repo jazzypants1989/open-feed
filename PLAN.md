@@ -1,199 +1,46 @@
-# Finishing the spec
+# Plan: the spec is generated from the examples
 
-**What this file is:** the multi-session plan for finishing `open-feed-spec.md`, and its state. Every
-session that works it ends by updating the checklists here. It replaces the Cutting Campaign's plan,
-which is in git history; that campaign's product is the current spec, and its record is in
-`archive/` (`archive/README.md` is the index).
+**The mechanism.** An example script proves a rule with an assertion, then prints it with `rule()`
+(`tools/rule.js`). `tools/spec.js` runs every example in reading order and assembles the printed
+rules, under a hand-held list of section headings, into `open-feed-spec.md` above Appendix B;
+`tools/regen.js` keeps owning Appendix B. A rule no script proves is not in the spec. Hand-written
+content in the spec is the headings and a short §1 — nothing else. `node tools/spec.js` fails on
+drift; `--write` regenerates.
 
-**The goal**, in the owner's words: the spec as short as possible while still covering all of its
-bases, to the point where a novice can read it in an hour or two and immediately understand its
-concepts. The spec should mostly contain the normative language and still stand alone. Everything
-else — the reasoning, the contrasts, the walkthroughs — lives beside runnable examples, so that the
-spec can shed it without losing it.
+**The cadence.** One section at a time, in spec order. The owner reads the generated section and
+approves it before the next. Wording is written fresh from what each assertion shows; the old text
+is `archive/spec-before-generation.md`, for reference only.
 
-**The order matters.** Get everything *around* the spec in order first, so the agent finishing the
-spec has less to hold at once: consolidate the repo (A), curate the examples (B), reckon with the
-root documents (C), and only then rewrite the spec (D). By D it should be obvious what has to remain
-in the spec, because everything else will have somewhere to live.
+## Sections
 
-**Working rule**, inherited: if you are about to act on a number or a claim, re-derive it first.
-Every stage ends in an artifact that can fail — `npm run check` — not a prose claim.
+- [ ] tool built; §2 files ← `signed-file`, `no-canonicalization`, `json-hygiene`
+- [ ] §3 identity ← `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
+- [ ] §4 the index ← `the-index`, `top-and-rumors`, `media`, `rewrite` (§4.5 stays out until a script proves it)
+- [ ] §5 posts ← `posts-and-targets`
+- [ ] §6 encrypted content ← `envelope`
+- [ ] §7 the reader ← `the-reader`, `top-and-rumors`, `moving`, `fetching`
+- [ ] §8 the publish interface ← `publish-interface`, `weekend-publisher`
+- [ ] §9 fetching ← `fetching`
+- [ ] §10 your copy ← `your-copy`
+- [ ] §11 views ← `views` (Appendix A exists only if `views` prints it)
+- [ ] §12 conformance, §13 security — whatever survives as rules of its own; §13.4 is gone
+- [ ] `CLAUDE.md` updated for the generated spec
 
----
+## Open — the owner's questions, not decided
 
-## Rulings (2026-08-24)
-
-- Layout: `src/` + `test/` + `examples/` + `tools/` + `archive/`; `tmp/` is gitignored scratch;
-  no `bin/`. The barrel is `src/openfeed.js`; `src/index.js` is the spec's §4 module.
-- Examples **print and assert**, commit their output, and run under `npm run check`.
-- The spec's vocabulary is fixed (anchor key, chain, link, recovery list, profile, index, post, media,
-  encrypted, pin, withdraw, hub); code and docs follow it. The rename came first so every example is
-  written in the final words.
-- The redesign record is archived verbatim; `GOALS.md` (values and scenarios) moved to the root.
-- The weekend reader and publisher are the capstone examples and remain the second reader that
-  vector regeneration checks against.
-- One example per concept, in spec order (~20), plus the two capstones; the scenarios stay tests.
-- The owner is not yet ready to rely on git history alone for the old material; hence `archive/`.
-
----
-
-## Rulings (2026-08-25)
-
-- `k` is gone from the wire: a restore is valid when **more than half** of the recovery list vouches,
-  the same bar §3.6 uses for a contest. An empty list cannot be restored.
-- The solo user is an app concern, not a protocol mechanism: §3.4 says an app SHOULD create and list
-  a backup key at setup; the spoken code puts it on paper.
-- §6.4's padding floor is cut: hiding the size of an audience from the host is not a goal.
-- Project history is cut from the example `.md`s; conceptual contrasts stay, and the Contrast
-  sections are left as they are for now (they may be collected into one essay later).
-- `_seeds/`, `SPEC-CUTS.md`, the README rewrite and the Contrast sections are deferred.
-
-## Stage A — consolidate — CLOSED 2026-08-24
-
-- [x] Checkpoint commit of the in-flight spec vocabulary pass (`caca5ed`)
-- [x] Code renamed to the spec's vocabulary and section numbers (`genesis→anchor`,
-      `pseq/hseq→version`, `court→recovery`, `hop→link`, `head→index`, `sealed→encrypted`,
-      `photo→media`, `seal/open→encrypt/decrypt`); pin fields disambiguated
-      (`profileVersion/profileHash`, `indexVersion/indexHash`, `recoveryLists`)
-- [x] Appendix B regenerated in the new field names; 49 vector checks under both readers
-- [x] Tree moved: `src2→src`, `test2→test`, spec-2 → `open-feed-spec.md`, old spec/src/test/bin and
-      all of `tmp/` → `archive/`, twelve surviving gates → `examples/_seeds/`, weekend instruments →
-      `examples/weekend-*`, `GOALS.md` and `TLDR.md` promoted
-- [x] `tools/regen.js` (both readers, envelope from `src/`), `tools/examples.js`, `tools/revert.js`
-      (35 rows, all caught); `package.json` scripts: `test`, `vectors`, `examples`, `revert`, `seeds`,
-      `check`
-- [x] `CLAUDE.md` rewritten for the layout; banners on `README.md` and `DISTRIBUTION-MODEL.md`;
-      `archive/README.md` and `examples/README.md` written
-- [x] `npm run check` green; old vocabulary and `-2` labels appear only under `archive/`
-
-Deviations from the approved plan, both deliberate: the old spec is `archive/open-feed-spec.md`
-(not `-1`) so every archived script's relative path still resolves; and the `_seeds/` gates still
-import the weekend instruments and `examples/_seeds/{envelope,hub}.js` rather than `src/` — they
-are raw material, and `tools/revert.js`'s rows target them until Stage B retargets each at `src/`.
-
-## Stage B — the examples (next 1–2 sessions)
-
-The contract is in `examples/README.md`; the reading order there is the checklist. Per example:
-read its seed(s) → write `<slug>.js` over `src/` in the spec's words (≤ ~120 lines, seeded keys,
-narrate + assert) → write `<slug>.md` (concept, spec section, what the output shows, contrasts;
-this is where prose from the spec/README/DISTRIBUTION-MODEL lands) → generate `<slug>.out.txt` →
-add the `tools/revert.js` row(s) that turn it red, retargeted at `src/` → delete the seed(s) it
-consumed. **The stage closes when `_seeds/` is empty** and `npm run revert` is all caught.
-
-Seeds by example: 01–03 `weekend-gate` + `test/file.test.js` (**`weekend-gate` stays** until the
-capstones are documented — it is their material too, and its card holds the numbers they cite);
-04 `spoken-gate`; 05–07 `court-gate`,
-`coldcourt-gate`, `oldkey-gate`; 08 `twohubs-gate`; 09, 12 `oldkey-gate`, `gapless-gate`;
-10 `test/reader.test.js`; 11 `media-gate`; 13 `gapless-gate`; 14–15 `envelope-gate`,
-`audience-gate`; 16 `test/reader.test.js`; 17 `hubwrite-gate`, `test/hub.test.js`; 18
-`test/fetch.test.js`; 19 `pending-gate` (its point: there is no mechanism), scenarios; 20 `views.js`.
-`envelope-gate` also prices the old §15 construction against the new one — that comparison goes into
-`envelope.md` as a contrast, and its import of `archive/src/enc.js` goes with the seed.
-
-The capstones: give `weekend-reader` and `weekend-publisher` a `<slug>.md` (what a second
-implementer wrote from the text alone, and what it cost — the numbers are on `weekend-gate.md`) and
-a narrated `<slug>.out.txt`, since today they are libraries and print nothing; `tools/regen.js`
-imports them and must keep working.
-
-- [x] 01–03 files — `signed-file`, `no-canonicalization`, `json-hygiene`
-- [x] 04–08 identity — `first-contact`, `the-chain`, `recovery-list`, `contest`, `moving`
-- [x] 09–12 the index — `the-index`, `top-and-rumors`, `media`, `rewrite`
-- [x] 13 posts — `posts-and-targets`
-- [x] 14 encrypted content — `envelope`
-- [x] 15 the reader — `the-reader`
-- [x] 16 the publish interface — `publish-interface`
-- [x] 17–19 fetching, your copy, views — `fetching`, `your-copy`, `views`
-- [x] capstones documented and printing — each carries a demo below a `// ====` marker; the file
-      reports its own measurement (reader 171 lines, publisher 51, non-blank and non-comment above
-      the marker), and `court-gate`/`weekend-gate` count the same slice. `tools/regen.js` still
-      imports both
-- [ ] `_seeds/` empty; `seeds` script removed from `package.json`; `examples/README.md` links complete
-
-**All nineteen examples and both capstones are written, and `npm run check` is green: 56 tests, 49
-vector checks under two readers, 21 examples matching their committed output, seeds green, and
-`npm run revert` catching every mutation.** `tools/revert.js` resolves a row's
-gate as an example directory first and a seed second, so a row moves with its subject.
-
-What is left in this stage is only the seed deletion, and it is harder than it looks. **Measured
-twice.** Retarget the fourteen rows whose subject is `examples/weekend-reader/weekend-reader.js` at
-the capstone example: with the capstone's first demo, **thirteen of the fourteen went uncaught**. The
-demo was then strengthened — thirteen hostile moves, each asserting the verdict it must earn rather
-than only the count of distinct verdicts, plus media, a backdated number, a number re-listed at
-another hash, a prefix split, a link carrying its own recovery list, and the rumor rule at a thousand
-replies — and **ten of the fourteen are now caught**. The four still uncaught are the anchor check
-(twice), the string guard on a media entry, and the one-hash-per-number rule inside a single index.
-
-So the seeds are not yet redundant: the new rows prove `src/`, and the seeds are still the only thing
-that proves the *second* reader, which is the one Appendix B is checked against.
-
-Three ways out, in order of preference. (1) Grow the capstone's demo until it catches all fourteen,
-and delete the seeds it replaces — the demo roughly doubles, and its committed output with it.
-(2) Move the hostile-move staging into `test/` as the weekend reader's own suite, retarget the rows
-there, and empty `_seeds/` — it is a test, not teaching material, and this is the honest home for it.
-(3) Keep `_seeds/` and strike the checkbox. Whichever is chosen, do it seed by seed, not in one
-sweep, and re-run `npm run revert` after each.
-
-**What writing the examples found and is still open is in `FINDINGS.md`** — read it before Stage D.
-The `k` defect it found was ruled on and fixed on 2026-08-25 (the rulings above).
-
-## Stage C — the root documents (~1 session)
-
-With the example `.md`s holding the supporting prose, decide per document what stays, what moves,
-and what dies. Output: each file rewritten or archived, and **an explicit list of what the spec may
-now drop because it lives elsewhere** — that list is Stage D's input.
-
-- [ ] `README.md` — still the old-design text with its banner (13.6k words). An agent rewrote it
-      wholesale in `8f2054b` without walking it with the owner; the owner reversed that. That draft
-      is in git history only. The rewrite is to be done with the owner, section by section.
-- [ ] `DISTRIBUTION-MODEL.md` — untouched. An agent archived it in Stage C without being asked; the
-      owner reversed that. It is the owner's document: do not move, archive, or fold it (see `CLAUDE.md`).
-- [x] `TLDR.md` — kept, its own file, at the budget `tools/tldr.js` enforces (200/100/10). An agent
-      deleted it in `8f2054b` without being asked; the owner restored it.
-- [x] `GOALS.md` — untouched, in the owner's words. An agent rewrote it in `6b6fc88` without being
-      asked; the owner restored it. Never edit it without an instruction naming the file.
-- [x] `CLAUDE.md` — reviewed and **came out a wash**, 1,211 → 1,217 words. The `examples/` and
-      `src/` rows lost detail that `examples/README.md` now owns and the README rule lost a sentence,
-      and that bought back one new trap: the capstones' `// ====` marker is what three separate
-      measurements slice on, so moving it breaks them silently. Reported rather than dressed up as a
-      cut — the file is a repo map, a threat model, seven editing rules and six traps, and there is
-      no fat left in it that is not load-bearing
-- [x] The "may now drop" list — `SPEC-CUTS.md`, section by section. **Its headline is the finding:
-      the drops come to about 520 words of 10,277, five per cent.** The spec is already tight; what
-      would actually shorten it is its last section, "Shorter by design", thirteen places where one
-      thing is said twice or three paragraphs stand where a table belongs — worth another ~300 words
-      once the three unsound ones (D, G, J) are struck, and where the "a novice reads it in an hour"
-      goal is won or lost. Read that section first
-
-## Stage D — the spec rewrite (~1–2 sessions)
-
-Target: normative language; every MUST keeps its one-sentence justification; stand-alone; readable
-by a novice in an hour or two. Input: `SPEC-CUTS.md`, and `FINDINGS.md`. Every edit is gated by
-`npm run check` — the vectors under two readers, the examples, the tests — so shortening cannot
-silently change meaning.
-
-**Do the rulings first.** `FINDINGS.md` holds the places the spec and the code still disagree.
-Rewriting prose around rules that are about to change is wasted work.
-
-- [x] `FINDINGS.md` §1 (the `k` change and §2.4 inside the envelope) and the user-visible items of
-      §2–§4 — ruled and fixed 2026-08-25
-- [x] Rule on the rest of `FINDINGS.md`
-- [ ] Section-by-section pass with `SPEC-CUTS.md` in hand — start with "Shorter by design"
-- [ ] Re-read as a novice; time it
-- [ ] Owner review
-
----
-
-## Traps
-
-- Never edit `src/`, the spec, or an example while `npm run revert` is in flight: it mutates files in
-  place and restores them.
-- `tools/regen.js --write` rewrites Appendix B from the marker to the end of the spec. Anything
-  placed after Appendix B is lost.
-- `examples/_seeds/*` are not examples: they still speak to the weekend instruments and their own
-  `hub.js`/`envelope.js`, and their cards cite the numbers from before the rulings. Read the card's
-  "held to the rulings" note before quoting a number.
-- **From `DISTRIBUTION-MODEL.md`, archived but not fully rehoused.** Six things it carried have no
-  home yet, and this list is the only record of them. Hub operations belong in
+- `README.md`: still the old-design text under a banner. Rewritten with the owner, section by section,
+  or not at all.
+- `TLDR.md`: says the host learns "that, when, and roughly how big"; §13.3 also said "and how many".
+  Add the three words or not? The guarantees section is at 99/100 words.
+- §3.3 caps a chain at 64 links and §3.4 a recovery list at 32 leaves. Both numbers were picked by an
+  agent and never discussed.
+- The Contrast sections in the example `.md`s (~800 lines). Left as they are until the owner raises it.
+- §4.5 scheduled posts: write the script that proves it, or leave it out.
+- `GOALS.md` scenario 7 (interop / bridges) is promised and cashed nowhere in the repo;
+  `examples/views/views.md` disclaims it.
+- The spec caps a *reader's* outbound fetches (§9) and says nothing about a writable hub's own limits.
+- From `DISTRIBUTION-MODEL.md`, archived but not fully rehoused — six things with no home yet, kept
+  here verbatim as the only record: hub operations belong in
   `examples/publish-interface/publish-interface.md`: the two cache classes and why the split is
   correctness rather than tuning; how cache skew between the index and the posts manufactures a false
   `host` verdict against an honest publisher; the lower bound on §8.8's grace window (it must exceed
@@ -202,12 +49,14 @@ Rewriting prose around rules that are about to change is wasted work.
   `audience`); and moderation stated honestly — refuse a write, stop serving, drop an unlisted file,
   and nothing else. Two more: third-party processing of *other people's* decrypted content, which §6
   and §10 make sharper rather than softer and which nothing in the repo raises
-  (`examples/envelope/` or `examples/your-copy/`); and the bridge/POSSE half of `GOALS.md` scenario 7,
-  which `examples/views/views.md` explicitly disclaims — **priority 3 (interop) is now promised in
-  `GOALS.md` and cashed nowhere in the repo.** The old README's concrete route was: serve a
-  discoverable Atom feed plus an h-card and a third-party bridge represents you in the fediverse as
-  `@yourdomain.com` with nothing built. That is an unverified claim about an external service, which
-  is why it was left out of the new README; it wants an example that asserts something, or a stated
-  limit. The `did:web` mapping, the Bluesky domain-handle seam, and WebFinger are factual notes about
-  other ecosystems that went with it and a future implementer would have to rediscover. One gap, not text to move: §9 caps a
-  *reader's* outbound fetches and the spec says nothing about a writable hub's own limits.
+  (`examples/envelope/` or `examples/your-copy/`); and the bridge/POSSE half of scenario 7 — the old
+  README's route was a discoverable Atom feed plus an h-card and a third-party bridge representing
+  you in the fediverse as `@yourdomain.com`, an unverified claim about an external service. The
+  `did:web` mapping, the Bluesky domain-handle seam, and WebFinger are factual notes about other
+  ecosystems that went with it.
+
+## Traps
+
+- `tools/regen.js --write` rewrites Appendix B from its heading to the end of the spec; `tools/spec.js
+  --write` rewrites everything above it. Anything hand-typed into `open-feed-spec.md` is lost on the
+  next `--write` — edit the `rule()` in the script instead.
