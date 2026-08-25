@@ -119,9 +119,12 @@ same. A name is not a destination.
 
 **Other federated systems fetch arbitrary URLs too, and mostly leave the rules to the
 implementation.** ActivityPub servers dereference remote object URLs as a matter of course, and SSRF
-has been a recurring bug class in fediverse software as a result — the protocol says what to fetch
-and leaves what-not-to-fetch to each implementation, so every implementation gets to have the bug
-separately. Pingback is the sharper historical case: an endpoint that accepts a URL and fetches it
+has been a recurring bug class in fediverse software as a result — Mastodon alone has shipped
+advisories for the WebFinger fetch, for missing IP ranges, for the IPv6 `::` form and for the
+IPv4-compatible and IPv4-mapped forms, the last three being exactly the embedded-IPv4 cases §9 spells
+out. The protocol says what to fetch, offers a sentence of advice about localhost, and leaves the
+list to each implementation, so every implementation gets to have the bug separately. Pingback is
+the sharper historical case: an endpoint that accepts a URL and fetches it
 was used at scale for reflected DDoS and for port-scanning from the inside of other people's
 networks, and the amplification came from exactly the property Open Feed's rumor rule has — one
 attacker-supplied address, many servers willing to fetch it. RSS aggregators have the same shape

@@ -63,16 +63,22 @@ off the file size without touching a key.
 underneath it, and that list is itself content. Six named entries — anchor key, reading key and
 location apiece — are 847 bytes here, so the six-recipient post lands in the 1024-byte bucket and
 2257 bytes on the wire while the direct message stays at 512 and 1574. The eight-slot floor is doing
-its job; the 512-byte body floor runs out somewhere around three or four people. It is worth knowing
-that the guarantee has an audience-size horizon rather than assuming it is unconditional.
+its job; the 512-byte body floor equalises audiences of **at most three, counting the author**. That
+is exact, not approximate: an entry is 115 bytes of keys and punctuation before its `loc`, so four
+entries with an empty text and the shortest possible URL are already 542 bytes, over the floor. So
+"a message to one person is the same size as a message to the family" holds for the author plus two;
+the six-person family here is 683 bytes larger than a DM, which the host can read off. The guarantee
+has an audience-size horizon, and it is lower than "family" suggests.
 
 **It is a SHOULD, and the reason is a number.** Measured against these staged messages, the floor
 costs **498 bytes** on a direct message: six dummy slots at 83 bytes each, the body being already in
-the 512-byte bucket either way. The spec says "about 1.1 KB", which is the more conservative figure;
-the difference is that §6.5's audience list has since grown, and a plaintext that already exceeds
-the body floor pays only for the dummy slots. Either way it is a fraction of a kilobyte to a
-kilobyte per message, once, on content that is already small — and a minimal implementation that
-skips it is still conformant (§12). Nothing about opening an envelope depends on the padding.
+the 512-byte bucket either way. The spec says "about 1.1 KB", and that overstates it for every
+audience, not only the DM: the floor's worst case is the smallest possible post — a note to self,
+one entry, empty text, whose body would otherwise sit in the 256-byte bucket — at 922 bytes, and a
+DM already carries a two-entry audience that puts its body in the 512-byte bucket unpadded, so it
+pays only for the slots. Between about 500 bytes and 900, once, on content that is already small —
+and a minimal implementation that skips it is still conformant (§12). Nothing about opening an
+envelope depends on the padding.
 
 **What padding does not hide.** The host still reads, off the file, that an encrypted post exists,
 when it appeared, and which bucket it is in — and off his own logs, who fetched it and how often.
@@ -95,11 +101,12 @@ recovered secrets from a TLS connection purely from how long the compressed-then
 were. Nothing in Open Feed compresses, so that particular oracle does not exist, but the underlying
 fact does: a ciphertext's length is plaintext that was never encrypted.
 
-**How other protocols pad.** Tor uses fixed-size cells, so every hop carries the same shape and
-there is nothing to measure; the cost is that a fixed size is either wasteful for small messages or
-too small for large ones, which is exactly what a bucket avoids. TLS 1.3 moved padding inside the
-record (RFC 8446 §5.4) and made it entirely optional, with no guidance on how much — the same
-SHOULD-shaped hole Open Feed has, minus the stated default. (TLS's older `padding` extension, RFC
+**How other protocols pad.** Tor carries traffic in fixed-size relay cells, so cell *size* reveals
+nothing — counts and timing still do, which is what website-fingerprinting attacks measure; the cost
+is that a fixed size is either wasteful for small messages or too small for large ones, which is
+exactly what a bucket avoids. TLS 1.3 moved padding inside the record (RFC 8446 §5.4) and made it
+entirely optional, with only an appendix noting that it helps — the same SHOULD-shaped hole Open
+Feed has, minus the stated default. (TLS's older `padding` extension, RFC
 7685, is unrelated to privacy: it works around implementations that choke on certain ClientHello
 lengths.) Signal pads message plaintext to fixed increments and, with sealed sender, removes the
 sender identifier from what the server sees — the closest analogue to a floor whose purpose is to
@@ -114,8 +121,9 @@ which is where family messages live.
 
 **Why 8 and 512.** They are sized for the case the threat model cares about: a family, and a message
 short enough to be a sentence. Eight slots covers a household; 512 bytes covers a note plus §6.5's
-audience for two or three people. Larger floors would hide more and cost every publisher more, and
-the numbers were priced against a real envelope rather than chosen for their looks.
+audience for the author and two others. Larger floors would hide more and cost every publisher more
+— a 2,048-byte body floor would cover about fourteen — and whether 512 is still the right number
+now that an audience entry is `{key, read, loc}` is the owner's question (`FINDINGS.md` §4).
 
 **Why SHOULD, not MUST.** Two reasons, and both are arguable. The honest one is the price: a MUST
 would put a byte cost on every implementation regardless of what its users are exposed to. The

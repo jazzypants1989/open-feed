@@ -81,14 +81,14 @@ same way under its own label so the output still reproduces byte for byte.
 Everyone building this has met the same problem, and the interesting differences are in what they
 ask a human to do.
 
-- **SSH's host-key prompt is TOFU, and §3.1 refuses it.** `The authenticity of host … can't be
-  established. Fingerprint is SHA256:…. Are you sure you want to continue?` — almost nobody has the
-  fingerprint to compare against, so almost everybody types `yes`, and the trust that gets
-  established is trust in whoever answered the connection. That is precisely the reader that has
-  learned nothing. Open Feed's first block is that prompt, answered `yes`, with a hostile host on
-  the other end. Note the difference in stakes, though, and be fair to SSH: it is protecting a
-  session against an active attacker, whereas here the *expected* host is a party who may be hostile
-  from the beginning (see the threat model in `CLAUDE.md` and §13).
+- **SSH's host-key prompt is TOFU, and §3.1 refuses it.** The prompt says the host's authenticity
+  can't be established, prints a fingerprint, and asks whether to continue connecting — almost
+  nobody has the fingerprint to compare against, so almost everybody types `yes`, and the trust
+  that gets established is trust in whoever answered the connection. That is precisely the reader
+  that has learned nothing. Open Feed's first block is that prompt, answered `yes`, with a hostile
+  host on the other end. The stakes differ: SSH is protecting a session against an active
+  attacker, whereas here the *expected* host is a party who may be hostile from the beginning (see
+  the threat model in `CLAUDE.md` and §13).
 - **Signal's safety numbers** are the closest relative: 60 digits shown as twelve groups of five,
   compared in person or read aloud, with a QR scan as the fast path. Same shape — an out-of-band
   check value over public keys — and the same honest admission that most people never do it. Six

@@ -45,18 +45,12 @@ floor — it MUST be at or above the highest number anywhere in `entries` — an
 issued nothing has `top` 0. *Why* `top` outlives the post holding it is §4.3 and belongs to
 `top-and-rumors/`.
 
-**A number has one hash, ever.** Appendix B.11 is the rewrite (§4.7): the lines the withdrawal left
-behind are gone, and post 2 is re-listed at the hash it had. That is legal. Re-listing at a
-*different* hash is not, and within one index the fold catches it. Across a rewrite the fold cannot:
-once the `[2, null]` line has been swept away, that index has never heard of post 2, so the rule
-that reaches across versions is the reader's own memory. §7.2 makes the pinned reader keep the hash
-of every number it saw withdrawn, and the example runs one reader through four versions to show it:
-the withdrawal is noted `withdrawn: 2`, the same bytes coming back read `ok`, and other bytes at
-that number read `host: post 2 changed after the reader saw it`.
-
-Re-listing at the identical hash is allowed because it is harmless — and because it is the way back
-from a thief who held the current key and withdrew everything the owner wrote. She restores and
-re-lists the same bytes, and readers who watched him delete them accept it in silence.
+**A number has one hash, ever.** Within one index the fold enforces it: a withdrawn number may come
+back at the identical hash (Appendix B.11 does exactly that) and at no other. Across a rewrite the
+fold cannot see it — once the `[2, null]` line has been swept away, that index has never heard of
+post 2 — and the example runs one reader through four versions to show the half that is the pinned
+reader's memory (§7.2). Why the identical-hash repeat is allowed, and why the cross-version rule is
+the way back from a thief, is `rewrite/`'s argument; this example only shows both halves firing.
 
 (`recently restored` appears in those notes because this identity's chain ends in a restore. It is
 §3.5's note, not §4's business; see `the-chain/`.)
@@ -86,8 +80,10 @@ itself keeps that one, notes `no index I can verify`, and says nothing further.
 
 **A feed that is its items cannot say what is missing.** In RSS, Atom and JSON Feed the document
 *is* the entries, and a truncated document is indistinguishable from a short one: a host that drops
-your last three posts serves a feed that looks exactly like a feed with three fewer posts. There is
-no place to state "and these are all of them," and no signature over the statement if there were.
+your last three posts serves a feed that looks exactly like a feed with three fewer posts. RSS and
+JSON Feed have no place to state "and these are all of them"; Atom has one (RFC 5005's
+`fh:complete`) and an optional XML signature to put over it (RFC 4287 §5.1), and almost nobody uses
+either. None of the three can say a post *was* here and was withdrawn.
 Open Feed's index is a signed, versioned claim about the whole set, and the host cannot sign one. So
 withholding a post the index lists reads as `host: post n is listed and not served`; serving an
 older index is caught by `version` going backwards; and a number that comes back as different bytes
@@ -113,7 +109,7 @@ forge (§7), and hash-chained proofs would have added an appendix of machinery t
 threat model does not need caught.
 
 **The cost is bounded and flat.** One extra file per identity, rewritten at the publisher's chosen
-cadence (§4.7), with the leftover withdrawal lines at roughly 6% of the file. Nothing about the
+cadence (§4.7); what the leftover withdrawal lines weigh is measured in `rewrite/`. Nothing about the
 index scales with the number of readers or the number of identities a hub carries, which is what
 `GOALS.md` scenario 5 — ten thousand people on one commercial hub, per-identity cost flat — asks of
 it. The member-order rule and the range request are a small part of the same instinct: they let a

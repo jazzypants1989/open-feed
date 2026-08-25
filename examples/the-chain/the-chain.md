@@ -118,13 +118,13 @@ shape that a verifier checks without being asked. OpenPGP does also have revocat
 expiry, and they work about as well as key servers deliver them.
 
 **Signal.** When a contact's identity key changes you get a notification: the safety number changed,
-verify again. There is no cryptographic link from the old key to the new one, so the notification is
-the entire mechanism, and users are trained to tap past it. Open Feed's equivalent of that
+verify again. There is no cryptographic link from the old key to the new one, so the notice is the
+whole mechanism, and Signal itself made it non-blocking by default. Open Feed's equivalent of that
 notification is a verdict a reader computes for itself, and a restore is *not* the same event as a
 stranger substituting a key: one walks the chain, the other does not.
 
-**Matrix cross-signing** is closer, and worth naming honestly: a master key signs device keys, so
-devices come and go under one stable identity without re-verifying each one. But replacing the
+**Matrix cross-signing** is closer: a master key signs a self-signing key, which signs device keys,
+so devices come and go under one stable identity without re-verifying each one. But replacing the
 master key itself lands in the same place as Signal — other users have to verify the identity again
 — and the whole structure lives on a homeserver rather than in a file the reader holds. The chain's
 answer to *the master key is the thing that was lost* is the recovery list.

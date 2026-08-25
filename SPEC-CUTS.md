@@ -20,8 +20,8 @@ redundant with that material and which are not.
 **520 net words of 10,277 — five per cent.** The spec is already tight; the Cutting Campaign got the
 archaeology out, and what remains is mostly rule, reason or limit. The material that would actually
 make it shorter is not a cut at all, and it is in the last section — **"Shorter by design"** — which
-is worth about another 570 words *and* is where the "a novice reads it in an hour" goal is won or
-lost. Read that section first if you read only one.
+is worth about another 300 words once its three unsound items are struck, *and* is where the "a
+novice reads it in an hour" goal is won or lost. Read that section first if you read only one.
 
 ---
 
@@ -72,12 +72,12 @@ abstract is for.
 
 ### Drop
 
-- **§2.1, last clause of the third bullet**: *"A compact JSON serializer never emits one."* (7
-  words). Reassurance, not a rule. `signed-file.md` ("No raw newline in the body") shows a post
-  whose text contains a line break and prints the body with no `0x0a` in it, which is the same claim
-  demonstrated.
+Nothing. The one candidate — **§2.1's last clause of the third bullet**, *"A compact JSON serializer
+never emits one"* (7 words) — sits beside "the body MUST NOT contain a `\n` byte" and is what tells
+an implementer the MUST costs nothing; without it the natural reading is that an escaping step is
+needed. `signed-file.md` demonstrates the claim, and the spec still needs the seven words.
 
-That is the whole of what §2 can shed. 572 words for the entire wire format is not where the fat is.
+572 words for the entire wire format is not where the fat is.
 
 ### Keep, and why
 
@@ -117,7 +117,8 @@ That is the whole of what §2 can shed. 572 words for the entire wire format is 
 **Drop:** nothing.
 
 **Keep, and why.** *"Six words is 66 bits of entropy — enough that brute-forcing a match takes
-centuries on a GPU. Five words (55 bits) would not be enough."* `first-contact.md` does the
+centuries on a GPU. Five words (55 bits) would not be enough."* (Per GPU; a farm of a thousand is
+years. Worth "on a GPU" being said more carefully, not worth dropping.) `first-contact.md` does the
 arithmetic properly (2,048× the work, 73 quintillion keys). The spec's version is not the argument;
 it is the fence. An implementer shortening a phone-call code to four words for usability is exactly
 the change this sentence exists to stop, and they will never read the example. Likewise *"A reader
@@ -169,7 +170,10 @@ and stays whole.
 
 - ***"Members can be people, a backup key you keep yourself, or your host."*** (13 words).
   Illustration. `recovery-list.md` ("The list MAY be empty") carries it, with the point that a leaf
-  does not say which and nothing outside your own app knows.
+  does not say which and nothing outside your own app knows. **Lower confidence**: "or your host" is
+  the only place the spec says the host may be a recovery member, which is the threat model's own
+  configuration and the case §13.3's one-other-person bullet is about. If it goes, that warning
+  should name the host.
 
 **Keep, and why**
 
@@ -271,9 +275,11 @@ both stay — the clause exists to stop a reader concluding §2.3 has an excepti
   state for this case isn't worth the complexity."* Compress to one clause and keep the SHOULD.
   `the-reader.md` has a whole subsection on this ("There is one case where the label is charged to
   the wrong party") and `the-index.md` narrates it beside a live run. Net saving about 25 words.
-  **Do not drop the SHOULD** — *"An app SHOULD word it as the files at this address do not make
-  sense rather than as an accusation against the operator"* is the only thing standing between this
-  case and a false accusation in a family.
+  **The clause must keep the reason** — *charged to `host` because a fourth state is not worth it* —
+  since `identity` is what an implementer would otherwise choose (the author signed it). **Do not
+  drop the SHOULD** — *"An app SHOULD word it as the files at this address do not make sense rather
+  than as an accusation against the operator"* is the only thing standing between this case and a
+  false accusation in a family.
 
 **Keep, and why**
 
@@ -313,7 +319,7 @@ stated consequence. Nothing to add.
 
 **Move, don't drop.** No example covers this — `pending-gate` was consumed by `your-copy`, and
 `your-copy.md` says nothing about scheduling. Keep the *fact* and move it: see "Shorter by design",
-item N, where it becomes one line of a single "what this protocol does not have" list along with the
+item K, where it becomes one line of a single "what this protocol does not have" list along with the
 other four no-mechanism statements scattered through the document. It is also filed under the wrong
 chapter — it is about posts, not the index.
 
@@ -452,12 +458,12 @@ otherwise look for.
 
 **Drop**
 
-- ***"the floor costs about 1.1 KB per direct message, and"*** (10 words). `FINDINGS.md` §4 records
-  the measurement at 498 bytes; `padding.md` re-derives it and explains why the old figure predates
-  `{key, read, loc}` audience entries. Keep the sentence's frame — *"It is a SHOULD and not a MUST …
-  and a minimal implementation that skips it is still conformant"* — and drop the number. A wrong
-  number in a spec is worse than no number, and the right number lives in a file that recomputes it
-  on every `npm run examples`.
+- ***"the floor costs about 1.1 KB per direct message"*** — **correct it, do not drop it.** The
+  number is the stated justification for the floor being a SHOULD, and `archive/redesign/RULINGS.md`
+  §13 Q7 records the ruling as "a SHOULD, with the ~1.1 KB per DM stated". `FINDINGS.md` §4 measures
+  498 bytes on a direct message, and the floor's worst case — a note to self with an empty text —
+  is 922 bytes; "between about 500 bytes and 900" is the accurate sentence, and `padding.md`
+  recomputes it on every `npm run examples`. Dropping the number would reverse Q7 silently.
 
 **Keep, and why.** *"Without it, the host can tell a DM from a group post by file size alone."* The
 whole justification for the SHOULD, in fourteen words. And the `bucket` definition, the
@@ -479,10 +485,11 @@ argument for that MUST NOT anywhere, and the spec still has to state it.
   members are required rather than just `read`, and an implementer trimming the audience entry to
   reading keys breaks scenario 3 with no error anywhere, which is precisely the failure mode that
   produces no bug report.
-- **The last paragraph** (30 words): *"The audience is never in a header, and the slot tags never
-  name a key. What the host learns is that an encrypted post exists, when, and roughly how big."*
-  The first half restates §6.3's blinding rule; the second half is §13.3's shape-of-correspondence
-  bullet and §6.4's own justification. `envelope.md`'s "What the host learns" carries it.
+- **The last paragraph, second sentence only** (~17 words): *"What the host learns is that an
+  encrypted post exists, when, and roughly how big"* is §13.3's shape-of-correspondence bullet and
+  §6.4's own justification; `envelope.md`'s "What the host learns" carries it (item M). **Keep the
+  first sentence** — *"The audience is never in a header, and the slot tags never name a key"* — it
+  is the only sentence in the spec that forbids a recipients header; §6.3 covers tag blinding alone.
 
 **Keep, and why.** *"a publisher MUST include itself in the audience or it cannot read its own
 outbox"* — a MUST whose reason is the entire content of the MUST.
@@ -525,7 +532,9 @@ favour only if §6.6 keeps a pointer.
   rule is already normative in §7.1 step 6 (*"a lower `version` than the pin is identity"*); §13.3
   bullet 2 already carries the verdict string verbatim, in context, as a limit; and `moving.md` and
   `the-reader.md` each stage it end to end, including the point that it is emphatically not `host`.
-  Replace with a pointer to §13.3 (~8 words). Net saving about 52 words.
+  Replace with a pointer to §13.3 (~8 words), and **carry the clause** *"It is not a misbehaving
+  host: the host is serving exactly what it has"* into §13.3's bullet 2, which does not yet say why
+  the verdict is `identity` and not `host`. Net saving about 40 words.
 
 **Keep, and why**
 
@@ -720,7 +729,7 @@ refusing on something the author never signed and the host chose"*) is a fence, 
 that nothing the protocol checks reads that header.
 
 **Move, don't drop.** The five-row table is a column of §2's file table. Folding it there retires an
-appendix and about 30 words. See item O.
+appendix and about 30 words. See item L.
 
 ---
 
@@ -745,11 +754,11 @@ proposed for dropping were taken by piping each quoted passage to `wc -w`.
 | --- | ---: | ---: | --- |
 | Abstract | 145 | 145 | nothing to cut; it is five sentences |
 | §1 Conventions | 405 | 367 | non-goals go to `GOALS.md`; the priorities stay as a tiebreaker |
-| §2 Files | 572 | 565 | one clause. 572 words for the whole wire format is not the fat |
+| §2 Files | 572 | 572 | no cut — the seven-word reassurance beside §2.1's MUST stays |
 | §3 Identity | 2,052 | 1,889 | biggest chapter; two worked examples and one repeated limit list |
 | §4 The index | 1,101 | 1,010 | one worked example, one wrong number, two compressions |
 | §5 Posts | 536 | 460 | §5.6's consequences move to §13.3, which states one of them correctly |
-| §6 Encrypted content | 905 | 839 | a wrong number, a duplicated privacy claim, one compression |
+| §6 Encrypted content | 905 | 855 | a corrected number, half a duplicated privacy claim, one compression |
 | §7 The reader | 1,027 | 975 | only the frozen-copy paragraph; §13.3 and §7.1 both carry it |
 | §8 Publish interface | 1,029 | 1,029 | **no cuts.** Every explanation describes a silent failure |
 | §9 Fetching | 386 | 386 | **no cuts.** The one chapter where a miss is a vulnerability |
@@ -757,17 +766,18 @@ proposed for dropping were taken by piping each quoted passage to `wc -w`.
 | §11 Generated views | 211 | 211 | **no cuts.** A whole interop surface, all of it fences |
 | §12 Conformance | 257 | 257 | no prose cut — restructure as a table (item A), worth ~100 |
 | §13 Security | 765 | 785 | grows: absorbs the moved limits from §3.6 and §5.6 |
-| Appendix A | 93 | 93 | no prose cut — fold the table into §2 (item O), worth ~30 |
+| Appendix A | 93 | 93 | no prose cut — fold the table into §2 (item L), worth ~30 |
 | Appendix B | 586 | 586 | generated by `tools/regen.js`; not Stage D's to edit by hand |
-| **total** | **10,277** | **9,756** | **−521, or −5.1%** |
+| **total** | **10,277** | **~9,780** | **about −500, or −5%** |
 
-Then the structural work below, which is worth about another 570 words:
+Then the structural work below, which is worth about another 300 words once D, G and J are struck
+and B is booked as a clarity gain rather than a saving:
 
 | | words |
 | --- | ---: |
 | now | 10,277 |
-| after the drops | 9,756 |
-| after the drops and "shorter by design" | **~9,190 (−10.6%)** |
+| after the drops | ~9,780 |
+| after the drops and "shorter by design" | **~9,480 (−8%)** |
 
 **The honest reading of that table.** Five per cent is what is left after a cutting campaign that
 already ran. The spec is not padded. If Stage D's target is a *much* shorter document, it will not
@@ -778,10 +788,13 @@ any *rule* can go, which is a different and larger question than this file was a
 
 ## Shorter by design — where two rules could be one
 
-`PLAN.md` says the lever that moves length is design, not compression. These are the places where
-the spec says one thing more than once, or says in three paragraphs what a table says in six rows.
-Every one of them also makes the document easier for a novice, which is the goal the word count is
-only a proxy for. Ordered by value, not by size.
+`PLAN.md` says the lever that moves length is design, not compression. These are the thirteen places
+where the spec says one thing more than once, or says in three paragraphs what a table says in six
+rows. Every one of them also makes the document easier for a novice, which is the goal the word
+count is only a proxy for. Ordered by value, not by size. Three of them — **D, G and J** — are
+marked UNSOUND below: on inspection the "two rules are one" claim is false, and the merged rule
+gives a different answer on some input. They stay listed so the next reader does not rediscover
+them. Do B, A, I, L, K, H, E, F, M; reshape C; skip D, G and J as written.
 
 ### A. §12 is a table wearing paragraphs (~100 words, and much more usable)
 
@@ -793,7 +806,7 @@ visible at a glance, which is currently three prose paragraphs a reader has to d
 Delete §1's *"None is more of the protocol than another (§12)"* at the same time: §12's opening says
 it, better.
 
-### B. The pin is described in five places and defined nowhere (~70 words, big clarity gain)
+### B. The pin is described in five places and defined nowhere (no word saving; the biggest clarity gain)
 
 A pin is the reader's entire state machine, and today it is assembled from: §1's terminology row,
 §3.6 rules 1–2 (chain, per-length recovery lists), §7.1 step 3 (recording lists), §7.2 step 9
@@ -804,24 +817,40 @@ is four enumerations of one structure, none of them normative, none complete.
 **Give §7 one short normative list of what a pin holds**, and let §3.6, §7.1, §7.2 and §13.1 stop
 re-enumerating. `CLAUDE.md`'s "Traps" section already has to warn agents that the pin's fields are
 distinct from the wire members (`profileVersion`/`profileHash` versus `version`) — which is a sign
-the spec never says it. This is the single highest-value structural change in the list: it shortens
-four sections, it makes the reader chapter implementable in one pass, and `FINDINGS.md` §3's "the
-index `version` does not survive a relocation" is exactly the kind of gap a defined pin would have
-caught.
+the spec never says it. This is the single highest-value structural change in the list: it makes
+the reader chapter implementable in one pass, and `FINDINGS.md` §3's "the index `version` does not
+survive a relocation" is exactly the kind of gap a defined pin would have caught. Do not book it as
+a saving: a correct list is *longer* than any enumeration the spec has today, because the reference
+reader also keeps `fields` (the `locations`/`recovery`/`name`/`read` snapshot §3.3's restore check
+needs), `restoredAt` per chain length (§3.4's seven-day flag) and every location ever named (§3.7),
+and no enumeration mentions those. State it as reader state that is never serialized on the wire —
+`archive/redesign/RULINGS.md` §11.1 dropped a *carried* pin, and a definition that reads like a wire
+object re-opens that.
 
 ### C. §3.6 and §7.1 step 6 state the contest outcome twice (~45 words)
 
 §3.6 ends: *"Against a pin, and outside a split: `version` MUST NOT go backwards, and the same
 `version` with a different address is contested."* §7.1 step 6 says: *"With no split, a lower
 `version` than the pin is identity, and an equal `version` at a different address is identity:
-contested"*, plus a restatement of the majority outcome. Pick a home. The natural split is: §3.6
-owns the *rule*, §7 owns the *order*, and step 6 becomes "apply §3.6".
+contested"*, plus a restatement of the majority outcome. Pick a home — but the merge runs the
+**other way** from the obvious one. Step 6 carries three verdict assignments §3.6 does not: a
+backwards `version` is **identity** (§3.6 only says MUST NOT); the branch the majority rejected is
+**host** (rule 4 says who wins, never what the loser reads as); and the winning branch is followed.
+`src/profile.js` implements exactly step 6's three outcomes, and the `host` verdict for the ex
+serving his losing branch is what §13.1's "he cannot roll it back" rests on. So: move step 6's
+verdict words *into* §3.6 rule 4 and the trailer, and only then can step 6 say "apply §3.6". Gated by
+standing caution 1 — `FINDINGS.md` 1.1 rewrites §3.6's majority paragraph first.
 
-### D. The rotation window is narrated three times (~40 words)
+### D. The rotation window is narrated three times — UNSOUND (a ten-word trim at most)
 
 §3.5 (write the profile then the index), §4.6 (*"The consequence is a window"*), §7.2 step 8 (*"an
-honest host caught mid-rotation"*). Three tellings of one event across three chapters. State it once
-in §4.6 — which is where the MUST that creates it lives — and have §3.5 and §7.2 point.
+honest host caught mid-rotation"*). They read as three tellings of one event; they are three
+different rules for three roles. §3.5 never mentions the window — it is the *publisher's* write-order
+rule with its hub-side reason (§8.4 checks the index against the held profile). §4.6's sentence is
+the consequence for the *index*. §7.2 step 8 lists mid-rotation as one of four causes a *reader*
+"cannot tell apart", and this file's own §7 entry keeps that list as the price of three verdicts;
+remove the fourth cause and "cannot tell them apart" is false. Only §4.6's last sentence and §7.2's
+four words overlap. Trim those ten words; do not consolidate.
 
 ### E. §2.4's four hazards want a table (neutral on words, large on reading speed)
 
@@ -839,13 +868,20 @@ rules beside the grammar they constrain, and removes the need to hold §4.1 in y
 reading §4.2. §4.2's remaining prose is then just the fold definition, the wrong-party clause and
 the re-listing reason.
 
-### G. "This is not a fourth verdict" is said four times (~35 words)
+### G. "This is not a fourth verdict" is said four times — UNSOUND (a few words each, no citations)
 
 §7.3 (*"a conforming reader MUST NOT invent a fourth"*), §4.2 (*"a fourth reader state for this case
 isn't worth the complexity"*), §9 (*"That is not a fourth verdict (§7.3) — it is the absence of
-one"*), §13.3 (*"it is not a protocol state and MUST NOT be reported as one"*). Say it once, in
-§7.3, as the rule; the other three become citations. A reader currently has to check whether the
-four statements differ, and they do not.
+one"*), §13.3 (*"it is not a protocol state and MUST NOT be reported as one"*). They look like one
+rule said four times; they answer four questions. §7.3 is the rule. §4.2 answers *which of the
+three* a fold failure is charged to, and why the wrong party — a verdict assignment. §9 answers
+whether a cap or transport failure is a verdict at all: it is **none**, "the absence of one", and
+an app shows "could not check" — a case §7.3 alone does not settle, and one `test/cli.test.js` and
+`test/fetch.test.js` assert (exit code 3, no verdict). §13.3's is a MUST NOT aimed at apps for
+staleness specifically. Reduce §9's sentence to a citation and a reader that hits the byte cap
+picks one of three; §9 says pick none, and that is what stops a timeout becoming an accusation
+against somebody's aunt. Each site may add "(§7.3)" and lose a few words; none may become a bare
+citation.
 
 ### H. "Everything is a post" is said four times, and §5.6 could stop being a section (~40 words)
 
@@ -863,16 +899,25 @@ declares its number *and* is signed by the current chain key or listed at that n
 media file: hashes to the name it is offered at) would state the shared principle once and the two
 tests once each. The asymmetry paragraph (*"The rule does not turn around"*) then covers both.
 
-### J. `version` is a rule stated in five places (~40 words)
+### J. `version` is a rule stated in five places — UNSOUND at §1/§2; sound only in §7 or §3.6
 
 The profile's table row, the index's table row, §3.6's trailer, §7.1 step 6, §7.2 step 9. And a
 reader must notice for themselves, from two distant sections, that the same `version` at a different
 address is `identity: contested` on a profile and `host` on an index — a genuine asymmetry, never
-stated as one. **One rule, in §2 or §1**: what `version` is, that it MUST NOT go backwards on either
-overwritable file, and what a same-version-different-address collision means for each. The five
-places become citations, and the asymmetry becomes visible instead of derivable.
+stated as one, and worth stating. But a single early rule that `version` MUST NOT go backwards
+drops §3.6's carve-out, *"Against a pin, and outside a split"*, and `src/profile.js` checks the
+split before the version for a reason. Input: a reader pinned Alice at chain `[A, B]`, `version`
+3; the thief holding `B` publishes `version` 4 with chain `[A, B, T]`, which extends the pin and is
+accepted; Alice's people vouch a restore `[A, B, C]` at `version` 4. Today there is a split at
+length 2, the majority settles it, and Alice's branch is followed at an equal (or lower) `version`.
+Under a §1/§2 rule with no carve-out, Alice's recovery reads `identity: contested` or is rejected —
+the thief wins by incrementing a counter, in exactly the threat model's case. The carve-out cannot
+be stated in §1/§2 because "split" and "pin" are defined in §3.6 and §7. Put the one rule in §7 (or
+§3.6) with "outside a split" intact and both verdicts stated; then the two table rows and §7.2 step
+9 become citations, and the asymmetry sentence is a gain. `FINDINGS.md` §3's "the index `version`
+does not survive a relocation" is the related gap that rule would be the right place to close.
 
-### K. One "what this protocol does not have" list (~60 words, and best for a novice)
+### K. One "what this protocol does not have" list (about zero words, and best for a novice)
 
 The spec currently scatters five no-mechanism statements: §3.3 (no revocation), §4.5 (no scheduling
 mechanism), §5.3 (no in-place revision, no version history), §5.6 (no inbox, no dead-drop, no push),
@@ -885,18 +930,28 @@ which also fixes its filing: it is a section about posts sitting inside the inde
 
 This is the item I would do first if the goal is "a novice reads it in an hour or two". A reader's
 biggest cost in a small protocol is not understanding what is there; it is repeatedly discovering
-that something they expected is absent, three chapters after they started looking.
+that something they expected is absent, three chapters after they started looking. Since every site
+keeps one clause — §3.3's is the *reason* a rotated key cannot sign an index, §4.5's says *how*
+scheduling works without a mechanism, §8.8's sits beside the MAY-remove rule — the list is a
+duplicate and the net word change is about zero. Five rows is fine; a growing "non-features" section
+beside the spec is the second document `CLAUDE.md` warns against.
 
 ### L. Appendix A folds into §2's file table (~30 words, one fewer appendix)
 
 Five rows mapping kind to media type, where §2 already has a table whose first column is exactly
 those kinds. Add the column; keep the MUST NOT sentence as a note under §2's table. The spec loses
-an appendix and a cross-reference.
+an appendix and a cross-reference. Two cautions: three of the five rows are the generated views,
+which are not "on the wire" kinds in §2's sense (*"Everything on the wire is one of four kinds"*),
+so those rows go to §11, not §2; and **do not rename Appendix B** — `tools/regen.js` keys on the
+literal heading, and every B.1–B.12 citation in the examples and `FINDINGS.md` uses that letter.
 
 ### M. Two sections carry "what the host learns" (~20 words)
 
 §6.5's closing sentence, §4.4's closing clause, §5.6's paragraph, §13.3's bullet. §13.3 is the right
-home for all of it — it is the list of undefended things — and each other site keeps a citation.
+home for all of it — it is the list of undefended things — and each other site keeps a citation. The
+merged sentence must be the union: §5.6's *"fetched by whom"* is an access-pattern leak §6.5's
+sentence omits. And §6.5's first half — *"the audience is never in a header, and the slot tags never
+name a key"* — is a construction rule, not a what-the-host-learns statement; it stays in §6.5.
 
 ---
 
@@ -907,7 +962,8 @@ home for all of it — it is the list of undefended things — and each other si
    rule and §3.6's "Majority, and not `k`" paragraph both get shorter as a consequence, and the
    "one-of-two restore stays contested" price is stated once instead of twice. **Rule on that first;
    re-read the §3.3 and §3.6 entries above afterwards.** Cutting them now and fixing the defect
-   later means doing §3 twice.
+   later means doing §3 twice. It gates **C** (step 6's contest wording) and **B** (a pin definition
+   reads differently once the majority rule changes) as well.
 
 2. **`tools/regen.js --write` rewrites Appendix B from its marker to the end of the file.** Anything
    Stage D places after Appendix B is lost. This file proposes no additions there, but the summary

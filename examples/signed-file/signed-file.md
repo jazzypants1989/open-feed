@@ -67,8 +67,10 @@ layer is where the interoperability bugs live.
   §2.3 removes the gap by removing the step; `no-canonicalization/` is the example for it.
 - **Nostr** signs the SHA-256 of a serialized array with its own escaping rules, so the JSON on the
   wire is again not the signed input.
-- **ActivityPub's Linked Data Signatures** need RDF dataset canonicalization before anything can be
-  signed at all — the most expensive version of the same idea.
+- **The Linked Data Signatures Mastodon layered on ActivityPub** (`RsaSignature2017`) need RDF
+  dataset canonicalization (URDNA2015) before anything can be signed at all — the most expensive
+  version of the same idea, and the draft it rests on is superseded; the fediverse signs the HTTP
+  request instead, so an object cannot be re-verified once it has left the wire.
 
 The trade Open Feed makes is that a publisher must keep the bytes it signed and serve *those*. It
 cannot regenerate a file from a database row and expect it to verify. In exchange, verification is

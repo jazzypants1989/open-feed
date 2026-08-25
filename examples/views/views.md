@@ -90,21 +90,20 @@ Atom feed and the h-card page are *generated views* — the interop surface, req
 never the signed object." Earlier drafts of this project did the other thing. They made the JSON
 Feed document *the* wire format: every extension field lived under an `_openfeed` member of a JSON
 Feed item, the signature lived beside it as `_sig`, and a manifest listed the item ids and their
-versions. `README.md` in the repo root still describes that design — it is queued for rewrite in
-`PLAN.md`, so read it for the contrast and not as current.
-
-What went wrong with it is instructive. Signing JSON Feed items means the *interop* format is also
-the *security* format, so every question about one becomes a question about the other: which members
-are inside the signature, what a bridge may add, what a tombstone may keep, how a feed reader that
-knows nothing is supposed to survive a member it cannot parse. It also imports JSON Feed's own
-requirements into the signed bytes — an item must carry a content field, so a "like" had to be an
-item with `content_text: ""`. Splitting the two makes each one small: the signed files answer only
-to §2, and the view answers only to whatever a feed reader wants this year. If JSON Feed 2.0 lands
-tomorrow, `src/views.js` changes and nothing else does.
+versions. That design is preserved verbatim in `archive/` (`archive/README.md` is the index), and
+the root `README.md` still carries its banner until the owner walks the rewrite; read either for
+the contrast and not as current. What went wrong with it: signing JSON Feed items means the
+*interop* format is also the *security* format, so every question about one becomes a question about
+the other, and JSON Feed's own requirements leak into the signed bytes — a "like" had to be an item
+with `content_text: ""`. Splitting the two makes each one small: the signed files answer only to §2,
+and the view answers only to whatever a feed reader wants this year.
 
 **ActivityPub** goes the opposite way: the wire object *is* the vocabulary, and interop means
-agreeing about ActivityStreams types, JSON-LD contexts, and — for signing — RDF dataset
-canonicalization before there are any bytes to sign at all. **Microformats and the IndieWeb** go
+agreeing about ActivityStreams types and JSON-LD contexts. Day to day the fediverse authenticates the
+HTTP request, not the object — which is why an object cannot be re-verified once it has left the
+wire — and the one object-level scheme it ever had, Linked Data Signatures, needed RDF dataset
+canonicalization before there were bytes to sign and is now deprecated even by Mastodon.
+**Microformats and the IndieWeb** go
 further still: the HTML page *is* the data, which is where the h-card this example generates comes
 from, and a consumer parses your presentation to learn your facts. Open Feed generates both kinds of
 surface and trusts neither. The h-card here is output, never input.

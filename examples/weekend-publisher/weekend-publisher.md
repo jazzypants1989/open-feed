@@ -57,8 +57,8 @@ who you are; it can only decide whether to accept bytes. Anyone's client can wri
 and that is a security property rather than a convenience: **a hub that ships the app can take the
 key**, so the spec makes clients and hubs a market instead of a pairing.
 
-**Compare-and-swap over `If-Match` and `ETag`** is a 1999 mechanism doing exactly the job it was
-designed for. The design uses it rather than inventing a version field, which is why static hosting
+**Compare-and-swap over `If-Match` and `ETag`** is a 1997 mechanism (RFC 2068, then 2616, now RFC
+9110) doing exactly the job it was designed for. The design uses it rather than inventing a version field, which is why static hosting
 is a conforming hub for reading (§12) and why a browser-based publisher works at all, given the
 preflight rules of §8.7.
 

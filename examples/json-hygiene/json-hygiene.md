@@ -57,14 +57,17 @@ the one that was signed.
 
 ## Contrast
 
-RFC 7493 (I-JSON) covers three of these four — unique names, integers inside the IEEE-754 exact
-range, no lone surrogates — and Open Feed's rules are I-JSON's rules plus `__proto__`, which is a
-language hazard rather than an interchange one. The difference is where the enforcement lives.
-I-JSON is a profile you are asked to conform to; §2.4 is a parser you have to write anyway, because
-`JSON.parse` cannot express any of it and no standard library ships one that can.
+RFC 7493 (I-JSON) covers three of these four — unique names and no lone surrogates as MUST NOTs,
+and integers outside the IEEE-754 exact range as a SHOULD NOT — and Open Feed's rules are I-JSON's
+rules made uniform plus `__proto__`, which is a language hazard rather than an interchange one. The
+difference is where the enforcement lives. I-JSON is a profile you are asked to conform to; §2.4 is
+a parser you have to write anyway, because `JSON.parse` cannot express any of it and no standard
+library ships a parser that catches all four (Python's `object_pairs_hook` gets the duplicate, and
+nothing gets the surrogate).
 
 The duplicate-member case in particular is a known attack class, not a hypothetical: parser
-differentials between two services reading one document have produced real authorization bypasses.
+differentials between two services reading one document have been shown to produce authorization
+bypasses (Bishop Fox, 2021).
 Open Feed's exposure is narrower than a typical API's — there is one document format and one
 verifier — but the consequence is sharper, because the document is signed. A body that says two
 different things to two readers is a signature over an ambiguity, and the author can point at
@@ -73,6 +76,6 @@ whichever reading suits them afterwards.
 The cost is about 100 lines of parser, once. `src/file.js` holds it, and it is the only place in the
 reference implementation that knows what JSON looks like. That cost is also the sharpest tension in
 `GOALS.md`: priority 1 says no dependencies, priority 2 says a second implementer finishes in a
-weekend (scenario 6), and this parser is where the two meet — about a quarter of the weekend reader
-is this and nothing else. The alternative was a canonicalizer *plus* a strict parser, which is why
-the tension resolves in favour of the parser alone.
+weekend (scenario 6), and this parser is where the two meet — about a sixth of the weekend reader
+is this parser. The alternative was a canonicalizer *plus* a strict parser, which is why the tension
+resolves in favour of the parser alone.

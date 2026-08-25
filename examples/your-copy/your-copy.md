@@ -107,8 +107,10 @@ time, and the bytes are self-proving.
 **Bluesky and the AT Protocol are the closest relative, and get the important half right.** An
 account's repository is a signed commit over a Merkle search tree, so its contents are verifiable
 independently of the server that stores them, `com.atproto.sync.getRepo` hands the whole thing back
-as a CAR file, and account migration between PDSes is a supported, working operation rather than a
-promise. That is genuinely the same insight: sign the data, not the connection. Two differences are
+as a CAR file, and account migration between PDSes is a documented, working operation rather than a
+promise (its guide says the mechanisms are not a formal part of the protocol, and the easy path
+assumes both PDSes cooperate). That is genuinely the same insight: sign the data, not the
+connection. Two differences are
 worth naming rather than glossing. First, the CAR file is a *second* format — the repository is
 DAG-CBOR in a CAR container, the API you read is JSON, so there is still an archive format distinct
 from the wire format, and there is still a request (`getRepo`) that a host can be slow about or

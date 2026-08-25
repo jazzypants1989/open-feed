@@ -94,11 +94,6 @@ one making requests, so it has to carry its own budget. Neither of those designs
 this — they place the cost somewhere there is an operator to watch it, and this design has no such
 operator by construction.
 
-This finding did not come from reading the design. It came from writing a **second** reader from the
-text alone (`GOALS.md` scenario 6, staged in `examples/weekend-reader/`), where the rumor rule was
-first implemented the obvious way — per reply — and the griefing count was measured afterwards. It
-was invisible until the code existed, which is the argument for the capstone existing at all.
-
 The scenarios this serves are `GOALS.md` **scenario 5, the big lazy hub**: ten thousand people on
 one commercial hub whose operator is hostile at scale, where *per-identity cost stays flat* is a
 floor requirement — and the rumor rule's per-identity-per-pass bound is exactly that requirement

@@ -31,19 +31,16 @@ leaf he identifies all three at once. A family is a small guessable space; the s
 reason a leaf does not fall to a scan of it.
 
 **The count of leaves is public, and MUST be.** Three leaves are three leaves to anyone who fetches
-the profile. That is not a leak the design tolerates, it is a requirement: a contest between two
-profiles claiming one identity is settled by a **majority** of the recovery list at the split
-(§3.6), and a majority needs a denominator every reader can see. Hide the count and a forger with
-one voucher can call it a majority of a list only he can count. `examples/contest/` is where that
-rule is worked out; this example only shows the number it needs.
+the profile. That is not a leak the design tolerates, it is a requirement: §3.6 counts a majority
+against the list, and a majority needs a denominator every reader can see. `examples/contest/` is
+where that rule is worked out; this example only shows the number it needs.
 
 **`k` is the threshold the author set for a restore to be valid.** With `k` of 2 over three
 members, sis alone leaves the link invalid at one counted voucher; mum joining makes it two and the
 link stands; and mum's key submitted under sis's salt counts zero, because a leaf binds the salt and
 the key together and either half alone hashes to nothing. Then the whole profile is read and comes
-back **ok**, ending on the key Alice made. `k` is not the test that settles a *contested* identity —
-that one is a majority (§3.6), and the two differ exactly where it matters, on the adversary who is
-himself on the list.
+back **ok**, ending on the key Alice made. What `k` is *not* — the test that settles a contested
+identity — is `examples/contest/`, and so is what a `k` below a majority costs (`FINDINGS.md` §1.1).
 
 **The list MAY be empty.** An empty list is a real choice with an exact price: no leaf can ever
 match, so no voucher can ever count, so no restore is possible and a lost key is a lost identity.
@@ -54,11 +51,10 @@ host. A leaf does not say which, and nothing outside your own app knows.
 bro and nobody else, bro restores to a key of his own, one of one counted against a `k` of one, and
 the chain walks to his key. Then the half that makes it worse. Alice replaces the list with the
 three and rotates so the change reaches readers at all (§3.5), and her new link at chain length 1
-carries the new list — but a reader that already saw the list of one there keeps it, because a
-recovery list is never overwritten once a reader has seen it (§3.6 rule 2). Bro's ability to
-restore at that length does not expire with the list; it lasts as long as that reader does. That is
-why §3.4 says an app SHOULD require two or more members, or the owner alone: a majority of one is
-one.
+carries the new list — but a reader that already saw the list of one there keeps it (§3.6 rule 2,
+staged in `examples/contest/`). Bro's ability to restore at that length does not expire with the
+list; it lasts as long as that reader does. That is why §3.4 says an app SHOULD require two or more
+members, or the owner alone: a majority of one is one.
 
 **"Recently restored" is presentation, not a verdict.** The read is **ok**; `restored` is a fact
 about the chain, and reading apps SHOULD show it for seven days. The vouchers stay in the chain and
@@ -100,9 +96,7 @@ one short string per member, stored beside the member's key in the owner's own a
 **The abuser on the list.** The threat model this protocol is built against is a hub operator who is
 a loved one, and he is exactly the sort of person who ends up on a recovery list — that is scenario
 1 in `GOALS.md`, the divorce. §3.4 is not the answer to him; it commits to the list and no more. The
-answer is §3.6's majority rule, which is a majority and not `k` for this reason alone: under a
-threshold, one listed adversary vouching for himself hands himself the identity; under a majority he
-cannot do it alone, ever. Read that rule there rather than reconstructing it here.
+answer, and its open defect, is `examples/contest/`.
 
 **What a restore does not return.** The reading key is not socially recoverable (§3.8). Your people
 can give you back your name, your chain and your posts; what was encrypted to you alone is gone

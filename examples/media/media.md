@@ -104,7 +104,8 @@ the same shape as `{"hash", "key"}` in the envelope, with a different cipher und
 differences are in the surroundings rather than in the idea: Matrix's URI is a server-scoped
 identifier rather than the hash itself, and retention is the homeserver's policy. MMS is the other
 extreme — the bytes are carried inside the message through a carrier's store-and-forward server and
-expire on that carrier's schedule, with the sender having no say and no name for the file at all.
+expire on the carrier's schedule (the sender may ask for an expiry and the carrier may cap it), and
+the part has no name that outlives the message.
 
 **The scenarios.** Scenario 1, the divorce: the family photographs attached to her family-only posts
 sit on his hub as ciphertext at a hash of that ciphertext, and what he learns is that a blob of some
