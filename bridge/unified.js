@@ -70,7 +70,7 @@ export function createUnifiedBridge({ bridgeOrigin, feeds, bridgeKey, nostrKey, 
     // AP Inbox
     const inboxMatch = url.pathname.match(/^\/users\/([^/]+)\/inbox$/);
     if (inboxMatch && req.method === 'POST') {
-      const body = typeof req.body === 'string' ? req.body : await readBody(req);
+      const body = typeof req.body === 'string' ? req.body : await readBody(req.body ?? req);
       const activity = JSON.parse(body);
       const deliverFn = async (url, body, headers) => fetch(url, { method: 'POST', headers: { ...headers, 'content-type': 'application/activity+json' }, body });
       const result = await apInbox.handle(inboxMatch[1], activity, { deliver: deliverFn });

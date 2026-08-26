@@ -1,0 +1,42 @@
+# The bridge behind the Traefik that already fronts this host.
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Traefik runs with exposedByDefault:false, so `traefik.enable=true` is what attaches the router.
+# The certificate is issued by the `letsencrypt` resolver over the HTTP-01 challenge, which means
+# the A record must resolve to this host BEFORE the container starts.
+services:
+  openfeed-bridge:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: openfeed-bridge
+    restart: unless-stopped
+    environment:
+      - BRIDGE_ORIGIN=https://bridge.jovialpenguin.com
+      - BRIDGE_DATA=/app/data
+      - BRIDGE_PORT=4568
+    volumes:
+      - bridge-data:/app/data
+    networks:
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      # HTTPS router
+      - "traefik.http.routers.bridge.rule=Host(`bridge.jovialpenguin.com`)"
+      - "traefik.http.routers.bridge.entrypoints=https"
+      - "traefik.http.routers.bridge.tls.certresolver=letsencrypt"
+      # HTTP -> HTTPS redirect
+      - "traefik.http.routers.bridge-http.rule=Host(`bridge.jovialpenguin.com`)"
+      - "traefik.http.routers.bridge-http.entrypoints=http"
+      - "traefik.http.routers.bridge-http.middlewares=bridge-https-redirect"
+      - "traefik.http.middlewares.bridge-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.bridge-https-redirect.redirectscheme.permanent=true"
+      # Service
+      - "traefik.http.services.bridge.loadbalancer.server.port=4568"
+
+volumes:
+  bridge-data:
+
+networks:
+  traefik-public:
+    external: true

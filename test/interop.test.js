@@ -7,6 +7,7 @@ import { sendForPost } from '../bridge/webmention.js';
 import { createHub } from '../src/hub.js';
 import { encrypt, postBinding, newReadingKey } from '../src/openfeed.js';
 import { memIo, readerOver, person, list, claim } from './helpers/site.js';
+import http from 'node:http';
 
 const AT = 'https://hub.example/alice';
 
@@ -200,5 +201,70 @@ test('interop: unknown name returns 404 across all endpoints', async () => {
   for (const url of endpoints) {
     const res = await bridge.handle({ url, method: 'GET', headers: { accept: 'text/html, application/activity+json' } });
     assert.equal(res.status, 404, `${url} should be 404`);
+  }
+});
+
+// ---- The HTTP path into the inbox ----
+// Every other inbox test calls `apInbox.handle()` with an already-parsed activity. This one drives a
+// real socket, which is the only way the body-reading code in `handle()` runs at all — and the only
+// way a Follow from a real instance arrives.
+
+/** A stand-in for the remote instance: serves its Actor so `resolveInbox` finds an inbox, records what lands there. */
+function remoteInstance() {
+  const delivered = [];
+  const server = http.createServer((req, res) => {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    if (req.method === 'GET' && req.url === '/users/bob') {
+      res.writeHead(200, { 'content-type': 'application/activity+json' });
+      return res.end(JSON.stringify({ id: `${base}/users/bob`, type: 'Person', inbox: `${base}/users/bob/inbox` }));
+    }
+    if (req.method === 'POST' && req.url === '/users/bob/inbox') {
+      const chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => { delivered.push({ headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString()) }); res.writeHead(202); res.end(); });
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
+    delivered, actorId: `http://127.0.0.1:${server.address().port}/users/bob`,
+    close: () => new Promise((r) => server.close(r)),
+  })));
+}
+
+test('interop: a Follow POSTed over HTTP is accepted and answered', async () => {
+  const { bridge } = await fullSetup();
+  const remote = await remoteInstance();
+  const srv = await bridge.listen(0);
+  // try/finally, or a failure here leaks two listening sockets and hangs the whole suite
+  // instead of reporting itself.
+  try {
+    const res = await fetch(`${srv.url}/users/alice/inbox`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/activity+json' },
+      body: JSON.stringify({
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: `${remote.actorId}/follows/1`,
+        type: 'Follow',
+        actor: remote.actorId,
+        object: 'https://bridge.example/users/alice',
+      }),
+    });
+
+    assert.equal(res.status, 202, 'the inbox must read the request body off the socket');
+    assert.equal(bridge.apInbox.followersFor('alice').size, 1);
+
+    // The Accept goes back to the follower's inbox, signed with the bridge key.
+    assert.equal(remote.delivered.length, 1);
+    assert.equal(remote.delivered[0].body.type, 'Accept');
+    assert.equal(remote.delivered[0].body.object.type, 'Follow');
+    assert.match(remote.delivered[0].headers.signature, /keyId="https:\/\/bridge\.example\/users\/alice#main-key"/);
+    assert.ok(remote.delivered[0].headers.digest, 'the delivery carries a body digest');
+
+    const followers = await bridge.handle({ url: '/users/alice/followers', method: 'GET', headers: {} });
+    assert.equal(JSON.parse(followers.body).totalItems, 1);
+  } finally {
+    srv.close();
+    await remote.close();
   }
 });
