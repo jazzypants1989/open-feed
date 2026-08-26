@@ -77,8 +77,10 @@ socket, so a real Follow returned 500 and no Accept was ever delivered; and ever
 fresh identity and AP key, which is unusable once a remote instance has cached the Actor.
 `bridge/state.js` persists the keys, the hub's files, and the follower list.
 
-**Still untried:** the full DID:PLC path against `plc.directory` (only app-password auth is proven),
-and the generated JSON Feed and Atom in NetNewsWire or Miniflux.
+**Feed readers.** Both generated views subscribe and render in NetNewsWire — `feed.json` as JSON
+Feed and `feed.xml` as Atom.
+
+**Still untried:** the full DID:PLC path against `plc.directory` — only app-password auth is proven.
 
 ### 2. The document layer: README, TLDR, and the spec Summary
 
