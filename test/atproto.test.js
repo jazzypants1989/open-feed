@@ -146,6 +146,15 @@ test('DID:PLC: a real published signature verifies against our encoding', () => 
 
 // ---- DID:PLC ----
 
+test('DID:PLC: did:key encoding matches a real P-256 rotation key', () => {
+  // The SPKI of the rotation key on did:plc:5niavtvyodm4fyvvergm2a5p, whose genesis operation
+  // plc.directory serves and whose P-256 signature verifies over our encoding. Our encoder must
+  // produce that exact did:key string — the multicodec prefix and point compression are otherwise
+  // just constants nothing checks.
+  const spki = Buffer.from('3039301306072a8648ce3d020106082a8648ce3d0301070322000206b15f2c4e26c220f89adf530730d463f77d5bce4c8c978904e7a9d227507f7f', 'hex');
+  assert.equal(p256DidKey(spki), 'did:key:zDnaeQt6MtBxpfpVerGTd6YUGYKmWpmatPdPyNZyQvAxHNcKQ');
+});
+
 test('DID:PLC: P-256 key generation', () => {
   const key = newP256Key();
   assert.ok(Buffer.isBuffer(key.privateKey));
