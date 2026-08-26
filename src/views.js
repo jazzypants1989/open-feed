@@ -55,6 +55,15 @@ export function webfinger(name, location) {
   }, null, 1);
 }
 
+function authorCard(name, location, anchor) {
+  return `<a class="p-author h-card" href="${esc(`${location}/#${anchor}`)}">${esc(name)}</a>`;
+}
+
+function replyLink(p) {
+  if (!p.target?.location) return '';
+  return ` <a class="u-in-reply-to" href="${esc(`${p.target.location}/posts/${p.target.number}`)}"></a>`;
+}
+
 /** The h-card: the profile's name, and the link with the anchor key in its fragment (§3.7). */
 export function hcard(read, location) {
   const name = read.name ?? location.split('/').pop();
@@ -64,7 +73,30 @@ export function hcard(read, location) {
 <link rel="alternate" type="application/atom+xml" href="${esc(`${location}/feed.xml`)}"></head>
 <body><div class="h-card"><a class="p-name u-url" href="${esc(`${location}/#${read.anchor}`)}">${esc(name)}</a></div>
 <ul class="h-feed">
-${items(read, location).map(({ p, url }) => `<li class="h-entry"><a class="u-url" href="${esc(url)}"><time class="dt-published" datetime="${esc(p.at)}">${esc(p.at)}</time></a> <span class="e-content">${esc(p.text ?? '')}</span></li>`).join('\n')}
+${items(read, location).map(({ p, url }) => `<li class="h-entry"><a class="u-url" href="${esc(url)}"><time class="dt-published" datetime="${esc(p.at)}">${esc(p.at)}</time></a> ${authorCard(name, location, read.anchor)}<span class="e-content">${esc(p.text ?? '')}</span>${replyLink(p)}</li>`).join('\n')}
 </ul></body></html>
+`;
+}
+
+/** A per-post HTML page with full h-entry microformats for Webmention and sharing. */
+export function postPage(read, location, number) {
+  const name = read.name ?? location.split('/').pop();
+  const post = read.posts.get(number);
+  if (!post || post.encrypted !== undefined) return null;
+  const id = `urn:openfeed:${read.anchor}:${number}`;
+  const url = `${location}/posts/${number}`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>${esc(name)} — ${esc((post.text ?? '').split('\n')[0].slice(0, 60))}</title>
+<link rel="alternate" type="application/feed+json" href="${esc(`${location}/feed.json`)}">
+<link rel="alternate" type="application/atom+xml" href="${esc(`${location}/feed.xml`)}"></head>
+<body>
+<article class="h-entry">
+  <data class="u-uid" value="${esc(id)}"></data>
+  <a class="u-url" href="${esc(url)}">${esc(url)}</a>
+  <time class="dt-published" datetime="${esc(post.at)}">${esc(post.at)}</time>
+  ${authorCard(name, location, read.anchor)}${replyLink(post)}
+  <div class="e-content">${esc(post.text ?? '')}</div>
+</article>
+</body></html>
 `;
 }
