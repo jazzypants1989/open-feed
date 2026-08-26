@@ -1,14 +1,15 @@
-// Enforce TLDR.md's budgets: ≤200 words how, ≤100 words guarantees, ≤10 glossary terms.
+// Enforce the README's opening budgets: ≤200 words how, ≤100 words guarantees, ≤10 glossary terms.
+// These three sections are the whole protocol in a page; they stay short or they stop being read.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const text = fs.readFileSync(path.join(root, 'TLDR.md'), 'utf8');
+const text = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 
 function section(title) {
   const m = text.split(`## ${title}\n`)[1];
-  if (!m) { console.error(`missing section "## ${title}"`); process.exit(1); }
+  if (!m) { console.error(`README.md is missing section "## ${title}"`); process.exit(1); }
   return m.split('\n## ')[0];
 }
 

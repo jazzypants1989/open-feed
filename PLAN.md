@@ -100,31 +100,43 @@ is the only line of the path never run against a success.
 
 None of the three was reachable from in-memory tests. That is the argument for this section.
 
+### The document layer — complete
+
+`TLDR.md` is gone; its three sections are the README's opening, and `tools/tldr.js` gates them there
+(same budgets, same `npm run tldr`). The README is a full rewrite for the current protocol and runs
+to about 1,000 words: how it works, what it guarantees, a glossary, then contributing and interop.
+
+**Two rules came out of the owner's trimming, and both are now in `CLAUDE.md`.** It does not restate
+the spec: a first draft carried a file-format section and a four-kinds table — §2 in the README's
+own words, with no generator to catch it drifting, which is the very failure this pass had just
+cleaned up inside the spec. And it does not carry the threat model or the values; `GOALS.md` does.
+What is left of the developer half is contributor directions shaped around a pull request, because
+the spec is generated and a protocol proposal with no example that runs is not reviewable.
+
+The pass also caught vocabulary the earlier renames had missed inside `rule()` strings — the spec is
+prose printed by scripts, so a rename that touches only code leaves the spec wrong:
+
+| was | is | where |
+|-----|-----|-------|
+| `n`, `loc` | `number`, `location` | §5.1, §5.4, §5.5, §6.4, §7.1 |
+| `top` | `highest` | §7.1, §7.3 |
+| `epk`, `ct` | `ephemeral`, `ciphertext` | §6, §6.1, §6.2 |
+| host | hub | the Summary, §3, §6, §7.2 |
+
+§6's wire example named the member `epk` while `src/envelope.js` has always emitted `ephemeral`, and
+§6.4's audience named `loc` while the assertion three lines above it proved `location`. Both were
+rules an implementer would have followed off a cliff.
+
 ## What remains — in order
 
-### 1. The document layer: README, TLDR, and the spec Summary
+### 1. `host` → `hub` in the code and the example prose — owner's call
 
-The README is the first thing anyone sees — it is the natural home for the concise explanation of
-the protocol. TLDR.md's content moves to the README's opening sections; `tools/tldr.js` adapts
-to check those sections instead (same budgets: ≤200 words "how it works", ≤100 words "what it
-guarantees", ≤10 glossary terms). `npm run check` keeps the gate.
-
-**README.md — full rewrite.** The current README has a stale-content banner and describes the old
-protocol (identity as a URL, `openfeed.json`, manifests, JOSE, conformance levels). Rewrite layered
-for two audiences — curious people first, then developers:
-
-*Opening sections (budget-checked, absorbs TLDR):*
-- How it works (≤200 words)
-- What it guarantees (≤100 words)
-- Glossary (≤10 terms)
-
-*Developer section (no budget):*
-- Architecture: profile + index + posts, signed files, the encryption model
-- The threat model: the adversary is a loved one who controls the family hub
-- Publisher/reader/hub roles; a static file server is a conforming hub
-- WebFinger for discovery; JSON Feed and Atom for interop; the bridge
-- `npm run check`, the example contract, how to add a rule
-- Reference the spec for definitions, examples for explanations
+The spec is on `hub` throughout; `src/` and `examples/` are not. `src/cli.js` prints
+`this host is misbehaving` and its usage line says `somewhere other than the host`; `src/reader.js`'s
+header comment says the same; and the prose of roughly six example `.md` files uses "host" for the
+serving party. Mechanical, but two things make it not a blind sed: the example `.md` files quote
+`cli.js`'s output, so the two move together or both go stale, and it is somebody's writing. Small
+enough to do in one pass once the owner says go.
 
 ### 2. DISTRIBUTION-MODEL.md — phased rewrite
 
@@ -162,7 +174,7 @@ npm run vectors -- --write   # after any change to signing, document shape, or t
 npm test
 ```
 
-Final: `npm run check` (tests + vectors + whatever word-budget gate survives).
+Final: `npm run check` (tests + vectors + the README's three budgeted sections).
 
 ## Traps
 
@@ -172,8 +184,11 @@ Final: `npm run check` (tests + vectors + whatever word-budget gate survives).
 - `GOALS.md` is the owner's document. Do not edit without an instruction that names the file.
 - `DISTRIBUTION-MODEL.md` is an owner document. Agents may edit it, but must clarify changes with
   the owner first — especially product vision, business model, or privacy guarantees.
-- The `n` → `number` rename taught a lesson: a batch script that renames wire-member patterns
-  (`{n:`, `.n`) misses function parameters and callback variables that carry the same name. Verify
-  every example runs (`npm run spec`) before declaring a rename done.
+- The `n` → `number` rename taught a lesson twice over. A batch script that renames wire-member
+  patterns (`{n:`, `.n`) misses function parameters and callback variables that carry the same name;
+  verify every example runs (`npm run spec`) before declaring a rename done. It also misses the
+  `rule()` strings, and **`npm run spec` cannot catch that** — the spec is whatever the scripts
+  print, so a stale name in a rule is a green build and a wrong spec. Grep the regenerated
+  `open-feed-spec.md` for the old name as well.
 - The AP bridge uses Ed25519 with the legacy `publicKey` PEM format. Mastodon 4.7+ may require
   FEP-521a for Ed25519. Test against a real instance before committing to one format.

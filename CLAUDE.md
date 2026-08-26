@@ -28,10 +28,10 @@ standard library's primitives (Ed25519, X25519, SHA-256, ChaCha20-Poly1305, HKDF
 | `src/` | **The reference implementation**, zero dependencies, one module per spec chapter: `file.js` §2 (the strict JSON parser lives here — `JSON.parse` cannot enforce §2.4), `profile.js` §3, `index.js` §4, `envelope.js` §6, `spoken.js` + `wordlist.js` §3.1, `reader.js` §7 over an injected fetcher, `publish.js` §8-client + §10, `hub.js` §8-server as a pure handler, `addresses.js` + `fetch.js` §9, `views.js` §10, `cli.js`. `openfeed.js` is the barrel. **`fetch.js` is the only module that opens a socket — keep it that way** |
 | `test/` | `npm test`. One file per module plus `scenarios.test.js`, which stages `GOALS.md`'s scenarios end to end. `helpers/site.js` is the shared TLS origin (certificate hand-encoded in `helpers/tls.js`) |
 | `examples/` | **The teaching material**, one directory per concept in spec order. Contract and reading order in `examples/README.md`; read that before adding one. `weekend-reader/` and `weekend-publisher/` are the capstones, and the weekend reader is the **second reader** vector regeneration checks against. |
-| `tools/` | `tldr.js` holds `TLDR.md` to its budget — **≤200 words how-it-works, ≤100 words guarantees, ≤10 glossary terms** (`npm run tldr`); `spec.js` generates the spec from the examples and fails on drift (`npm run spec`; `--write`); `regen.js` regenerates `test-vectors.md` and verifies it with **both** readers (`npm run vectors`; `--write`) |
+| `tools/` | `tldr.js` holds the README's three opening sections to their budget — **≤200 words how-it-works, ≤100 words guarantees, ≤10 glossary terms** (`npm run tldr`); `spec.js` generates the spec from the examples and fails on drift (`npm run spec`; `--write`); `regen.js` regenerates `test-vectors.md` and verifies it with **both** readers (`npm run vectors`; `--write`) |
 | `bridge/` | **Interop, not spec.** One Open Feed identity translated to ActivityPub, Nostr, AT Protocol, and the IndieWeb, stdlib-only. Each protocol bridge holds its own stable key, so protocol identity survives Open Feed key rotation — the bridge IS the protocol identity, backed by the identity. `unified.js` serves all of them at once; `mastodon-test.js` is the runnable one; `state.js` makes keys, hub files, and followers survive a restart. No rule here reaches the spec |
 | `deploy/` | Dockerfile and compose for running `bridge/mastodon-test.js` at a real origin behind Traefik. `deploy/README.md` is the deploy and verify procedure. **`BRIDGE_DATA` holds the identity's private keys** — a bridge that loses them is a new identity to every instance that cached the old one |
-| `README.md` · `TLDR.md` · `GOALS.md` | Human-facing docs. README explains, the spec defines; `TLDR.md` is the budgeted summary. `GOALS.md` is the live statement of values and scenarios — the floor the spec is judged against |
+| `README.md` · `GOALS.md` | Human-facing docs. README explains, the spec defines. The README's opening three sections — how it works, what it guarantees, the glossary — are the budgeted summary of the whole protocol, gated by `npm run tldr`; everything below "For developers" is unbudgeted. `GOALS.md` is the live statement of values and scenarios — the floor the spec is judged against |
 | `archive/` | Everything the redesign superseded, verbatim, never run by CI: the old spec and its implementation, the prototype fleet, and the redesign record (rulings, rejections, reviews, outside review). `archive/README.md` is the index. Consult it before re-litigating a design choice — most near-misses are already priced there |
 | `tmp/` | Gitignored scratch. Nothing here is tracked |
 
@@ -78,7 +78,12 @@ correctness or security defects; post-1.0, additive only.
 ## Editing the README
 
 README explains; the spec defines. No RFC 2119 keywords, link spec section numbers, and point at the
-example that argues a thing rather than re-arguing it.
+example that argues a thing rather than re-arguing it. The three opening sections are budget-checked
+(`npm run tldr`) — a word added there is a word that has to come out. **Do not restate the spec
+here.** The spec is generated and fails on drift; the README is neither, so a copy of §2 in the
+README's own words is a wrong rule waiting to happen with nothing to catch it. Link instead. It
+carries neither the threat model nor the values — the section above and `GOALS.md` hold those — and
+its developer half is contributor directions, shaped around a pull request that contains code.
 
 ## Traps
 
@@ -88,7 +93,7 @@ example that argues a thing rather than re-arguing it.
   file. `DISTRIBUTION-MODEL.md` is also an owner document — agents may edit it, but must clarify
   changes with the owner first, especially product vision, business model, or privacy guarantees.
 - A checkpoint is the reader's own state, not a wire object: `profileVersion`/`profileHash`,
-  `indexVersion`/`indexHash`, `recoveryLists` per chain length, `live`, `withdrawn`, `top`. The wire
+  `indexVersion`/`indexHash`, `recoveryLists` per chain length, `live`, `withdrawn`, `highest`. The wire
   members are both just `version`.
 - The reader re-fetches a target's profile on a look-again (§7.4) — that is the rumor rule, not a
   missing cache; a cross-read cache silently stops fork detection.
