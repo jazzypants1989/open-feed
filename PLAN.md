@@ -72,15 +72,35 @@ avoid it but only on Mastodon 4.7+, so the base58btc encoder stays unused for no
 tunnel cannot stand in for a hostname you control. The bridge runs at `bridge.jovialpenguin.com`;
 `deploy/` holds the Dockerfile and the reverse-proxy configuration.
 
-**Two defects the live test exposed**, both fixed: the AP inbox never read its request body off the
-socket, so a real Follow returned 500 and no Accept was ever delivered; and every restart minted a
-fresh identity and AP key, which is unusable once a remote instance has cached the Actor.
-`bridge/state.js` persists the keys, the hub's files, and the follower list.
-
 **Feed readers.** Both generated views subscribe and render in NetNewsWire — `feed.json` as JSON
 Feed and `feed.xml` as Atom.
 
-**Still untried:** the full DID:PLC path against `plc.directory` — only app-password auth is proven.
+**DID:PLC.** Validated against `plc.directory` without registering anything. The encoder reproduces
+the digest inside the published CIDs of real genesis operations; the derivation re-derives their
+`did:plc` identifiers; three real signatures verify over our encoding of the unsigned operation,
+which also pins the signature format as unpadded base64url over raw r||s; and `p256DidKey`
+reproduces a real P-256 rotation key string exactly. Each is a fixture in `test/atproto.test.js`.
+Posting a well-formed operation with a deliberately corrupted signature draws
+`400 Invalid signature on op` with the operation echoed back fully parsed — so the schema and the
+`did:key` encoding are accepted and only the signature, the part broken on purpose, is refused.
+
+**No DID was created.** `plc.directory` is append-only: an identifier can be tombstoned but never
+removed, and nothing here runs a PDS to serve the repo one would name. The `fetch` in `publishDid`
+is the only line of the path never run against a success.
+
+**Three defects the live test exposed**, all fixed:
+
+1. `bridge/dag-cbor.js` sorted map keys by byte value; AT Protocol uses the RFC 7049 canonical rule,
+   shortest key first. The two orderings disagree completely for a PLC operation's keys, so every
+   `did:plc` this code could have minted was a different identifier than the one its own signature
+   covered. The test that should have caught it compared the keys `a` and `b` — same length.
+2. The AP inbox never read its request body off the socket, so a real Follow returned 500 and no
+   Accept was ever delivered. Nothing drove HTTP into the inbox; every test called the handler with
+   an already-parsed activity.
+3. Every restart minted a fresh identity and AP key, which is unusable once a remote instance has
+   cached the Actor. `bridge/state.js` persists the keys, the hub's files, and the follower list.
+
+None of the three was reachable from in-memory tests. That is the argument for this section.
 
 ### 2. The document layer: README, TLDR, and the spec Summary
 
