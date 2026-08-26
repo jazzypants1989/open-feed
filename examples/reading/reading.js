@@ -175,6 +175,8 @@ const G = await cost(() => reader.rumors(new Map([[A1.x, nowPin]]), bulk, 'grief
 console.log(`  a thousand replies naming numbers never issued: fetches ${G.gets} (one read is ${perRead}), lines ${G.out.length}: "${G.out[0]}"\n`);
 assert.deepEqual([G.gets, G.out], [perRead, ['griefer replied to something I cannot see']]);
 rule('7.4', `A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
-\`location\`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
-per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
-they wrote. A reader MAY try the locations it already holds before the address in the reply.`);
+\`location\`, in that order because the reply's \`location\` is an address the replier chose, and updates the checkpoint
+on an ok read. This is also the only way a reader learns of posts a hub holds and does not serve, and it reaches
+them only when someone the reader already reads has replied to one. Two bounds are REQUIRED: look again at most
+once per identity per pass, and say one line per replier — *"X replied to something I cannot see"* — however
+many replies they wrote.`);

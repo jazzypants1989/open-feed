@@ -116,8 +116,8 @@ signature verifies and `SHA-256(salt ‖ "|" ‖ key)` in base64url is one of `r
 **restore**.
 
 A link is valid when `signature` verifies, or when the distinct voucher keys that count are more than half of
-`recovery.leaves`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
-list cannot restore. Vouchers MAY be added to a link after it was made.
+`recovery.leaves`. A reader MUST reject a profile whose chain contains a link that is neither. A list of
+fewer than 2 leaves cannot restore. Vouchers MAY be added to a link after it was made.
 
 A restore changes the key and nothing else: a checkpointed reader MUST report **contested** for a profile whose
 chain has grown by any link without `signature` and whose `recovery`, `locations`, `name`, or `read` differ from
@@ -129,11 +129,11 @@ posts valid but cannot sign an index (§4.4) or hold a number against the owner 
 ### 3.3. The recovery list
 
 `{"leaves": ["<hash>", …]}`. Each leaf is `SHA-256(salt ‖ "|" ‖ member key)` in base64url with a distinct
-random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed 32 leaves. It
-MAY be empty, and an empty list means the identity cannot be restored.
+random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed 32 leaves, and a
+reader MUST reject a longer one. It MAY be empty, and a list of fewer than 2 cannot restore.
 
-A publisher SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
-owner's own keys. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
+A publisher SHOULD create and list a backup key at setup, so that one other person plus that key
+restores. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
 through a new link; changing the key means writing the profile and then the index (§4.4). A reader
 SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
 verdict (§7.2).
@@ -165,8 +165,10 @@ location in a verified post follows it.
 
 ### 3.6. The reading key
 
-`read` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to a
-`read` taken from a profile it verified. A restore does not recover it.
+`read` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to the
+`read` of the highest profile `version` it has verified, and SHOULD read the profile again before encrypting:
+a `read` the owner has replaced still verifies, and content sealed to it is readable by whoever took it and
+by nobody else. Rotating `read` protects nothing already sent. A restore does not recover it.
 
 ### 3.7. First contact
 
@@ -296,7 +298,8 @@ control as protection from a hub that is in the audience.
 
 ### 6.1. The envelope
 
-One X25519 ephemeral key pair per message. For each recipient reading key `R`:
+The ephemeral X25519 key pair MUST be fresh for each message and MUST NOT be reused: two messages
+under one ephemeral wrap their content keys under the same `kek` and `knonce`. For each recipient reading key `R`:
 
 ```
 Z                               = X25519(ephemeral private, R)
@@ -383,9 +386,11 @@ its hashes, and the hash of every number it saw withdrawn.
 ### 7.4. Targets and the rumor rule
 
 A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
-`location`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
-per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
-they wrote. A reader MAY try the locations it already holds before the address in the reply.
+`location`, in that order because the reply's `location` is an address the replier chose, and updates the checkpoint
+on an ok read. This is also the only way a reader learns of posts a hub holds and does not serve, and it reaches
+them only when someone the reader already reads has replied to one. Two bounds are REQUIRED: look again at most
+once per identity per pass, and say one line per replier — *"X replied to something I cannot see"* — however
+many replies they wrote.
 
 ## 8. Publishing
 

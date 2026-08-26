@@ -27,7 +27,7 @@ export const signProfile = (fields, key) => signFile(fields, key);
 // ---- verifying (§3.3, §3.4) ----
 // §3.4: a recovery list is its leaves, at most MAX_LEAVES of them; §3.3: a chain is at most MAX_LINKS long.
 // Both bound the signature checks a hostile profile can demand of a reader.
-export const MAX_LINKS = 64, MAX_LEAVES = 32;
+export const MAX_LINKS = 64, MAX_LEAVES = 32, MIN_RESTORABLE_LEAVES = 2;
 const isList = (c) => c && Array.isArray(c.leaves) && c.leaves.length <= MAX_LEAVES && c.leaves.every((l) => typeof l === 'string');
 /** Distinct voucher keys whose signatures verify and whose leaves are in `recovery`. */
 export function vouches(from, link, recovery) {
@@ -38,8 +38,10 @@ export function vouches(from, link, recovery) {
   }
   return ok.size;
 }
-/** §3.3 / §3.4 rule 4: more than half of the held list vouches. An empty list can never restore. */
-const majority = (from, link, recovery) => vouches(from, link, recovery) * 2 > (recovery?.leaves.length ?? Infinity);
+// §3.3 / §3.4 rule 4: more than half of the held list vouches, and the list holds at least two.
+// A list of one is one person who can take the identity alone, at any moment, with nothing asked of
+// its owner — and §3.4 rule 2 makes that permanent at the length the reader first saw it.
+const majority = (from, link, recovery) => (recovery?.leaves.length ?? 0) >= MIN_RESTORABLE_LEAVES && vouches(from, link, recovery) * 2 > recovery.leaves.length;
 
 /** Shape checks a profile must pass before anything is verified. */
 export function wellFormed(p) {

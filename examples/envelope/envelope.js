@@ -67,10 +67,20 @@ assert.equal(epk.length, 32);
 const zeroPub = Buffer.alloc(32).toString('base64url');
 assert.equal(decrypt({ ...dm, ephemeral: zeroPub }, mum.read.privateKey, c5), null);
 assert.throws(() => encrypt({ content: { text: 'x' }, audience: [{ key: mum.ed.x, read: zeroPub, location: mum.location }], binding: c5, ephemeral: eph, contentKey: key5 }));
-// The content key and the ephemeral are per message.
+// The content key and the ephemeral are per message, and the ephemeral is the one with teeth:
+// reuse it for two posts to one recipient and both slots derive the same (kek, knonce), so the two
+// wrapped content keys are a two-time pad — XOR them and the content keys fall out.
 assert.notEqual(dm.ephemeral, fam.ephemeral);
+const keyA = Buffer.alloc(32, 7), keyB = Buffer.alloc(32, 9), to = [{ key: mum.ed.x, read: mum.read.x, location: mum.location }];
+const reA = encrypt({ content: { text: 'a' }, audience: to, binding: c5, ephemeral: eph, contentKey: keyA });
+const reB = encrypt({ content: { text: 'b' }, audience: to, binding: c5, ephemeral: eph, contentKey: keyB });
+const xor = (x, y) => Buffer.from(x.map((b, i) => b ^ y[i]));
+const wrapped = (e) => Buffer.from(e.slots[0][1], 'base64url').subarray(0, 32);
+console.log(`  one ephemeral, two messages: wrapped_a XOR wrapped_b === key_a XOR key_b  ${xor(wrapped(reA), wrapped(reB)).equals(xor(keyA, keyB))}\n`);
+assert.ok(xor(wrapped(reA), wrapped(reB)).equals(xor(keyA, keyB)));
 assert.throws(() => JSON.parse('{"a":1,"a":2}', (k, v) => { if (k === 'a' && v === 2) throw new Error('dup'); return v; }));   // §2.4 applies inside too
-rule('6.1', `One X25519 ephemeral key pair per message. For each recipient reading key \`R\`:
+rule('6.1', `The ephemeral X25519 key pair MUST be fresh for each message and MUST NOT be reused: two messages
+under one ephemeral wrap their content keys under the same \`kek\` and \`knonce\`. For each recipient reading key \`R\`:
 
 \`\`\`
 Z                               = X25519(ephemeral private, R)

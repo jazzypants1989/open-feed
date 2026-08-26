@@ -76,12 +76,14 @@ function vouches(from, link, recovery) {
   const leaves = new Set(recovery?.leaves ?? []);
   return new Set((link?.vouchers ?? []).filter((v) => linkSig(from, link.key, v.key, v.signature) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`)))).map((v) => v.key)).size;
 }
-const majority = (from, link, recovery) => vouches(from, link, recovery) * 2 > (recovery?.leaves?.length ?? Infinity);
+// §3.2/§3.3: more than half of the held list, and the list holds at least two. A list of one is one
+// person who can take the identity alone, permanently, at the length a reader first saw it.
+const majority = (from, link, recovery) => (recovery?.leaves?.length ?? 0) >= 2 && vouches(from, link, recovery) * 2 > recovery.leaves.length;
 const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function walk(p, recoveryLists) {
   for (let i = 1; i < p.chain.length; i++) {
     const link = p.chain[i], from = p.chain[i - 1].key, recovery = recoveryLists[i];
-    if (!Array.isArray(link?.recovery?.leaves) || !recovery) return null;
+    if (!Array.isArray(link?.recovery?.leaves) || link.recovery.leaves.length > 32 || !recovery) return null;   // §3.3: at most 32 leaves
     if (!linkSig(from, link.key, from, link.signature) && !majority(from, link, recovery)) return null;
   }
   return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.length > 1 && p.chain.at(-1).signature === undefined };
@@ -203,6 +205,7 @@ export async function read(get, { learned, at, checkpoint = null, now = Date.now
   return {
     verdict: 'ok', note, posts, media, chain, locations: raw.locations ?? [], read: raw.read,
     checkpoint: { profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields: [raw.locations, raw.name, raw.read],
+      locations: [...new Set([...(checkpoint?.locations ?? []), ...(raw.locations ?? [])])],          // §7.3: every location ever named
       restoredAt: { ...(checkpoint?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
       indexVersion: index.obj.version, indexHash: index.address, highest: index.obj.highest,
       live: new Map([...set.live].map(([number, e]) => [number, e.hash])), withdrawn },
@@ -226,8 +229,12 @@ export async function rumors(get, seen, posts, replier) {
     // exist must not turn into a thousand fetches aimed at somebody else's hub.
     if (!refreshed.has(t.key)) {
       refreshed.add(t.key);
-      const again = await read(get, { learned: t.key, at: t.location, checkpoint: seen.get(t.key) });
-      if (again.verdict === 'ok') seen.set(t.key, again.checkpoint);
+      // §7.4: the locations already held first, the address in the reply last — that one is a place
+      // the replier chose, and following it tells them who is reading.
+      for (const where of [...new Set([...(seen.get(t.key).locations ?? []), t.location])]) {
+        const again = await read(get, { learned: t.key, at: where, checkpoint: seen.get(t.key) });
+        if (again.verdict === 'ok') { seen.set(t.key, again.checkpoint); if (again.checkpoint.highest >= t.number) break; }
+      }
     }
     // One line per person, however many replies they wrote: the rumor names who, not how often.
     const line = `${replier} replied to something I cannot see`;

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { rule } from '../../tools/rule.js';
 import { signFile, verifyFile, decodeStrict, sha256, signingKeyFromSeed } from '../../src/file.js';
-import { commit, leaf, rotation, restore, vouched, vouches, walk, wellFormed, adoptRecoveryLists, signProfile, verifyProfile, MAX_LINKS, MAX_LEAVES } from '../../src/profile.js';
+import { commit, leaf, rotation, restore, vouched, vouches, walk, wellFormed, adoptRecoveryLists, signProfile, verifyProfile, MAX_LINKS, MAX_LEAVES, MIN_RESTORABLE_LEAVES } from '../../src/profile.js';
 import { spokenCode, spokenIndices } from '../../src/spoken.js';
 import { WORDS } from '../../src/wordlist.js';
 
@@ -105,9 +105,13 @@ assert.equal(holds([...chain1, restore(A1, A3, [MUM, SIS], commit([]))], { 1: co
 assert.equal(read({ ...v3, chain: sisOnly }, A3).why, 'the chain of key changes does not hold');
 const backed = vouched(rot, A1, [MUM, SIS]);
 assert.deepEqual([backed.key, backed.signature, vouches(A1.x, backed, REC)], [rot.key, rot.signature, 2]);
+// A list of one is one person who can take the identity alone: 1 is more than half of 1.
+const alone = commit([MUM]);
+console.log(`  a list of mum alone, 1 of 1  holds ${holds([...chain1, restore(A1, A3, [MUM], alone)], { 1: alone })}\n`);
+assert.equal(holds([...chain1, restore(A1, A3, [MUM], alone)], { 1: alone }), false);
 rule('3.2', `A link is valid when \`signature\` verifies, or when the distinct voucher keys that count are more than half of
-\`recovery.leaves\`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
-list cannot restore. Vouchers MAY be added to a link after it was made.`);
+\`recovery.leaves\`. A reader MUST reject a profile whose chain contains a link that is neither. A list of
+fewer than ${MIN_RESTORABLE_LEAVES} leaves cannot restore. Vouchers MAY be added to a link after it was made.`);
 
 // A restore changes the key and nothing else.
 const pin2 = pinOf(read({ ...base, version: 2, chain: chain2 }, A2));
@@ -149,25 +153,30 @@ assert.equal(wellFormed({ ...v3, recovery: many }), false);
 assert.equal(wellFormed({ ...v3, recovery: commit(many.leaves.slice(0, MAX_LEAVES).map((_, i) => ({ key: key(`m/${i}`), salt: `s${i}` }))) }), true);
 assert.equal(read({ ...base, version: 1, chain: chain1, recovery: commit([]) }, A1).verdict, 'ok');
 rule('3.3', `\`{"leaves": ["<hash>", …]}\`. Each leaf is \`SHA-256(salt ‖ "|" ‖ member key)\` in base64url with a distinct
-random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed ${MAX_LEAVES} leaves. It
-MAY be empty, and an empty list means the identity cannot be restored.`);
+random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed ${MAX_LEAVES} leaves, and a
+reader MUST reject a longer one. It MAY be empty, and a list of fewer than ${MIN_RESTORABLE_LEAVES} cannot restore.`);
 
-// Starting alone: a backup key on paper restores. A list of one other person hands them the identity.
-const paper = { key: key('alice/backup'), salt: 'saltpaper' }, solo = commit([paper]), fresh = key('alice/new-phone');
-assert.equal(walk({ chain: [...chain1, restore(A1, fresh, [paper], solo)] }, { 1: solo }).current, fresh.x);
+// Setting up: the app makes a backup key of her own and lists it beside one person she trusts. The
+// backup key alone is a list of one, and a list of one is that member's identity to take whenever
+// they like — so it does not restore, and neither does bro alone.
+const paper = { key: key('alice/backup'), salt: 'saltpaper' }, fresh = key('alice/new-phone');
 const one = commit([BRO]);
-assert.equal(walk({ chain: [...chain1, restore(A1, BRO.key, [BRO], one)] }, { 1: one }).current, BRO.key.x);
+assert.equal(walk({ chain: [...chain1, restore(A1, fresh, [paper], commit([paper]))] }, { 1: commit([paper]) }), null);
+assert.equal(walk({ chain: [...chain1, restore(A1, BRO.key, [BRO], one)] }, { 1: one }), null);
+// Bro plus the backup key is two, and two of two carries her to a new phone.
+const pair = commit([BRO, paper]);
+assert.equal(walk({ chain: [...chain1, restore(A1, fresh, [BRO, paper], pair)] }, { 1: pair }).current, fresh.x);
 // A changed list reaches a checkpointed reader only through a link: the held list at length 1 stays.
 const held = adoptRecoveryLists({}, { chain: chain1, recovery: one }, 0);
 adoptRecoveryLists(held, { chain: [...chain1, rotation(A1, A2, REC)], recovery: REC }, 1);
 assert.deepEqual([held[1], held[2]], [one, REC]);
 // Restored is a note, not a verdict; the profile goes before the index (§4.4).
 assert.deepEqual([ok.verdict, ok.chain.restored], ['ok', true]);
-console.log(`  a backup key on paper   ${spokenCode(paper.key.x).join(' ')}   1 of 1 vouches — she is back`);
-console.log(`  a list of bro alone     bro restores to his own key: 1 of 1`);
+console.log(`  a list of bro alone       bro restores to his own key: 1 of 1 — refused`);
+console.log(`  bro and the backup key    ${spokenCode(paper.key.x).join(' ')}   2 of 2 — she is back`);
 console.log(`  after she lists three and rotates, a reader that saw the list of one keeps it at length 1\n`);
-rule('3.3', `A publisher SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
-owner's own keys. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
+rule('3.3', `A publisher SHOULD create and list a backup key at setup, so that one other person plus that key
+restores. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
 through a new link; changing the key means writing the profile and then the index (§4.4). A reader
 SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
 verdict (§7.2).`);
@@ -179,8 +188,10 @@ console.log(`  read   ${ok.raw.read}   32-byte X25519 public key, from a profile
 assert.equal(decodeStrict(ok.raw.read, 32).length, 32);
 assert.equal(unread.raw.read, undefined);
 assert.equal(verifyProfile(hostile, { learned: A1.x }).raw, undefined);                     // nothing to encrypt to from a failed read
-rule('3.6', `\`read\` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to a
-\`read\` taken from a profile it verified. A restore does not recover it.`);
+rule('3.6', `\`read\` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to the
+\`read\` of the highest profile \`version\` it has verified, and SHOULD read the profile again before encrypting:
+a \`read\` the owner has replaced still verifies, and content sealed to it is readable by whoever took it and
+by nobody else. Rotating \`read\` protects nothing already sent. A restore does not recover it.`);
 
 // ---- §3.7 first contact ----
 const link = `${LOC}#${A1.x}`, url = new URL(link);

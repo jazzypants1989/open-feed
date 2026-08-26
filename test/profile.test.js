@@ -60,8 +60,11 @@ test('§3.4 rule 2–3: recoveryLists are held at every length from the first re
   assert.equal(verify(prof(4, [honest[0], restore(G, T, [ex], HIS)], T, { recovery: HIS }), checkpoint).why, 'the chain of key changes does not hold');
   // The same at the current length — an extension, not a divergence — is judged by the held recovery too.
   assert.equal(verify(prof(4, [...honest, restore(K3, T, [ex], HIS)], T, { recovery: HIS }), checkpoint).why, 'the chain of key changes does not hold');
-  // A cold reader has only the carried copy, and follows it: the stated limit.
-  assert.equal(verify(forged).verdict, 'ok');
+  // A cold reader has only the carried copy, and follows it: the stated limit. It is now narrower —
+  // a forger's carried list must hold at least two leaves, so a recovery of one is no longer a door.
+  assert.equal(verify(forged).verdict, 'contested', 'a carried list of one restores for nobody, cold or not');
+  const two = commit([ex, { key: T, salt: 's-t' }]);
+  assert.equal(verify(prof(4, [honest[0], honest[1], restore(K2, T, [ex, { key: T, salt: 's-t' }], two)], T, { recovery: two })).verdict, 'ok');
 });
 
 test('§3.4 rule 4: a majority at the divergence point wins; a signature is not a vote; Alice repairs a rotation with vouchers', () => {
@@ -81,12 +84,21 @@ test('§3.4 rule 4: a majority at the divergence point wins; a signature is not 
   assert.match(verify(prof(4, [...honest, restore(K3, T, [ex], REC)], T), checkpoint).why, /does not hold/, 'a listed member alone cannot extend the chain to his own key');
 });
 
-test('§3.4: a one-member list is a recovery of one', () => {
+test('§3.2: a list of one cannot restore, and two of two can', () => {
+  // A list of one is one person who can take the identity alone — 1 is more than half of 1 — at any
+  // moment, with nothing asked of its owner, and §3.4 rule 2 makes that permanent at the length a
+  // reader first saw it. So a list of fewer than two leaves does not restore at all.
   const ONE = commit([ex]);
   const chain = [{ key: G.x }, rotation(G, K2, ONE)];
   const checkpoint = cpOf(signProfile({ anchor: G.x, version: 2, chain, recovery: ONE, locations: [] }, K2));
   const takeover = signProfile({ anchor: G.x, version: 3, chain: [chain[0], restore(G, T, [ex], ONE)], recovery: ONE, locations: [] }, T);
-  assert.equal(verify(takeover, checkpoint).verdict, 'ok', 'the one listed member takes the identity at that length');
+  assert.match(verify(takeover, checkpoint).why, /does not hold/, 'the one listed member cannot take the identity');
+  assert.equal(verify(takeover).verdict, 'contested', 'and a cold reader refuses it too');
+  // Two of two carries: the owner's own backup key beside the one person she called.
+  const TWO = commit([ex, mum]);
+  const cp2 = cpOf(signProfile({ anchor: G.x, version: 2, chain: [{ key: G.x }, rotation(G, K2, TWO)], recovery: TWO, locations: [] }, K2));
+  const back = signProfile({ anchor: G.x, version: 3, chain: [{ key: G.x }, restore(G, T, [ex, mum], TWO)], recovery: TWO, locations: [] }, T);
+  assert.equal(verify(back, cp2).verdict, 'ok');
 });
 
 test('§3.3 a restore changes the key and nothing else — checked by a checkpointed reader', () => {

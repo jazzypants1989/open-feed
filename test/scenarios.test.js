@@ -73,15 +73,22 @@ test('the divorce: he cannot post as her, read what is encrypted past him, alter
 
 test('Grandma onboards: an app, a name, no key ever shown; back by calling her daughter', async () => {
   const hub = createHub(), io = memIo(hub);
-  const grandma = person('grandma'), daughter = person('daughter');
-  const REC = list(daughter), AT = 'https://family.example/grandma';
+  const grandma = person('grandma'), daughter = person('daughter'), backup = person('backup');
+  // Two members, because one is one person who can take her identity whenever he likes (§3.2). The
+  // second is a key her own app made at setup and never showed her: she is still never told to keep
+  // a file outside the house, and she is still back by calling her daughter.
+  const REC = list(daughter, backup), AT = 'https://family.example/grandma';
   const pub = await claim(io, grandma, AT, { recovery: REC });
   await pub.publish(1, { at: '2026-08-01T00:00:00Z', text: 'hello from the garden' });
   const reader = readerOver(io);
   const checkpoint = (await reader.read({ learned: grandma.key.x, at: AT })).checkpoint;
-  // The phone is gone. One call: the daughter vouches, and a majority of a list of one is one.
+  // The phone is gone. One call: the daughter vouches, the new phone's app vouches with the backup
+  // key it has held all along, and two of two carries her over.
   const newPhone = person('new');
-  hub.store.set('grandma/profile', signProfile({ anchor: grandma.key.x, version: 2, name: 'grandma', chain: [{ key: grandma.key.x }, restore(grandma.key, newPhone.key, members(daughter), REC)], recovery: REC, locations: [AT] }, newPhone.key));
+  const alone = signProfile({ anchor: grandma.key.x, version: 2, name: 'grandma', chain: [{ key: grandma.key.x }, restore(grandma.key, newPhone.key, members(daughter), REC)], recovery: REC, locations: [AT] }, newPhone.key);
+  assert.equal((await reader.read({ learned: grandma.key.x, at: AT, checkpoint })).verdict, 'ok', 'the hub still serves her own profile');
+  assert.notEqual(createHub().handle({ method: 'PUT', path: '/grandma/profile', body: alone }).status, 200, 'the daughter alone is 1 of 2 and gets nowhere');
+  hub.store.set('grandma/profile', signProfile({ anchor: grandma.key.x, version: 2, name: 'grandma', chain: [{ key: grandma.key.x }, restore(grandma.key, newPhone.key, members(daughter, backup), REC)], recovery: REC, locations: [AT] }, newPhone.key));
   await createPublisher({ io, key: newPhone.key, at: AT }).resignIndex();
   const back = await reader.read({ learned: grandma.key.x, at: AT, checkpoint });
   assert.equal(back.verdict, 'ok');
