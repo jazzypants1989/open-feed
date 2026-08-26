@@ -332,3 +332,51 @@ whose unwrap fails is a collision, and the reader MUST keep scanning.
 
 Inside the envelope, `rel` and `target` are as in §5, and each `media` entry is
 `{"hash": <listed hash>, "key": <base64url>}` (§4.3).
+
+## 7. Reading
+
+A reader is given the anchor key it learned (§3), a location, and optionally the pin it kept from last time.
+The steps are in order; each supplies what the next checks.
+
+### 7.1. The steps
+
+1. Fetch `<location>/profile`. Not served: **host**. Does not parse under §2.4: **identity**.
+2. `anchor` is not the key learned: **identity**.
+3. Adopt a recovery list for every chain length beyond those the pinned chain reaches, from the links'
+   `recovery` and the profile's, keeping any list already held.
+4. Walk the chain (§3.2), judging each link by the list held at its length. A link that fails, or a link
+   without `sig` beside a change it may not make: **identity**.
+5. Verify the signature under the key the chain ends on. Failure: **identity**.
+6. Against a pin, apply §3.4.
+7. Fetch `<location>/index`, verify it under the current key (§4.4), fold it (§4.1). An index that does
+   not verify: a reader holding one it verified before keeps that one and notes `no index I can verify`;
+   a reader holding none: **host**.
+8. Against a pin: `version` and `top` MUST NOT go backwards; the same `version` at a different address is
+   **host**; every live number at or below the pinned `top` MUST have been live or withdrawn before at
+   the identical hash, else **host**; numbers the pin held that are no longer live are noted
+   `withdrawn: n` and their hashes kept. Media files are exempt.
+9. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
+   under a key in the chain, its address MUST equal the listed hash, and its `n` MUST equal the number it
+   was served at. A failure, or a listed file not served: **host**.
+10. For each post naming a target whose author the reader holds a pin for: if `target.hash` is not what
+    that author's index lists for `target.n`, now or when it was withdrawn, mark the target unresolved
+    (§5.4); otherwise, if `target.n` is above that author's `top`, look again (§7.4).
+
+### 7.2. Verdicts
+
+A read returns exactly one of **ok**, **host** (this host is misbehaving), or **identity** (this identity is
+in question), and a reader MUST NOT invent a fourth. `recently restored`, `withdrawn: n`, and `no index I
+can verify` are notes on an ok read.
+
+### 7.3. The pin
+
+What a reader keeps from an ok read: the profile's `version` and address, the chain, the recovery list at
+each chain length, every location ever named, the index's `version` and address, `top`, the live set with
+its hashes, and the hash of every number it saw withdrawn.
+
+### 7.4. Targets and the rumor rule
+
+A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
+`loc`, and updates the pin on an ok read. Two bounds are REQUIRED: look again at most once per identity
+per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
+they wrote. A reader MAY try the locations it already holds before the address in the reply.

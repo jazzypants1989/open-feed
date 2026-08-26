@@ -27,7 +27,7 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 - [x] §4 The index ← `the-index` (absorbed `media` and `rewrite`)
 - [x] §5 Posts ← `posts` (was `posts-and-targets`)
 - [x] §6 Encrypted content ← `envelope`
-- [ ] §7 Reading ← `the-reader`, `top-and-rumors`, `moving`, `fetching`
+- [x] §7 Reading ← `reading` (was `the-reader` + `top-and-rumors`)
 - [ ] §8 Publishing ← `publish-interface`, `weekend-publisher`, `your-copy`
 - [ ] §9 Fetching ← `fetching`
 - [ ] §10 Views ← `views`
