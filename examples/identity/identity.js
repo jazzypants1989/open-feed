@@ -37,7 +37,7 @@ assert.equal(verifyProfile(hostile, { learned: impostor.x }).verdict, 'ok');
 assert.deepEqual([verifyProfile(hostile, { learned: A1.x }).verdict, verifyProfile(hostile, { learned: A1.x }).why], ['contested', 'not the identity this reader learned']);
 assert.equal(decodeStrict(A1.x, 32).length, 32);
 rule('3', `Your identity is your anchor key: a 32-byte Ed25519 public key. A reader MUST obtain it by a route the
-host does not control (§3.7) and MUST refuse a profile whose \`anchor\` differs from it.`);
+hub does not control (§3.7) and MUST refuse a profile whose \`anchor\` differs from it.`);
 
 // ---- §3.1 the profile ----
 console.log('§3.1 — the profile\n');

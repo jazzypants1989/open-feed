@@ -48,11 +48,11 @@ const PREAMBLE = `# Open Feed Protocol Specification
 Open Feed is a protocol for publishing from your own domain with an identity you control. Your
 identity is a cryptographic key — not a URL, not an account — so it travels with you if you move.
 Everything you publish is a signed file at a stable URL, and readers can verify it without trusting
-your host. The entire protocol is built from primitives found in most languages' standard libraries.
+your hub. The entire protocol is built from primitives found in most languages' standard libraries.
 
-Your host is just storage — a static file server is a fully conforming host. People on different
-hosts reply, react, and share encrypted content with each other as easily as people on the same one.
-The protocol is designed for the case where your host operator can look at everything, refuse to
+Your hub is just storage — a static file server is a fully conforming hub. People on different
+hubs reply, react, and share encrypted content with each other as easily as people on the same one.
+The protocol is designed for the case where your hub operator can look at everything, refuse to
 cooperate, and may not be on your side — the adversary is a loved one who controls the family hub —
 and content for chosen people is encrypted to their keys.
 

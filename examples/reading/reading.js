@@ -119,25 +119,25 @@ rule('7.1', `1. Fetch \`<location>/profile\`. Not served: **tampered**. Does not
 7. Fetch \`<location>/index\`, verify it under the current key (§4.4), replay it (§4.1). An index that does
    not verify: a reader holding one it verified before keeps that one and notes \`no index I can verify\`;
    a reader holding none: **tampered**.
-8. Against a checkpoint: \`version\` and \`top\` MUST NOT go backwards, else **tampered**.
+8. Against a checkpoint: \`version\` and \`highest\` MUST NOT go backwards, else **tampered**.
 9. Against a checkpoint: the same \`version\` at a different address is **tampered**.
-10. Against a checkpoint: every live number at or below the checkpointed \`top\` MUST have been live or
+10. Against a checkpoint: every live number at or below the checkpointed \`highest\` MUST have been live or
     withdrawn before at the identical hash, else **tampered**. Media files are exempt.
 11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted \`withdrawn: n\`
     and their hashes kept.
 12. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
-    under a key in the chain, its address MUST equal the listed hash, and its \`n\` MUST equal the number it
+    under a key in the chain, its address MUST equal the listed hash, and its \`number\` MUST equal the number it
     was served at. A failure, or a listed file not served: **tampered**.
 13. For each post naming a target whose author the reader holds a checkpoint for: if \`target.hash\` is not what
     that author's index lists for \`target.number\`, now or when it was withdrawn, mark the target unresolved
-    (§5.4); otherwise, if \`target.number\` is above that author's \`top\`, look again (§7.4).`);
+    (§5.4); otherwise, if \`target.number\` is above that author's \`highest\`, look again (§7.4).`);
 
 // ---- §7.2 verdicts ----
 const verdicts = new Set([...battery.map(([, r]) => r.verdict), cold.verdict, none.verdict, garbled.verdict]);
 console.log(`§7.2 — distinct verdicts across everything above: ${[...verdicts].sort().join(', ')}\n`);
 assert.deepEqual([...verdicts].sort(), ['contested', 'ok', 'tampered']);
 for (const r of [afterWithdraw, midRotation, afterRestore]) assert.equal(r.verdict, 'ok');
-rule('7.2', `A read returns exactly one of **ok**, **tampered** (this host is misbehaving), or **contested** (this identity
+rule('7.2', `A read returns exactly one of **ok**, **tampered** (this hub is misbehaving), or **contested** (this identity
 is contested), and a reader MUST NOT invent a fourth. \`recently restored\`, \`withdrawn: n\`, and \`no index I
 can verify\` are notes on an ok read.`);
 
@@ -146,7 +146,7 @@ console.log(`§7.3 — the checkpoint: ${Object.keys(good).join(', ')}\n`);
 assert.deepEqual(Object.keys(good).sort(), ['chain', 'fields', 'indexHash', 'indexVersion', 'live', 'locations', 'profileHash', 'profileVersion', 'recoveryLists', 'restoredAt', 'highest', 'withdrawn'].sort());
 assert.deepEqual([good.profileVersion, good.chain.length, Object.keys(good.recoveryLists), good.locations, good.highest, [...good.live.keys()].length, [...good.withdrawn.keys()]], [3, 3, ['1', '2', '3'], [AT], 4, 4, [2]]);
 rule('7.3', `What a reader keeps from an ok read: the profile's \`version\` and address, the chain, the recovery list at
-each chain length, every location ever named, the index's \`version\` and address, \`top\`, the live set with
+each chain length, every location ever named, the index's \`version\` and address, \`highest\`, the live set with
 its hashes, and the hash of every number it saw withdrawn.`);
 
 // ---- §7.4 targets and the rumor rule ----
@@ -175,6 +175,6 @@ const G = await cost(() => reader.rumors(new Map([[A1.x, nowPin]]), bulk, 'grief
 console.log(`  a thousand replies naming numbers never issued: fetches ${G.gets} (one read is ${perRead}), lines ${G.out.length}: "${G.out[0]}"\n`);
 assert.deepEqual([G.gets, G.out], [perRead, ['griefer replied to something I cannot see']]);
 rule('7.4', `A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
-\`loc\`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
+\`location\`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
 per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
 they wrote. A reader MAY try the locations it already holds before the address in the reply.`);

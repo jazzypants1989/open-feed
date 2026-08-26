@@ -69,7 +69,7 @@ console.log(`§5.1 — genuine post 2 served at /posts/6: ${swapped.verdict}: ${
 assert.notEqual(address(p[2]), address(post(6, { at: obj(p[2]).at, text: obj(p[2]).text }, A1)));
 assert.deepEqual([swapped.verdict, swapped.why], ['tampered', 'post 6 is not what the index lists']);
 rule('5.1', `A post MUST declare the number it is published at inside its signed bytes. A file served at \`/posts/<number>\`
-whose \`n\` is another number is not that post (§7.1).`);
+whose \`number\` is another number is not that post (§7.1).`);
 
 // ---- §5.2 at ----
 console.log(`§5.2 — post 5 has no at, post 6 a malformed one: ${first.verdict}, both present: ${first.posts.has(5) && first.posts.has(6)}\n`);
@@ -110,15 +110,16 @@ rule('5.4', `\`\`\`json
 \`\`\`
 
 All four members are REQUIRED on a post whose \`rel\` names another post: \`key\` is the target author's
-anchor key, \`n\` the number, \`hash\` the full 43-character address of the target post, \`loc\` where the
-replier last knew that author to be served (§3.5). A reader MUST treat a reply whose \`hash\` is not what
-the target's index lists for \`n\` — now, or when it was withdrawn — as a reply to something else.`);
+anchor key, \`number\` the target's number, \`hash\` the full 43-character address of the target post,
+and \`location\` where the replier last knew that author to be served (§3.5). A reader MUST treat a
+reply whose \`hash\` is not what the target's index lists for \`number\` — now, or when it was
+withdrawn — as a reply to something else.`);
 
 // ---- §5.5 media ----
 console.log(`§5.5 — post 3 lists ${JSON.stringify(obj(p[3]).media).replace(/"[\w-]{43}"/, '"…"')}; encrypted post 4's public members are ${Object.keys(obj(p[4])).join(', ')}\n`);
 assert.deepEqual([obj(p[3]).media, sha256(edited.media.get(pngHash)), Object.keys(obj(p[4]))], [[pngHash], pngHash, ['number', 'at', 'encrypted']]);
 rule('5.5', `An array of media addresses (§4.3). On an encrypted post, \`rel\`, \`target\` and \`media\` are inside the
-envelope (§6.5); the public file carries only \`n\`, \`at\`, and \`encrypted\`.`);
+envelope (§6.5); the public file carries only \`number\`, \`at\`, and \`encrypted\`.`);
 
 // ---- §5.6 private messages ----
 console.log(`§5.6 — post 4 is a message to mum on alice's host; PUT /mom/inbox → ${hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status}\n`);

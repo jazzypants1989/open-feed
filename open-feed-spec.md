@@ -7,11 +7,11 @@
 Open Feed is a protocol for publishing from your own domain with an identity you control. Your
 identity is a cryptographic key — not a URL, not an account — so it travels with you if you move.
 Everything you publish is a signed file at a stable URL, and readers can verify it without trusting
-your host. The entire protocol is built from primitives found in most languages' standard libraries.
+your hub. The entire protocol is built from primitives found in most languages' standard libraries.
 
-Your host is just storage — a static file server is a fully conforming host. People on different
-hosts reply, react, and share encrypted content with each other as easily as people on the same one.
-The protocol is designed for the case where your host operator can look at everything, refuse to
+Your hub is just storage — a static file server is a fully conforming hub. People on different
+hubs reply, react, and share encrypted content with each other as easily as people on the same one.
+The protocol is designed for the case where your hub operator can look at everything, refuse to
 cooperate, and may not be on your side — the adversary is a loved one who controls the family hub —
 and content for chosen people is encrypted to their keys.
 
@@ -81,7 +81,7 @@ with `_`.
 ## 3. Identity
 
 Your identity is your anchor key: a 32-byte Ed25519 public key. A reader MUST obtain it by a route the
-host does not control (§3.7) and MUST refuse a profile whose `anchor` differs from it.
+hub does not control (§3.7) and MUST refuse a profile whose `anchor` differs from it.
 
 ### 3.1. The profile
 
@@ -245,7 +245,7 @@ A post is immutable, created once (§8.2), and signed by any key in its author's
 ### 5.1. `number`
 
 A post MUST declare the number it is published at inside its signed bytes. A file served at `/posts/<number>`
-whose `n` is another number is not that post (§7.1).
+whose `number` is another number is not that post (§7.1).
 
 ### 5.2. `at`
 
@@ -266,14 +266,15 @@ holding the superseding post SHOULD show replies that target the superseded `(nu
 ```
 
 All four members are REQUIRED on a post whose `rel` names another post: `key` is the target author's
-anchor key, `n` the number, `hash` the full 43-character address of the target post, `loc` where the
-replier last knew that author to be served (§3.5). A reader MUST treat a reply whose `hash` is not what
-the target's index lists for `n` — now, or when it was withdrawn — as a reply to something else.
+anchor key, `number` the target's number, `hash` the full 43-character address of the target post,
+and `location` where the replier last knew that author to be served (§3.5). A reader MUST treat a
+reply whose `hash` is not what the target's index lists for `number` — now, or when it was
+withdrawn — as a reply to something else.
 
 ### 5.5. `media`
 
 An array of media addresses (§4.3). On an encrypted post, `rel`, `target` and `media` are inside the
-envelope (§6.5); the public file carries only `n`, `at`, and `encrypted`.
+envelope (§6.5); the public file carries only `number`, `at`, and `encrypted`.
 
 ### 5.6. Private messages
 
@@ -286,12 +287,12 @@ An encrypted post is a post whose content is inside an `encrypted` member:
 
 ```json
 {"number":5,"at":"2026-08-01T09:00:00Z",
- "encrypted":{"epk":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ciphertext":"<ciphertext>"}}
+ "encrypted":{"ephemeral":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ciphertext":"<ciphertext>"}}
 ```
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
 it and returns it with `encrypted` opaque (§7.1). A reader MUST NOT present encryption or audience
-control as protection from a host that is in the audience.
+control as protection from a hub that is in the audience.
 
 ### 6.1. The envelope
 
@@ -299,25 +300,25 @@ One X25519 ephemeral key pair per message. For each recipient reading key `R`:
 
 ```
 Z                               = X25519(ephemeral private, R)
-tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52 bytes)
-wrapped                         = ChaCha20-Poly1305(key = kek, nonce = knonce, plaintext = content key, aad = epk)
+tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = ephemeral, info = "openfeed/v1/slot", 52 bytes)
+wrapped                         = ChaCha20-Poly1305(key = kek, nonce = knonce, plaintext = content key, aad = ephemeral)
 ```
 
 and the content, once:
 
 ```
-plain = UTF-8 JSON of {"audience": [...], ...the post's content members...}
-ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || <anchor>:<number>)
+plain      = UTF-8 JSON of {"audience": [...], ...the post's content members...}
+ciphertext = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || <anchor>:<number>)
 ```
 
-`epk` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
+`ephemeral` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
 Each slot is a `[tag, wrapped]` pair of base64url strings. A reader MUST reject an all-zero `Z`.
 The content key MUST be 32 random bytes and MUST NOT be reused across messages. `plain` is a JSON object
 body and §2.4 applies to it.
 
 ### 6.2. Post binding
 
-The associated data of `ct` is the ephemeral public key followed by the ASCII bytes
+The associated data of `ciphertext` is the ephemeral public key followed by the ASCII bytes
 `<author anchor key>:<post number>` of the post the envelope is published in. This binding MUST
 be present; an envelope lifted into another post does not open there.
 
@@ -329,7 +330,7 @@ whose unwrap fails is a collision, and the reader MUST keep scanning.
 ### 6.4. The audience
 
 `audience` MUST be an array of the recipients inside the plaintext, each
-`{"key": <anchor>, "read": <x25519 key>, "loc": <location>}`, and a publisher MUST include itself.
+`{"key": <anchor>, "read": <x25519 key>, "location": <location>}`, and a publisher MUST include itself.
 
 ### 6.5. An encrypted post's target
 
@@ -354,35 +355,35 @@ The steps are in order; each supplies what the next checks.
 7. Fetch `<location>/index`, verify it under the current key (§4.4), replay it (§4.1). An index that does
    not verify: a reader holding one it verified before keeps that one and notes `no index I can verify`;
    a reader holding none: **tampered**.
-8. Against a checkpoint: `version` and `top` MUST NOT go backwards, else **tampered**.
+8. Against a checkpoint: `version` and `highest` MUST NOT go backwards, else **tampered**.
 9. Against a checkpoint: the same `version` at a different address is **tampered**.
-10. Against a checkpoint: every live number at or below the checkpointed `top` MUST have been live or
+10. Against a checkpoint: every live number at or below the checkpointed `highest` MUST have been live or
     withdrawn before at the identical hash, else **tampered**. Media files are exempt.
 11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted `withdrawn: n`
     and their hashes kept.
 12. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
-    under a key in the chain, its address MUST equal the listed hash, and its `n` MUST equal the number it
+    under a key in the chain, its address MUST equal the listed hash, and its `number` MUST equal the number it
     was served at. A failure, or a listed file not served: **tampered**.
 13. For each post naming a target whose author the reader holds a checkpoint for: if `target.hash` is not what
     that author's index lists for `target.number`, now or when it was withdrawn, mark the target unresolved
-    (§5.4); otherwise, if `target.number` is above that author's `top`, look again (§7.4).
+    (§5.4); otherwise, if `target.number` is above that author's `highest`, look again (§7.4).
 
 ### 7.2. Verdicts
 
-A read returns exactly one of **ok**, **tampered** (this host is misbehaving), or **contested** (this identity
+A read returns exactly one of **ok**, **tampered** (this hub is misbehaving), or **contested** (this identity
 is contested), and a reader MUST NOT invent a fourth. `recently restored`, `withdrawn: n`, and `no index I
 can verify` are notes on an ok read.
 
 ### 7.3. The checkpoint
 
 What a reader keeps from an ok read: the profile's `version` and address, the chain, the recovery list at
-each chain length, every location ever named, the index's `version` and address, `top`, the live set with
+each chain length, every location ever named, the index's `version` and address, `highest`, the live set with
 its hashes, and the hash of every number it saw withdrawn.
 
 ### 7.4. Targets and the rumor rule
 
 A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
-`loc`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
+`location`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
 per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
 they wrote. A reader MAY try the locations it already holds before the address in the reply.
 

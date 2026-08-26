@@ -35,10 +35,10 @@ runs in well under a second, and `npm run spec` runs all of them.
 | 01 | [files](files/) | §2 | body + `\n` + signature; the address; the four paths; bytes served are bytes signed; the four JSON hazards; unknown members |
 | 02 | [identity](identity/) | §3 | the anchor key, the profile, the chain, the recovery list, the reading key, first contact |
 | 03 | [contests](contests/) | §3.4–3.5 | two profiles claiming one identity; locations and moving |
-| 04 | [the-index](the-index/) | §4 | entries and replay, `top`, media, who signs the index, rewriting |
+| 04 | [the-index](the-index/) | §4 | entries and replay, `highest`, media, who signs the index, rewriting |
 | 05 | [posts](posts/) | §5 | the number inside the bytes; `at`, `rel`, the full target hash; private messages |
 | 06 | [envelope](envelope/) | §6 | slots, blinded tags, and the carrier bound as associated data |
-| 07 | [reading](reading/) | §7 | the steps in order; three verdicts; the pin; the rumor rule and its bounds |
+| 07 | [reading](reading/) | §7 | the steps in order; three verdicts; the checkpoint; the rumor rule and its bounds |
 | 08 | [publishing](publishing/) | §8 | compare-and-swap, create-once, reclaim, the media twin, your copy |
 | 09 | [fetching](fetching/) | §9 | non-public addresses, redirects, and caps that are no verdict |
 | 10 | [views](views/) | §10 | JSON Feed, Atom, and an h-card generated from the index |

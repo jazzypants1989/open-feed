@@ -44,12 +44,12 @@ rule('6', `An encrypted post is a post whose content is inside an \`encrypted\` 
 
 \`\`\`json
 {"number":5,"at":"2026-08-01T09:00:00Z",
- "encrypted":{"epk":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ciphertext":"<ciphertext>"}}
+ "encrypted":{"ephemeral":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ciphertext":"<ciphertext>"}}
 \`\`\`
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
 it and returns it with \`encrypted\` opaque (§7.1). A reader MUST NOT present encryption or audience
-control as protection from a host that is in the audience.`);
+control as protection from a hub that is in the audience.`);
 
 // ---- §6.1 the envelope, derived from node:crypto alone ----
 const eph = xk('vector:ephemeral/5'), epk = unb64(eph.x), key5 = ck('openfeed/v1/vector:contentkey/5');
@@ -74,18 +74,18 @@ rule('6.1', `One X25519 ephemeral key pair per message. For each recipient readi
 
 \`\`\`
 Z                               = X25519(ephemeral private, R)
-tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52 bytes)
-wrapped                         = ChaCha20-Poly1305(key = kek, nonce = knonce, plaintext = content key, aad = epk)
+tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = ephemeral, info = "openfeed/v1/slot", 52 bytes)
+wrapped                         = ChaCha20-Poly1305(key = kek, nonce = knonce, plaintext = content key, aad = ephemeral)
 \`\`\`
 
 and the content, once:
 
 \`\`\`
-plain = UTF-8 JSON of {"audience": [...], ...the post's content members...}
-ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || <anchor>:<number>)
+plain      = UTF-8 JSON of {"audience": [...], ...the post's content members...}
+ciphertext = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || <anchor>:<number>)
 \`\`\`
 
-\`epk\` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
+\`ephemeral\` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
 Each slot is a \`[tag, wrapped]\` pair of base64url strings. A reader MUST reject an all-zero \`Z\`.
 The content key MUST be 32 random bytes and MUST NOT be reused across messages. \`plain\` is a JSON object
 body and §2.4 applies to it.`);
@@ -98,7 +98,7 @@ assert.equal(decrypt(dm, mum.read.privateKey, postBinding(thief.x, 1)), null);
 assert.equal(decrypt(dm, mum.read.privateKey, ''), null);
 assert.equal(decrypt(dm, mum.read.privateKey, c5).text, 'I am leaving him on Friday');
 assert.equal(c5, `${alice.ed.x}:5`);
-rule('6.2', `The associated data of \`ct\` is the ephemeral public key followed by the ASCII bytes
+rule('6.2', `The associated data of \`ciphertext\` is the ephemeral public key followed by the ASCII bytes
 \`<author anchor key>:<post number>\` of the post the envelope is published in. This binding MUST
 be present; an envelope lifted into another post does not open there.`);
 
@@ -120,7 +120,7 @@ assert.ok(inside.audience.some((a) => a.key === alice.ed.x));
 for (const a of inside.audience) assert.deepEqual(Object.keys(a), ['key', 'read', 'location']);
 assert.equal(decrypt(fam, alice.read.privateKey, c6).text, inside.text);
 rule('6.4', `\`audience\` MUST be an array of the recipients inside the plaintext, each
-\`{"key": <anchor>, "read": <x25519 key>, "loc": <location>}\`, and a publisher MUST include itself.`);
+\`{"key": <anchor>, "read": <x25519 key>, "location": <location>}\`, and a publisher MUST include itself.`);
 
 // ---- §6.5 inside ----
 const c13 = postBinding(mum.ed.x, 13);
