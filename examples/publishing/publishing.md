@@ -130,7 +130,7 @@ copy already is.
 
 **A copy is bytes, not rows.** The publisher's copy after five posts is a map from path to bytes:
 `/profile`, `/index`, `/posts/1` … `/posts/5`, and nothing else. `/posts/1` is printed whole — the
-body, then the `\n`, then the 86-character signature — and it is Appendix B.6 verbatim. Then the
+body, then the `\n`, then the 86-character signature — and it is `test-vectors.md`.6 verbatim. Then the
 same post kept the way an ordinary application would keep it, as three columns in a table, and
 re-serialized from those columns on the way out: every field present, every value right, alice's own
 signature line on the end, and it **does not verify**. Nothing was lost; the member order changed,

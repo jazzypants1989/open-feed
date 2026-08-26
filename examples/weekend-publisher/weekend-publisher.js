@@ -1,6 +1,6 @@
 // §8 — the whole publisher in one file, standard library only, and the other half of `GOALS.md`
 // scenario 6: a second implementer writes a publisher, then a reader, from the text alone. It
-// imports nothing from `src/` and nothing from the weekend reader. Every file in Appendix B is
+// imports nothing from `src/` and nothing from the weekend reader. Every file in `test-vectors.md` is
 // signed by this publisher (`tools/regen.js`).
 //
 // Run it: `node examples/weekend-publisher/weekend-publisher.js`. See `weekend-publisher.md`.
@@ -103,7 +103,7 @@ if (isMain) {
   const impl = src.slice(0, src.findIndex((l) => l.startsWith('// ====')));
   const measured = impl.filter((l) => l.trim() && !l.trim().startsWith('//')).length;
 
-  // Appendix B's keys, so every byte below reproduces.
+  // `test-vectors.md`'s keys, so every byte below reproduces.
   const PKCS8 = Buffer.from('302e020100300506032b657004220420', 'hex');
   const seeded = (label) => {
     const seed = crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest();

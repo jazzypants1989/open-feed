@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { encrypt, decrypt, postBinding, newReadingKey, encryptMedia, decryptMedia } from '../src/envelope.js';
 import { newSigningKey } from '../src/file.js';
 
-const alice = { key: newSigningKey(), read: newReadingKey() }, mum = { key: newSigningKey(), read: newReadingKey() }, host = newReadingKey();
+const alice = { key: newSigningKey(), read: newReadingKey() }, mum = { key: newSigningKey(), read: newReadingKey() }, hub = newReadingKey();
 const entry = (p, location) => ({ key: p.key.x, read: p.read.x, location });
 const fam = [entry(alice, 'https://a.example/a'), entry(mum, 'https://m.example/m')];
 const binding = postBinding(alice.key.x, 5);
@@ -16,7 +16,7 @@ test('§6.1 a encrypted post opens for each recipient, with the audience naming 
   assert.equal(inner.text, 'leaving on friday');
   assert.deepEqual(inner.audience, fam);
   assert.equal(decrypt(env, alice.read.privateKey,  binding).rel, 'root');
-  assert.equal(decrypt(env, host.privateKey,  binding), null, 'the host opens nothing');
+  assert.equal(decrypt(env, hub.privateKey,  binding), null, 'the hub opens nothing');
 });
 
 test('§6.2 post binding: the envelope lifted into another post does not open', () => {

@@ -21,7 +21,7 @@ the protocol — a profile, an index and a post are all this, and differ only in
 
 ### What the output shows
 
-**Three parts, and nothing else.** The example signs the spec's own Appendix B.6 post and prints
+**Three parts, and nothing else.** The example signs the spec's own `test-vectors.md`.6 post and prints
 the resulting 153 bytes: 66 of body, one separator, 86 of signature. You can hold the whole format
 in your head, which is the point — a second implementer has to reproduce it from the text alone
 (`GOALS.md` scenario 6, the weekend).

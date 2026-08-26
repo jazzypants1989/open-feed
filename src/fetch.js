@@ -11,7 +11,7 @@
 //    re-checked for scheme and address — can only be enforced at each link.
 //
 // A fetch returns bytes and the hub's entity tag; it never parses, never looks at the media type
-// (Appendix A: the signature covers the bytes and no type is inside it), and never decides a
+// (§10: the signature covers the bytes and no type is inside it), and never decides a
 // verdict: a transport failure throws a `FetchError`, which §9 says is no verdict at all.
 import https from 'node:https';
 import http from 'node:http';

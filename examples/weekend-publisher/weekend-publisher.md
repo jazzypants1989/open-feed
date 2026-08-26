@@ -4,7 +4,7 @@
 **Run:** `node examples/weekend-publisher/weekend-publisher.js`
 
 The other capstone. **A whole conforming publisher in one file**, standard library only, written
-from the protocol's text alone — and the thing that signs every file in Appendix B. When
+from the protocol's text alone — and the thing that signs every file in `test-vectors.md`. When
 `tools/regen.js` regenerates the test vectors, this is what produces the bytes; two independent
 readers then verify them.
 

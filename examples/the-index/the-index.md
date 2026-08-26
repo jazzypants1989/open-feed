@@ -7,7 +7,7 @@
 ## The index
 
 **Spec:** §4 the index, §4.1 entries and replay, §4.4 signed by the current key.
-Vectors: Appendix B.9–B.11.
+Vectors: `test-vectors.md`.9–B.11.
 **Run:** `node examples/the-index/the-index.js`
 
 The index is the answer to *what exists now*. It is one signed file at `/<name>/index`, and with the
@@ -23,13 +23,13 @@ drop a post and have the absence look like nothing.
 
 ### What the output shows
 
-**One signed file that says what exists now.** The example prints Appendix B.9 — three posts live,
+**One signed file that says what exists now.** The example prints `test-vectors.md`.9 — three posts live,
 `version` 1, `highest` 3 — and names the three members. It is an ordinary signed file (§2.1): body,
 newline, signature, and the address is the hash of the body, exactly as `files/` showed.
 
 **Four line shapes, and nothing else.** `[number, hash]` says post `number` exists at that address;
 `[n, null]` withdraws it; `[hash]` says a media file with that address exists; `[hash, null]`
-withdraws it. That is the whole grammar. Appendix B.10 carries the first three: post 2 withdrawn by
+withdraws it. That is the whole grammar. `test-vectors.md`.10 carries the first three: post 2 withdrawn by
 an appended line, post 5 encrypted, and one media file listed by its address alone. Media has its
 own block below (§4.3); what matters here is that it is admitted by *being listed*, and
 checked by its hash, so retention is one rule that reaches **encrypted** posts too.
@@ -52,7 +52,7 @@ issued nothing has `highest` 0. *Why* `highest` outlives the post holding it is 
 `reading/`.
 
 **A number has one hash, ever.** Within one index replay enforces it: a withdrawn number may come
-back at the identical hash (Appendix B.11 does exactly that) and at no other. Across a rewrite the
+back at the identical hash (`test-vectors.md`.11 does exactly that) and at no other. Across a rewrite the
 replay cannot see it — once the `[2, null]` line has been swept away, that index has never heard of
 post 2 — and the example runs one reader through four versions to show the half that is the checkpointed
 reader's memory (§7.1 step 10). Why the identical-hash repeat is allowed, and why the cross-version rule is
@@ -85,7 +85,7 @@ itself keeps that one, notes `no index I can verify`, and says nothing further.
 ## Media
 
 **Spec:** §4.3 media, §5.5 `media` on a post, §6.5 the key inside the envelope,
-Appendix A media types.
+§10's media types.
 **Run:** `node examples/the-index/the-index.js`
 
 A media file is the one unsigned file in the protocol. Everything else on the wire is a body, a
@@ -100,7 +100,7 @@ when the hub cannot read the post, which is the case for every encrypted post on
 
 ### What the output shows
 
-**A media file is the one unsigned file.** The example uses Appendix B.10's photograph: 26 bytes
+**A media file is the one unsigned file.** The example uses `test-vectors.md`.10's photograph: 26 bytes
 hashing to `fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g`. Handed to the file verifier it comes back
 `null` — there is no body, no separator and no signature to check. There is nothing for a signature
 to add, either: the hash is already inside an index the author signed, so the blob is bound to the
@@ -151,7 +151,7 @@ that makes it fixed, which is one fresh key per media file.
 **What the hub learns.** The three blobs and their sizes, and nothing else. Not which post an
 encrypted one belongs to, and not whether two of them are the same photograph encrypted twice. It
 does of course learn who fetched what and when, as it does for every file it serves (§5.6);
-what it does not learn is anything from the bytes. Appendix A gives media no media type of its own —
+what it does not learn is anything from the bytes. §10 gives media no media type of its own —
 "whatever the bytes are" — and nothing the protocol checks reads that header, because the hash
 covers the bytes and the header is not among them. A hub is free to serve the right `Content-Type`
 and a reader is free to use it for display; nothing verifies on it.
@@ -182,7 +182,7 @@ NOT: an app **MUST NOT** tell a user that withdrawing erased anything.
 ### What the output shows
 
 **A withdrawal is an appended line, and a rewrite is what takes it away.** The example prints the
-entries of Appendix B.10 and then of B.11 — the spec's own before and after, asserted byte for byte
+entries of `test-vectors.md`.10 and then of B.11 — the spec's own before and after, asserted byte for byte
 including the signature line. Two of version 2's seven lines are about post 2, which is not there
 any more: the listing and the withdrawal. Version 3 has neither. This is the one place the protocol
 overwrites history rather than appending to it, and it is safe for exactly one reason, which the
@@ -202,7 +202,7 @@ owed, because post 3 is a post it held and no longer has — and that is a **not
 never a verdict (§7.2). Its checkpoint quietly keeps the hash post 3 had, which is what makes the next
 block possible.
 
-**A number that comes back.** Appendix B.11 re-lists post 2 at the hash it had. That is legal, and
+**A number that comes back.** `test-vectors.md`.11 re-lists post 2 at the hash it had. That is legal, and
 it is the *only* legal repeat: §4.1 allows a withdrawn number back at the identical hash and
 nothing else. The example shows the checkpointed reader accepting it and then shows the illegal twin —
 the same number back at a different hash — coming back as **tampered**, because the checkpoint remembered.

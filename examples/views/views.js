@@ -17,12 +17,12 @@ const seeded = (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sh
 const alice = key('alice/anchor'), mum = key('mum'), hubKey = key('bro');
 const AT = 'https://alice.example/alice', NEW = 'https://pence.family/alice';
 
-const sealed = encrypt({ content: { text: 'the solicitor rang back' }, audience: [{ key: alice.x, read: xkey('alice-read').x, location: AT }, { key: mum.x, read: xkey('mum-read').x, location: 'https://mom.example/mom' }],
+const enc = encrypt({ content: { text: 'the solicitor rang back' }, audience: [{ key: alice.x, read: xkey('alice-read').x, location: AT }, { key: mum.x, read: xkey('mum-read').x, location: 'https://mom.example/mom' }],
   binding: postBinding(alice.x, 3), ephemeral: xkey('ephemeral/3'), random: seeded, contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/3').digest() });
 const post = {
   1: signFile({ number: 1, at: '2026-08-01T09:12:00Z', text: 'First day of the holidays.\nThe kids are feral already.' }, alice),
   2: signFile({ number: 2, at: '2026-08-02T20:40:00Z', text: 'Rain. Board games. <b>Not</b> HTML & such.' }, alice),
-  3: signFile({ number: 3, at: '2026-08-03T21:15:00Z', encrypted: sealed }, alice),
+  3: signFile({ number: 3, at: '2026-08-03T21:15:00Z', encrypted: enc }, alice),
   4: signFile({ number: 4, at: '2026-08-04T08:00:00Z', text: 'Peonies are back.' }, alice),
 };
 const profileAt = (version, locations) => signProfile({ anchor: alice.x, version, name: 'Alice', chain: [{ key: alice.x }], recovery: { leaves: [] }, locations, read: xkey('alice-read').x }, alice);
@@ -49,7 +49,7 @@ assert.deepEqual(there.items.map((i) => i.id), feed.items.map((i) => i.id));
 assert.notDeepEqual(there.items.map((i) => i.url), feed.items.map((i) => i.url));
 // Withdrawn absent, encrypted omitted, no ciphertext.
 assert.ok(read.posts.has(3) && !read.posts.has(4));
-assert.ok(!docs.some((d) => d.includes(sealed.ciphertext) || d.includes(sealed.ephemeral) || d.includes(sealed.slots[0][1]) || d.includes('solicitor') || d.includes('Peonies')));
+assert.ok(!docs.some((d) => d.includes(enc.ciphertext) || d.includes(enc.ephemeral) || d.includes(enc.slots[0][1]) || d.includes('solicitor') || d.includes('Peonies')));
 // A view is not evidence: the hub rewrites feed.json and the reader never notices; the same edits to the files are caught.
 const doctored = JSON.parse(jsonFeed(read, AT));
 doctored.items.push({ id: `urn:openfeed:${alice.x}:5`, url: `${AT}/posts/5`, date_published: '2026-08-05T08:00:00Z', content_text: 'I have moved to his hub — follow me there.' });

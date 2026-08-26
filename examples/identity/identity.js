@@ -190,7 +190,7 @@ assert.equal(unread.raw.read, undefined);
 assert.equal(verifyProfile(hostile, { learned: A1.x }).raw, undefined);                     // nothing to encrypt to from a failed read
 rule('3.6', `\`read\` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to the
 \`read\` of the highest profile \`version\` it has verified, and SHOULD read the profile again before encrypting:
-a \`read\` the owner has replaced still verifies, and content sealed to it is readable by whoever took it and
+a \`read\` the owner has replaced still verifies, and content encrypted to it is readable by whoever took it and
 by nobody else. Rotating \`read\` protects nothing already sent. A restore does not recover it.`);
 
 // ---- §3.7 first contact ----

@@ -59,7 +59,7 @@ test('§7.1 the index: withholding, a rollback, a swap, and the rotation window'
   assert.equal(view(await s.read()), 'tampered: no index served');
   assert.equal(view(await s.read(good.checkpoint)), 'ok [1,2,3] no index I can verify', 'a checkpointed reader keeps the index it verified');
   s.files.set('alice/index', headBytes);
-  // A rollback: the host serves an earlier index again.
+  // A rollback: the hub serves an earlier index again.
   await s.pub.withdraw(3);
   const later = await s.read(good.checkpoint);
   s.files.set('alice/index', headBytes);
@@ -126,7 +126,7 @@ test('§7.4 the rumor rule: quiet below highest, one look per identity per pass,
   const target = (number, hash = seen.get(s.alice.key.x).live.get(number) ?? 'x') => ({ key: s.alice.key.x, number, hash, location: s.AT });
   await bpub.publish(1, { at: 'x', rel: 'reply', target: target(1), text: 'to a post I can see' });
   await bpub.publish(2, { at: 'x', rel: 'reply', target: target(2, 'not-the-hash'), text: 'names the number, not the post' });
-  await bpub.publish(3, { at: 'x', rel: 'reply', target: target(99), text: 'to one the host hides' });
+  await bpub.publish(3, { at: 'x', rel: 'reply', target: target(99), text: 'to one the hub hides' });
   const bobRead = await s.reader.read({ learned: bob.key.x, at: BAT });
   let gets = 0; const counting = { get: async (u) => { gets++; return s.io.get(u); } };
   const r = readerOver(counting);

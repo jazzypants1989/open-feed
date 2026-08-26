@@ -1,7 +1,7 @@
 # Posts
 
 **Spec:** §5 entire — §5.1 `number`, §5.2 `at`, §5.3 `rel`, §5.4 `target`, §5.5 `media`, §5.6 private
-messages are posts. Appendix B.6 and B.7 are its vectors.
+messages are posts. `test-vectors.md`.6 and B.7 are its vectors.
 **Run:** `node examples/posts/posts.js`
 
 A post is the last of the three file shapes and the only one that carries what somebody wrote. It is
@@ -17,7 +17,7 @@ in the protocol is a like endpoint, a boost verb, a revision history, or an inbo
 
 ## What the output shows
 
-**A post, and its members.** The first block prints Appendix B.6 byte for byte — 66 bytes of body,
+**A post, and its members.** The first block prints `test-vectors.md`.6 byte for byte — 66 bytes of body,
 one `\n`, 86 characters of signature — and names each member against the object §5 opens with. Then
 two facts that go together: post 1 verifies under alice's **anchor key** and post 3 under **the key
 she rotated to**, because a reader checks a post against *any* key in the chain (§7.4); and a
@@ -67,7 +67,7 @@ resolves: the reader can see what it was answering even though the post is gone 
 §5.3 asks a reader holding post 7 to show those replies under it, and without the remembered hash
 every edit would orphan its thread.
 
-**`target`, and the full hash.** The block prints Appendix B.7 byte for byte and names all four
+**`target`, and the full hash.** The block prints `test-vectors.md`.7 byte for byte and names all four
 members. `key` is the target author's **anchor key, never a URL**, because the URL can change and
 the identity cannot; `location` is where the replier last knew that author to live, which is how someone
 who moved gets found again (§3.5). `hash` is all 43 characters of the target's address — not a

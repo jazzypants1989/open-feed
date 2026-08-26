@@ -110,7 +110,7 @@ test('two hubs, one thread: a encrypted post, a encrypted reply and a reaction c
   const reader = readerOver(io);
   const seen = new Map();
   for (const [who, p] of [['mom', mom], ['jesse', jesse], ['sis', sis]]) seen.set(p.key.x, (await reader.read({ learned: p.key.x, at: at[who] })).checkpoint);
-  // Mom seals to the family, the audience naming each of them.
+  // Mom encrypts to the family, the audience naming each of them.
   const fam = [{ key: mom.key.x, read: reads.mom.x, location: at.mom }, { key: jesse.key.x, read: reads.jesse.x, location: at.jesse }, { key: sis.key.x, read: reads.sis.x, location: at.sis }];
   await mpub.publish(1, { at: '2026-08-10T09:00:00Z', encrypted: encrypt({ content: { text: 'the scan came back clear' }, audience: fam, binding: postBinding(mom.key.x, 1) }) });
   const momRead = await reader.read({ learned: mom.key.x, at: at.mom, checkpoint: seen.get(mom.key.x) });
@@ -230,11 +230,11 @@ test('the big lazy hub: ten thousand on one commercial hub, the operator is the 
   assert.equal(big.hub.store.get('n7/index'), neighbourBefore, 'and no neighbour\'s files moved');
   big.hub.store.set('alice/posts/2', small.hub.store.get('alice/posts/2'));
 
-  // Floor 2 at scale: he holds every byte of three hundred journals and opens none of the sealed ones.
+  // Floor 2 at scale: he holds every byte of three hundred journals and opens none of the encrypted ones.
   await big.pub.publish(POSTS + 1, { at: '2026-08-09T00:00:00Z', encrypted: encrypt({ content: { text: 'the lawyer called' }, audience: [{ key: alice.key.x, read: aliceRead.x, location: AT }, { key: mum.key.x, read: mumRead.x, location: 'https://mum.example/mum' }], binding: postBinding(alice.key.x, POSTS + 1) }) });
-  const sealed = (await bReader.read({ learned: alice.key.x, at: AT })).posts.get(POSTS + 1).encrypted;
-  assert.equal(decrypt(sealed, newReadingKey().privateKey, postBinding(alice.key.x, POSTS + 1)), null, 'the operator, holding the disk');
-  assert.equal(decrypt(sealed, mumRead.privateKey, postBinding(alice.key.x, POSTS + 1)).text, 'the lawyer called');
+  const encrypted = (await bReader.read({ learned: alice.key.x, at: AT })).posts.get(POSTS + 1).encrypted;
+  assert.equal(decrypt(encrypted, newReadingKey().privateKey, postBinding(alice.key.x, POSTS + 1)), null, 'the operator, holding the disk');
+  assert.equal(decrypt(encrypted, mumRead.privateKey, postBinding(alice.key.x, POSTS + 1)).text, 'the lawyer called');
 
   // Floor 3 at scale: leaving is still copying her own files somewhere else. The crowd is irrelevant
   // to it — she is not a row in his database, she is a directory of signed bytes she already had.

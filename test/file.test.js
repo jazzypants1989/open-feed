@@ -34,7 +34,7 @@ test('§2.2 the address is the hash of the body, never of the file', () => {
   assert.notEqual(address(f), sha256(f));
 });
 
-test('§2.3 a host that pretty-prints, reorders, or appends a newline makes the file read as forged', () => {
+test('§2.3 a hub that pretty-prints, reorders, or appends a newline makes the file read as forged', () => {
   const f = signFile({ a: 1, b: 2 }, k);
   const { sigLine } = splitFile(f);
   for (const body of ['{"a": 1, "b": 2}', '{"b":2,"a":1}', '{"a":1,"b":2}\n']) {

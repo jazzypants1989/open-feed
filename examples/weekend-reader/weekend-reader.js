@@ -2,7 +2,7 @@
 // the protocol's text alone, before `src/` existed, as `GOALS.md` scenario 6's measurement: if it
 // needs a thing the text does not say, the text is wrong, not this file. It imports NOTHING from
 // `src/` and nothing from the weekend publisher, and that is the point — `tools/regen.js` verifies
-// every vector in Appendix B with this reader and with `src/reader.js`, and two independent
+// every vector in `test-vectors.md` with this reader and with `src/reader.js`, and two independent
 // readers agreeing is the interop check the spec exists for.
 //
 // Run it: `node examples/weekend-reader/weekend-reader.js`. See `weekend-reader.md`.

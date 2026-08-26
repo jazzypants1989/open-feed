@@ -13,8 +13,8 @@ There is no second signing construction in this protocol.
 
 The whole envelope is about 75 lines over a standard library: one X25519 ephemeral, HKDF-SHA256,
 ChaCha20-Poly1305. The example derives a slot from `node:crypto` alone and checks the result against
-Appendix B.8, so a second implementer can follow every intermediate value and know when they have
-it right — by running this script, since Appendix B.1 publishes public keys only and the seeds
+`test-vectors.md`.8, so a second implementer can follow every intermediate value and know when they have
+it right — by running this script, since `test-vectors.md`.1 publishes public keys only and the seeds
 behind B.8 live in `tools/regen.js`.
 
 ## What the output shows
@@ -34,7 +34,7 @@ then `wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = ephemeral)`. T
 like any body, and `ciphertext = ChaCha20-Poly1305(content key, 12 zero bytes, plain, aad = ephemeral || binding)`.
 Wherever `ephemeral` appears in a derivation — the salt and both AADs — it is the 32 raw bytes, not the
 43-character text; the binding is ASCII. The example prints `Z`, the three derived pieces, the wrap and the ciphertext, and asserts
-that the slot it built by hand is byte-for-byte the second slot of Appendix B.8 — which is also the
+that the slot it built by hand is byte-for-byte the second slot of `test-vectors.md`.8 — which is also the
 example's check that `src/envelope.js`'s info string is the spec's, since the derivation here spells
 `"openfeed/v1/slot"` out rather than importing it.
 
@@ -69,7 +69,7 @@ and merely slower** — and that equivalence is the test of whether a tag decide
 line makes the failure mode concrete: a slot carrying mum's own tag whose unwrap fails, placed
 first. That is a collision, and §6.3 requires her to keep scanning. A reader that stopped there
 would conclude a message was not for it on eight bytes it does not control. (That mum's slot is
-the second is `src/envelope.js`'s habit — slots in audience order — and Appendix B.8 fixes it for
+the second is `src/envelope.js`'s habit — slots in audience order — and `test-vectors.md`.8 fixes it for
 the vector only; nothing in §6 fixes placement, and a publisher MAY shuffle. The slots are authenticated by nothing in the AEAD: only the file's Ed25519 signature
 covers them, which is enough, because only the author can sign.)
 
@@ -105,7 +105,7 @@ two other examples: public threading, relocation riding along in a reply (§3.5)
 (§7.4) all read `rel` and `target`, so they work for everything a stranger could see anyway and are
 simply unavailable for anything encrypted — see `examples/contests/` and `examples/reading/`.
 
-**Verified completely, opaque to everyone else.** The last block ties post 5 to Appendix B.8 by its
+**Verified completely, opaque to everyone else.** The last block ties post 5 to `test-vectors.md`.8 by its
 address and shows the hub's own reading key opening nothing. A reader outside the audience runs
 §7.4's three checks on it exactly as on any post — signature under a chain key, address, `number` — and
 hands `encrypted` back whole; `examples/reading/` stages that read, and this file does not repeat

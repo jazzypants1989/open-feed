@@ -5,7 +5,7 @@
 
 This is a capstone, not an illustration. It is **a whole conforming reader in one file**, written
 from the protocol's text alone with nothing but Node's standard library, and it is the second
-implementation that `tools/regen.js` verifies every vector in Appendix B with. Two independent
+implementation that `tools/regen.js` verifies every vector in `test-vectors.md` with. Two independent
 readers agreeing on every byte is the closest thing to interop this spec has had.
 
 It exists to answer a question `GOALS.md` puts second in its priority list: **a second implementer

@@ -116,21 +116,21 @@ assert.deepEqual([swapped.verdict, swapped.why], ['tampered', `media file ${hp} 
 assert.deepEqual([unlisted.verdict, unlisted.posts.has(6), unlisted.media.has(hs)], ['ok', true, false]);
 // Encrypted media: ciphertext listed, key in the envelope.
 const mediaKey = crypto.createHash('sha256').update('openfeed/v1/vector:media-key').digest();
-const sealed = encryptMedia(photo, () => mediaKey);
-const env = encrypt({ content: { text: 'the morning after', rel: 'root', media: [{ hash: sealed.hash, key: sealed.key }] }, audience: [{ key: mum.x, read: xkey('mum-read').x, location: 'https://mom.example/mom' }],
+const enc = encryptMedia(photo, () => mediaKey);
+const env = encrypt({ content: { text: 'the morning after', rel: 'root', media: [{ hash: enc.hash, key: enc.key }] }, audience: [{ key: mum.x, read: xkey('mum-read').x, location: 'https://mom.example/mom' }],
   binding: postBinding(A1.x, 7), ephemeral: xkey('ephemeral/7'), contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/7').digest() });
 const p7 = post(7, { at: '2026-08-18T21:40:00Z', encrypted: env }, A3);
-files.set(`${AT}/posts/7`, p7).set(`${AT}/media/${sealed.hash}`, sealed.bytes);
-const withSealed = await serve(idx([[4, h4], [hp], [7, address(p7)], [sealed.hash]], 7, 7));
+files.set(`${AT}/posts/7`, p7).set(`${AT}/media/${enc.hash}`, enc.bytes);
+const withSealed = await serve(idx([[4, h4], [hp], [7, address(p7)], [enc.hash]], 7, 7));
 const opened = decrypt(env, xkey('mum-read').privateKey, postBinding(A1.x, 7));
 assert.equal(withSealed.verdict, 'ok');
 assert.deepEqual(Object.keys(parseBody(splitFile(p7).body)), ['number', 'at', 'encrypted']);
-assert.deepEqual([sealed.hash, sealed.bytes.length, opened.media], [sha256(sealed.bytes), photo.length + 16, [{ hash: sealed.hash, key: sealed.key }]]);
-assert.ok(decryptMedia(withSealed.media.get(sealed.hash), opened.media[0].key).equals(photo));
+assert.deepEqual([enc.hash, enc.bytes.length, opened.media], [sha256(enc.bytes), photo.length + 16, [{ hash: enc.hash, key: enc.key }]]);
+assert.ok(decryptMedia(withSealed.media.get(enc.hash), opened.media[0].key).equals(photo));
 // One key, two files, one nonce: the XOR of the ciphertexts is the XOR of the photographs.
 const other = Buffer.from('\x89PNG\r\n\x1a\n the same evening!', 'latin1'), reused = encryptMedia(other, () => mediaKey);
-assert.ok(Buffer.from(sealed.bytes.subarray(0, photo.length).map((b, i) => b ^ reused.bytes[i])).equals(Buffer.from(photo.map((b, i) => b ^ other[i]))));
-console.log(`  encrypted media        ${sealed.bytes.length} bytes of ciphertext listed at ${sealed.hash.slice(0, 8)}…; mum opens it: ${decryptMedia(withSealed.media.get(sealed.hash), opened.media[0].key).equals(photo)}\n`);
+assert.ok(Buffer.from(enc.bytes.subarray(0, photo.length).map((b, i) => b ^ reused.bytes[i])).equals(Buffer.from(photo.map((b, i) => b ^ other[i]))));
+console.log(`  encrypted media        ${enc.bytes.length} bytes of ciphertext listed at ${enc.hash.slice(0, 8)}…; mum opens it: ${decryptMedia(withSealed.media.get(enc.hash), opened.media[0].key).equals(photo)}\n`);
 rule('4.3', `A media file is listed by \`[hash]\` and served at \`/<name>/media/<hash>\`; a reader MUST verify that the bytes
 hash to the name it fetched them under. A media file referenced by a post but not listed in the index is
 absent. A media file attached to an encrypted post is encrypted: \`ChaCha20-Poly1305(key, nonce = 12 zero

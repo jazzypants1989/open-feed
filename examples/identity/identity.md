@@ -41,7 +41,7 @@ and a key to check `anchor` against, and refuses on mismatch.
 HKDF-SHA256 with the key bytes as ikm, an empty salt, `"openfeed/v1/spoken"` as info, nine bytes
 out; the first 66 bits cut into six 11-bit big-endian fields; each field an index into the BIP-39
 English wordlist. The example prints the nine bytes, then each field in binary, its index, and its
-word, and asserts the six indices against Appendix B.12 — `923 1951 1851 172 1664 898`, which is
+word, and asserts the six indices against `test-vectors.md`.12 — `923 1951 1851 172 1664 898`, which is
 alice's anchor key and reads *inflict view trash better source icon*.
 
 Worth being precise about what this route is. The six words are a **check value, not a transport**:
@@ -79,7 +79,7 @@ installs an app, picks a name, is never shown a key — and it is a design const
 preference: a protocol whose safety check is 43 characters of base64url has a safety check nobody
 performs.
 
-Every key printed comes from Appendix B.1's seeds, except the hostile hub's, which is seeded the
+Every key printed comes from `test-vectors.md`.1's seeds, except the hostile hub's, which is seeded the
 same way under its own label so the output still reproduces byte for byte.
 
 ## The chain
@@ -107,11 +107,11 @@ message, and nothing here that a hub issues or countersigns.
 lengths one, two and three: the bare first link, the rotation, the restore. The first link MUST be
 `{"key": <anchor>}` and its key MUST equal `anchor`, which is what ties the whole array back to the
 key a reader learned out of band (§3.7). Every later link is the same shape and differs only in
-which of `signature` and `vouchers` it carries. These are the chains in Appendix B.3, B.4 and B.5.
+which of `signature` and `vouchers` it carries. These are the chains in `test-vectors.md`.3, B.4 and B.5.
 
 **A rotation is signed by the key it replaces.** The signed input is printed in full, because a
 second implementer has to reproduce it from the text: 88 ASCII bytes, the previous key, `->`, the
-new key, both in base64url. The signature that comes out is Appendix B.4's, character for
+new key, both in base64url. The signature that comes out is `test-vectors.md`.4's, character for
 character, and it is read by §2.1's rule — 86 base64url characters that re-encode to themselves.
 
 The two failures beside it are the ones a hand-written verifier gets wrong. Signing
@@ -176,7 +176,7 @@ stranger.
 
 ## The recovery list
 
-**Spec:** §3.3, with §3.2 for the link that spends it and Appendix B.2 for the vector.
+**Spec:** §3.3, with §3.2 for the link that spends it and `test-vectors.md`.2 for the vector.
 **Run:** `node examples/identity/identity.js`
 
 A recovery list is one hash per person you would trust to say "yes, that is her, and this is her
@@ -194,7 +194,7 @@ daughter, and is back — without ever having been shown a key or asked to store
 ### What the output shows
 
 **One leaf per member, each under its own salt.** The three members, their salts, their keys, and
-the leaf each pair hashes to, laid out as Appendix B.2 lays them out, and then the committed object
+the leaf each pair hashes to, laid out as `test-vectors.md`.2 lays them out, and then the committed object
 `{"leaves":[…]}` that goes in the profile. The example asserts the three leaves and the
 committed JSON against the spec's own vector, character for character.
 
