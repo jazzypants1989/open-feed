@@ -32,10 +32,10 @@ function signOperation(operation, privateKeyDer) {
   return sig.toString('base64url');
 }
 
-function deriveDidPlc(signedOpCbor) {
-  const hash = crypto.createHash('sha256').update(signedOpCbor).digest();
-  const truncated = hash.subarray(0, 15);
-  return `did:plc:${base32(truncated).slice(0, 24)}`;
+/** The DID is the first 120 bits of the SHA-256 of the signed genesis operation, base32'd. */
+export function didFromOperation(signedOp) {
+  const hash = crypto.createHash('sha256').update(dagCbor(signedOp)).digest();
+  return `did:plc:${base32(hash.subarray(0, 15)).slice(0, 24)}`;
 }
 
 export function createGenesisOperation({ handle, pdsEndpoint, rotationKey, signingKey }) {
@@ -53,10 +53,8 @@ export function createGenesisOperation({ handle, pdsEndpoint, rotationKey, signi
 
   const sig = signOperation(unsignedOp, rotationKey.privateKey);
   const signedOp = { ...unsignedOp, sig };
-  const signedCbor = dagCbor(signedOp);
-  const did = deriveDidPlc(signedCbor);
 
-  return { did, operation: signedOp };
+  return { did: didFromOperation(signedOp), operation: signedOp };
 }
 
 export async function publishDid({ did, operation }, fetchFn = fetch) {

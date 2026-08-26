@@ -1,6 +1,11 @@
 // Minimal DAG-CBOR encoder for AT Protocol. Covers: unsigned integers, negative integers,
-// strings, bytes, arrays, maps (keys sorted lexically), null, booleans.
-// Maps always have string keys sorted by byte value (DAG-CBOR determinism).
+// strings, bytes, arrays, maps, null, booleans.
+//
+// Map keys are sorted SHORTEST FIRST, then by byte value — the RFC 7049 canonical rule, which is
+// what AT Protocol's DAG-CBOR uses. Not RFC 8949's plain bytewise order: for the keys of a PLC
+// genesis operation the two disagree completely, and getting it wrong changes the bytes that are
+// hashed and signed, so the signature is invalid and the derived did:plc is a different identifier.
+// Checked against three genesis operations published on plc.directory (test/atproto.test.js).
 
 function encodeLength(major, n) {
   const m = major << 5;
@@ -44,9 +49,9 @@ export function encode(value) {
   if (typeof value === 'object') {
     const keys = Object.keys(value).sort((a, b) => {
       const ab = Buffer.from(a, 'utf8'), bb = Buffer.from(b, 'utf8');
-      const len = Math.min(ab.length, bb.length);
-      for (let i = 0; i < len; i++) { if (ab[i] !== bb[i]) return ab[i] - bb[i]; }
-      return ab.length - bb.length;
+      if (ab.length !== bb.length) return ab.length - bb.length;   // shortest first
+      for (let i = 0; i < ab.length; i++) { if (ab[i] !== bb[i]) return ab[i] - bb[i]; }
+      return 0;
     });
     const pairs = keys.map(k => Buffer.concat([encode(k), encode(value[k])]));
     return Buffer.concat([encodeLength(5, keys.length), ...pairs]);

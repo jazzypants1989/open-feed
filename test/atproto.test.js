@@ -1,10 +1,11 @@
 // AT Protocol bridge: base58, base32, DAG-CBOR, DID:PLC, XRPC client.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { encode as base58encode, decode as base58decode } from '../bridge/base58.js';
 import { encode as base32encode } from '../bridge/base32.js';
 import { encode as dagCborEncode } from '../bridge/dag-cbor.js';
-import { newP256Key, p256DidKey, createGenesisOperation } from '../bridge/did-plc.js';
+import { newP256Key, p256DidKey, createGenesisOperation, didFromOperation } from '../bridge/did-plc.js';
 import { createClient } from '../bridge/atproto.js';
 import { createHub } from '../src/hub.js';
 import { encrypt, postBinding, newReadingKey } from '../src/openfeed.js';
@@ -70,12 +71,15 @@ test('DAG-CBOR: encodes arrays', () => {
   assert.equal(encoded[0], 0x83);
 });
 
-test('DAG-CBOR: encodes maps with sorted keys', () => {
-  const encoded = dagCborEncode({ b: 2, a: 1 });
-  const str = encoded.toString('hex');
-  const aPos = str.indexOf('6161');
-  const bPos = str.indexOf('6162');
-  assert.ok(aPos < bPos, 'keys must be sorted');
+test('DAG-CBOR: map keys sort shortest first, then by byte value', () => {
+  // Same-length keys sort by value...
+  const flat = dagCborEncode({ b: 2, a: 1 }).toString('hex');
+  assert.ok(flat.indexOf('6161') < flat.indexOf('6162'), 'a before b');
+
+  // ...but a shorter key beats a lexically smaller one. RFC 7049 canonical order, which is what
+  // AT Protocol uses; RFC 8949's plain bytewise order would put "aaa" first and change every hash.
+  const mixed = dagCborEncode({ aaa: 1, z: 2 }).toString('hex');
+  assert.ok(mixed.indexOf('617a') < mixed.indexOf('616161'), 'z (1 char) before aaa (3 chars)');
 });
 
 test('DAG-CBOR: encodes bytes', () => {
@@ -90,6 +94,54 @@ test('DAG-CBOR: nested structures', () => {
   const encoded = dagCborEncode(value);
   assert.ok(Buffer.isBuffer(encoded));
   assert.ok(encoded.length > 10);
+});
+
+// ---- Conformance against plc.directory ----
+// A real genesis operation and the identifier it produced, copied from
+// https://plc.directory/did:plc:qwwvkiocc2g7rsvbcj4zsxrs/log/audit — the closest thing to an
+// outside reading this encoder has. If the map-key ordering or the DID derivation drifts, the
+// bytes that get hashed change and both assertions below fail.
+const REAL_GENESIS = {
+  sig: '1G2o-JhMd4CkV12eeglhFH4f6NgIfd-IU4L3SvF6p6cueT4x5_fWeqtLSjlWMWlfilh_WwjRE1yFSuzhJu-VQg',
+  prev: null,
+  type: 'plc_operation',
+  services: { atproto_pds: { type: 'AtprotoPersonalDataServer', endpoint: 'https://bsky.social' } },
+  alsoKnownAs: ['at://jessepence.bsky.social'],
+  rotationKeys: [
+    'did:key:zQ3shhCGUqDKjStzuDxPkTxN6ujddP4RkEKJJouJGRRkaLGbg',
+    'did:key:zQ3shpKnbdPx3g3CmPf5cRVTPe1HtSwVn5ish3wSnDPQCbLJK',
+  ],
+  verificationMethods: { atproto: 'did:key:zQ3shXjHeiBuRCKmM36cuYnm7YEMzhGnCmCyW92sRJ9pribSF' },
+};
+// the digest inside CID bafyreiefvvksdqqwrx4mviispgmv4mxpwpqnkz3zbtevpx6az2fxmwygce
+const REAL_GENESIS_DIGEST = '85ad5521c2168df8caa11279995e32efb3e0d567790cc957dfc0ce8b765b0611';
+const REAL_DID = 'did:plc:qwwvkiocc2g7rsvbcj4zsxrs';
+
+test('DAG-CBOR: reproduces the CID of a real PLC genesis operation', () => {
+  const digest = crypto.createHash('sha256').update(dagCborEncode(REAL_GENESIS)).digest('hex');
+  assert.equal(digest, REAL_GENESIS_DIGEST);
+});
+
+test('DID:PLC: re-derives a real identifier from its genesis operation', () => {
+  assert.equal(didFromOperation(REAL_GENESIS), REAL_DID);
+});
+
+test('DID:PLC: a real published signature verifies against our encoding', () => {
+  // The CID test pins the encoding of the *signed* operation. This pins the *unsigned* one — the
+  // bytes that are actually signed — and the signature format: unpadded base64url over raw r||s.
+  // The key is secp256k1 (`zQ3s...`), which is what Bluesky's PDS uses; ours are P-256 (`zDn...`).
+  // Both are valid AT Protocol curves.
+  const { sig, ...unsigned } = REAL_GENESIS;
+  const raw = base58decode(REAL_GENESIS.rotationKeys[1].replace(/^did:key:z/, ''));
+  assert.equal(Buffer.from(raw.subarray(0, 2)).toString('hex'), 'e701', 'secp256k1 multicodec');
+  const spki = Buffer.concat([
+    Buffer.from('3036301006072a8648ce3d020106052b8104000a032200', 'hex'),
+    Buffer.from(raw.subarray(2)),
+  ]);
+  const key = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
+  const ok = crypto.verify('SHA256', dagCborEncode(unsigned), { key, dsaEncoding: 'ieee-p1363' },
+                           Buffer.from(sig, 'base64url'));
+  assert.ok(ok, 'the published signature must verify over our DAG-CBOR of the unsigned operation');
 });
 
 // ---- DID:PLC ----
