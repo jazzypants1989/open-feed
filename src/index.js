@@ -1,9 +1,9 @@
-// §4 — the index: the signed list saying what exists now. The live set is a fold over the entries;
+// §4 — the index: the signed list saying what exists now. The live set is a replay of the entries;
 // a number has one hash, ever; a media file is listed by its hash alone; `highest` never decreases.
 import { signFile, verifyFile } from './file.js';
 
-/** §4.2: the fold. Returns `{ live: Map, highest }` or null when the index is invalid. */
-export function fold(entries) {
+/** §4.2: replay. Returns `{ live: Map, highest }` or null when the index is invalid. */
+export function replay(entries) {
   if (!Array.isArray(entries)) return null;
   const live = new Map(), issued = new Map();
   for (const e of entries) {
@@ -34,23 +34,23 @@ export function checkIndex(obj, set) {
 }
 
 /**
- * §7.2 step 9: a served index against the pin. Returns `{ verdict, why }` on a refusal, else
+ * §7.2 step 9: a served index against the checkpoint. Returns `{ verdict, why }` on a refusal, else
  * `{ notes, withdrawn }` where `withdrawn` is the map of withdrawn numbers to the hash they had.
  */
-export function checkAgainstPin(index, set, pin) {
-  const bad = (why) => ({ verdict: 'host', why });
-  if (index.obj.version < pin.indexVersion) return bad('an index older than the one this reader saw');
-  if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('two indexes at one version');
-  if (index.obj.highest < pin.highest) return bad('the highest number used went backwards');
-  const withdrawn = new Map(pin.withdrawn ?? []);
+export function checkAgainstCheckpoint(index, set, checkpoint) {
+  const bad = (why) => ({ verdict: 'tampered', why });
+  if (index.obj.version < checkpoint.indexVersion) return bad('an index older than the one this reader saw');
+  if (index.obj.version === checkpoint.indexVersion && index.address !== checkpoint.indexHash) return bad('two indexes at one version');
+  if (index.obj.highest < checkpoint.highest) return bad('the highest number used went backwards');
+  const withdrawn = new Map(checkpoint.withdrawn ?? []);
   for (const [number, e] of set.live) {
-    if (typeof number !== 'number' || number > pin.highest) continue;
-    const was = pin.live.get(number) ?? withdrawn.get(number);
+    if (typeof number !== 'number' || number > checkpoint.highest) continue;
+    const was = checkpoint.live.get(number) ?? withdrawn.get(number);
     if (was === undefined) return bad(`post ${number} is listed now and was not before`);
     if (was !== e.hash) return bad(`post ${number} changed after the reader saw it`);
   }
   const notes = [];
-  for (const [number, h] of pin.live) if (!set.live.has(number)) { notes.push(`withdrawn: ${number}`); withdrawn.set(number, h); }
+  for (const [number, h] of checkpoint.live) if (!set.live.has(number)) { notes.push(`withdrawn: ${number}`); withdrawn.set(number, h); }
   for (const number of withdrawn.keys()) if (set.live.has(number)) withdrawn.delete(number);
   return { notes, withdrawn };
 }

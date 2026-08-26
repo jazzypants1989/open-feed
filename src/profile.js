@@ -51,7 +51,7 @@ export function wellFormed(p) {
 
 /**
  * §3.6 rule 2 and 3: the recoveryLists a reader holds, extended by what the served chain carries at
- * lengths the pinned chain does not reach. `from` is the first index a carried recovery may fill.
+ * lengths the checkpointed chain does not reach. `from` is the first index a carried recovery may fill.
  */
 export function adoptRecoveryLists(recoveryLists, p, from) {
   p.chain.forEach((h, j) => { if (j >= from && j >= 1 && isList(h.recovery) && !(j in recoveryLists)) recoveryLists[j] = h.recovery; });
@@ -72,39 +72,39 @@ export function walk(p, recoveryLists) {
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
- * §7.1 steps 1–6 over profile bytes. `pin` is what the reader verified last time (or null).
+ * §7.1 steps 1–6 over profile bytes. `checkpoint` is what the reader verified last time (or null).
  * Returns `{ verdict, why }` or `{ verdict: 'ok', raw, chain, profile, recoveryLists, fields }`.
  */
-export function verifyProfile(bytes, { learned, pin = null }) {
+export function verifyProfile(bytes, { learned, checkpoint = null }) {
   const bad = (verdict, why) => ({ verdict, why });
   // Parse before any key is known: the anchor check needs the body, and which key signs is the
   // chain's last word.
   let parsedRaw;
   try { const s = splitFile(bytes); parsedRaw = s && parseBody(s.body); } catch { parsedRaw = null; }
-  if (!parsedRaw || parsedRaw.anchor !== learned) return bad('identity', 'not the identity this reader learned');
+  if (!parsedRaw || parsedRaw.anchor !== learned) return bad('contested', 'not the identity this reader learned');
   const p = parsedRaw;
-  if (!wellFormed(p)) return bad('identity', 'the profile is malformed');
-  const recoveryLists = { ...(pin?.recoveryLists ?? {}) };
-  adoptRecoveryLists(recoveryLists, p, pin ? pin.chain.length : 0);
+  if (!wellFormed(p)) return bad('contested', 'the profile is malformed');
+  const recoveryLists = { ...(checkpoint?.recoveryLists ?? {}) };
+  adoptRecoveryLists(recoveryLists, p, checkpoint ? checkpoint.chain.length : 0);
   let chain = walk(p, recoveryLists);
-  if (!chain) return bad('identity', 'the chain of key changes does not hold');
+  if (!chain) return bad('contested', 'the chain of key changes does not hold');
   const profile = verifyFile(bytes, chain.current);
-  if (!profile) return bad('identity', 'the profile is not signed by the key it ends on');
+  if (!profile) return bad('contested', 'the profile is not signed by the key it ends on');
   const fields = [p.recovery, p.locations, p.name, p.read];
-  if (pin) {
-    let i = p.chain.findIndex((h, j) => j < pin.chain.length && pin.chain[j].key !== h.key);
-    if (i < 0 && p.chain.length < pin.chain.length && p.version > pin.profileVersion) i = p.chain.length;   // forgetting a link is a fork too
+  if (checkpoint) {
+    let i = p.chain.findIndex((h, j) => j < checkpoint.chain.length && checkpoint.chain[j].key !== h.key);
+    if (i < 0 && p.chain.length < checkpoint.chain.length && p.version > checkpoint.profileVersion) i = p.chain.length;   // forgetting a link is a fork too
     if (i > 0) {
-      const mine = majority(pin.chain[i - 1].key, pin.chain[i], recoveryLists[i]), theirs = majority(p.chain[i - 1].key, p.chain[i], recoveryLists[i]);
-      if (mine === theirs) return bad('identity', 'contested: two histories, and no majority settles it');
-      if (mine) return bad('host', 'serves a branch the recovery rejected');
+      const mine = majority(checkpoint.chain[i - 1].key, checkpoint.chain[i], recoveryLists[i]), theirs = majority(p.chain[i - 1].key, p.chain[i], recoveryLists[i]);
+      if (mine === theirs) return bad('contested', 'two histories, and no majority settles it');
+      if (mine) return bad('tampered', 'serves a branch the recovery rejected');
       for (const j of Object.keys(recoveryLists)) if (+j > i) delete recoveryLists[j];
       adoptRecoveryLists(recoveryLists, p, i + 1);
-      if (!(chain = walk(p, recoveryLists))) return bad('identity', 'the chain of key changes does not hold');
-    } else if (p.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');
-    else if (p.version === pin.profileVersion && profile.address !== pin.profileHash) return bad('identity', 'contested: two profiles at one version');
-    // §3.3: a version that added any unsigned link since the pin changed the key and nothing else.
-    else if (p.chain.slice(pin.chain.length).some((h) => h.signature === undefined) && !sameJson(fields, [recoveryLists[pin.chain.length], ...pin.fields.slice(1)])) return bad('identity', 'a restore changed more than the key');
+      if (!(chain = walk(p, recoveryLists))) return bad('contested', 'the chain of key changes does not hold');
+    } else if (p.version < checkpoint.profileVersion) return bad('contested', 'an older profile than the one this reader saw');
+    else if (p.version === checkpoint.profileVersion && profile.address !== checkpoint.profileHash) return bad('contested', 'two profiles at one version');
+    // §3.3: a version that added any unsigned link since the checkpoint changed the key and nothing else.
+    else if (p.chain.slice(checkpoint.chain.length).some((h) => h.signature === undefined) && !sameJson(fields, [recoveryLists[checkpoint.chain.length], ...checkpoint.fields.slice(1)])) return bad('contested', 'a restore changed more than the key');
   }
   return { verdict: 'ok', raw: p, chain, profile, recoveryLists, fields };
 }

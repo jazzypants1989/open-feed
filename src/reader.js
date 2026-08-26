@@ -1,46 +1,46 @@
-// §7 — the reader. Given the anchor key it learned out of band, a location, and optionally the pin
+// §7 — the reader. Given the anchor key it learned out of band, a location, and optionally the checkpoint
 // it kept from last time, it performs §7's steps in order and returns exactly one of three
-// verdicts: `ok`, `host` (this host is misbehaving), `identity` (who this is cannot be settled).
+// verdicts: `ok`, `tampered` (this host is misbehaving), `contested` (who this is cannot be settled).
 // `recently restored`, `withdrawn: <number>` and `no index I can verify` are notes on an ok read.
 //
 // The fetcher is injected: `get(url) → { bytes, etag } | null` for a 404, and it throws for a
 // transport failure — which is no verdict at all (§9), so the throw propagates.
 import { sha256, verifyFile } from './file.js';
 import { verifyProfile } from './profile.js';
-import { fold, checkIndex, checkAgainstPin, verifyIndex } from './index.js';
+import { replay, checkIndex, checkAgainstCheckpoint, verifyIndex } from './index.js';
 
 const WEEK = 7 * 86400e3;
 /** §9: how many identities one pass will look again at. Past it a target is unchecked, which is no verdict. */
 export const MAX_IDENTITIES_PER_PASS = 200;
 
 export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
-  async function read({ learned, at, pin = null, now = Date.now() }) {
+  async function read({ learned, at, checkpoint = null, now = Date.now() }) {
     const note = [], say = (v) => note.includes(v) || note.push(v);
     const bad = (verdict, why) => ({ verdict, why, note });
 
     // §7.1 — profile, chain, recovery.
     const pf = await get(`${at}/profile`);
-    if (!pf) return bad('host', 'no profile served');
-    const id = verifyProfile(pf.bytes, { learned, pin });
+    if (!pf) return bad('tampered', 'no profile served');
+    const id = verifyProfile(pf.bytes, { learned, checkpoint });
     if (id.verdict !== 'ok') return bad(id.verdict, id.why);
     const { raw, chain, profile, recoveryLists, fields } = id;
-    const restoredAt = chain.restored ? (pin?.restoredAt?.[raw.chain.length] ?? now) : null;
+    const restoredAt = chain.restored ? (checkpoint?.restoredAt?.[raw.chain.length] ?? now) : null;
     if (restoredAt !== null && now - restoredAt < WEEK) say('recently restored');
 
     // §7.2 — the index, under the current key. An unverifiable index is not an accusation.
     const hf = await get(`${at}/index`);
     let index = hf && verifyIndex(hf.bytes, chain.current);
-    let set = index && fold(index.obj.entries);
-    if (index) { const why = !set ? 'the index does not fold' : checkIndex(index.obj, set); if (why) return bad('host', why); }   // §4.2 fold, then §4 shape
+    let set = index && replay(index.obj.entries);
+    if (index) { const why = !set ? 'the index entries are invalid' : checkIndex(index.obj, set); if (why) return bad('tampered', why); }   // §4.2 replay, then §4 shape
     if (!index) {
-      if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
+      if (!checkpoint) return bad('tampered', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
       say('no index I can verify');
-      set = { live: new Map([...pin.live].map(([number, h]) => [number, { hash: h }])), highest: pin.highest };
-      index = { obj: { version: pin.indexVersion, highest: pin.highest }, address: pin.indexHash };
+      set = { live: new Map([...checkpoint.live].map(([number, h]) => [number, { hash: h }])), highest: checkpoint.highest };
+      index = { obj: { version: checkpoint.indexVersion, highest: checkpoint.highest }, address: checkpoint.indexHash };
     }
-    let withdrawn = new Map(pin?.withdrawn ?? []);
-    if (pin) {
-      const r = checkAgainstPin(index, set, pin);
+    let withdrawn = new Map(checkpoint?.withdrawn ?? []);
+    if (checkpoint) {
+      const r = checkAgainstCheckpoint(index, set, checkpoint);
       if (r.verdict) return bad(r.verdict, r.why);
       r.notes.forEach(say);
       withdrawn = r.withdrawn;
@@ -51,19 +51,19 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
     for (const [number, e] of set.live) {
       const isMedia = typeof number === 'string';
       const f = await get(isMedia ? `${at}/media/${number}` : `${at}/posts/${number}`);
-      if (!f) return bad('host', `${isMedia ? 'media file' : 'post'} ${number} is listed and not served`);
-      if (isMedia) { if (sha256(f.bytes) !== number) return bad('host', `media file ${number} is not what the index lists`); media.set(number, f.bytes); continue; }
+      if (!f) return bad('tampered', `${isMedia ? 'media file' : 'post'} ${number} is listed and not served`);
+      if (isMedia) { if (sha256(f.bytes) !== number) return bad('tampered', `media file ${number} is not what the index lists`); media.set(number, f.bytes); continue; }
       const post = verifyFile(f.bytes, chain.keys);
-      if (!post || post.address !== e.hash || post.obj.number !== number) return bad('host', `post ${number} is not what the index lists`);
+      if (!post || post.address !== e.hash || post.obj.number !== number) return bad('tampered', `post ${number} is not what the index lists`);
       posts.set(number, post.obj);
     }
 
     return {
       verdict: 'ok', note, posts, media, chain, locations: raw.locations, name: raw.name, read: raw.read, anchor: raw.anchor,
-      pin: {
+      checkpoint: {
         profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields,
-        restoredAt: { ...(pin?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
-        locations: [...new Set([...(pin?.locations ?? []), ...raw.locations])],      // §3.7: every location ever named
+        restoredAt: { ...(checkpoint?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
+        locations: [...new Set([...(checkpoint?.locations ?? []), ...raw.locations])],      // §3.7: every location ever named
         indexVersion: index.obj.version, indexHash: index.address, highest: index.obj.highest,
         live: new Map([...set.live].map(([number, e]) => [number, e.hash])), withdrawn,
       },
@@ -72,7 +72,7 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
 
   /**
    * §7.4 — targets and the rumor rule, over the posts of one replier. `seen` maps anchor keys to
-   * pins and is updated in place when a look-again succeeds. A reply whose target hash is not
+   * checkpoints and is updated in place when a look-again succeeds. A reply whose target hash is not
    * what that author's index lists — now, or when it was withdrawn — is marked unresolved and says
    * nothing. Returns the rumor lines: one per replier, however many replies.
    */
@@ -92,8 +92,8 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
         for (const where of [...new Set([...(s.locations ?? []), t.location])]) {
           if (typeof where !== 'string') continue;
           let again = null;
-          try { again = await read({ learned: t.key, at: where, pin: seen.get(t.key), now }); } catch { /* no verdict: try the next */ }
-          if (again?.verdict === 'ok') { seen.set(t.key, again.pin); if (again.pin.highest >= t.number) break; }
+          try { again = await read({ learned: t.key, at: where, checkpoint: seen.get(t.key), now }); } catch { /* no verdict: try the next */ }
+          if (again?.verdict === 'ok') { seen.set(t.key, again.checkpoint); if (again.checkpoint.highest >= t.number) break; }
         }
       }
       const line = `${replier} replied to something I cannot see`;

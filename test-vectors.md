@@ -88,7 +88,7 @@ gQTvN-c31p-2SO4_h4dASM4wzwE_FZM_g41zShGynUWSldq24wzXzsLqYwg-PRqqib--5Ct5x0rJooSd
 
 Only `n` and `at` are in the clear; the text, the relation, the target and the media references are
 inside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and
-location (§6.4): one slot per recipient. The carrier bound into the associated data is
+location (§6.4): one slot per recipient. The binding bound into the associated data is
 `pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5`.
 
 ```

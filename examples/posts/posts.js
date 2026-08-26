@@ -8,7 +8,7 @@ import { signProfile, rotation, commit } from '../../src/profile.js';
 import { signIndex } from '../../src/index.js';
 import { createHub } from '../../src/hub.js';
 import { createReader } from '../../src/reader.js';
-import { encrypt, decrypt, carrierOf, readingKeyFromSeed } from '../../src/envelope.js';
+import { encrypt, decrypt, postBinding, readingKeyFromSeed } from '../../src/envelope.js';
 
 // The test vectors' keys.
 const key = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
@@ -32,7 +32,7 @@ put('/mom/index', signIndex({ entries: [[12, address(twelveA)]], version: 1, hig
 const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1'), pngHash = sha256(png);
 const seeded = (l) => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', `openfeed/v1/vector:${l}`, '', String(i++), n)); };
 const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [{ key: A1.x, read: xk('vector:alice-read').x, location: AT }, { key: MUM.x, read: xk('vector:mum-read').x, location: MUMAT }],
-  carrier: carrierOf(A1.x, 4), ephemeral: xk('vector:ephemeral/4'), contentKey: seeded('contentkey/4')(32), random: seeded('dummies/4') });
+  binding: postBinding(A1.x, 4), ephemeral: xk('vector:ephemeral/4'), contentKey: seeded('contentkey/4')(32), random: seeded('dummies/4') });
 const p = {
   1: post(1, { at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, A1),
   2: post(2, { at: '2026-07-11T18:02:00Z', text: 'deleted this one' }, A1),
@@ -45,7 +45,7 @@ for (const number of Object.keys(p)) put(`/alice/posts/${number}`, p[number]);
 put(`/alice/media/${pngHash}`, png);
 const entries = [1, 2, 3, 4, 5, 6].map((number) => [number, address(p[number])]).concat([[pngHash]]);
 put('/alice/index', signIndex({ entries, version: 1, highest: 6 }, A2));
-const first = await reader.read({ learned: A1.x, at: AT }), mumPin = (await reader.read({ learned: MUM.x, at: MUMAT })).pin;
+const first = await reader.read({ learned: A1.x, at: AT }), mumPin = (await reader.read({ learned: MUM.x, at: MUMAT })).checkpoint;
 
 // ---- §5 a post ----
 console.log('§5 — a post\n');
@@ -63,11 +63,11 @@ A post is immutable, created once (§8.2), and signed by any key in its author's
 
 // ---- §5.1 number ----
 hub.store.set('alice/posts/6', p[2]);                                // genuine post 2, served at 6
-const swapped = await reader.read({ learned: A1.x, at: AT, pin: first.pin });
+const swapped = await reader.read({ learned: A1.x, at: AT, checkpoint: first.checkpoint });
 hub.store.set('alice/posts/6', p[6]);
 console.log(`§5.1 — genuine post 2 served at /posts/6: ${swapped.verdict}: ${swapped.why}\n`);
 assert.notEqual(address(p[2]), address(post(6, { at: obj(p[2]).at, text: obj(p[2]).text }, A1)));
-assert.deepEqual([swapped.verdict, swapped.why], ['host', 'post 6 is not what the index lists']);
+assert.deepEqual([swapped.verdict, swapped.why], ['tampered', 'post 6 is not what the index lists']);
 rule('5.1', `A post MUST declare the number it is published at inside its signed bytes. A file served at \`/posts/<number>\`
 whose \`n\` is another number is not that post (§7.1).`);
 
@@ -81,16 +81,16 @@ malformed \`at\`.`);
 // ---- §5.3 rel ----
 const t1 = { key: A1.x, number: 1, hash: address(p[1]), location: AT };
 const like = post(1, { at: '2026-07-05T08:00:00Z', rel: 'like', target: t1 }, SIS);
-assert.deepEqual([obj(like).rel, decrypt(dm, xk('vector:mum-read').privateKey, carrierOf(A1.x, 4)).rel], ['like', 'root']);
-// An edit: post 7 supersedes post 3, and 3 is withdrawn; a reply to (3, hash) still resolves under the pin.
+assert.deepEqual([obj(like).rel, decrypt(dm, xk('vector:mum-read').privateKey, postBinding(A1.x, 4)).rel], ['like', 'root']);
+// An edit: post 7 supersedes post 3, and 3 is withdrawn; a reply to (3, hash) still resolves under the checkpoint.
 const p7 = post(7, { at: '2026-08-15T07:20:00Z', text: 'the morning after — it was thursday', rel: 'supersedes', target: { key: A1.x, number: 3, hash: address(p[3]), location: AT } }, A2);
 put('/alice/posts/7', p7);
 put('/alice/index', signIndex({ entries: [...entries, [3, null], [7, address(p7)]], version: 2, highest: 7 }, A2));
-const edited = await reader.read({ learned: A1.x, at: AT, pin: first.pin });
+const edited = await reader.read({ learned: A1.x, at: AT, checkpoint: first.checkpoint });
 const onOld = obj(post(4, { at: '2026-08-15T09:00:00Z', text: 'lovely', rel: 'reply', target: { key: A1.x, number: 3, hash: address(p[3]), location: AT } }, SIS));
-const quiet = await reader.rumors(new Map([[A1.x, edited.pin]]), new Map([[4, onOld]]), 'sis');
+const quiet = await reader.rumors(new Map([[A1.x, edited.checkpoint]]), new Map([[4, onOld]]), 'sis');
 console.log(`§5.3 — post 7 supersedes 3: ${edited.verdict}, ${edited.note.join('; ')}; a reply to (3, its hash) still resolves: ${onOld.target.unresolved !== true}\n`);
-assert.deepEqual([edited.verdict, edited.note, edited.posts.has(3), edited.pin.withdrawn.get(3), onOld.target.unresolved, quiet], ['ok', ['withdrawn: 3'], false, address(p[3]), undefined, []]);
+assert.deepEqual([edited.verdict, edited.note, edited.posts.has(3), edited.checkpoint.withdrawn.get(3), onOld.target.unresolved, quiet], ['ok', ['withdrawn: 3'], false, address(p[3]), undefined, []]);
 rule('5.3', `\`rel\` is \`reply\`, \`root\`, \`like\`, \`repost\`, \`quote\`, \`mention\`, or \`supersedes\`, or an absolute URL for anything
 else. An edit is a new post with \`rel: "supersedes"\` naming the old one, which is withdrawn; a reader
 holding the superseding post SHOULD show replies that target the superseded \`(number, hash)\` under it.`);
@@ -123,6 +123,6 @@ envelope (§6.5); the public file carries only \`n\`, \`at\`, and \`encrypted\`.
 // ---- §5.6 private messages ----
 console.log(`§5.6 — post 4 is a message to mum on alice's host; PUT /mom/inbox → ${hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status}\n`);
 assert.ok(edited.posts.has(4));
-assert.deepEqual([hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status, decrypt(obj(p[4]).encrypted, xk('vector:host-read').privateKey, carrierOf(A1.x, 4)), decrypt(obj(p[4]).encrypted, xk('vector:mum-read').privateKey, carrierOf(A1.x, 4)).text], [404, null, 'I am leaving him on Friday']);
+assert.deepEqual([hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status, decrypt(obj(p[4]).encrypted, xk('vector:host-read').privateKey, postBinding(A1.x, 4)), decrypt(obj(p[4]).encrypted, xk('vector:mum-read').privateKey, postBinding(A1.x, 4)).text], [404, null, 'I am leaving him on Friday']);
 rule('5.6', `A private message is a post encrypted to its recipients (§6), listed in the sender's own index. There is
 no inbox.`);

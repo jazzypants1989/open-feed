@@ -17,7 +17,7 @@ const LOC = 'https://alice.example/alice', READ = 'cLoW-OhUZjtdhQBEZbMz92JNIyeJc
 const base = { anchor: A1.x, name: 'Alice', recovery: REC, locations: [LOC], read: READ };
 const signOver = (text, k) => crypto.sign(null, Buffer.from(text, 'ascii'), k.privateKey).toString('base64url');
 const holds = (chain, lists) => !!walk({ chain }, lists);
-const read = (o, signer, pin = null) => verifyProfile(signProfile(o, signer), { learned: A1.x, pin });
+const read = (o, signer, checkpoint = null) => verifyProfile(signProfile(o, signer), { learned: A1.x, checkpoint });
 const pinOf = (r) => ({ profileVersion: r.raw.version, profileHash: r.profile.address, chain: r.raw.chain, recoveryLists: r.recoveryLists, fields: r.fields });
 
 const rot = rotation(A1, A2, REC), res = restore(A2, A3, [MUM, SIS], REC);
@@ -34,7 +34,7 @@ console.log(`  learned from the page   ${verifyProfile(hostile, { learned: impos
 console.log(`  learned out of band     ${verifyProfile(hostile, { learned: A1.x }).verdict}\n`);
 assert.ok(verifyFile(hostile, impostor.x));
 assert.equal(verifyProfile(hostile, { learned: impostor.x }).verdict, 'ok');
-assert.deepEqual([verifyProfile(hostile, { learned: A1.x }).verdict, verifyProfile(hostile, { learned: A1.x }).why], ['identity', 'not the identity this reader learned']);
+assert.deepEqual([verifyProfile(hostile, { learned: A1.x }).verdict, verifyProfile(hostile, { learned: A1.x }).why], ['contested', 'not the identity this reader learned']);
 assert.equal(decodeStrict(A1.x, 32).length, 32);
 rule('3', `Your identity is your anchor key: a 32-byte Ed25519 public key. A reader MUST obtain it by a route the
 host does not control (§3.7) and MUST refuse a profile whose \`anchor\` differs from it.`);
@@ -47,8 +47,8 @@ console.log(`  signed by the key the chain ends on   ${ok.verdict}`);
 console.log(`  signed by the key it rotated from     ${read(v3, A2).why}`);
 console.log(`  version -1                            ${read({ ...v3, version: -1 }, A3).why}\n`);
 assert.equal(ok.verdict, 'ok');
-assert.deepEqual([read(v3, A2).verdict, read(v3, A2).why], ['identity', 'the profile is not signed by the key it ends on']);
-for (const bad of [{ version: -1 }, { chain: undefined }, { recovery: undefined }, { locations: undefined }]) assert.equal(read({ ...v3, ...bad }, A3).verdict, 'identity');
+assert.deepEqual([read(v3, A2).verdict, read(v3, A2).why], ['contested', 'the profile is not signed by the key it ends on']);
+for (const bad of [{ version: -1 }, { chain: undefined }, { recovery: undefined }, { locations: undefined }]) assert.equal(read({ ...v3, ...bad }, A3).verdict, 'contested');
 assert.equal(read({ ...v3, read: undefined, name: undefined }, A3).verdict, 'ok');
 assert.equal(read({ ...v3, version: 2 }, A3, pinOf(ok)).why, 'an older profile than the one this reader saw');
 rule('3.1', `\`\`\`json
@@ -112,15 +112,15 @@ list cannot restore. Vouchers MAY be added to a link after it was made.`);
 // A restore changes the key and nothing else.
 const pin2 = pinOf(read({ ...base, version: 2, chain: chain2 }, A2));
 const served = (fields) => read({ ...v3, ...fields }, A3, pin2);
-console.log(`  pinned at version 2; version 3 adds an unsigned link`);
+console.log(`  checkpointed at version 2; version 3 adds an unsigned link`);
 console.log(`    nothing else changed      ${served({}).verdict}`);
 console.log(`    locations changed too     ${served({ locations: ['https://elsewhere.example/alice'] }).why}\n`);
 assert.equal(served({}).verdict, 'ok');
 for (const f of [{ locations: ['https://elsewhere.example/alice'] }, { name: 'Alise' }, { read: A2.x }, { recovery: commit([MUM, SIS]) }])
-  assert.deepEqual([served(f).verdict, served(f).why], ['identity', 'a restore changed more than the key']);
-rule('3.2', `A restore changes the key and nothing else: a pinned reader MUST report **identity** for a profile whose
+  assert.deepEqual([served(f).verdict, served(f).why], ['contested', 'a restore changed more than the key']);
+rule('3.2', `A restore changes the key and nothing else: a checkpointed reader MUST report **contested** for a profile whose
 chain has grown by any link without \`sig\` and whose \`recovery\`, \`locations\`, \`name\`, or \`read\` differ from
-the pin.`);
+the checkpoint.`);
 
 // The cap, and what a rotated-away key keeps.
 let long = [...chain1]; let k = A1;
@@ -157,7 +157,7 @@ const paper = { key: key('alice/backup'), salt: 'saltpaper' }, solo = commit([pa
 assert.equal(walk({ chain: [...chain1, restore(A1, fresh, [paper], solo)] }, { 1: solo }).current, fresh.x);
 const one = commit([BRO]);
 assert.equal(walk({ chain: [...chain1, restore(A1, BRO.key, [BRO], one)] }, { 1: one }).current, BRO.key.x);
-// A changed list reaches a pinned reader only through a link: the held list at length 1 stays.
+// A changed list reaches a checkpointed reader only through a link: the held list at length 1 stays.
 const held = adoptRecoveryLists({}, { chain: chain1, recovery: one }, 0);
 adoptRecoveryLists(held, { chain: [...chain1, rotation(A1, A2, REC)], recovery: REC }, 1);
 assert.deepEqual([held[1], held[2]], [one, REC]);
@@ -166,9 +166,9 @@ assert.deepEqual([ok.verdict, ok.chain.restored], ['ok', true]);
 console.log(`  a backup key on paper   ${spokenCode(paper.key.x).join(' ')}   1 of 1 vouches — she is back`);
 console.log(`  a list of bro alone     bro restores to his own key: 1 of 1`);
 console.log(`  after she lists three and rotates, a reader that saw the list of one keeps it at length 1\n`);
-rule('3.3', `An app SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
-owner's own keys. An app SHOULD rotate when the list changes, because a changed list reaches readers only
-through a new link; changing the key means writing the profile and then the index (§4.4). A reading app
+rule('3.3', `A publisher SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
+owner's own keys. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
+through a new link; changing the key means writing the profile and then the index (§4.4). A reader
 SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
 verdict (§7.2).`);
 
@@ -196,15 +196,15 @@ assert.equal(`${url.origin}${url.pathname}`, LOC);
 assert.deepEqual(spokenIndices(A1.x), fields);
 assert.equal(WORDS.length, 2048);
 assert.equal(spokenCode(A1.x).join(' '), 'inflict view trash better source icon');
-assert.equal(verifyProfile(hostile, { learned: url.hash.slice(1) }).verdict, 'identity');
+assert.equal(verifyProfile(hostile, { learned: url.hash.slice(1) }).verdict, 'contested');
 // The exit from contested: the same routes carry the key the chain currently ends on.
 const rival = [{ key: A1.x }, rotation(A1, BRO.key, REC)];
 assert.equal(spokenCode(A1.x).join(' '), spokenCode(read({ ...base, version: 1, chain: chain1 }, A1).raw.anchor).join(' '));
 assert.notEqual(spokenCode(A3.x).join(' '), spokenCode(BRO.key.x).join(' '));
 assert.ok(chain3.some((l) => l.key === A3.x) && !rival.some((l) => l.key === A3.x));
 rule('3.7', `A link is the location with the anchor key in its fragment, \`https://alice.example/alice#<anchor key>\`;
-the app compares and refuses on mismatch. A spoken code is six words: \`HKDF-SHA256(ikm = key, salt = "",
+the reader compares and refuses on mismatch. A spoken code is six words: \`HKDF-SHA256(ikm = key, salt = "",
 info = "openfeed/v1/spoken", 9 bytes)\`, the first 66 bits read as six 11-bit big-endian indices into the
 BIP-39 English wordlist, which implementations MUST use. When a reader is contested, either route MAY carry
 the key the owner's chain currently ends on; a reader given that key MUST follow the branch containing it
-and pin there.`);
+and checkpoint there.`);

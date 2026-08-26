@@ -15,7 +15,7 @@ import * as pub from '../examples/weekend-publisher/weekend-publisher.js';
 import { read } from '../examples/weekend-reader/weekend-reader.js';
 import { createReader } from '../src/reader.js';
 import { spokenIndices as spokenIndicesRef, spokenCode } from '../src/spoken.js';
-import { encrypt, decrypt as unseal, carrierOf, readingKeyFromSeed } from '../src/envelope.js';
+import { encrypt, decrypt as unseal, postBinding, readingKeyFromSeed } from '../src/envelope.js';
 
 // A deterministic X25519 key from a label — for vectors only, never for a real identity.
 const xKey = (label) => ({ label, ...readingKeyFromSeed(crypto.createHash('sha256').update(`envelope:${label}`).digest()) });
@@ -81,7 +81,7 @@ const post4 = pub.post(4, { at: '2026-08-15T07:00:00Z', text: 'the morning after
 const envelope = encrypt({
   content: { text: 'I am leaving him on Friday', rel: 'root' },
   audience: [{ key: A1.x, read: READ_ALICE.x, location: AT }, { key: MUM.key.x, read: READ_MUM.x, location: 'https://mom.example/mom' }],
-  carrier: carrierOf(A1.x, 5),
+  binding: postBinding(A1.x, 5),
   ephemeral: xKey('vector:ephemeral/5'),
   contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/5').digest(),
 });
@@ -126,26 +126,26 @@ check('a cold read of version 1 is ok, with three posts and "recently restored" 
   cold.verdict === 'ok' && cold.posts.size === 3 && cold.note.includes('recently restored'));
 
 serveIndex(head2);
-const pinned = await read(get, { learned: A1.x, at: AT, pin: cold.pin });
-check('a pinned read of version 2 is ok, notes the withdrawal, and holds posts 4 and 5 and the media file',
-  pinned.verdict === 'ok' && pinned.note.includes('withdrawn: 2') && pinned.posts.has(4) && pinned.posts.has(5) && pinned.media.has(pngHash));
+const checkpointed = await read(get, { learned: A1.x, at: AT, checkpoint: cold.checkpoint });
+check('a checkpointed read of version 2 is ok, notes the withdrawal, and holds posts 4 and 5 and the media file',
+  checkpointed.verdict === 'ok' && checkpointed.note.includes('withdrawn: 2') && checkpointed.posts.has(4) && checkpointed.posts.has(5) && checkpointed.media.has(pngHash));
 
 serveIndex(head3);
-const rewritten = await read(get, { learned: A1.x, at: AT, pin: pinned.pin });
+const rewritten = await read(get, { learned: A1.x, at: AT, checkpoint: checkpointed.checkpoint });
 check('the rewrite is accepted by a reader that held the index before it, and post 2 is back at the hash it had',
   rewritten.verdict === 'ok' && [...rewritten.posts.keys()].sort().join(',') === '1,2,3,4,5' && !rewritten.note.some((n) => n.startsWith('withdrawn')));
-check('a number that came back at another hash would be host', (await read(get, { learned: A1.x, at: AT, pin: { ...pinned.pin, withdrawn: new Map([[2, 'x']]) } })).verdict === 'host');
+check('a number that came back at another hash would be host', (await read(get, { learned: A1.x, at: AT, checkpoint: { ...checkpointed.checkpoint, withdrawn: new Map([[2, 'x']]) } })).verdict === 'tampered');
 check('the reader hands back the verified profile\'s reading key', rewritten.read === READ_ALICE.x);
 
 const sealedField = JSON.parse(body(post5)).encrypted;
 const post5FieldOf = () => sealedField;
-const opened = unseal(sealedField, READ_MUM.privateKey, carrierOf(A1.x, 5));
+const opened = unseal(sealedField, READ_MUM.privateKey, postBinding(A1.x, 5));
 check('the encrypted post opens for a recipient, with the audience inside',
   opened?.text === 'I am leaving him on Friday' && opened.audience.length === 2 && opened.audience.some((a) => a.read === READ_MUM.x && a.key === MUM.key.x));
-check('lifted into another post, the same envelope does not open — the carrier is associated data',
-  unseal(post5FieldOf(), READ_MUM.privateKey, carrierOf(edKey('thief').x, 1)) === null
+check('lifted into another post, the same envelope does not open — the binding is associated data',
+  unseal(post5FieldOf(), READ_MUM.privateKey, postBinding(edKey('thief').x, 1)) === null
   && unseal(post5FieldOf(), READ_MUM.privateKey, '') === null);
-check('a non-recipient cannot open it', unseal(post5FieldOf(), xKey('vector:host-read').privateKey, carrierOf(A1.x, 5)) === null);
+check('a non-recipient cannot open it', unseal(post5FieldOf(), xKey('vector:host-read').privateKey, postBinding(A1.x, 5)) === null);
 check('one slot per recipient, every slot the same width',
   envelope.slots.length === 2 && new Set(envelope.slots.map(([t, w]) => `${t.length}/${w.length}`)).size === 1);
 
@@ -159,10 +159,10 @@ check('the spoken code is six 11-bit indices', idx.length === 6 && idx.every((i)
   const c2 = await r2.read({ learned: A1.x, at: AT });
   check('src: the cold read agrees', c2.verdict === 'ok' && [...c2.posts.keys()].sort().join() === [...cold.posts.keys()].sort().join() && c2.note.includes('recently restored'));
   serveIndex(head2);
-  const p2r = await r2.read({ learned: A1.x, at: AT, pin: c2.pin });
-  check('src: the pinned read agrees', p2r.verdict === 'ok' && p2r.note.includes('withdrawn: 2') && p2r.posts.has(4) && p2r.posts.has(5));
+  const p2r = await r2.read({ learned: A1.x, at: AT, checkpoint: c2.checkpoint });
+  check('src: the checkpointed read agrees', p2r.verdict === 'ok' && p2r.note.includes('withdrawn: 2') && p2r.posts.has(4) && p2r.posts.has(5));
   serveIndex(head3);
-  const w2 = await r2.read({ learned: A1.x, at: AT, pin: p2r.pin });
+  const w2 = await r2.read({ learned: A1.x, at: AT, checkpoint: p2r.checkpoint });
   check('src: the rewrite and the re-listing agree', w2.verdict === 'ok' && [...w2.posts.keys()].sort().join(',') === '1,2,3,4,5' && w2.read === READ_ALICE.x);
   check("src: the spoken code agrees", spokenIndicesRef(A1.x).join() === idx.join());
   check('src: the six words are the BIP-39 words at those indices', spokenCode(A1.x).length === 6 && spokenCode(A1.x).every((w) => /^[a-z]+$/.test(w)));
@@ -217,7 +217,7 @@ const appendix = [
   vec('6. Post', 'The number is inside the signed bytes (§5.1).', f(post1)),
   vec('7. Post — a reply', 'The target names the author\'s anchor key, the number, all 43 characters of the address, and where\nthe replier last knew that author to live (§5.4).', f(post3)),
   vec('8. Post — encrypted',
-    `Only \`n\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.4): one slot per recipient. The carrier bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
+    `Only \`n\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.4): one slot per recipient. The binding bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
   vec('9. Index, `version` 1', 'Three posts live.', f(head1)),
   vec('10. Index, `version` 2 — a withdrawal, a media file',
     `Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the media file is listed by its\naddress alone. The media file's bytes are ${png.length} bytes hashing to \`${pngHash}\`.`, f(head2)),

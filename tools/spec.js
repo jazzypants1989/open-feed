@@ -26,13 +26,13 @@ const SECTIONS = [
   ['2.4', 'JSON hygiene'], ['2.5', 'Unknown members'],
   ['3', 'Identity'], ['3.1', 'The profile'], ['3.2', 'The chain'], ['3.3', 'The recovery list'],
   ['3.4', 'Contests'], ['3.5', 'Locations'], ['3.6', 'The reading key'], ['3.7', 'First contact'],
-  ['4', 'The index'], ['4.1', 'Entries and the fold'], ['4.2', '`highest`'], ['4.3', 'Media'],
+  ['4', 'The index'], ['4.1', 'Entries and replay'], ['4.2', '`highest`'], ['4.3', 'Media'],
   ['4.4', 'Who signs the index'], ['4.5', 'Rewriting'],
   ['5', 'Posts'], ['5.1', '`number`'], ['5.2', '`at`'], ['5.3', '`rel`'], ['5.4', '`target`'], ['5.5', '`media`'],
   ['5.6', 'Private messages'],
-  ['6', 'Encrypted content'], ['6.1', 'The envelope'], ['6.2', 'Carrier binding'], ['6.3', 'Slots and tags'],
+  ['6', 'Encrypted content'], ['6.1', 'The envelope'], ['6.2', 'Post binding'], ['6.3', 'Slots and tags'],
   ['6.4', 'The audience'], ['6.5', 'An encrypted post\'s target'],
-  ['7', 'Reading'], ['7.1', 'The steps'], ['7.2', 'Verdicts'], ['7.3', 'The pin'], ['7.4', 'Targets and the rumor rule'],
+  ['7', 'Reading'], ['7.1', 'The steps'], ['7.2', 'Verdicts'], ['7.3', 'The checkpoint'], ['7.4', 'Targets and the rumor rule'],
   ['8', 'Publishing'], ['8.1', 'Compare-and-swap'], ['8.2', 'Create-once'], ['8.3', 'Write order'],
   ['8.4', 'Claiming a name'], ['8.5', 'Reclaiming a number'], ['8.6', 'Media'], ['8.7', 'What a hub must do'],
   ['8.8', 'Withdrawal and deletion'], ['8.9', 'Your copy'],
@@ -53,7 +53,8 @@ your host. The entire protocol is built from primitives found in most languages'
 Your host is just storage — a static file server is a fully conforming host. People on different
 hosts reply, react, and share encrypted content with each other as easily as people on the same one.
 The protocol is designed for the case where your host operator can look at everything, refuse to
-cooperate, and may not be on your side — and content for chosen people is encrypted to their keys.
+cooperate, and may not be on your side — the adversary is a loved one who controls the family hub —
+and content for chosen people is encrypted to their keys.
 
 ## 1. Terms
 
@@ -71,7 +72,7 @@ characters, a SHA-256 hash is 43, an Ed25519 signature is 86.
 | **anchor key** | your first signing key — it *is* your identity. A link or scanned code carries it, and readers follow the chain from it |
 | **chain** | the links from the anchor key to the key in use now, each signed by the previous key or vouched by the recovery list |
 | **recovery list** | the people or keys you named in advance to restore you, committed privately |
-| **pin** | what a reader verified and remembers about an identity — the profile, the chain, the recovery lists at each chain length, and the index |
+| **checkpoint** | what a reader verified and remembers about an identity — the profile, the chain, the recovery lists at each chain length, and the index |
 | **withdraw** | remove a post from the live set by appending a line to the index |
 | **hub** | anything that stores and serves the files. It holds no key of yours and makes no decision about who you are |
 

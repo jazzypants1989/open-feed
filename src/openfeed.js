@@ -3,7 +3,7 @@ export * from './file.js';
 export * as profile from './profile.js';
 export * as index from './index.js';
 export * as envelope from './envelope.js';
-export { encrypt, decrypt, carrierOf, newReadingKey, encryptMedia, decryptMedia } from './envelope.js';
+export { encrypt, decrypt, postBinding, newReadingKey, encryptMedia, decryptMedia } from './envelope.js';
 export { spokenIndices, spokenCode } from './spoken.js';
 export { createReader } from './reader.js';
 export { createFetcher, FetchError } from './fetch.js';

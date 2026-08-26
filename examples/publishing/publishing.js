@@ -24,8 +24,8 @@ const io = {
   put: async (u, b, { ifMatch = null } = {}) => { const r = call('PUT', new URL(u).pathname, { body: b, ifMatch }); return { status: r.status, etag: r.headers?.etag ?? null }; },
 };
 const reader = createReader({ get: io.get });
-let pin = null;
-const see = async (p = pin, at = AT, learned = alice.x) => reader.read({ learned, at, pin: p });
+let checkpoint = null;
+const see = async (p = checkpoint, at = AT, learned = alice.x) => reader.read({ learned, at, checkpoint: p });
 const nums = (r) => [...r.posts.keys()].join(', '), etag = () => call('GET', '/alice/index').headers.etag;
 const served = () => parseBody(splitFile(hub.store.get('alice/index')).body), snap = () => new Map(hub.store);
 const restore = (s) => { hub.store.clear(); for (const [k, v] of s) hub.store.set(k, v); };
@@ -54,7 +54,8 @@ GET any of the above                          → 200 | 404
 
 There is no account, token, or session: the request is the signed file. A hub that checks the proof (§8.4)
 answers 403 for a profile or index that does not verify and 409 for a name held under another anchor or a
-\`version\` that has not advanced.`);
+\`version\` that has not advanced. A hub MAY require more of its own publishers — a pass, an account, a
+rate limit, a bill.`);
 
 // ---- §8.1 compare-and-swap ----
 const h1 = served().entries[0][1], E = etag();
@@ -65,7 +66,7 @@ assert.equal(E, `"${sha256(hub.store.get('alice/index'))}"`);
 const p2 = signFile({ number: 2, at: '2026-07-05T09:00:00Z', text: 'jam day' }, alice);
 call('PUT', '/alice/posts/2', { body: p2, expect: 201 });
 call('PUT', '/alice/index', { body: signIndex({ entries: [[1, h1], [2, address(p2)]], version: 3, highest: 2 }, alice), ifMatch: E, expect: 200 });
-pin = (await see(null)).pin;
+checkpoint = (await see(null)).checkpoint;
 const p3 = signFile({ number: 3, at: '2026-07-05T18:20:00Z', text: 'and the beans' }, alice), laptop = { entries: [[1, h1], [3, address(p3)]], highest: 3 };
 const before = snap();
 call('PUT', '/alice/posts/3', { body: p3, expect: 201 });
@@ -75,14 +76,14 @@ const lost = await see();
 assert.deepEqual([lost.verdict, lost.note, lost.posts.has(2)], ['ok', ['withdrawn: 2'], false]);
 restore(before);
 call('PUT', '/alice/posts/3', { body: p3, expect: 201 });
-await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [3, address(p3)]], highest: 3 }));                            // re-read and fold
+await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [3, address(p3)]], highest: 3 }));                            // re-read and merge
 const won = await see();
-console.log(`§8.1 — the phone and the laptop both write: naive retry loses post 2; re-read and fold keeps posts ${nums(won)}\n`);
+console.log(`§8.1 — the phone and the laptop both write: naive retry loses post 2; re-read and merge keeps posts ${nums(won)}\n`);
 assert.deepEqual([[...won.posts.keys()], won.note], [[1, 2, 3], []]);
-rule('8.1', `A writer MUST send \`If-Match\` with the entity tag of the version it read, and a hub MUST answer 412 if the
+rule('8.1', `A publisher MUST send \`If-Match\` with the entity tag of the version it read, and a hub MUST answer 412 if the
 file has changed since, or if the file exists and the request carries no \`If-Match\`. The tag is strong,
-opaque to the writer, and compared byte for byte; a hub MAY use the SHA-256 of the bytes it serves. A
-writer that loses MUST re-read the file the hub now serves and fold its own line into that file's
+opaque to the publisher, and compared byte for byte; a hub MAY use the SHA-256 of the bytes it serves. A
+writer that loses MUST re-read the file the hub now serves and merge its own line into that file's
 \`entries\`.`);
 
 // ---- §8.2 create-once ----
@@ -90,12 +91,12 @@ const p4 = signFile({ number: 4, at: '2026-07-06T08:00:00Z', text: 'half a thoug
 call('PUT', '/alice/posts/4', { body: p4, expect: 201 });                                              // …and the device crashes
 call('PUT', '/alice/posts/4', { body: signFile({ number: 4, text: 'another' }, alice), expect: 409 });
 assert.equal(await pub.publish(4, { at: '2026-07-07T11:00:00Z', text: 'jam, again' }), 5);             // it abandons 4 and takes 5
-pin = (await see()).pin;
+checkpoint = (await see()).checkpoint;
 const late = snap(), s2 = served();
 call('PUT', '/alice/index', { body: signIndex({ entries: [...s2.entries, [4, address(p4)]], version: s2.version + 1, highest: 5 }, alice), ifMatch: etag(), expect: 200 });
 const caught = await see();
 console.log(`§8.2 — a crash between post 4 and its index: the next post is 5; listing 4 late reads ${caught.verdict}: ${caught.why}\n`);
-assert.deepEqual([caught.verdict, caught.why], ['host', 'post 4 is listed now and was not before']);
+assert.deepEqual([caught.verdict, caught.why], ['tampered', 'post 4 is listed now and was not before']);
 restore(late);
 rule('8.2', `A hub MUST refuse a write to a number already held, except under §8.5. Numbering need not be gapless: a
 device that comes back MUST abandon a number it cannot prove it listed, and MUST NOT list one late.`);
@@ -108,9 +109,9 @@ restore(back);
 call('PUT', '/alice/posts/6', { body: p6, expect: 201 });
 const mid = await see();
 await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [6, address(p6)]], highest: 6 }));
-pin = (await see()).pin;
+checkpoint = (await see()).checkpoint;
 console.log(`§8.3 — index first: ${early.verdict}; post first, read between the writes: ${mid.verdict}\n`);
-assert.deepEqual([early.verdict, mid.verdict, mid.posts.has(6)], ['host', 'ok', false]);
+assert.deepEqual([early.verdict, mid.verdict, mid.posts.has(6)], ['tampered', 'ok', false]);
 rule('8.3', 'The post is written before the index that lists it.');
 
 // ---- §8.4 claiming a name ----
@@ -118,7 +119,7 @@ call('PUT', '/bro/profile', { body: signProfile({ anchor: bro.x, version: 1, cha
 const cold = await see(null, BRO, bro.x);
 call('PUT', '/bro/index', { body: signIndex({ entries: [], version: 1, highest: 0 }, bro), expect: 200 });
 const warm = await see(null, BRO, bro.x);
-assert.deepEqual([cold.verdict, cold.why, warm.verdict], ['host', 'no index served', 'ok']);
+assert.deepEqual([cold.verdict, cold.why, warm.verdict], ['tampered', 'no index served', 'ok']);
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2, chain: [{ key: alice.x }, { key: next.x, recovery: REC }] }, next), ifMatch: ptag, expect: 403 });   // the chain does not walk
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, name: 'alice again' }, alice), ifMatch: ptag, expect: 409 });                                                 // version not advanced
 call('PUT', '/alice/index', { body: signIndex({ entries: [], version: 99, highest: 6 }, thief), ifMatch: etag(), expect: 403 });
@@ -126,7 +127,7 @@ call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2, chain
 call('PUT', '/alice/index', { body: signIndex({ ...served(), version: 99 }, alice), ifMatch: etag(), expect: 403 });                                                          // the rotated-away key
 const pub2 = createPublisher({ io, key: next, at: AT });
 await pub2.resignIndex();
-pin = (await see()).pin;
+checkpoint = (await see()).checkpoint;
 console.log(`§8.4 — bro's name before its empty index: ${cold.verdict}; after: ${warm.verdict}. alice rotates and re-signs: ${(await see()).verdict}\n`);
 rule('8.4', `First come, with the profile as the proof. Later writes under that name MUST carry the same \`anchor\` and a
 \`version\` that has advanced. A hub that accepts writes MUST refuse a profile whose chain does not walk or
@@ -169,8 +170,7 @@ assert.match(pre.headers['access-control-allow-methods'], /PUT/); assert.match(p
 console.log(`§8.7 — GET serves the stored bytes; Access-Control-Allow-Origin ${g.headers['access-control-allow-origin']}; OPTIONS → ${pre.status}\n`);
 rule('8.7', `Serve back the exact bytes it was given (§2.3). Allow cross-origin reads with
 \`Access-Control-Allow-Origin: *\`; a hub that accepts writes MUST answer the preflight for a cross-origin
-\`PUT\` with \`If-Match\` and expose \`ETag\`. A hub MAY require more of its own writers — a pass, an account, a
-rate limit, a bill.`);
+\`PUT\` with \`If-Match\` and expose \`ETag\`.`);
 
 // ---- §8.8 withdrawal ----
 call('DELETE', '/alice/posts/2', { expect: 405 });
@@ -180,11 +180,11 @@ const after = await see(), gone = hub.collect('alice'), end = await see();
 console.log(`§8.8 — no DELETE; after withdrawing 2 the bytes are still served; the hub then drops ${gone.length} unlisted files and a reader is unmoved: ${end.verdict}\n`);
 assert.deepEqual([after.note, gone, end.verdict], [['withdrawn: 2'], ['alice/posts/2', 'alice/posts/4', 'alice/posts/7', 'alice/posts/8', `alice/media/${ph}`], 'ok']);
 rule('8.8', `There is no \`DELETE\`. Withdrawing removes a line from the index, not a file. A hub MAY remove a file the
-current index does not list, after a grace window covering §8.3. An app MUST NOT tell a user that
+current index does not list, after a grace window covering §8.3. A publisher MUST NOT tell a user that
 withdrawing erased anything.`);
 
 // ---- §8.9 your copy ----
 console.log(`§8.9 — the publisher kept ${pub2.copy.size + pub.copy.size} files it wrote, every one a signed file that verifies with no host\n`);
 for (const [path, bytes] of [...pub.copy, ...pub2.copy]) if (!path.startsWith('/media/') && !path.startsWith('/feed')) assert.ok(verifyFile(bytes, [alice.x, next.x]), path);
 assert.ok(pub.copy.has('/posts/1') && pub2.copy.has('/index'));
-rule('8.9', 'An app MUST keep the signed bytes of everything it publishes.');
+rule('8.9', 'A publisher MUST keep the signed bytes of everything it publishes.');

@@ -45,7 +45,7 @@ export function createPublisher({ io, key, at, keep = null, last = null }) {
       if (r.status !== 409) throw new PublishError(`post ${num}: ${r.status}`, r.status);
     }
   }
-  /** §8.1: re-read the index the hub is serving and fold the change into that; the tag is the hub's. */
+  /** §8.1: re-read the index the hub is serving and merge the change into that; the tag is the hub's. */
   async function amendIndex(change) {
     for (let attempt = 0; attempt < 5; attempt++) {
       const cur = await io.get(`${at}/index`);

@@ -73,11 +73,11 @@ rule('9', `Every rule here binds a reader's outbound requests; the rumor rule (Â
 
 // A cap or a transport failure is no verdict.
 const answered = await createReader({ get: async () => null }).read({ learned: 'x', at: 'https://hub.example/mum' });
-assert.equal(answered.verdict, 'host');
+assert.equal(answered.verdict, 'tampered');
 for (const err of [new FetchError('over the cap', { code: 'too_large' }), new FetchError('timed out', { code: 'timeout', transient: true }), new FetchError('ENOTFOUND', { code: 'connect_failed', transient: true })]) {
   const thrown = await createReader({ get: async () => { throw err; } }).read({ learned: 'x', at: 'https://hub.example/mum' }).then(() => null, (e) => e);
   assert.ok(thrown instanceof FetchError && thrown.verdict === undefined);
 }
 console.log('  nothing served: host; a cap, a timeout, a failed lookup: thrown, no verdict\n');
-rule('9', `A cap or a transport failure is no verdict: the read did not complete, and an app MUST NOT show it as a
+rule('9', `A cap or a transport failure is no verdict: the read did not complete, and a reader MUST NOT show it as a
 state of the identity.`);

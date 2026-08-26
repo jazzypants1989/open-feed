@@ -12,7 +12,8 @@ your host. The entire protocol is built from primitives found in most languages'
 Your host is just storage — a static file server is a fully conforming host. People on different
 hosts reply, react, and share encrypted content with each other as easily as people on the same one.
 The protocol is designed for the case where your host operator can look at everything, refuse to
-cooperate, and may not be on your side — and content for chosen people is encrypted to their keys.
+cooperate, and may not be on your side — the adversary is a loved one who controls the family hub —
+and content for chosen people is encrypted to their keys.
 
 ## 1. Terms
 
@@ -30,7 +31,7 @@ characters, a SHA-256 hash is 43, an Ed25519 signature is 86.
 | **anchor key** | your first signing key — it *is* your identity. A link or scanned code carries it, and readers follow the chain from it |
 | **chain** | the links from the anchor key to the key in use now, each signed by the previous key or vouched by the recovery list |
 | **recovery list** | the people or keys you named in advance to restore you, committed privately |
-| **pin** | what a reader verified and remembers about an identity — the profile, the chain, the recovery lists at each chain length, and the index |
+| **checkpoint** | what a reader verified and remembers about an identity — the profile, the chain, the recovery lists at each chain length, and the index |
 | **withdraw** | remove a post from the live set by appending a line to the index |
 | **hub** | anything that stores and serves the files. It holds no key of yours and makes no decision about who you are |
 
@@ -39,7 +40,7 @@ files for every construction below are in `test-vectors.md`.
 
 ## 2. Files
 
-Everything on the wire is one of four kinds of file, under a name the writer claims (§8.4):
+Everything on the wire is one of four kinds of file, under a name the publisher claims (§8.4):
 
 | kind | path | overwritten? | signed by |
 |---|---|---|---|
@@ -63,12 +64,12 @@ bytes.
 
 ### 2.3. No canonicalization
 
-The bytes served are the bytes signed. A producer signs what it serialized; a verifier verifies what it
+The bytes served are the bytes signed. A publisher signs what it serialized; a reader verifies what it
 received; neither re-serializes.
 
 ### 2.4. JSON hygiene
 
-A producer MUST NOT emit a duplicate member name, a member named `__proto__`, an integer outside
+A publisher MUST NOT emit a duplicate member name, a member named `__proto__`, an integer outside
 ±(2^53 − 1), or an unpaired UTF-16 surrogate. A reader SHOULD reject a body containing any of them, and
 one that accepts `__proto__` MUST parse into an object that does not inherit from it.
 
@@ -118,9 +119,9 @@ A link is valid when `sig` verifies, or when the distinct voucher keys that coun
 `recovery.leaves`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
 list cannot restore. Vouchers MAY be added to a link after it was made.
 
-A restore changes the key and nothing else: a pinned reader MUST report **identity** for a profile whose
+A restore changes the key and nothing else: a checkpointed reader MUST report **contested** for a profile whose
 chain has grown by any link without `sig` and whose `recovery`, `locations`, `name`, or `read` differ from
-the pin.
+the checkpoint.
 
 A chain MUST NOT exceed 64 links, and a reader MUST reject a longer one. A key rotated away from keeps its
 posts valid but cannot sign an index (§4.4) or hold a number against the owner (§8.5).
@@ -131,9 +132,9 @@ posts valid but cannot sign an index (§4.4) or hold a number against the owner 
 random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed 32 leaves. It
 MAY be empty, and an empty list means the identity cannot be restored.
 
-An app SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
-owner's own keys. An app SHOULD rotate when the list changes, because a changed list reaches readers only
-through a new link; changing the key means writing the profile and then the index (§4.4). A reading app
+A publisher SHOULD create and list a backup key at setup, and SHOULD require two or more members beyond the
+owner's own keys. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
+through a new link; changing the key means writing the profile and then the index (§4.4). A reader
 SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
 verdict (§7.2).
 
@@ -141,18 +142,18 @@ verdict (§7.2).
 
 A reader MUST apply four rules to a served profile:
 
-1. The pin holds the chain, and a served chain MUST extend it key for key. The first index at which they
-   differ is the **split**; a higher `version` whose chain is a strict prefix of the pinned chain is a
-   split at the end of the prefix.
+1. The checkpoint holds the chain, and a served chain MUST extend it key for key. The first index at which
+   they diverge is the **divergence point**; a higher `version` whose chain is a strict prefix of the
+   checkpointed chain diverges at the end of the prefix.
 2. A recovery list is kept per chain length — the first one the reader saw at that length — and MUST NOT
    be overwritten.
 3. A link is judged by the list the reader holds at that length, never by the copy the link carries. A
-   pinned reader MUST NOT adopt a carried list at any length its chain already reaches.
-4. More than half of the recovery list at the split, vouching on exactly one side, wins. `sig` is not a
+   checkpointed reader MUST NOT adopt a carried list at any length its chain already reaches.
+4. More than half of the recovery list at the divergence point, vouching on exactly one side, wins. `sig` is not a
    vote. If both sides reach a majority, or neither, the identity is **contested** (§7.2) and the reader
    follows no branch until handed the current key (§3.7).
 
-Outside a split, `version` MUST NOT go backwards, and the same `version` at a different address is
+Outside a divergence, `version` MUST NOT go backwards, and the same `version` at a different address is
 contested.
 
 ### 3.5. Locations
@@ -170,11 +171,11 @@ location in a verified post follows it.
 ### 3.7. First contact
 
 A link is the location with the anchor key in its fragment, `https://alice.example/alice#<anchor key>`;
-the app compares and refuses on mismatch. A spoken code is six words: `HKDF-SHA256(ikm = key, salt = "",
+the reader compares and refuses on mismatch. A spoken code is six words: `HKDF-SHA256(ikm = key, salt = "",
 info = "openfeed/v1/spoken", 9 bytes)`, the first 66 bits read as six 11-bit big-endian indices into the
 BIP-39 English wordlist, which implementations MUST use. When a reader is contested, either route MAY carry
 the key the owner's chain currently ends on; a reader given that key MUST follow the branch containing it
-and pin there.
+and checkpoint there.
 
 ## 4. The index
 
@@ -184,14 +185,14 @@ and pin there.
 
 | member | meaning |
 |---|---|
-| `entries` | the lines, in order; the live set is their fold (§4.1) |
+| `entries` | the lines, in order; the live set is their replay (§4.1) |
 | `version` | a non-negative integer that MUST NOT go backwards |
 | `highest` | the highest post number ever issued, `0` when none has been (§4.2) |
 
 `entries` MUST come first in the body, so that appending a line leaves every earlier byte in place and a
 reader MAY fetch only the tail.
 
-### 4.1. Entries and the fold
+### 4.1. Entries and replay
 
 | line | means |
 |---|---|
@@ -200,12 +201,12 @@ reader MAY fetch only the tail.
 | `[hash]` | the media file at address `hash` exists (§4.3) |
 | `[hash, null]` | that media file is withdrawn |
 
-A reader computes the live set by folding the entries in order. `number` is a positive integer. A number has
+A reader computes the live set by replaying the entries in order. `number` is a positive integer. A number has
 one hash, ever: a line for an `number` already seen is legal only if it withdraws a live `number` or re-lists a
 withdrawn `number` at the identical hash. A withdrawal MUST refer to something live. `[hash]` for a media file
 already live is illegal. `highest` MUST be at least the highest number in `entries`. An index that verifies
-but does not fold is invalid, and a reader reports **host** (§7.2). A pinned reader remembers the hash of
-every number it saw withdrawn, and a number that comes back at another hash is **host**.
+but entries are invalid is invalid, and a reader reports **tampered** (§7.2). A checkpointed reader remembers the hash of
+every number it saw withdrawn, and a number that comes back at another hash is **tampered**.
 
 ### 4.2. `highest`
 
@@ -227,7 +228,7 @@ chain.
 
 ### 4.5. Rewriting
 
-A publisher MAY replace the index with the fold of its entries, at a higher `version`. A reader accepts a
+A publisher MAY replace the index with replay of its entries, at a higher `version`. A reader accepts a
 rewritten index exactly as it accepts an appended one.
 
 ## 5. Posts
@@ -289,7 +290,7 @@ An encrypted post is a post whose content is inside an `encrypted` member:
 ```
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
-it and returns it with `encrypted` opaque (§7.1). An implementation MUST NOT present encryption or audience
+it and returns it with `encrypted` opaque (§7.1). A reader MUST NOT present encryption or audience
 control as protection from a host that is in the audience.
 
 ### 6.1. The envelope
@@ -306,18 +307,19 @@ and the content, once:
 
 ```
 plain = UTF-8 JSON of {"audience": [...], ...the post's content members...}
-ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || carrier)
+ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || <anchor>:<number>)
 ```
 
 `epk` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
-Each slot is a `[tag, wrapped]` pair of base64url strings. An implementation MUST reject an all-zero `Z`.
+Each slot is a `[tag, wrapped]` pair of base64url strings. A reader MUST reject an all-zero `Z`.
 The content key MUST be 32 random bytes and MUST NOT be reused across messages. `plain` is a JSON object
 body and §2.4 applies to it.
 
-### 6.2. Carrier binding
+### 6.2. Post binding
 
-`carrier` is the ASCII bytes `<author anchor key>:<post number>` of the post the envelope is published in,
-and MUST be bound as associated data of `ct` together with `epk`.
+The associated data of `ct` is the ephemeral public key followed by the ASCII bytes
+`<author anchor key>:<post number>` of the post the envelope is published in. This binding MUST
+be present; an envelope lifted into another post does not open there.
 
 ### 6.3. Slots and tags
 
@@ -336,40 +338,42 @@ Inside the envelope, `rel` and `target` are as in §5, and each `media` entry is
 
 ## 7. Reading
 
-A reader is given the anchor key it learned (§3), a location, and optionally the pin it kept from last time.
+A reader is given the anchor key it learned (§3), a location, and optionally the checkpoint it kept from last time.
 The steps are in order; each supplies what the next checks.
 
 ### 7.1. The steps
 
-1. Fetch `<location>/profile`. Not served: **host**. Does not parse under §2.4: **identity**.
-2. `anchor` is not the key learned: **identity**.
-3. Adopt a recovery list for every chain length beyond those the pinned chain reaches, from the links'
+1. Fetch `<location>/profile`. Not served: **tampered**. Does not parse under §2.4: **contested**.
+2. `anchor` is not the key learned: **contested**.
+3. Adopt a recovery list for every chain length beyond those the checkpointed chain reaches, from the links'
    `recovery` and the profile's, keeping any list already held.
 4. Walk the chain (§3.2), judging each link by the list held at its length. A link that fails, or a link
-   without `sig` beside a change it may not make: **identity**.
-5. Verify the signature under the key the chain ends on. Failure: **identity**.
-6. Against a pin, apply §3.4.
-7. Fetch `<location>/index`, verify it under the current key (§4.4), fold it (§4.1). An index that does
+   without `sig` beside a change it may not make: **contested**.
+5. Verify the signature under the key the chain ends on. Failure: **contested**.
+6. Against a checkpoint, apply §3.4.
+7. Fetch `<location>/index`, verify it under the current key (§4.4), replay it (§4.1). An index that does
    not verify: a reader holding one it verified before keeps that one and notes `no index I can verify`;
-   a reader holding none: **host**.
-8. Against a pin: `version` and `top` MUST NOT go backwards; the same `version` at a different address is
-   **host**; every live number at or below the pinned `top` MUST have been live or withdrawn before at
-   the identical hash, else **host**; numbers the pin held that are no longer live are noted
-   `withdrawn: n` and their hashes kept. Media files are exempt.
-9. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
-   under a key in the chain, its address MUST equal the listed hash, and its `n` MUST equal the number it
-   was served at. A failure, or a listed file not served: **host**.
-10. For each post naming a target whose author the reader holds a pin for: if `target.hash` is not what
+   a reader holding none: **tampered**.
+8. Against a checkpoint: `version` and `top` MUST NOT go backwards, else **tampered**.
+9. Against a checkpoint: the same `version` at a different address is **tampered**.
+10. Against a checkpoint: every live number at or below the checkpointed `top` MUST have been live or
+    withdrawn before at the identical hash, else **tampered**. Media files are exempt.
+11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted `withdrawn: n`
+    and their hashes kept.
+12. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
+    under a key in the chain, its address MUST equal the listed hash, and its `n` MUST equal the number it
+    was served at. A failure, or a listed file not served: **tampered**.
+13. For each post naming a target whose author the reader holds a checkpoint for: if `target.hash` is not what
     that author's index lists for `target.number`, now or when it was withdrawn, mark the target unresolved
     (§5.4); otherwise, if `target.number` is above that author's `top`, look again (§7.4).
 
 ### 7.2. Verdicts
 
-A read returns exactly one of **ok**, **host** (this host is misbehaving), or **identity** (this identity is
-in question), and a reader MUST NOT invent a fourth. `recently restored`, `withdrawn: n`, and `no index I
+A read returns exactly one of **ok**, **tampered** (this host is misbehaving), or **contested** (this identity
+is contested), and a reader MUST NOT invent a fourth. `recently restored`, `withdrawn: n`, and `no index I
 can verify` are notes on an ok read.
 
-### 7.3. The pin
+### 7.3. The checkpoint
 
 What a reader keeps from an ok read: the profile's `version` and address, the chain, the recovery list at
 each chain length, every location ever named, the index's `version` and address, `top`, the live set with
@@ -378,7 +382,7 @@ its hashes, and the hash of every number it saw withdrawn.
 ### 7.4. Targets and the rumor rule
 
 A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
-`loc`, and updates the pin on an ok read. Two bounds are REQUIRED: look again at most once per identity
+`loc`, and updates the checkpoint on an ok read. Two bounds are REQUIRED: look again at most once per identity
 per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
 they wrote. A reader MAY try the locations it already holds before the address in the reply.
 
@@ -395,14 +399,15 @@ GET any of the above                          → 200 | 404
 
 There is no account, token, or session: the request is the signed file. A hub that checks the proof (§8.4)
 answers 403 for a profile or index that does not verify and 409 for a name held under another anchor or a
-`version` that has not advanced.
+`version` that has not advanced. A hub MAY require more of its own publishers — a pass, an account, a
+rate limit, a bill.
 
 ### 8.1. Compare-and-swap
 
-A writer MUST send `If-Match` with the entity tag of the version it read, and a hub MUST answer 412 if the
+A publisher MUST send `If-Match` with the entity tag of the version it read, and a hub MUST answer 412 if the
 file has changed since, or if the file exists and the request carries no `If-Match`. The tag is strong,
-opaque to the writer, and compared byte for byte; a hub MAY use the SHA-256 of the bytes it serves. A
-writer that loses MUST re-read the file the hub now serves and fold its own line into that file's
+opaque to the publisher, and compared byte for byte; a hub MAY use the SHA-256 of the bytes it serves. A
+writer that loses MUST re-read the file the hub now serves and merge its own line into that file's
 `entries`.
 
 ### 8.2. Create-once
@@ -438,18 +443,17 @@ bytes that do, and MAY refuse bytes that do not hash to the name.
 
 Serve back the exact bytes it was given (§2.3). Allow cross-origin reads with
 `Access-Control-Allow-Origin: *`; a hub that accepts writes MUST answer the preflight for a cross-origin
-`PUT` with `If-Match` and expose `ETag`. A hub MAY require more of its own writers — a pass, an account, a
-rate limit, a bill.
+`PUT` with `If-Match` and expose `ETag`.
 
 ### 8.8. Withdrawal and deletion
 
 There is no `DELETE`. Withdrawing removes a line from the index, not a file. A hub MAY remove a file the
-current index does not list, after a grace window covering §8.3. An app MUST NOT tell a user that
+current index does not list, after a grace window covering §8.3. A publisher MUST NOT tell a user that
 withdrawing erased anything.
 
 ### 8.9. Your copy
 
-An app MUST keep the signed bytes of everything it publishes.
+A publisher MUST keep the signed bytes of everything it publishes.
 
 ## 9. Fetching
 
@@ -469,19 +473,21 @@ Every rule here binds a reader's outbound requests; the rumor rule (§7.4) follo
   (1 MB RECOMMENDED for the profile, index and a post; larger for media); a cap on concurrent sockets per
   origin (10 RECOMMENDED); a cap on identities resolved per pass.
 
-A cap or a transport failure is no verdict: the read did not complete, and an app MUST NOT show it as a
+A cap or a transport failure is no verdict: the read did not complete, and a reader MUST NOT show it as a
 state of the identity.
 
 ## 10. Views
 
 A publisher SHOULD write a JSON Feed 1.1 document, an Atom feed, and an h-card page, generated from the
 index and the posts, at `/<name>/feed.json`, `/<name>/feed.xml`, and `/<name>/index.html`; a hub MAY generate
-them itself. A view is unsigned, and an implementation MUST NOT treat one as evidence of anything. Item ids
+them itself. A view is unsigned, and a reader MUST NOT treat one as evidence of anything. Item ids
 are `urn:openfeed:<anchor key>:<number>` and the feed's id is `urn:openfeed:<anchor key>`. Withdrawn posts are
 absent. Encrypted posts are omitted or rendered as an empty placeholder item at their number; a view MUST
 NOT carry ciphertext. The h-card's name is the profile's `name`.
 
 A hub SHOULD serve a WebFinger response (RFC 7033) at `/.well-known/webfinger` for each name it holds, linking the profile (`application/openfeed+json`) and the h-card page.
+
+The h-card page SHOULD include `<link rel="alternate">` entries pointing to the JSON Feed and Atom views. The WebFinger response SHOULD include matching `alternate` links.
 
 | kind | media type |
 |---|---|

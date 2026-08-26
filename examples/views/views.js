@@ -8,7 +8,7 @@ import { signProfile } from '../../src/profile.js';
 import { signIndex } from '../../src/index.js';
 import { createReader } from '../../src/reader.js';
 import { createHub } from '../../src/hub.js';
-import { encrypt, carrierOf, readingKeyFromSeed } from '../../src/envelope.js';
+import { encrypt, postBinding, readingKeyFromSeed } from '../../src/envelope.js';
 import { jsonFeed, atom, hcard, webfinger } from '../../src/views.js';
 
 const key = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
@@ -18,7 +18,7 @@ const alice = key('alice/anchor'), mum = key('mum'), host = key('bro');
 const AT = 'https://alice.example/alice', NEW = 'https://pence.family/alice';
 
 const sealed = encrypt({ content: { text: 'the solicitor rang back' }, audience: [{ key: alice.x, read: xkey('alice-read').x, location: AT }, { key: mum.x, read: xkey('mum-read').x, location: 'https://mom.example/mom' }],
-  carrier: carrierOf(alice.x, 3), ephemeral: xkey('ephemeral/3'), random: seeded, contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/3').digest() });
+  binding: postBinding(alice.x, 3), ephemeral: xkey('ephemeral/3'), random: seeded, contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/3').digest() });
 const post = {
   1: signFile({ number: 1, at: '2026-08-01T09:12:00Z', text: 'First day of the holidays.\nThe kids are feral already.' }, alice),
   2: signFile({ number: 2, at: '2026-08-02T20:40:00Z', text: 'Rain. Board games. <b>Not</b> HTML & such.' }, alice),
@@ -57,11 +57,11 @@ store.set(`${AT}/feed.json`, Buffer.from(JSON.stringify(doctored)));
 assert.equal(verifyFile(store.get(`${AT}/feed.json`), alice.x), null);
 assert.equal((await reader.read({ learned: alice.x, at: AT })).verdict, 'ok');
 store.set(`${AT}/index`, signIndex({ entries: [...entries, [5, address(signFile({ number: 5, text: 'x' }, host))]], version: 3, highest: 5 }, host));
-assert.equal((await reader.read({ learned: alice.x, at: AT })).verdict, 'host');
+assert.equal((await reader.read({ learned: alice.x, at: AT })).verdict, 'tampered');
 console.log('  the host invents an item in feed.json: the reader never fetched it; the same edit to the index: host\n');
 rule('10', `A publisher SHOULD write a JSON Feed 1.1 document, an Atom feed, and an h-card page, generated from the
 index and the posts, at \`/<name>/feed.json\`, \`/<name>/feed.xml\`, and \`/<name>/index.html\`; a hub MAY generate
-them itself. A view is unsigned, and an implementation MUST NOT treat one as evidence of anything. Item ids
+them itself. A view is unsigned, and a reader MUST NOT treat one as evidence of anything. Item ids
 are \`urn:openfeed:<anchor key>:<number>\` and the feed's id is \`urn:openfeed:<anchor key>\`. Withdrawn posts are
 absent. Encrypted posts are omitted or rendered as an empty placeholder item at their number; a view MUST
 NOT carry ciphertext. The h-card's name is the profile's \`name\`.`);
@@ -81,6 +81,14 @@ assert.equal(JSON.parse(wfr.body).subject, 'acct:alice@alice.example');
 assert.equal(hub.handle({ method: 'GET', path: '/.well-known/webfinger', query: 'resource=acct:nobody@alice.example' }).status, 404);
 console.log('  WebFinger: acct:alice@alice.example → profile (application/openfeed+json) and h-card (text/html)\n');
 rule('10', `A hub SHOULD serve a WebFinger response (RFC 7033) at \`/.well-known/webfinger\` for each name it holds, linking the profile (\`application/openfeed+json\`) and the h-card page.`);
+
+// <link rel="alternate">: the h-card links to the feeds, and the WebFinger response links to them too.
+const card = hcard(read, AT);
+assert.ok(card.includes('rel="alternate" type="application/feed+json"'));
+assert.ok(card.includes('rel="alternate" type="application/atom+xml"'));
+assert.ok(wf.links.some((l) => l.rel === 'alternate' && l.type === 'application/feed+json'));
+assert.ok(wf.links.some((l) => l.rel === 'alternate' && l.type === 'application/atom+xml'));
+rule('10', `The h-card page SHOULD include \`<link rel="alternate">\` entries pointing to the JSON Feed and Atom views. The WebFinger response SHOULD include matching \`alternate\` links.`);
 
 // Media types, as the hub serves them; the reader above read everything as text/plain.
 hub.store.set('alice/index', store.get(`${AT}/index`)); hub.store.set('alice/posts/1', post[1]);

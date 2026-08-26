@@ -11,7 +11,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { sha256, splitFile, parseBody, verifyFile } from './file.js';
 import { wellFormed, walk, adoptRecoveryLists } from './profile.js';
-import { fold } from './index.js';
+import { replay } from './index.js';
 import { webfinger } from './views.js';
 
 const PATH = /^\/([A-Za-z0-9_-]{1,64})\/(profile|index|posts\/([1-9][0-9]*)|media\/([A-Za-z0-9_-]{43})|feed\.json|feed\.xml|index\.html)$/;
@@ -25,7 +25,7 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
   // The chain of the profile held at a name, walked under the recoveryLists the chain itself carries —
   // the hub has no pin and keeps none; it checks that the file hangs together, not who she is.
   const chainOf = (name) => { const p = body(store.get(`${name}/profile`) ?? Buffer.alloc(0)); return p && wellFormed(p) ? walk(p, adoptRecoveryLists({}, p, 0)) : null; };
-  const listed = (name, number, hash) => { const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && fold(h.entries); return !!set && set.live.get(number)?.hash === hash; };
+  const listed = (name, number, hash) => { const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && replay(h.entries); return !!set && set.live.get(number)?.hash === hash; };
   // §8.5: "the owner's file for this number" declares the number in its signed bytes, and is signed
   // by the key the chain currently ends on or is what the index lists there.
   const ownersFile = (name, bytes, number) => {
@@ -91,7 +91,7 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
 
   /** §8.8: drop files the current index does not list, after the caller's grace window. */
   function collect(name, { keep = () => false } = {}) {
-    const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && fold(h.entries);
+    const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && replay(h.entries);
     if (!set) return [];
     const gone = [];
     for (const key of [...store.keys()]) {

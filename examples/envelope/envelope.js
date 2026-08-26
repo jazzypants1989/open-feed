@@ -1,10 +1,10 @@
-// §6 — encrypted content: the envelope, carrier binding, slots and tags, the audience inside,
+// §6 — encrypted content: the envelope, post binding, slots and tags, the audience inside,
 // what goes inside. Run: node examples/envelope/envelope.js
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { rule } from '../../tools/rule.js';
 import { signFile, splitFile, verifyFile, address, signingKeyFromSeed } from '../../src/file.js';
-import { encrypt, decrypt, carrierOf, readingKeyFromSeed, readingPublicKey, INFO } from '../../src/envelope.js';
+import { encrypt, decrypt, postBinding, readingKeyFromSeed, readingPublicKey, INFO } from '../../src/envelope.js';
 
 // The test vectors' keys and seeded randomness; a real publisher draws the ephemeral and the content key at random.
 const ed = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
@@ -23,9 +23,9 @@ const sis = { ed: ed('sis'), read: xk('vector:sis-read'), location: 'https://sis
 const bro = { ed: ed('bro'), read: xk('vector:bro-read'), location: 'https://bro.example/bro' };
 const who = (p) => ({ key: p.ed.x, read: p.read.x, location: p.location });
 const A3 = ed('alice/restored'), thief = ed('thief');
-const c5 = carrierOf(alice.ed.x, 5), c6 = carrierOf(alice.ed.x, 6);
-const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [who(alice), who(mum)], carrier: c5, ephemeral: xk('vector:ephemeral/5'), contentKey: ck('openfeed/v1/vector:contentkey/5') });
-const fam = encrypt({ content: { text: 'the divorce is final, come for dinner', rel: 'root' }, audience: [who(alice), who(mum), who(sis), who(bro)], carrier: c6, ephemeral: xk('example:ephemeral/6'), contentKey: ck('example:contentkey/6') });
+const c5 = postBinding(alice.ed.x, 5), c6 = postBinding(alice.ed.x, 6);
+const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [who(alice), who(mum)], binding: c5, ephemeral: xk('vector:ephemeral/5'), contentKey: ck('openfeed/v1/vector:contentkey/5') });
+const fam = encrypt({ content: { text: 'the divorce is final, come for dinner', rel: 'root' }, audience: [who(alice), who(mum), who(sis), who(bro)], binding: c6, ephemeral: xk('example:ephemeral/6'), contentKey: ck('example:contentkey/6') });
 const post5 = signFile({ number: 5, at: '2026-08-18T21:40:00Z', encrypted: dm }, A3);
 const post6 = signFile({ number: 6, at: '2026-08-19T08:05:00Z', encrypted: fam }, A3);
 
@@ -38,7 +38,7 @@ assert.deepEqual(Object.keys(dm), ['ephemeral', 'slots', 'ciphertext']);
 assert.equal(address(post5), 'jPXhIAtS7czC2KidAM1Uad5mbt0_ghFDJxsj6da1hEU');
 assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
 // A host whose reading key is in the audience opens the post like any other member.
-const hostRead = xk('example:host-read'), toHost = encrypt({ content: { text: 'for the family' }, audience: [who(alice), { key: thief.x, read: hostRead.x, location: 'https://hub.example/op' }], carrier: c6, ephemeral: xk('example:ephemeral/9'), contentKey: ck('example:contentkey/9') });
+const hostRead = xk('example:host-read'), toHost = encrypt({ content: { text: 'for the family' }, audience: [who(alice), { key: thief.x, read: hostRead.x, location: 'https://hub.example/op' }], binding: c6, ephemeral: xk('example:ephemeral/9'), contentKey: ck('example:contentkey/9') });
 assert.equal(decrypt(toHost, hostRead.privateKey, c6).text, 'for the family');
 rule('6', `An encrypted post is a post whose content is inside an \`encrypted\` member:
 
@@ -48,7 +48,7 @@ rule('6', `An encrypted post is a post whose content is inside an \`encrypted\` 
 \`\`\`
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
-it and returns it with \`encrypted\` opaque (§7.1). An implementation MUST NOT present encryption or audience
+it and returns it with \`encrypted\` opaque (§7.1). A reader MUST NOT present encryption or audience
 control as protection from a host that is in the audience.`);
 
 // ---- §6.1 the envelope, derived from node:crypto alone ----
@@ -66,7 +66,7 @@ assert.equal(epk.length, 32);
 // An all-zero Z: the low-order point is refused at derivation, on both sides.
 const zeroPub = Buffer.alloc(32).toString('base64url');
 assert.equal(decrypt({ ...dm, ephemeral: zeroPub }, mum.read.privateKey, c5), null);
-assert.throws(() => encrypt({ content: { text: 'x' }, audience: [{ key: mum.ed.x, read: zeroPub, location: mum.location }], carrier: c5, ephemeral: eph, contentKey: key5 }));
+assert.throws(() => encrypt({ content: { text: 'x' }, audience: [{ key: mum.ed.x, read: zeroPub, location: mum.location }], binding: c5, ephemeral: eph, contentKey: key5 }));
 // The content key and the ephemeral are per message.
 assert.notEqual(dm.ephemeral, fam.ephemeral);
 assert.throws(() => JSON.parse('{"a":1,"a":2}', (k, v) => { if (k === 'a' && v === 2) throw new Error('dup'); return v; }));   // §2.4 applies inside too
@@ -82,24 +82,25 @@ and the content, once:
 
 \`\`\`
 plain = UTF-8 JSON of {"audience": [...], ...the post's content members...}
-ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || carrier)
+ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || <anchor>:<number>)
 \`\`\`
 
 \`epk\` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
-Each slot is a \`[tag, wrapped]\` pair of base64url strings. An implementation MUST reject an all-zero \`Z\`.
+Each slot is a \`[tag, wrapped]\` pair of base64url strings. A reader MUST reject an all-zero \`Z\`.
 The content key MUST be 32 random bytes and MUST NOT be reused across messages. \`plain\` is a JSON object
 body and §2.4 applies to it.`);
 
-// ---- §6.2 carrier binding ----
+// ---- §6.2 post binding ----
 const lifted = signFile({ number: 1, at: '2026-08-19T02:00:00Z', encrypted: dm }, thief);
-console.log(`§6.2 — the thief's post 1 carrying alice's envelope verifies as his; mum opens it there: ${decrypt(dm, mum.read.privateKey, carrierOf(thief.x, 1))}; at post 5: "${decrypt(dm, mum.read.privateKey, c5).text}"\n`);
+console.log(`§6.2 — the thief's post 1 carrying alice's envelope verifies as his; mum opens it there: ${decrypt(dm, mum.read.privateKey, postBinding(thief.x, 1))}; at post 5: "${decrypt(dm, mum.read.privateKey, c5).text}"\n`);
 assert.ok(verifyFile(lifted, thief.x));
-assert.equal(decrypt(dm, mum.read.privateKey, carrierOf(thief.x, 1)), null);
+assert.equal(decrypt(dm, mum.read.privateKey, postBinding(thief.x, 1)), null);
 assert.equal(decrypt(dm, mum.read.privateKey, ''), null);
 assert.equal(decrypt(dm, mum.read.privateKey, c5).text, 'I am leaving him on Friday');
 assert.equal(c5, `${alice.ed.x}:5`);
-rule('6.2', `\`carrier\` is the ASCII bytes \`<author anchor key>:<post number>\` of the post the envelope is published in,
-and MUST be bound as associated data of \`ct\` together with \`epk\`.`);
+rule('6.2', `The associated data of \`ct\` is the ephemeral public key followed by the ASCII bytes
+\`<author anchor key>:<post number>\` of the post the envelope is published in. This binding MUST
+be present; an envelope lifted into another post does not open there.`);
 
 // ---- §6.3 slots and tags ----
 const collided = { ...dm, slots: [[dm.slots[1][0], b64(seeded('collision')(48))], ...dm.slots] };
@@ -122,8 +123,8 @@ rule('6.4', `\`audience\` MUST be an array of the recipients inside the plaintex
 \`{"key": <anchor>, "read": <x25519 key>, "loc": <location>}\`, and a publisher MUST include itself.`);
 
 // ---- §6.5 inside ----
-const c13 = carrierOf(mum.ed.x, 13);
-const reply = encrypt({ content: { text: 'we are with you', rel: 'reply', target: { key: alice.ed.x, number: 6, hash: address(post6), location: AT }, media: [{ hash: 'h'.repeat(43), key: 'k'.repeat(43) }] }, audience: inside.audience, carrier: c13, ephemeral: xk('example:ephemeral/13'), contentKey: ck('example:contentkey/13') });
+const c13 = postBinding(mum.ed.x, 13);
+const reply = encrypt({ content: { text: 'we are with you', rel: 'reply', target: { key: alice.ed.x, number: 6, hash: address(post6), location: AT }, media: [{ hash: 'h'.repeat(43), key: 'k'.repeat(43) }] }, audience: inside.audience, binding: c13, ephemeral: xk('example:ephemeral/13'), contentKey: ck('example:contentkey/13') });
 const b13 = splitFile(signFile({ number: 13, at: '2026-08-19T19:00:00Z', encrypted: reply }, mum.ed)).body.toString();
 const opened = decrypt(reply, alice.read.privateKey, c13);
 console.log(`§6.5 — mum's reply: "reply" in the public bytes? ${b13.includes('reply')}; inside: rel ${opened.rel}, target n ${opened.target.number}, media ${JSON.stringify(Object.keys(opened.media[0]))}\n`);

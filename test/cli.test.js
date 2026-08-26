@@ -26,7 +26,7 @@ test('verify: ok, misbehaving, and no-verdict each have an exit code', async (t)
   hub.store.delete('alice/index');
   const noIndex = await run(['verify', alice.key.x, `${url}/alice`, '--json'], f);
   assert.equal(noIndex.code, 1);
-  assert.equal(JSON.parse(noIndex.out).verdict, 'host');
+  assert.equal(JSON.parse(noIndex.out).verdict, 'tampered');
   const unreachable = await run(['verify', alice.key.x, 'https://nowhere.example/x'], f);
   assert.equal(unreachable.code, 3, 'a transport failure is no verdict');
   assert.equal((await run([], f)).code, 2);

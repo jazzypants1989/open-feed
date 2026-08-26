@@ -41,7 +41,7 @@ export const post = (number, fields, key) => file({ number, ...fields }, key);
 export const index = ({ entries, version, highest }, key) => file({ entries, version, highest }, key);
 
 // ---- publishing ----
-// Take the next free number, then fold the new line into the index the host is actually serving.
+// Take the next free number, then merge the new line into the index the host is actually serving.
 // Both retries matter: the first keeps two devices from overwriting each other's posts, the second
 // keeps the loser of an index race from dropping the winner's post out of the list.
 export async function publishPost(io, at, key, number, fields) {
@@ -151,7 +151,7 @@ if (isMain) {
   assert.equal(commit([paper]).leaves.length, 1);
   assert.deepEqual(indexNow(), { entries: [], version: 1, highest: 0 });
 
-  console.log('§8.2-8.3 — the post is written first, then folded into the index\n');
+  console.log('§8.2-8.3 — the post is written first, then merged into the index\n');
   for (const [number, text] of [[1, 'the peonies came back'], [2, 'deleted this one'], [3, 'congratulations, both of you']]) {
     await publish(io, at, alice, number, { at: '2026-07-04T10:15:00Z', text });
   }
@@ -172,10 +172,10 @@ if (isMain) {
   console.log(show());
   console.log(`  after the withdrawal  ${before}`);
   console.log(`  after the rewrite     ${JSON.stringify(indexNow().entries)}`);
-  console.log('  Same live set, fewer lines. Post 4 is still unlisted: nobody folded it in.\n');
+  console.log('  Same live set, fewer lines. Post 4 is still unlisted: nobody listed it.\n');
   assert.equal(indexNow().entries.length, 2);
 
-  console.log('§8.1 — the loser of a race re-reads and folds, and never re-sends its own version\n');
+  console.log('§8.1 — the loser of a race re-reads and merges, and never re-sends its own version\n');
   const phone = await publishPost(io, at, alice, 5, { at: '2026-08-01T09:00:00Z', text: 'from the phone' });
   const laptop = await publishPost(io, at, alice, 6, { at: '2026-08-01T09:00:04Z', text: 'from the laptop' });
   const stale = await io.get(`${at}/index`);                        // both devices read this one

@@ -88,11 +88,11 @@ function walk(p, recoveryLists) {
 }
 
 // ---- the index ----
-// The live set is a fold over the entries in order: [number, hash] admits, [number, null] takes one back. A
+// The live set is a replay of the entries in order: [number, hash] admits, [number, null] takes one back. A
 // number has one hash, ever: the only legal second line for it is its withdrawal, or its return at
 // the identical hash. A media file is listed by its hash alone — [hash] admits it, [hash, null] takes it
 // back — and is the one unsigned thing: what admits it is being listed, and what checks it is the hash.
-function fold(entries) {
+function replay(entries) {
   if (!Array.isArray(entries)) return null;
   const live = new Map(), issued = new Map();
   for (const e of entries) {
@@ -110,48 +110,48 @@ function fold(entries) {
 }
 
 // ---- the reader ----
-// `learned` is the anchor key the reader got off the host's path — a link, a scanned code. `pin`
+// `learned` is the anchor key the reader got off the host's path — a link, a scanned code. `checkpoint`
 // is what it remembers from the last time it verified this identity itself. Three verdicts:
 // ok, host (this host is misbehaving), identity (who this is is in question).
 const WEEK = 7 * 86400e3;
-export async function read(get, { learned, at, pin = null, now = Date.now() } = {}) {
+export async function read(get, { learned, at, checkpoint = null, now = Date.now() } = {}) {
   const note = [], say = (v) => note.includes(v) || note.push(v);
   const bad = (verdict, why) => ({ verdict, why, note });
 
   const pf = await get(`${at}/profile`);
-  if (!pf) return bad('host', 'no profile served');
+  if (!pf) return bad('tampered', 'no profile served');
   const raw = pf.lastIndexOf(0x0a) < 0 ? null : parse(pf.subarray(0, pf.lastIndexOf(0x0a)).toString('utf8'));
-  if (!raw || raw.anchor !== learned) return bad('identity', 'not the identity this reader learned');
-  if (!Array.isArray(raw.chain) || raw.chain[0]?.key !== raw.anchor) return bad('identity', 'the chain does not start at the anchor');
+  if (!raw || raw.anchor !== learned) return bad('contested', 'not the identity this reader learned');
+  if (!Array.isArray(raw.chain) || raw.chain[0]?.key !== raw.anchor) return bad('contested', 'the chain does not start at the anchor');
   // The recovery. A reader keeps, for every chain length it has seen, the FIRST recovery list it saw
-  // there — from the link that carried it, or from the profile. A pinned reader adopts nothing at a
-  // length its pinned chain already reaches. A served chain that does not extend the pinned one is
+  // there — from the link that carried it, or from the profile. A checkpointed reader adopts nothing at a
+  // length its checkpointed chain already reaches. A served chain that does not extend the checkpointed one is
   // a split; the list that stood at the split judges it, and the branch whose link there has a
   // majority of that list wins. No majority on exactly one side: contested.
-  const recoveryLists = { ...(pin?.recoveryLists ?? {}) };
+  const recoveryLists = { ...(checkpoint?.recoveryLists ?? {}) };
   const adopt = (from) => { raw.chain.forEach((h, j) => { if (j >= from && h.recovery && !(j in recoveryLists)) recoveryLists[j] = h.recovery; }); if (raw.chain.length >= from) recoveryLists[raw.chain.length] ??= raw.recovery; };
-  adopt(pin ? pin.chain.length : 0);
+  adopt(checkpoint ? checkpoint.chain.length : 0);
   let chain = walk(raw, recoveryLists);
-  if (!chain) return bad('identity', 'the chain of key changes does not hold');
+  if (!chain) return bad('contested', 'the chain of key changes does not hold');
   const profile = openFile(pf, chain.current);
-  if (!profile) return bad('identity', 'the profile is not signed by the key it ends on');
-  if (pin) {
-    let i = raw.chain.findIndex((h, j) => j < pin.chain.length && pin.chain[j].key !== h.key);
-    if (i < 0 && raw.chain.length < pin.chain.length && raw.version > pin.profileVersion) i = raw.chain.length;   // a newer profile that forgets a link is a fork too
+  if (!profile) return bad('contested', 'the profile is not signed by the key it ends on');
+  if (checkpoint) {
+    let i = raw.chain.findIndex((h, j) => j < checkpoint.chain.length && checkpoint.chain[j].key !== h.key);
+    if (i < 0 && raw.chain.length < checkpoint.chain.length && raw.version > checkpoint.profileVersion) i = raw.chain.length;   // a newer profile that forgets a link is a fork too
     if (i > 0) {
-      const mine = majority(pin.chain[i - 1].key, pin.chain[i], recoveryLists[i]), theirs = majority(raw.chain[i - 1].key, raw.chain[i], recoveryLists[i]);
-      if (mine === theirs) return bad('identity', 'contested: two histories, and no majority settles it');
-      if (mine) return bad('host', 'serves a branch the recovery rejected');
+      const mine = majority(checkpoint.chain[i - 1].key, checkpoint.chain[i], recoveryLists[i]), theirs = majority(raw.chain[i - 1].key, raw.chain[i], recoveryLists[i]);
+      if (mine === theirs) return bad('contested', 'two histories, and no majority settles it');
+      if (mine) return bad('tampered', 'serves a branch the recovery rejected');
       for (const j of Object.keys(recoveryLists)) if (j > i) delete recoveryLists[j];
       adopt(i + 1);
-      if (!(chain = walk(raw, recoveryLists))) return bad('identity', 'the chain of key changes does not hold');
-    } else if (raw.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');
-    else if (raw.version === pin.profileVersion && profile.address !== pin.profileHash) return bad('identity', 'contested: two profiles at one version');
-    // A version that added any unsigned link since the pin changed the key and nothing else — only a pinned reader can tell.
-    else if (raw.chain.slice(pin.chain.length).some((h) => h.signature === undefined) && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [recoveryLists[pin.chain.length], ...pin.fields])) return bad('identity', 'a restore changed more than the key');
+      if (!(chain = walk(raw, recoveryLists))) return bad('contested', 'the chain of key changes does not hold');
+    } else if (raw.version < checkpoint.profileVersion) return bad('contested', 'an older profile than the one this reader saw');
+    else if (raw.version === checkpoint.profileVersion && profile.address !== checkpoint.profileHash) return bad('contested', 'two profiles at one version');
+    // A version that added any unsigned link since the checkpoint changed the key and nothing else — only a checkpointed reader can tell.
+    else if (raw.chain.slice(checkpoint.chain.length).some((h) => h.signature === undefined) && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [recoveryLists[checkpoint.chain.length], ...checkpoint.fields])) return bad('contested', 'a restore changed more than the key');
   }
   // "Recently restored" is a flag beside a name for seven days of this reader's clock, never a verdict.
-  const restoredAt = chain.restored ? (pin?.restoredAt?.[raw.chain.length] ?? now) : null;
+  const restoredAt = chain.restored ? (checkpoint?.restoredAt?.[raw.chain.length] ?? now) : null;
   if (restoredAt !== null && now - restoredAt < WEEK) say('recently restored');
 
   // The index must be signed by the key that is current NOW — that is what takes the list away from
@@ -161,49 +161,49 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
   // has anything to report.
   const hf = await get(`${at}/index`);
   let index = hf && openFile(hf, chain.current);
-  let set = index && fold(index.obj.entries);
-  // §4.2 is the fold; `entries` first, a non-negative `version` and `highest`'s floor are §4's shape.
-  const shape = index && (!set ? 'the index does not fold' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.highest) && index.obj.highest >= set.highest) ? 'highest is below the highest number issued' : null);
-  if (shape) return bad('host', shape);
+  let set = index && replay(index.obj.entries);
+  // §4.2 is replay; `entries` first, a non-negative `version` and `highest`'s floor are §4's shape.
+  const shape = index && (!set ? 'the index entries are invalid' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.highest) && index.obj.highest >= set.highest) ? 'highest is below the highest number issued' : null);
+  if (shape) return bad('tampered', shape);
   if (!index) {
-    if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
+    if (!checkpoint) return bad('tampered', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
     say('no index I can verify');
-    set = { live: new Map([...pin.live].map(([number, h]) => [number, { hash: h }])), highest: pin.highest };
-    index = { obj: { version: pin.indexVersion, highest: pin.highest }, address: pin.indexHash };
+    set = { live: new Map([...checkpoint.live].map(([number, h]) => [number, { hash: h }])), highest: checkpoint.highest };
+    index = { obj: { version: checkpoint.indexVersion, highest: checkpoint.highest }, address: checkpoint.indexHash };
   }
-  const withdrawn = new Map(pin?.withdrawn ?? []);
-  if (pin) {
-    if (index.obj.version < pin.indexVersion) return bad('host', 'an index older than the one this reader saw');
-    if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('host', 'two indexes at one version');
-    if (index.obj.highest < pin.highest) return bad('host', 'the highest number used went backwards');
+  const withdrawn = new Map(checkpoint?.withdrawn ?? []);
+  if (checkpoint) {
+    if (index.obj.version < checkpoint.indexVersion) return bad('tampered', 'an index older than the one this reader saw');
+    if (index.obj.version === checkpoint.indexVersion && index.address !== checkpoint.indexHash) return bad('tampered', 'two indexes at one version');
+    if (index.obj.highest < checkpoint.highest) return bad('tampered', 'the highest number used went backwards');
     // Whatever was rewritten since, a post the reader saw either survived unchanged, was withdrawn,
     // or came back at the hash it had; a number at or below the old top cannot appear that was
     // never there, and cannot come back as something else.
     for (const [number, e] of set.live) {
-      if (typeof number !== 'number' || number > pin.highest) continue;
-      const was = pin.live.get(number) ?? withdrawn.get(number);
-      if (!was) return bad('host', `post ${number} is listed now and was not before`);
-      if (was !== e.hash) return bad('host', `post ${number} changed after the reader saw it`);
+      if (typeof number !== 'number' || number > checkpoint.highest) continue;
+      const was = checkpoint.live.get(number) ?? withdrawn.get(number);
+      if (!was) return bad('tampered', `post ${number} is listed now and was not before`);
+      if (was !== e.hash) return bad('tampered', `post ${number} changed after the reader saw it`);
     }
-    for (const [number, h] of pin.live) if (!set.live.has(number)) { say(`withdrawn: ${number}`); withdrawn.set(number, h); }
+    for (const [number, h] of checkpoint.live) if (!set.live.has(number)) { say(`withdrawn: ${number}`); withdrawn.set(number, h); }
     for (const number of withdrawn.keys()) if (set.live.has(number)) withdrawn.delete(number);
   }
 
   const posts = new Map(), media = new Map();
   for (const [number, e] of set.live) {
     const f = await get(typeof number === 'string' ? `${at}/media/${number}` : `${at}/posts/${number}`);
-    if (!f) return bad('host', `${typeof number === 'string' ? 'media file' : 'post'} ${number} is listed and not served`);
-    if (typeof number === 'string') { if (sha256(f) !== number) return bad('host', `media file ${number} is not what the index lists`); media.set(number, f); continue; }
+    if (!f) return bad('tampered', `${typeof number === 'string' ? 'media file' : 'post'} ${number} is listed and not served`);
+    if (typeof number === 'string') { if (sha256(f) !== number) return bad('tampered', `media file ${number} is not what the index lists`); media.set(number, f); continue; }
     const post = openFile(f, chain.keys);
     // Signed by a key that was hers, listed by the index, and declaring the number it was served at.
-    if (!post || post.address !== e.hash || post.obj.number !== number) return bad('host', `post ${number} is not what the index lists`);
+    if (!post || post.address !== e.hash || post.obj.number !== number) return bad('tampered', `post ${number} is not what the index lists`);
     posts.set(number, post.obj);
   }
 
   return {
     verdict: 'ok', note, posts, media, chain, locations: raw.locations ?? [], read: raw.read,
-    pin: { profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields: [raw.locations, raw.name, raw.read],
-      restoredAt: { ...(pin?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
+    checkpoint: { profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields: [raw.locations, raw.name, raw.read],
+      restoredAt: { ...(checkpoint?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
       indexVersion: index.obj.version, indexHash: index.address, highest: index.obj.highest,
       live: new Map([...set.live].map(([number, e]) => [number, e.hash])), withdrawn },
   };
@@ -226,8 +226,8 @@ export async function rumors(get, seen, posts, replier) {
     // exist must not turn into a thousand fetches aimed at somebody else's host.
     if (!refreshed.has(t.key)) {
       refreshed.add(t.key);
-      const again = await read(get, { learned: t.key, at: t.location, pin: seen.get(t.key) });
-      if (again.verdict === 'ok') seen.set(t.key, again.pin);
+      const again = await read(get, { learned: t.key, at: t.location, checkpoint: seen.get(t.key) });
+      if (again.verdict === 'ok') seen.set(t.key, again.checkpoint);
     }
     // One line per person, however many replies they wrote: the rumor names who, not how often.
     const line = `${replier} replied to something I cannot see`;
@@ -270,7 +270,7 @@ if (isMain) {
   const put = (p, b) => files.set(p, b);
 
   // Alice: three posts and a photograph, but only 1 and 3 are listed. Post 2's bytes exist and
-  // nobody folded them in — a number nobody lists is nothing (§8.2), and it is also the bait for
+  // nobody listed them — a number nobody lists is nothing (§8.2), and it is also the bait for
   // a host that would like to backdate one into her history.
   const posts = [1, 2, 3].map((number) => P.post(number, { at: `2026-07-0${number}T10:00:00Z`, text: `post ${number}` }, A1));
   posts.forEach((f, i) => put(`${at}/posts/${i + 1}`, f));
@@ -292,20 +292,20 @@ if (isMain) {
   console.log('§7 — an honest read\n');
   const ok = await read(get, { learned: A1.x, at, now: NOW });
   console.log(`  verdict  ${ok.verdict}`);
-  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   top ${ok.pin.highest}`);
+  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   top ${ok.checkpoint.highest}`);
   console.log(`  notes    ${ok.note.length ? ok.note.join('; ') : '(none)'}\n`);
   assert.equal(ok.verdict, 'ok');
   assert.deepEqual([...ok.posts.keys()], [1, 3]);
-  const pin = ok.pin;
+  const checkpoint = ok.checkpoint;
 
-  // A second pin, taken from the restored chain, so a profile that "forgets" the restore is a
+  // A second checkpoint, taken from the restored chain, so a profile that "forgets" the restore is a
   // strict prefix at a higher version — a split at the end of the prefix (§3.6 rule 1).
   const restoredChain = [{ key: A1.x }, P.rotation(A1, A2, REC), P.restore(A2, A3, [MUM, SIS], REC)];
   const keep = new Map(files);
   put(`${at}/profile`, P.profile({ ...base, version: 3, chain: restoredChain }, A3));
   put(`${at}/index`, P.index({ entries: listing, version: 1, highest: 3 }, A3));
   const restoredRead = await read(get, { learned: A1.x, at, now: NOW });
-  const pinRestored = restoredRead.pin;
+  const pinRestored = restoredRead.checkpoint;
   assert.equal(restoredRead.verdict, 'ok');
   files.clear(); keep.forEach((v, k) => files.set(k, v));
 
@@ -314,7 +314,7 @@ if (isMain) {
   const clean = new Map(files);
   // Each move names the verdict it must earn. Counting three at the end is not enough by itself:
   // a check that stopped working would move one row to another verdict and leave the count at three.
-  const move = async (what, want, stage, opts = { pin }) => {
+  const move = async (what, want, stage, opts = { checkpoint }) => {
     const saved = new Map(files);
     await stage();
     const r = await read(get, { learned: A1.x, at, now: NOW, ...opts });
@@ -328,24 +328,24 @@ if (isMain) {
   const other2 = P.post(2, { at: '2026-07-02T10:00:00Z', text: 'not the post you saw' }, A1);
 
   await move('nothing wrong', 'ok', () => {});
-  await move('a listed post withheld', 'host', () => files.delete(`${at}/posts/3`));
-  await move('post 1 served at the path for post 3', 'host', () => put(`${at}/posts/3`, posts[0]));
-  await move('a post signed by a key that was never hers', 'host', () => put(`${at}/posts/3`, P.post(3, { at: '2026-07-03T10:00:00Z', text: 'not hers' }, THIEF)));
-  await move('an older index served', 'host', () => reindex([[1, P.address(posts[0])]], 1, 3));
-  await move('a listed media file withheld', 'host', () => files.delete(`${at}/media/${mediaHash}`));
-  await move('a media file that is not its own hash', 'host', () => put(`${at}/media/${mediaHash}`, Buffer.from('other bytes entirely')));
-  await move('a number below the top that was never there', 'host', () => reindex([...listing, [2, P.address(posts[1])]], 2, 3));
-  await move('a number re-listed at another hash', 'host', () => reindex([...listing, [2, P.address(posts[1])], [2, null], [2, P.address(other2)]], 2, 3));
-  await move('a whole other identity at this address', 'identity', () => put(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)));
-  await move("a branch vouched only by a list the link brought", 'identity', () => put(`${at}/profile`,
+  await move('a listed post withheld', 'tampered', () => files.delete(`${at}/posts/3`));
+  await move('post 1 served at the path for post 3', 'tampered', () => put(`${at}/posts/3`, posts[0]));
+  await move('a post signed by a key that was never hers', 'tampered', () => put(`${at}/posts/3`, P.post(3, { at: '2026-07-03T10:00:00Z', text: 'not hers' }, THIEF)));
+  await move('an older index served', 'tampered', () => reindex([[1, P.address(posts[0])]], 1, 3));
+  await move('a listed media file withheld', 'tampered', () => files.delete(`${at}/media/${mediaHash}`));
+  await move('a media file that is not its own hash', 'tampered', () => put(`${at}/media/${mediaHash}`, Buffer.from('other bytes entirely')));
+  await move('a number below the top that was never there', 'tampered', () => reindex([...listing, [2, P.address(posts[1])]], 2, 3));
+  await move('a number re-listed at another hash', 'tampered', () => reindex([...listing, [2, P.address(posts[1])], [2, null], [2, P.address(other2)]], 2, 3));
+  await move('a whole other identity at this address', 'contested', () => put(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)));
+  await move("a branch vouched only by a list the link brought", 'contested', () => put(`${at}/profile`,
     P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.restore(A1, THIEF, [EX], P.commit([EX])) ] }, THIEF)));
-  await move('a newer profile that forgets her restore', 'identity',
-    () => put(`${at}/profile`, P.profile({ ...base, version: 9, chain: [{ key: A1.x }] }, A1)), { pin: pinRestored });
-  await move('an index signed by a rotated-out key, to a cold reader', 'host',
-    () => reindex([], 2, 3, THIEF), { pin: null });
-  await move('a genuine post listed at another number, to a cold reader', 'host',
-    () => { put(`${at}/posts/3`, posts[1]); reindex([[1, P.address(posts[0])], [3, P.address(posts[1])], [mediaHash]], 1, 3); }, { pin: null });
-  await move('an index with `entries` not first', 'host', () => put(`${at}/index`, P.file({ version: 2, highest: 3, entries: listing }, A1)));
+  await move('a newer profile that forgets her restore', 'contested',
+    () => put(`${at}/profile`, P.profile({ ...base, version: 9, chain: [{ key: A1.x }] }, A1)), { checkpoint: pinRestored });
+  await move('an index signed by a rotated-out key, to a cold reader', 'tampered',
+    () => reindex([], 2, 3, THIEF), { checkpoint: null });
+  await move('a genuine post listed at another number, to a cold reader', 'tampered',
+    () => { put(`${at}/posts/3`, posts[1]); reindex([[1, P.address(posts[0])], [3, P.address(posts[1])], [mediaHash]], 1, 3); }, { checkpoint: null });
+  await move('an index with `entries` not first', 'tampered', () => put(`${at}/index`, P.file({ version: 2, highest: 3, entries: listing }, A1)));
   const verdicts = new Set(moves.map(([, v]) => v));
   console.log(`\n  ${moves.length} moves, ${verdicts.size} distinct verdicts: ${[...verdicts].sort().join(', ')}`);
   console.log('  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.\n');
@@ -355,15 +355,15 @@ if (isMain) {
   console.log('§7.2 — an index it cannot verify is not an accusation\n');
   const midway = new Map(files);
   put(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.rotation(A1, A2, REC)] }, A2));
-  const mid = await read(get, { learned: A1.x, at, now: NOW, pin });
-  console.log(`  mid-rotation, pinned   ${mid.verdict}  notes: ${mid.note.join('; ')}`);
+  const mid = await read(get, { learned: A1.x, at, now: NOW, checkpoint });
+  console.log(`  mid-rotation, checkpointed   ${mid.verdict}  notes: ${mid.note.join('; ')}`);
   const cold = await read(get, { learned: A1.x, at, now: NOW });
   console.log(`  mid-rotation, cold     ${cold.verdict} — ${cold.why}`);
   console.log('\n  The honest host is between its two writes (§3.5). A reader holding an index it');
   console.log('  verified itself keeps that one and says nothing; only a reader with none reports.\n');
   assert.equal(mid.verdict, 'ok');
   assert.ok(mid.note.some((n) => n.includes('no index I can verify')));
-  assert.equal(cold.verdict, 'host');
+  assert.equal(cold.verdict, 'tampered');
   files.clear(); midway.forEach((v, k) => files.set(k, v));
 
   // §7.4 — mum replies from her own hub, and a griefer replies a thousand times.
@@ -378,7 +378,7 @@ if (isMain) {
   };
   const body = (f) => JSON.parse(f.subarray(0, f.lastIndexOf(0x0a)).toString('utf8'));
   const asPosts = (made) => new Map(made.map((f, i) => [i + 1, body(f)]));
-  const seen = new Map([[A1.x, { ...pin }]]);
+  const seen = new Map([[A1.x, { ...checkpoint }]]);
   const quiet = speak('Mum', MUM.key, mumAt, [[1, 1], [2, 2]]);          // 1 exists; 2 is at or below top
   let before = fetches;
   const noRumor = await rumors(get, seen, asPosts(quiet), 'Mum');

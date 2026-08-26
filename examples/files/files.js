@@ -74,7 +74,7 @@ for (const u of asked) console.log(`  GET ${u}`);
 console.log();
 assert.equal(r.verdict, 'ok');
 assert.deepEqual(asked, [...served.keys()]);
-rule('2', `Everything on the wire is one of four kinds of file, under a name the writer claims (§8.4):
+rule('2', `Everything on the wire is one of four kinds of file, under a name the publisher claims (§8.4):
 
 | kind | path | overwritten? | signed by |
 |---|---|---|---|
@@ -100,7 +100,7 @@ const withNewline = Buffer.concat([file, Buffer.from('\n')]);
 assert.equal(splitFile(withNewline).sigLine, '');
 assert.equal(verifyFile(withNewline, alice.x), null);
 console.log(`  trailing newline     re-cuts the file: the signature line is empty\n`);
-rule('2.3', `The bytes served are the bytes signed. A producer signs what it serialized; a verifier verifies what it
+rule('2.3', `The bytes served are the bytes signed. A publisher signs what it serialized; a reader verifies what it
 received; neither re-serializes.`);
 
 // ---- §2.4 JSON hygiene ----
@@ -124,7 +124,7 @@ const copied = Object.assign({}, JSON.parse('{"__proto__":{"number":9}}'));
 assert.equal(copied.number, 9);
 assert.equal(Object.hasOwn(copied, 'number'), false);
 assert.equal(Object.create(null).number, undefined);
-rule('2.4', `A producer MUST NOT emit a duplicate member name, a member named \`__proto__\`, an integer outside
+rule('2.4', `A publisher MUST NOT emit a duplicate member name, a member named \`__proto__\`, an integer outside
 ±(2^53 − 1), or an unpaired UTF-16 surrogate. A reader SHOULD reject a body containing any of them, and
 one that accepts \`__proto__\` MUST parse into an object that does not inherit from it.`);
 

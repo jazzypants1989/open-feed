@@ -66,7 +66,7 @@ correctness or security defects; post-1.0, additive only.
    change touching signing, document shape, or the envelope. Both exit non-zero on drift. Nothing
    hand-typed into `open-feed-spec.md` or `test-vectors.md` survives the next `--write`.
 5. **Vocabulary is fixed**: anchor key, chain, link, recovery list, profile, index, post, media,
-   encrypted, pin, withdraw, hub. Code, tests, examples, and docs use the spec's words and its
+   encrypted, checkpoint, withdraw, hub. Code, tests, examples, and docs use the spec's words and its
    section numbers; a rename is a spec change first.
 6. **No changelog appendix, no version bump.** Record the change in the commit.
 7. **Rules only.** No motivation beside a rule, no "consequences", no attack narratives, no
@@ -84,7 +84,7 @@ example that argues a thing rather than re-arguing it.
   questions, in the owner's words. Never edit it — not to "tidy", rename vocabulary, update
   references, or mark a question answered — without an instruction from the owner that names the
   file. The same holds for `DISTRIBUTION-MODEL.md`: do not move, archive, or fold it.
-- A pin is the reader's own state, not a wire object: `profileVersion`/`profileHash`,
+- A checkpoint is the reader's own state, not a wire object: `profileVersion`/`profileHash`,
   `indexVersion`/`indexHash`, `recoveryLists` per chain length, `live`, `withdrawn`, `top`. The wire
   members are both just `version`.
 - The reader re-fetches a target's profile on a look-again (§7.4) — that is the rumor rule, not a

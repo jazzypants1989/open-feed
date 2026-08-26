@@ -1,5 +1,5 @@
 // §6 — encrypted content. One X25519 ephemeral per message; per recipient a blinded tag, a wrapped
-// content key; the content under a single-use key with the carrier bound as associated data; the
+// content key; the content under a single-use key with the post binding as associated data; the
 // audience inside, naming people. And §4.4's encrypted media file.
 import crypto from 'node:crypto';
 import { parseBody } from './file.js';
@@ -17,17 +17,17 @@ export const readingKeyFromSeed = (seed) => { const privateKey = crypto.createPr
 const aead = (key, nonce, data, aad) => { const c = crypto.createCipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 }); c.setAAD(aad, { plaintextLength: data.length }); return Buffer.concat([c.update(data), c.final(), c.getAuthTag()]); };
 const unaead = (key, nonce, data, aad) => { const d = crypto.createDecipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 }); d.setAAD(aad, { plaintextLength: data.length - 16 }); d.setAuthTag(data.subarray(-16)); return Buffer.concat([d.update(data.subarray(0, -16)), d.final()]); };
 const slotKeys = (z, epk) => { const k = Buffer.from(crypto.hkdfSync('sha256', z, epk, INFO, 52)); return { tag: k.subarray(0, 8), kek: k.subarray(8, 40), knonce: k.subarray(40, 52) }; };
-// §6.2: the content's associated data is the ephemeral key and the carrier — the author's anchor
-// key and the post number — so an envelope lifted into another post does not open there.
-const bindAAD = (epk, carrier) => Buffer.concat([epk, Buffer.from(carrier, 'ascii')]);
-export const carrierOf = (anchor, number) => `${anchor}:${number}`;
+// §6.2: the content's associated data is the ephemeral key and the post binding — the author's
+// anchor key and the post number — so an envelope lifted into another post does not open there.
+const bindAAD = (epk, binding) => Buffer.concat([epk, Buffer.from(binding, 'ascii')]);
+export const postBinding = (anchor, number) => `${anchor}:${number}`;
 
 /**
- * Encrypt `content` to `audience` — entries `{ key, read, location }` (§6.4) — for the post at `carrier`.
+ * Encrypt `content` to `audience` — entries `{ key, read, location }` (§6.4) — for the post at `binding`.
  * `random`, `ephemeral`, `contentKey` are seams for reproducible vectors and nothing else.
  */
-export function encrypt({ content, audience, carrier, random = crypto.randomBytes, ephemeral, contentKey }) {
-  if (typeof carrier !== 'string' || !carrier) throw new TypeError('a carrier is required (§6.2)');
+export function encrypt({ content, audience, binding, random = crypto.randomBytes, ephemeral, contentKey }) {
+  if (typeof binding !== 'string' || !binding) throw new TypeError('a binding is required (§6.2)');
   if (!Array.isArray(audience) || !audience.every((a) => a && typeof a.key === 'string' && typeof a.read === 'string' && typeof a.location === 'string')) throw new TypeError('audience entries are {key, read, location} (§6.4)');
   const eph = ephemeral ?? newReadingKey();
   const epk = unb64(eph.x);
@@ -38,11 +38,11 @@ export function encrypt({ content, audience, carrier, random = crypto.randomByte
     const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: readingPublicKey(a.read) }), epk);
     return [b64(tag), b64(aead(kek, knonce, ck, epk))];
   });
-  return { ephemeral: eph.x, slots, ciphertext: b64(aead(ck, ZERO12, plain, bindAAD(epk, carrier))) };
+  return { ephemeral: eph.x, slots, ciphertext: b64(aead(ck, ZERO12, plain, bindAAD(epk, binding))) };
 }
 
-/** Open an envelope with a reading key for the post at `carrier`. Null when it is not for us. */
-export function decrypt(env, privateKey, carrier) {
+/** Open an envelope with a reading key for the post at `binding`. Null when it is not for us. */
+export function decrypt(env, privateKey, binding) {
   if (!env || typeof env.ephemeral !== 'string' || !Array.isArray(env.slots) || typeof env.ciphertext !== 'string') return null;
   let epk, tag, kek, knonce;
   try { epk = unb64(env.ephemeral); ({ tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey, publicKey: readingPublicKey(env.ephemeral) }), epk)); } catch { return null; }
@@ -51,7 +51,7 @@ export function decrypt(env, privateKey, carrier) {
     const t = unb64(slot[0]);
     if (t.length !== tag.length || !crypto.timingSafeEqual(t, tag)) continue;    // a tag is a hint: a malformed or colliding one is a slot to skip
     let ck; try { ck = unaead(kek, knonce, unb64(slot[1]), epk); } catch { continue; }
-    let plain; try { plain = unaead(ck, ZERO12, unb64(env.ciphertext), bindAAD(epk, carrier)); } catch { return null; }
+    let plain; try { plain = unaead(ck, ZERO12, unb64(env.ciphertext), bindAAD(epk, binding)); } catch { return null; }
     try { return parseBody(plain); } catch { return null; }              // §2.4 applies to the plaintext too
   }
   return null;

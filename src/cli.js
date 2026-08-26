@@ -22,7 +22,7 @@ export async function main(argv, { stdout, stderr, fetcher = createFetcher() } =
   } else if (r.verdict === 'ok') {
     stdout.write(`ok — ${r.name ?? at}${r.note.length ? ` (${r.note.join('; ')})` : ''}\n${r.posts.size} post(s), ${r.media.size} media file(s); locations: ${r.locations.join(' ')}\nspoken code: ${spokenCode(learned).join(' ')}\n`);
   } else {
-    stdout.write(`${r.verdict === 'host' ? 'this host is misbehaving' : 'this identity is in question'} — ${r.why}\n`);
+    stdout.write(`${r.verdict === 'tampered' ? 'this host is misbehaving' : 'this identity is contested'} — ${r.why}\n`);
   }
   return r.verdict === 'ok' ? 0 : 1;
 }
