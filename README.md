@@ -83,7 +83,7 @@ need any of this — open an issue.
 | [`src/`](src/)                           | the reference implementation: zero dependencies, one module per spec chapter     |
 | [`examples/`](examples/)                 | one small program per concept; read them in order and you have read the protocol |
 | [`bridge/`](bridge/)                     | four other protocols — **interop, not spec**                                     |
-| [`archive/`](archive/)                   | what the redesign superseded, and the record of why                              |
+| [`RETROSPECTIVE.md`](RETROSPECTIVE.md)  | the five generations, what is settled, and what the simplifications cost        |
 
 ## Interop
 

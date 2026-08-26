@@ -22,8 +22,9 @@ them**: a script proves a rule with an assertion and then prints it with `rule()
   the script and its output on a docs page. Comparisons with other protocols live in
   `COMPARISON.md` at the repo root.
 
-Every example illustrates the **current spec only**. Designs that were considered and not adopted
-belong in `archive/` — never in a script.
+Every example illustrates the **current spec only**. Designs that were considered and not adopted do
+not belong in a script: the ones that are settled are in `RETROSPECTIVE.md`, and the reasoning behind
+each is in `git log`.
 
 ## Reading order
 

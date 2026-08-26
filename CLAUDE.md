@@ -32,7 +32,7 @@ standard library's primitives (Ed25519, X25519, SHA-256, ChaCha20-Poly1305, HKDF
 | `bridge/` | **Interop, not spec.** One Open Feed identity translated to ActivityPub, Nostr, AT Protocol, and the IndieWeb, stdlib-only. Each protocol bridge holds its own stable key, so protocol identity survives Open Feed key rotation — the bridge IS the protocol identity, backed by the identity. `unified.js` serves all of them at once; `mastodon-test.js` is the runnable one; `state.js` makes keys, hub files, and followers survive a restart. No rule here reaches the spec |
 | `deploy/` | Dockerfile and compose for running `bridge/mastodon-test.js` at a real origin behind Traefik. `deploy/README.md` is the deploy and verify procedure. **`BRIDGE_DATA` holds the identity's private keys** — a bridge that loses them is a new identity to every instance that cached the old one |
 | `README.md` · `GOALS.md` | Human-facing docs. README explains, the spec defines. The README's opening three sections — how it works, what it guarantees, the glossary — are the budgeted summary of the whole protocol, gated by `npm run tldr`; everything below "For developers" is unbudgeted. `GOALS.md` is the live statement of values and scenarios — the floor the spec is judged against |
-| `archive/` | Everything the redesign superseded, verbatim, never run by CI: the old spec and its implementation, the prototype fleet, and the redesign record (rulings, rejections, reviews, outside review). `archive/README.md` is the index. Consult it before re-litigating a design choice — most near-misses are already priced there |
+| `RETROSPECTIVE.md` | **What the five generations were, what is settled and why, and what the simplifications cost.** Written when `archive/` was deleted, to replace it. Consult it before re-litigating a design choice — most near-misses are priced there, and the reasoning behind each is in `git log`. A snapshot, not a maintained file |
 | `tmp/` | Gitignored scratch. Nothing here is tracked |
 
 `npm run check` = tests + vectors + the TL;DR budget. Run it before every commit.
@@ -86,7 +86,8 @@ correctness or security defects; post-1.0, additive only.
 6. **No changelog appendix, no version bump.** Record the change in the commit.
 7. **Rules only.** No motivation beside a rule, no "consequences", no attack narratives, no
    restatement of one section in another. The old hand-written draft is
-   `archive/spec-before-generation.md`; its explanations belong in an example's `.md` if anywhere.
+   in `git log` (the last hand-written draft is `archive/old-spec-3.md` at commit `66788ea`); its
+   explanations belong in an example's `.md` if anywhere.
 
 ## Editing the README
 
