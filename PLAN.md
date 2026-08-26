@@ -50,9 +50,7 @@ the Nostr pubkey; AP outbox has 3 public posts with correct `inReplyTo`; Nostr e
 proxy tags; per-post HTML has full h-entry microformats; encrypted content never appears in any
 protocol; all protocols see exactly the same public posts.
 
-## What remains — in order
-
-### 1. Live testing against real instances — done
+### Live testing — complete
 
 Every question the in-memory bridges could not answer, answered against something real.
 
@@ -102,7 +100,9 @@ is the only line of the path never run against a success.
 
 None of the three was reachable from in-memory tests. That is the argument for this section.
 
-### 2. The document layer: README, TLDR, and the spec Summary
+## What remains — in order
+
+### 1. The document layer: README, TLDR, and the spec Summary
 
 The README is the first thing anyone sees — it is the natural home for the concise explanation of
 the protocol. TLDR.md's content moves to the README's opening sections; `tools/tldr.js` adapts
@@ -126,7 +126,7 @@ for two audiences — curious people first, then developers:
 - `npm run check`, the example contract, how to add a rule
 - Reference the spec for definitions, examples for explanations
 
-### 3. DISTRIBUTION-MODEL.md — phased rewrite
+### 2. DISTRIBUTION-MODEL.md — phased rewrite
 
 The current document (20K words) describes a family journaling app with AI assistance built on the
 **old** protocol. It has a stale-content banner. The product vision is current; the technical
@@ -140,7 +140,7 @@ architecture is not. Phase the rewrite to respect the owner-document constraint:
 **This is an owner document.** Agents may edit it, but must clarify changes with the owner first —
 especially product vision, business model, or privacy guarantees.
 
-### 4. GOALS.md — rewrite
+### 3. GOALS.md — rewrite
 
 The five "Still open" questions are all resolved by the completed spec:
 1. Publish interface → signed PUT to conventional paths (§8)
