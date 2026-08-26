@@ -1,5 +1,7 @@
 // The scenarios of GOALS.md, end to end over src/: the divorce, Grandma onboards, two hubs one
-// thread, the domain goes, the stranger. Code defends scenarios, not rules.
+// thread, the domain goes, the stranger, the big lazy hub. Code defends scenarios, not rules.
+// The weekend is the seventh, and it is staged by examples/weekend-publisher/ and
+// examples/weekend-reader/ rather than here — the second reader that verifies test-vectors.md.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHub } from '../src/hub.js';
@@ -165,4 +167,75 @@ test('the stranger: a public journal reaches a plain feed reader through the gen
   await pub.putView('feed.json', views.jsonFeed(r, AT), 'application/feed+json');
   assert.equal(hub.handle({ method: 'GET', path: '/alice/feed.json' }).status, 200);
   assert.ok(!views.jsonFeed(r, AT).includes('"ciphertext"'), 'a view never carries ciphertext');
+});
+
+test('the big lazy hub: ten thousand on one commercial hub, the operator is the ex at scale, and per-identity cost stays flat', async () => {
+  const POSTS = 3;
+  const alice = person('alice'), mum = person('mum'), ex = person('ex');
+  const aliceRead = newReadingKey(), mumRead = newReadingKey();
+  const REC = list(mum), AT = 'https://big.example/alice';
+
+  // One hub, `tenants` other identities beside her. Her own bytes are identical in every staging,
+  // which is what lets the counts below be compared exactly rather than approximately.
+  const stage = async (tenants) => {
+    const hub = createHub(), io = memIo(hub);
+    const pub = await claim(io, alice, AT, { recovery: REC, read: aliceRead.x });
+    for (let n = 1; n <= POSTS; n++) await pub.publish(n, { at: '2026-08-01T00:00:00Z', text: `alice ${n}` });
+    const neighbours = [];
+    for (let i = 0; i < tenants; i++) {
+      const who = person(`n${i}`);
+      const neighbour = await claim(io, who, `https://big.example/n${i}`, { recovery: REC });
+      await neighbour.publish(1, { at: '2026-08-01T00:00:00Z', text: 'hello' });
+      neighbours.push(who);
+    }
+    return { hub, io, pub, neighbours };
+  };
+
+  // Read her on a hub with five neighbours, and on one with three hundred. The reader's work is
+  // the same work: the same files, in the same order, for the same bytes. Nothing in a read is
+  // indexed by how many people the operator has.
+  const meter = (io) => { const seen = { paths: [], bytes: 0 }; return [seen, readerOver({ get: async (u) => { seen.paths.push(new URL(u).pathname); const r = await io.get(u); if (r) seen.bytes += r.bytes.length; return r; } })]; };
+  const small = await stage(5), big = await stage(300);
+  const [sSeen, sReader] = meter(small.io), [bSeen, bReader] = meter(big.io);
+  const sRead = await sReader.read({ learned: alice.key.x, at: AT });
+  const bRead = await bReader.read({ learned: alice.key.x, at: AT });
+  assert.equal(sRead.verdict, 'ok', sRead.why);
+  assert.equal(bRead.verdict, 'ok', bRead.why);
+  assert.deepEqual(bSeen.paths, sSeen.paths, 'sixty times the tenancy, the same fetches');
+  assert.equal(bSeen.bytes, sSeen.bytes, 'and the same bytes');
+  assert.equal(bSeen.paths.length, 2 + POSTS, 'profile, index, and one fetch per live post');
+
+  // And the hub's own cost is a constant per identity, not a structure that grows with the crowd:
+  // there is no shared file, no roster, nothing a tenant is a row in.
+  const files = (tenants) => 2 + POSTS + tenants * 3;                       // hers, then profile+index+post each
+  assert.equal(small.hub.store.size, files(5));
+  assert.equal(big.hub.store.size, files(300));
+
+  // Floor 1 at scale: he owns three hundred people's disks and still cannot write one word as her —
+  // and the forgery does not hide in the crowd, nor does it touch anyone standing next to her.
+  const neighbourBefore = big.hub.store.get('n7/index');
+  big.hub.store.set('alice/posts/2', signFile({ number: 2, at: '2026-01-01T00:00:00Z', text: 'she never wrote this' }, ex.key));
+  const forged = await bReader.read({ learned: alice.key.x, at: AT });
+  assert.equal(forged.verdict, 'tampered');
+  assert.equal(forged.why, 'post 2 is not what the index lists');
+  const bystander = await readerOver(big.io).read({ learned: big.neighbours[7].key.x, at: 'https://big.example/n7' });
+  assert.equal(bystander.verdict, 'ok', bystander.why);                     // the lie is scoped to her name
+  assert.equal(big.hub.store.get('n7/index'), neighbourBefore, 'and no neighbour\'s files moved');
+  big.hub.store.set('alice/posts/2', small.hub.store.get('alice/posts/2'));
+
+  // Floor 2 at scale: he holds every byte of three hundred journals and opens none of the sealed ones.
+  await big.pub.publish(POSTS + 1, { at: '2026-08-09T00:00:00Z', encrypted: encrypt({ content: { text: 'the lawyer called' }, audience: [{ key: alice.key.x, read: aliceRead.x, location: AT }, { key: mum.key.x, read: mumRead.x, location: 'https://mum.example/mum' }], binding: postBinding(alice.key.x, POSTS + 1) }) });
+  const sealed = (await bReader.read({ learned: alice.key.x, at: AT })).posts.get(POSTS + 1).encrypted;
+  assert.equal(decrypt(sealed, newReadingKey().privateKey, postBinding(alice.key.x, POSTS + 1)), null, 'the operator, holding the disk');
+  assert.equal(decrypt(sealed, mumRead.privateKey, postBinding(alice.key.x, POSTS + 1)).text, 'the lawyer called');
+
+  // Floor 3 at scale: leaving is still copying her own files somewhere else. The crowd is irrelevant
+  // to it — she is not a row in his database, she is a directory of signed bytes she already had.
+  const home = createHub(), homeIo = memIo(home);
+  for (const [path, bytes] of big.pub.copy) await homeIo.put(`https://alice.example/alice${path}`, bytes);
+  await homeIo.put('https://alice.example/alice/profile', signProfile({ anchor: alice.key.x, version: 2, name: 'alice', chain: [{ key: alice.key.x }], recovery: REC, locations: [AT, 'https://alice.example/alice'], read: aliceRead.x }, alice.key));
+  const home1 = await readerOver(homeIo).read({ learned: alice.key.x, at: 'https://alice.example/alice' });
+  assert.equal(home1.verdict, 'ok', home1.why);
+  assert.equal(home1.posts.size, POSTS + 1);
+  assert.equal(home.store.size, files(0) + 1, 'her whole identity, on a hub with one tenant');
 });
