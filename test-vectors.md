@@ -51,8 +51,8 @@ The link carries the list that stood before it and is signed by the key it repla
 bytes `<previous>-><new>` (§3.3).
 
 ```
-{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":2,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"sig":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
-fEaUyfiExFhauLWOoDi37at9BUYyrC-MNsnvXLVusx2BFhJzi8fOTHzaxLgClZlmUW-cSiVIbHxL3Yin04GTBg
+{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":2,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"signature":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
+xnpvj80krWHJ_bG9qWRqVUvuxuQG5Q5p73GJcLPBNMyoeXNNlH7oSCrVJ6RpAdWBRcn-d64lEptc54MvBAocDw
 ```
 
 ## 5. Profile, `version` 3 (a restore)
@@ -61,8 +61,8 @@ The same link shape with vouchers instead of a signature: two of three — a maj
 only its own salt, counted against the `recovery` the link carries (§3.3).
 
 ```
-{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":3,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"sig":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"},{"key":"17Ffa8rSZgnuFbV_5lfpNbt29t3qbWSOZgD2Qzfwy2M","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"vouchers":[{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","salt":"saltmum","sig":"zlSag21icaKQIgVI-iopptghcCruIYne8uv1aI9P94VOSm-CoFQ3e44Ajp5zR0DPmvCwl3KJNKbJgCyFi-ZxBg"},{"key":"lSsNjsT3evpDW6UbuftsCqsxJ4eTe8pS21eX5p9QTNQ","salt":"saltsis","sig":"ttyqfT-I4auqFG0udf45r76o5gavmZEnStB0E5oAcQAKIAYNpkJRz9LjIqJfu8ZiolEB9Gtabq9w-RYtVOIHDw"}]}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
-cFu5nHM58WG2v12ax_h67RMagOUjSOy6yCVMZSTlOrej-YPl-ycPGO7rZ3sGirpDIhymc_ajtCV6uKCHxyjnDA
+{"anchor":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY","version":3,"name":"Alice","chain":[{"key":"pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY"},{"key":"kAIz_MtYt-fQQiaSZcNG9Mfhzb3Y5a1kT6TndVQInFs","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"signature":"nWLFgpsi0aH7-kK-6p8OCOOlIRmI5VMRdOq0oiE3WuDjVxet2prcYFdQMLcmDI-r74mZGEnYxLe3k0Fi3rBUDA"},{"key":"17Ffa8rSZgnuFbV_5lfpNbt29t3qbWSOZgD2Qzfwy2M","recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"vouchers":[{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","salt":"saltmum","signature":"zlSag21icaKQIgVI-iopptghcCruIYne8uv1aI9P94VOSm-CoFQ3e44Ajp5zR0DPmvCwl3KJNKbJgCyFi-ZxBg"},{"key":"lSsNjsT3evpDW6UbuftsCqsxJ4eTe8pS21eX5p9QTNQ","salt":"saltsis","signature":"ttyqfT-I4auqFG0udf45r76o5gavmZEnStB0E5oAcQAKIAYNpkJRz9LjIqJfu8ZiolEB9Gtabq9w-RYtVOIHDw"}]}],"recovery":{"leaves":["WU9iV-S-tZGjW-FrS9wk-rOZY5-PLunyBjVkt3_9um4","wUP6Dx7DznM2KJ6vN9XxcgyUW8zjER_B9ULwMXXA9Hc","frqJoJxgmjRUXk-XHjW0knmo7NDdFa3Kqz1bohnM4TQ"]},"locations":["https://alice.example/alice"],"read":"cLoW-OhUZjtdhQBEZbMz92JNIyeJc3q_EU3WkzIsjkc"}
+ejv3XEzWlhO4hvy4lkh5gvjeSNuA0Km6rIg_htnJY9GclnqOEM3LTgA-c-YoQLyFN7HtoW8xuDMDzSn4mBCDAw
 ```
 
 ## 6. Post
@@ -70,8 +70,8 @@ cFu5nHM58WG2v12ax_h67RMagOUjSOy6yCVMZSTlOrej-YPl-ycPGO7rZ3sGirpDIhymc_ajtCV6uKCH
 The number is inside the signed bytes (§5.1).
 
 ```
-{"n":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}
-Pe6ZO_mwGsToFUaNh1sRuPI7kTastKn7qJ3KpXyPBupKLLJzuoZiAnfwUbXTxnULHkLkqevKxmU3q3xPj1ehDQ
+{"number":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}
+kHPAtNnojvwgwfeCSP_BrNg5SkM_PK-4dRM_SnjmQWA-F0k-2x1oagYqxomJwsuaaSf14qOLgz4OpJIeHwuACg
 ```
 
 ## 7. Post — a reply
@@ -80,8 +80,8 @@ The target names the author's anchor key, the number, all 43 characters of the a
 the replier last knew that author to live (§5.4).
 
 ```
-{"n":3,"at":"2026-07-19T09:30:00Z","text":"congratulations, both of you","rel":"reply","target":{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","n":12,"hash":"_wcb5V3yCD3C6KmN7mOmNw3DKJcRdBJItfW0Z-Ic_kc","loc":"https://mom.example/mom"}}
-S4mRckyGslGrhS5n9O6KmD0qqweGXOzu784PMH3sUHgrDqD5SliKvKiecBa6JWbIm9y1hkFTzor1_Bzqd433Dw
+{"number":3,"at":"2026-07-19T09:30:00Z","text":"congratulations, both of you","rel":"reply","target":{"key":"5ywjllCxE-n6N6Ugee2AYJDSGaBb4HA81cODDf_NoqU","number":12,"hash":"_wcb5V3yCD3C6KmN7mOmNw3DKJcRdBJItfW0Z-Ic_kc","location":"https://mom.example/mom"}}
+gQTvN-c31p-2SO4_h4dASM4wzwE_FZM_g41zShGynUWSldq24wzXzsLqYwg-PRqqib--5Ct5x0rJooSdVvTTDQ
 ```
 
 ## 8. Post — encrypted
@@ -92,8 +92,8 @@ location (§6.4): one slot per recipient. The carrier bound into the associated 
 `pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5`.
 
 ```
-{"n":5,"at":"2026-08-18T21:40:00Z","encrypted":{"epk":"bulurRC1e4YYuDGwVZj_Yh9ZgswZoponWSc5JsAp5z8","slots":[["cwNqOZ1KtPU","LRz0F-kLZzeE3HcRmOcfbdxrFr7PIszC4GJ6JiiQBW2D_2yuzRMWiemDHEawzpsH"],["SzNzzQy4o2c","2rsCQZAjQMhlxocGQd4baI0tsCQiZqRX8BtHmJ8mihXiGd5DtWA0mmPvzLY0Ite-"]],"ct":"bT2l-Lxak1AeelnJGWv8BBR7v_ZbRKLIJOr_Wy-mTOMsw6Vmuh8aPGJw1khx8Y8nFNm7surpaSrQA0FoVrlovHagSt458HjVN_PPMJR0f_HEpenv5Mw1mMwJfPgjmQ3i3HQHZH1k7OAdAkxrigitWvW2KafkXYmftdwsd2N7xYwmgC6fBN_Tx86kB63qmd1vxffuImo89EJM3iffumuNIsFsloJnTge6pqP2KLwavavh61BNIDLZsOmNfZjYlgY8WhnK_4VPwALUibrTWn_8XaSo_AV-vOGMbk9A-OFDr3hmHO1ZMeWoPtaEr30hj7um2zfGVV7aMMGZz-FEsJzWyalTgmQ5VwWXrYYKet625X_x-OFh0yrYn5kNk-0YUH5wtMQbfTz0TF9ZOXOzilzRKbcafpPjh2NRz1j7AbO5TJc0uTY1zjJCt9Nge_k4SmpG22qylKSA9LXZT1VcsfW9CctzBRhf4LpSCA"}}
-bN2ROy23DEOd_SBE55RYioGMlTHxb0zyQqoVVzK85-fQg8Nq2mV_dHR3OSrsyPB3jdBfjHpBILQnlnbFoMZeBg
+{"number":5,"at":"2026-08-18T21:40:00Z","encrypted":{"ephemeral":"bulurRC1e4YYuDGwVZj_Yh9ZgswZoponWSc5JsAp5z8","slots":[["cwNqOZ1KtPU","LRz0F-kLZzeE3HcRmOcfbdxrFr7PIszC4GJ6JiiQBW2D_2yuzRMWiemDHEawzpsH"],["SzNzzQy4o2c","2rsCQZAjQMhlxocGQd4baI0tsCQiZqRX8BtHmJ8mihXiGd5DtWA0mmPvzLY0Ite-"]],"ciphertext":"bT2l-Lxak1AeelnJGWv8BBR7v_ZbRKLIJOr_Wy-mTOMsw6Vmuh8aPGJw1khx8Y8nFNm7surpaSrQA0FoVrlovHagSt458HjVN_PPMJR0f_HEpenv5Mw1mMwJfPgjmQ3i3HQHZH1k7OAdAkxrigitWvW2KafkXYmftdwsNC0wwpZwyn_NX4TC2J3oTeLjiN9nm_7zbGYg8UQGnTaaoizEOpQ1jss3TlLq6PrMJ5Nbv97XmChEcxndpNeiXPnerg4aPRbqhdYYxweo3obScUrPIMbl_zU99OHEKXdR47Ulsn8zKOZRKeyVSOi680BXm4nw6yuWeF_VV5uUlelJ75uFnN4nqlYjNWCSl8cEYpCx8mr14rQg3n2VmsMcm_9PDz149MRadWbofAMXKDmmkRPJdqMWPYqmk3ISgxPcRvK8BZZxty585icLu9t0ebp0GElYkDTxn-nDouXB6WPbwTm3K_jV8olp9tjndcC6n6m3UDufRE8"}}
+k78m9apUx5lqz868dHnybBjsCnfCzDurtPOBg3RkWGAxsDI_hSa-24jYgJGR7NfFCUqxT-SfaMdrpaQXtaA9Bw
 ```
 
 ## 9. Index, `version` 1
@@ -101,8 +101,8 @@ bN2ROy23DEOd_SBE55RYioGMlTHxb0zyQqoVVzK85-fQg8Nq2mV_dHR3OSrsyPB3jdBfjHpBILQnlnbF
 Three posts live.
 
 ```
-{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"]],"version":1,"top":3}
-XnVqNxHU5m3eu4qelsg77HFs7tngexX7YLv-y7MgxX00DH61GdGr9Lhms_65vxnCMHLYDYKiA5C_lQF7-10qDQ
+{"entries":[[1,"LnJVjBOfwhXSpLau7JorQS2H7Oo7YNyIhq74ehRDJZ4"],[2,"Ktil63eCnXSOyAOaukMOb5eE27MDhp9ApHrtgzOOuMU"],[3,"Pl04aMHjmAww8NynIQvzvCQfqGd6pGAXZOHBMfveCos"]],"version":1,"highest":3}
+erNuAmlo20JrfAWFQJmJDaovGBJQYsFTxhAXwvK6viQ-aDdBVHPhHFBzl8wCvY_5ciRYLMsrSsobjzogGV0KBQ
 ```
 
 ## 10. Index, `version` 2 — a withdrawal, a media file
@@ -111,19 +111,19 @@ Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the me
 address alone. The media file's bytes are 26 bytes hashing to `fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g`.
 
 ```
-{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[2,null],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"top":5}
-d3-yqAPg2iItXYasKxmht2vpwfGenGkTXzU-BFPd0sPk64VZzSsDOKL6wS04MPyA1IHk9k0dtqjckoJoCmFRAQ
+{"entries":[[1,"LnJVjBOfwhXSpLau7JorQS2H7Oo7YNyIhq74ehRDJZ4"],[2,"Ktil63eCnXSOyAOaukMOb5eE27MDhp9ApHrtgzOOuMU"],[3,"Pl04aMHjmAww8NynIQvzvCQfqGd6pGAXZOHBMfveCos"],[2,null],[4,"KzhD4BnBnj3hBa39Bn5u69nyF__BnkujfWponhCUSdo"],[5,"jPXhIAtS7czC2KidAM1Uad5mbt0_ghFDJxsj6da1hEU"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]],"version":2,"highest":5}
+blcDf2hiFFLcbzWs5r6HRujC1Eek38wVzNbUcIiDJ6KbYDtCIC8wK-zsb77Wt9LdeeWHOh29cFWARWXjoAs6AA
 ```
 
 ## 11. Index, `version` 3 — the rewrite, and a number that comes back
 
-The lines the withdrawal left behind are gone (§4.7), and post 2 is re-listed at the hash it had
-(§4.2). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes
+The lines the withdrawal left behind are gone (§4.5), and post 2 is re-listed at the hash it had
+(§4.1). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes
 coming back are not a change.
 
 ```
-{"entries":[[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"i8fWlv91EDyWVMc6iURfRC5pdun7669DXd59uEIBpn4"],[4,"3mnLZnbcYLQKoGGsRAjrSkU0cO7ALyYHCsjacXKGMeo"],[5,"8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"AkmRbiX-pd5u2-E0I8HLguor4ft81dB1eEWUz2JMRFs"]],"version":3,"top":5}
-9HJTbv8f48aF1GYk7SySc1aRFK1mm0eSjMo-xr3S3Dowv1OitC_nMVTwta3pJowJ-d27eYYOR1kUYG9eKp1DCQ
+{"entries":[[1,"LnJVjBOfwhXSpLau7JorQS2H7Oo7YNyIhq74ehRDJZ4"],[3,"Pl04aMHjmAww8NynIQvzvCQfqGd6pGAXZOHBMfveCos"],[4,"KzhD4BnBnj3hBa39Bn5u69nyF__BnkujfWponhCUSdo"],[5,"jPXhIAtS7czC2KidAM1Uad5mbt0_ghFDJxsj6da1hEU"],["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"],[2,"Ktil63eCnXSOyAOaukMOb5eE27MDhp9ApHrtgzOOuMU"]],"version":3,"highest":5}
+ka-dUj6NUciN6beB1d71HGHH-PzYUBPkt24CslUAOLYY-ycBR3vyeXkcsQvUKtOB35xt5fsdokRv-omRgOFTDg
 ```
 
 ## 12. The spoken code (§3.1)

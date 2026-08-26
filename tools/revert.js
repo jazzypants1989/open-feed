@@ -23,7 +23,7 @@ const M = [
   ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.4 the address half; the `n` half is the weekend-reader row below
     "if (!post || post.address !== e.hash || post.obj.n !== n) return bad('host', `post ${n} is not what the index lists`);",
     "if (!post) return bad('host', `post ${n} is not what the index lists`);"],
-  ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.5 one line per person (this gate sees only the de-dup half)
+  ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.4 one line per person (this gate sees only the de-dup half)
     'if (t.n > seen.get(t.key).top && !out.includes(line)) out.push(line);',
     'out.push(line);'],
   ['weekend-gate', 'examples/weekend-reader/weekend-reader.js',
@@ -74,7 +74,7 @@ const M = [
   ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',
     'checkedKey = await readKeyOf(mom, momAfter.pin);',
     'checkedKey = await naiveReadKeyOf(mom);'],
-  ['twohubs-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.5 look again at the author's hub
+  ['twohubs-gate', 'examples/weekend-reader/weekend-reader.js',                    // §7.4 look again at the author's hub
     'if (!refreshed.has(t.key)) {',
     'if (false) {'],
   ['twohubs-gate', 'examples/_seeds/twohubs-gate.js',
@@ -299,7 +299,7 @@ const M = [
   ["views", "src/views.js",
     "export function hcard(read, loc) {\n  const name = read.name ?? loc.split('/').pop();",
     "export function hcard(read, loc) {\n  const name = loc.split('/').pop();"],
-  ["views", "src/views.js",                                                      // §11 says MAY: this pins src/views.js's choice, not a rule
+  ["views", "src/views.js",                                                      // §10 says MAY: this pins src/views.js's choice, not a rule
     "href=\"${esc(`${loc}/#${read.anchor}`)}\"",
     "href=\"${esc(`${loc}/`)}\""],
   ["views", "src/index.js",                                                      // §4.2 the fold; "withdrawn posts are absent" holds by construction in views.js

@@ -74,7 +74,7 @@ function parse(text) {
 const linkSig = (from, to, x, s) => { const b = sigBytes(s ?? ''); try { return !!b && crypto.verify(null, Buffer.from(`${from}->${to}`), pub(x), b); } catch { return false; } };
 function vouches(from, link, recovery) {
   const leaves = new Set(recovery?.leaves ?? []);
-  return new Set((link?.vouchers ?? []).filter((v) => linkSig(from, link.key, v.key, v.sig) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`)))).map((v) => v.key)).size;
+  return new Set((link?.vouchers ?? []).filter((v) => linkSig(from, link.key, v.key, v.signature) && leaves.has(sha256(Buffer.from(`${v.salt}|${v.key}`)))).map((v) => v.key)).size;
 }
 const majority = (from, link, recovery) => vouches(from, link, recovery) * 2 > (recovery?.leaves?.length ?? Infinity);
 const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -82,13 +82,13 @@ function walk(p, recoveryLists) {
   for (let i = 1; i < p.chain.length; i++) {
     const link = p.chain[i], from = p.chain[i - 1].key, recovery = recoveryLists[i];
     if (!Array.isArray(link?.recovery?.leaves) || !recovery) return null;
-    if (!linkSig(from, link.key, from, link.sig) && !majority(from, link, recovery)) return null;
+    if (!linkSig(from, link.key, from, link.signature) && !majority(from, link, recovery)) return null;
   }
-  return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.length > 1 && p.chain.at(-1).sig === undefined };
+  return { keys: p.chain.map((h) => h.key), current: p.chain[p.chain.length - 1].key, restored: p.chain.length > 1 && p.chain.at(-1).signature === undefined };
 }
 
 // ---- the index ----
-// The live set is a fold over the entries in order: [n, hash] admits, [n, null] takes one back. A
+// The live set is a fold over the entries in order: [number, hash] admits, [number, null] takes one back. A
 // number has one hash, ever: the only legal second line for it is its withdrawal, or its return at
 // the identical hash. A media file is listed by its hash alone — [hash] admits it, [hash, null] takes it
 // back — and is the one unsigned thing: what admits it is being listed, and what checks it is the hash.
@@ -98,15 +98,15 @@ function fold(entries) {
   for (const e of entries) {
     if (!Array.isArray(e) || e.length > 2 || (typeof e[0] !== 'number' && typeof e[0] !== 'string')) return null;
     if (typeof e[0] === 'string') { if (e[1] === null ? !live.delete(e[0]) : (e.length !== 1 || live.has(e[0]))) return null; if (e.length === 1) live.set(e[0], { hash: e[0] }); continue; }
-    const [n, hash] = e;
-    if (!(Number.isInteger(n) && n >= 1)) return null;
-    if (hash === null) { if (!live.has(n)) return null; live.delete(n); continue; }
+    const [number, hash] = e;
+    if (!(Number.isInteger(number) && number >= 1)) return null;
+    if (hash === null) { if (!live.has(number)) return null; live.delete(number); continue; }
     if (typeof hash !== 'string') return null;
-    const had = issued.get(n);
-    if (had && (had !== hash || live.has(n))) return null;
-    issued.set(n, hash); live.set(n, { hash });
+    const had = issued.get(number);
+    if (had && (had !== hash || live.has(number))) return null;
+    issued.set(number, hash); live.set(number, { hash });
   }
-  return { live, top: Math.max(0, ...issued.keys()) };
+  return { live, highest: Math.max(0, ...issued.keys()) };
 }
 
 // ---- the reader ----
@@ -148,7 +148,7 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
     } else if (raw.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');
     else if (raw.version === pin.profileVersion && profile.address !== pin.profileHash) return bad('identity', 'contested: two profiles at one version');
     // A version that added any unsigned link since the pin changed the key and nothing else — only a pinned reader can tell.
-    else if (raw.chain.slice(pin.chain.length).some((h) => h.sig === undefined) && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [recoveryLists[pin.chain.length], ...pin.fields])) return bad('identity', 'a restore changed more than the key');
+    else if (raw.chain.slice(pin.chain.length).some((h) => h.signature === undefined) && !sameList([raw.recovery, raw.locations, raw.name, raw.read], [recoveryLists[pin.chain.length], ...pin.fields])) return bad('identity', 'a restore changed more than the key');
   }
   // "Recently restored" is a flag beside a name for seven days of this reader's clock, never a verdict.
   const restoredAt = chain.restored ? (pin?.restoredAt?.[raw.chain.length] ?? now) : null;
@@ -162,50 +162,50 @@ export async function read(get, { learned, at, pin = null, now = Date.now() } = 
   const hf = await get(`${at}/index`);
   let index = hf && openFile(hf, chain.current);
   let set = index && fold(index.obj.entries);
-  // §4.2 is the fold; `entries` first, a non-negative `version` and `top`'s floor are §4's shape.
-  const shape = index && (!set ? 'the index does not fold' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.top) && index.obj.top >= set.top) ? 'top is below the highest number issued' : null);
+  // §4.2 is the fold; `entries` first, a non-negative `version` and `highest`'s floor are §4's shape.
+  const shape = index && (!set ? 'the index does not fold' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.highest) && index.obj.highest >= set.highest) ? 'highest is below the highest number issued' : null);
   if (shape) return bad('host', shape);
   if (!index) {
     if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
     say('no index I can verify');
-    set = { live: new Map([...pin.live].map(([n, h]) => [n, { hash: h }])), top: pin.top };
-    index = { obj: { version: pin.indexVersion, top: pin.top }, address: pin.indexHash };
+    set = { live: new Map([...pin.live].map(([number, h]) => [number, { hash: h }])), highest: pin.highest };
+    index = { obj: { version: pin.indexVersion, highest: pin.highest }, address: pin.indexHash };
   }
   const withdrawn = new Map(pin?.withdrawn ?? []);
   if (pin) {
     if (index.obj.version < pin.indexVersion) return bad('host', 'an index older than the one this reader saw');
     if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('host', 'two indexes at one version');
-    if (index.obj.top < pin.top) return bad('host', 'the highest number used went backwards');
+    if (index.obj.highest < pin.highest) return bad('host', 'the highest number used went backwards');
     // Whatever was rewritten since, a post the reader saw either survived unchanged, was withdrawn,
     // or came back at the hash it had; a number at or below the old top cannot appear that was
     // never there, and cannot come back as something else.
-    for (const [n, e] of set.live) {
-      if (typeof n !== 'number' || n > pin.top) continue;
-      const was = pin.live.get(n) ?? withdrawn.get(n);
-      if (!was) return bad('host', `post ${n} is listed now and was not before`);
-      if (was !== e.hash) return bad('host', `post ${n} changed after the reader saw it`);
+    for (const [number, e] of set.live) {
+      if (typeof number !== 'number' || number > pin.highest) continue;
+      const was = pin.live.get(number) ?? withdrawn.get(number);
+      if (!was) return bad('host', `post ${number} is listed now and was not before`);
+      if (was !== e.hash) return bad('host', `post ${number} changed after the reader saw it`);
     }
-    for (const [n, h] of pin.live) if (!set.live.has(n)) { say(`withdrawn: ${n}`); withdrawn.set(n, h); }
-    for (const n of withdrawn.keys()) if (set.live.has(n)) withdrawn.delete(n);
+    for (const [number, h] of pin.live) if (!set.live.has(number)) { say(`withdrawn: ${number}`); withdrawn.set(number, h); }
+    for (const number of withdrawn.keys()) if (set.live.has(number)) withdrawn.delete(number);
   }
 
   const posts = new Map(), media = new Map();
-  for (const [n, e] of set.live) {
-    const f = await get(typeof n === 'string' ? `${at}/media/${n}` : `${at}/posts/${n}`);
-    if (!f) return bad('host', `${typeof n === 'string' ? 'media file' : 'post'} ${n} is listed and not served`);
-    if (typeof n === 'string') { if (sha256(f) !== n) return bad('host', `media file ${n} is not what the index lists`); media.set(n, f); continue; }
+  for (const [number, e] of set.live) {
+    const f = await get(typeof number === 'string' ? `${at}/media/${number}` : `${at}/posts/${number}`);
+    if (!f) return bad('host', `${typeof number === 'string' ? 'media file' : 'post'} ${number} is listed and not served`);
+    if (typeof number === 'string') { if (sha256(f) !== number) return bad('host', `media file ${number} is not what the index lists`); media.set(number, f); continue; }
     const post = openFile(f, chain.keys);
     // Signed by a key that was hers, listed by the index, and declaring the number it was served at.
-    if (!post || post.address !== e.hash || post.obj.n !== n) return bad('host', `post ${n} is not what the index lists`);
-    posts.set(n, post.obj);
+    if (!post || post.address !== e.hash || post.obj.number !== number) return bad('host', `post ${number} is not what the index lists`);
+    posts.set(number, post.obj);
   }
 
   return {
     verdict: 'ok', note, posts, media, chain, locations: raw.locations ?? [], read: raw.read,
     pin: { profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields: [raw.locations, raw.name, raw.read],
       restoredAt: { ...(pin?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
-      indexVersion: index.obj.version, indexHash: index.address, top: index.obj.top,
-      live: new Map([...set.live].map(([n, e]) => [n, e.hash])), withdrawn },
+      indexVersion: index.obj.version, indexHash: index.address, highest: index.obj.highest,
+      live: new Map([...set.live].map(([number, e]) => [number, e.hash])), withdrawn },
   };
 }
 
@@ -219,19 +219,19 @@ export async function rumors(get, seen, posts, replier) {
   for (const p of posts.values()) {
     const t = p.target;
     if (!t || !seen.has(t.key)) continue;
-    const listed = () => { const s = seen.get(t.key); return s.live.get(t.n) ?? s.withdrawn.get(t.n); };
+    const listed = () => { const s = seen.get(t.key); return s.live.get(t.number) ?? s.withdrawn.get(t.number); };
     if (listed() !== undefined && listed() !== t.hash) { t.unresolved = true; continue; }
-    if (t.n <= seen.get(t.key).top) continue;                         // withdrawn, or superseded — quiet
+    if (t.number <= seen.get(t.key).highest) continue;                         // withdrawn, or superseded — quiet
     // Look again, but once per identity per pass: a thousand replies naming a number that does not
     // exist must not turn into a thousand fetches aimed at somebody else's host.
     if (!refreshed.has(t.key)) {
       refreshed.add(t.key);
-      const again = await read(get, { learned: t.key, at: t.loc, pin: seen.get(t.key) });
+      const again = await read(get, { learned: t.key, at: t.location, pin: seen.get(t.key) });
       if (again.verdict === 'ok') seen.set(t.key, again.pin);
     }
     // One line per person, however many replies they wrote: the rumor names who, not how often.
     const line = `${replier} replied to something I cannot see`;
-    if (t.n > seen.get(t.key).top && !out.includes(line)) out.push(line);
+    if (t.number > seen.get(t.key).highest && !out.includes(line)) out.push(line);
   }
   return out;
 }
@@ -272,7 +272,7 @@ if (isMain) {
   // Alice: three posts and a photograph, but only 1 and 3 are listed. Post 2's bytes exist and
   // nobody folded them in — a number nobody lists is nothing (§8.2), and it is also the bait for
   // a host that would like to backdate one into her history.
-  const posts = [1, 2, 3].map((n) => P.post(n, { at: `2026-07-0${n}T10:00:00Z`, text: `post ${n}` }, A1));
+  const posts = [1, 2, 3].map((number) => P.post(number, { at: `2026-07-0${number}T10:00:00Z`, text: `post ${number}` }, A1));
   posts.forEach((f, i) => put(`${at}/posts/${i + 1}`, f));
   const photo = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
   const mediaHash = crypto.createHash('sha256').update(photo).digest('base64url');
@@ -281,7 +281,7 @@ if (isMain) {
   const base = { anchor: A1.x, name: 'Alice', recovery: REC, locations: [at] };
   const anchored = P.profile({ ...base, version: 1, chain: [{ key: A1.x }] }, A1);
   put(`${at}/profile`, anchored);
-  put(`${at}/index`, P.index({ entries: listing, version: 1, top: 3 }, A1));
+  put(`${at}/index`, P.index({ entries: listing, version: 1, highest: 3 }, A1));
 
   console.log('weekend-reader — §7, written from the text alone\n');
   console.log(`  ${measured} non-blank, non-comment lines above the marker, standard library only.`);
@@ -292,7 +292,7 @@ if (isMain) {
   console.log('§7 — an honest read\n');
   const ok = await read(get, { learned: A1.x, at, now: NOW });
   console.log(`  verdict  ${ok.verdict}`);
-  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   top ${ok.pin.top}`);
+  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   top ${ok.pin.highest}`);
   console.log(`  notes    ${ok.note.length ? ok.note.join('; ') : '(none)'}\n`);
   assert.equal(ok.verdict, 'ok');
   assert.deepEqual([...ok.posts.keys()], [1, 3]);
@@ -303,7 +303,7 @@ if (isMain) {
   const restoredChain = [{ key: A1.x }, P.rotation(A1, A2, REC), P.restore(A2, A3, [MUM, SIS], REC)];
   const keep = new Map(files);
   put(`${at}/profile`, P.profile({ ...base, version: 3, chain: restoredChain }, A3));
-  put(`${at}/index`, P.index({ entries: listing, version: 1, top: 3 }, A3));
+  put(`${at}/index`, P.index({ entries: listing, version: 1, highest: 3 }, A3));
   const restoredRead = await read(get, { learned: A1.x, at, now: NOW });
   const pinRestored = restoredRead.pin;
   assert.equal(restoredRead.verdict, 'ok');
@@ -324,7 +324,7 @@ if (isMain) {
     assert.equal(r.verdict, want, what);
     return r;
   };
-  const reindex = (entries, version, top, key = A1) => put(`${at}/index`, P.index({ entries, version, top }, key));
+  const reindex = (entries, version, highest, key = A1) => put(`${at}/index`, P.index({ entries, version, highest }, key));
   const other2 = P.post(2, { at: '2026-07-02T10:00:00Z', text: 'not the post you saw' }, A1);
 
   await move('nothing wrong', 'ok', () => {});
@@ -345,7 +345,7 @@ if (isMain) {
     () => reindex([], 2, 3, THIEF), { pin: null });
   await move('a genuine post listed at another number, to a cold reader', 'host',
     () => { put(`${at}/posts/3`, posts[1]); reindex([[1, P.address(posts[0])], [3, P.address(posts[1])], [mediaHash]], 1, 3); }, { pin: null });
-  await move('an index with `entries` not first', 'host', () => put(`${at}/index`, P.file({ version: 2, top: 3, entries: listing }, A1)));
+  await move('an index with `entries` not first', 'host', () => put(`${at}/index`, P.file({ version: 2, highest: 3, entries: listing }, A1)));
   const verdicts = new Set(moves.map(([, v]) => v));
   console.log(`\n  ${moves.length} moves, ${verdicts.size} distinct verdicts: ${[...verdicts].sort().join(', ')}`);
   console.log('  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.\n');
@@ -366,14 +366,14 @@ if (isMain) {
   assert.equal(cold.verdict, 'host');
   files.clear(); midway.forEach((v, k) => files.set(k, v));
 
-  // §7.5 — mum replies from her own hub, and a griefer replies a thousand times.
-  console.log('§7.5 — the rumor rule, and what it costs\n');
-  const target = (n) => ({ key: A1.x, n, hash: n === 1 ? P.address(posts[0]) : 'x'.repeat(43), loc: at });
+  // §7.4 — mum replies from her own hub, and a griefer replies a thousand times.
+  console.log('§7.4 — the rumor rule, and what it costs\n');
+  const target = (number) => ({ key: A1.x, number, hash: number === 1 ? P.address(posts[0]) : 'x'.repeat(43), location: at });
   const speak = (who, key, where, reps) => {
     const made = reps.map(([n, num]) => P.post(num, { at: '2026-08-01T00:00:00Z', text: 'saying something', rel: 'reply', target: target(n) }, key));
     made.forEach((f, i) => put(`${where}/posts/${reps[i][1]}`, f));
     put(`${where}/profile`, P.profile({ anchor: key.x, version: 1, name: who, chain: [{ key: key.x }], recovery: P.commit([]), locations: [where] }, key));
-    put(`${where}/index`, P.index({ entries: made.map((f, i) => [reps[i][1], P.address(f)]), version: 1, top: reps.length }, key));
+    put(`${where}/index`, P.index({ entries: made.map((f, i) => [reps[i][1], P.address(f)]), version: 1, highest: reps.length }, key));
     return made;
   };
   const body = (f) => JSON.parse(f.subarray(0, f.lastIndexOf(0x0a)).toString('utf8'));

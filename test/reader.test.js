@@ -14,7 +14,7 @@ async function scene() {
   const hub = createHub(), io = memIo(hub), alice = person('alice'), mum = person('mum'), sis = person('sis'), ex = person('ex');
   const REC = list(mum, sis, ex), AT = 'https://x/alice';
   const pub = await claim(io, alice, AT, { recovery: REC });
-  for (let n = 1; n <= 3; n++) await pub.publish(n, { at: '2026-08-01T00:00:00Z', text: `post ${n}` });
+  for (let number = 1; number <= 3; number++) await pub.publish(number, { at: '2026-08-01T00:00:00Z', text: `post ${number}` });
   const reader = readerOver(io);
   const read = (pin = null, opts = {}) => reader.read({ learned: alice.key.x, at: AT, pin, ...opts });
   return { hub, io, alice, mum, sis, ex, REC, AT, pub, reader, read, files: hub.store };
@@ -66,14 +66,14 @@ test('§7.2 the index: withholding, a rollback, a swap, and the rotation window'
   assert.equal(view(await s.read(later.pin)), 'host: an index older than the one this reader saw');
   assert.equal(view(await s.read()), 'ok [1,2,3]', 'a cold reader cannot see the rollback');
   // A swapped post.
-  s.files.set('alice/posts/1', signFile({ n: 1, at: 'x', text: 'not what she wrote' }, s.alice.key));
+  s.files.set('alice/posts/1', signFile({ number: 1, at: 'x', text: 'not what she wrote' }, s.alice.key));
   assert.equal(view(await s.read()), 'host: post 1 is not what the index lists');
   // Genuine post 2 served at the name 1.
   s.files.set('alice/posts/1', s.files.get('alice/posts/2'));
   assert.equal(view(await s.read()), 'host: post 1 is not what the index lists');
 });
 
-test('§4.6 / §7.2 a rotation: the index is re-signed under the new key; in between, a pinned reader notes and a cold one retries', async () => {
+test('§4.4 / §7.2 a rotation: the index is re-signed under the new key; in between, a pinned reader notes and a cold one retries', async () => {
   const s = await scene();
   const before = await s.read();
   const K2 = person('k2');
@@ -115,15 +115,15 @@ test('§7.3 a frozen copy reads as identity to a reader that saw the newer profi
   assert.deepEqual(moved.pin.locations, [s.AT, 'https://new.example/alice'], 'the pin remembers every location ever named');
   s.files.set('alice/profile', frozen.profile); s.files.set('alice/index', frozen.index);
   assert.equal(view(await s.read(moved.pin)), 'identity: an older profile than the one this reader saw');
-  assert.equal(view(await s.read()), 'ok [1,2,3]', 'a reader with no social path sees an unmarked page (§13.3)');
+  assert.equal(view(await s.read()), 'ok [1,2,3]', 'a reader with no social path sees an unmarked page');
 });
 
-test('§7.5 the rumor rule: quiet below top, one look per identity per pass, one line per person, target hash checked', async () => {
+test('§7.4 the rumor rule: quiet below top, one look per identity per pass, one line per person, target hash checked', async () => {
   const s = await scene();
   const seen = new Map([[s.alice.key.x, (await s.read()).pin]]);
   const bob = person('bob'), BAT = 'https://x/bob';
   const bpub = await claim(s.io, bob, BAT);
-  const target = (n, hash = seen.get(s.alice.key.x).live.get(n) ?? 'x') => ({ key: s.alice.key.x, n, hash, loc: s.AT });
+  const target = (number, hash = seen.get(s.alice.key.x).live.get(number) ?? 'x') => ({ key: s.alice.key.x, number, hash, location: s.AT });
   await bpub.publish(1, { at: 'x', rel: 'reply', target: target(1), text: 'to a post I can see' });
   await bpub.publish(2, { at: 'x', rel: 'reply', target: target(2, 'not-the-hash'), text: 'names the number, not the post' });
   await bpub.publish(3, { at: 'x', rel: 'reply', target: target(99), text: 'to one the host hides' });
@@ -146,5 +146,5 @@ test('§7.5 the rumor rule: quiet below top, one look per identity per pass, one
   // Alice actually publishes 4: the look-again finds it and the rumor goes quiet.
   await s.pub.publish(4, { at: 'x', text: 'post 4' });
   assert.deepEqual(await r.rumors(seen, new Map([[0, { target: target(4, 'x') }]]), 'bob'), [], 'the look-again updated the pin; the hash mismatch then makes it unresolved');
-  assert.equal(seen.get(s.alice.key.x).top, 4);
+  assert.equal(seen.get(s.alice.key.x).highest, 4);
 });

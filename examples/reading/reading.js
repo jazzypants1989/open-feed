@@ -33,13 +33,13 @@ const claim = async (k, name, loc, recovery = NONE) => { const pub = createPubli
 // ---- §7 / §7.1 the steps ----
 const F = { anchor: A1.x, name: 'alice', chain: [{ key: A1.x }], recovery: REC, locations: [AT] };
 const pub1 = await claim(A1, 'alice', AT, REC);
-for (const n of [1, 2, 3]) await pub1.publish(n, { at: '2026-08-01T10:15:00Z', text: `post ${n}` });
+for (const number of [1, 2, 3]) await pub1.publish(number, { at: '2026-08-01T10:15:00Z', text: `post ${number}` });
 const PHOTO = await pub1.publishMedia(Buffer.from('a photograph of the peonies'));
 const v1 = { profile: store.get('alice/profile'), index: store.get('alice/index') };
 const cold = await read(null);
 console.log('§7 — a cold read\n');
 console.log(`  verdict ${cold.verdict}; ${cold.posts.size} posts, ${cold.media.size} media file\n`);
-assert.deepEqual([cold.verdict, cold.posts.size, cold.media.size, cold.pin.top], ['ok', 3, 1, 3]);
+assert.deepEqual([cold.verdict, cold.posts.size, cold.media.size, cold.pin.highest], ['ok', 3, 1, 3]);
 rule('7', `A reader is given the anchor key it learned (§3), a location, and optionally the pin it kept from last time.
 The steps are in order; each supplies what the next checks.`);
 
@@ -80,10 +80,10 @@ console.log(`  mid-rotation, cold       ${midCold.verdict}: ${midCold.why}\n`);
 assert.deepEqual([afterWithdraw.note, midRotation.note, afterRestore.note, afterWithdraw.pin.withdrawn.get(2)], [['withdrawn: 2'], ['no index I can verify'], ['recently restored'], cold.pin.live.get(2)]);
 assert.deepEqual([midCold.verdict, midCold.why, midRotation.posts.size], ['host', 'the index is not signed by the key the profile ends on', 2]);
 // Step 9: an encrypted post comes back opaque; then the battery of hostile moves against the pin.
-const env = encrypt({ content: { text: 'the peonies came back' }, carrier: carrierOf(A1.x, 4), audience: [{ key: mum.x, read: readingKeyFromSeed(seed('mum-read')).x, loc: MUMAT }], ephemeral: readingKeyFromSeed(seed('alice/eph')), contentKey: seed('alice/contentkey') });
+const env = encrypt({ content: { text: 'the peonies came back' }, carrier: carrierOf(A1.x, 4), audience: [{ key: mum.x, read: readingKeyFromSeed(seed('mum-read')).x, location: MUMAT }], ephemeral: readingKeyFromSeed(seed('alice/eph')), contentKey: seed('alice/contentkey') });
 await pub3.publish(4, { at: '2026-08-08T09:00:00Z', encrypted: env });
 const full = await read(afterRestore.pin, LATER), post1 = verifyFile(store.get('alice/posts/1'), full.chain.keys);
-assert.deepEqual([sha256(full.media.get(PHOTO)), post1.by, post1.address, post1.obj.n, full.posts.get(4).encrypted, full.posts.get(4).text], [PHOTO, A1.x, full.pin.live.get(1), 1, env, undefined]);
+assert.deepEqual([sha256(full.media.get(PHOTO)), post1.by, post1.address, post1.obj.number, full.posts.get(4).encrypted, full.posts.get(4).text], [PHOTO, A1.x, full.pin.live.get(1), 1, env, undefined]);
 const good = full.pin, cur = parseBody(splitFile(store.get('alice/index')).body);
 const move = async (what, k, v) => { const saved = store.get(k); v === null ? store.delete(k) : store.set(k, v); const r = await read(good, LATER); saved === undefined ? store.delete(k) : store.set(k, saved); return [what, r]; };
 const battery = [
@@ -91,16 +91,16 @@ const battery = [
   await move('serves an older index', 'alice/index', oldIndex),
   await move('rolls the index back, keeping top', 'alice/index', signIndex({ ...cur, version: cur.version - 1 }, A3)),
   await move('serves a second index at one version', 'alice/index', signIndex({ ...cur, entries: [...cur.entries, [sha256(Buffer.from('a blob nobody listed'))]] }, A3)),
-  await move('drops post 4 and lowers top', 'alice/index', signIndex({ entries: cur.entries.filter((e) => e[0] !== 4), version: cur.version + 1, top: 3 }, A3)),
-  await move('swaps a post for another she signed', 'alice/posts/1', signFile({ n: 1, at: '2026-08-09T00:00:00Z', text: 'not what she wrote' }, A3)),
+  await move('drops post 4 and lowers top', 'alice/index', signIndex({ entries: cur.entries.filter((e) => e[0] !== 4), version: cur.version + 1, highest: 3 }, A3)),
+  await move('swaps a post for another she signed', 'alice/posts/1', signFile({ number: 1, at: '2026-08-09T00:00:00Z', text: 'not what she wrote' }, A3)),
   await move('serves genuine post 3 at number 1', 'alice/posts/1', store.get('alice/posts/3')),
-  await move('serves a post signed by a key that was never hers', 'alice/posts/3', signFile({ n: 3, at: '2026-08-01T10:15:00Z', text: 'post 3' }, THIEF)),
+  await move('serves a post signed by a key that was never hers', 'alice/posts/3', signFile({ number: 3, at: '2026-08-01T10:15:00Z', text: 'post 3' }, THIEF)),
   await move('withholds a listed media file', `alice/media/${PHOTO}`, null),
   await move('alters the media bytes', `alice/media/${PHOTO}`, Buffer.from('a different photograph')),
   await move('substitutes a whole other identity', 'alice/profile', imp),
   await move('serves a second profile at one version', 'alice/profile', signProfile({ ...F, name: 'alicia', version: 3, chain: chain3 }, A3)),
   await move('serves no profile at all', 'alice/profile', null),
-  await move('smuggles in an unlisted post signed by a key that was hers', 'alice/posts/9', signFile({ n: 9, at: '2026-08-09T00:00:00Z', text: 'smuggled' }, A2)),
+  await move('smuggles in an unlisted post signed by a key that was hers', 'alice/posts/9', signFile({ number: 9, at: '2026-08-09T00:00:00Z', text: 'smuggled' }, A2)),
 ];
 console.log(`§7.1 — ${battery.length} moves against a pinned reader\n`);
 for (const [what, r] of battery) console.log(`  ${what.padEnd(58)} ${r.verdict}`);
@@ -127,8 +127,8 @@ rule('7.1', `1. Fetch \`<location>/profile\`. Not served: **host**. Does not par
    under a key in the chain, its address MUST equal the listed hash, and its \`n\` MUST equal the number it
    was served at. A failure, or a listed file not served: **host**.
 10. For each post naming a target whose author the reader holds a pin for: if \`target.hash\` is not what
-    that author's index lists for \`target.n\`, now or when it was withdrawn, mark the target unresolved
-    (§5.4); otherwise, if \`target.n\` is above that author's \`top\`, look again (§7.4).`);
+    that author's index lists for \`target.number\`, now or when it was withdrawn, mark the target unresolved
+    (§5.4); otherwise, if \`target.number\` is above that author's \`top\`, look again (§7.4).`);
 
 // ---- §7.2 verdicts ----
 const verdicts = new Set([...battery.map(([, r]) => r.verdict), cold.verdict, none.verdict, garbled.verdict]);
@@ -141,16 +141,16 @@ can verify\` are notes on an ok read.`);
 
 // ---- §7.3 the pin ----
 console.log(`§7.3 — the pin: ${Object.keys(good).join(', ')}\n`);
-assert.deepEqual(Object.keys(good).sort(), ['chain', 'fields', 'indexHash', 'indexVersion', 'live', 'locations', 'profileHash', 'profileVersion', 'recoveryLists', 'restoredAt', 'top', 'withdrawn'].sort());
-assert.deepEqual([good.profileVersion, good.chain.length, Object.keys(good.recoveryLists), good.locations, good.top, [...good.live.keys()].length, [...good.withdrawn.keys()]], [3, 3, ['1', '2', '3'], [AT], 4, 4, [2]]);
+assert.deepEqual(Object.keys(good).sort(), ['chain', 'fields', 'indexHash', 'indexVersion', 'live', 'locations', 'profileHash', 'profileVersion', 'recoveryLists', 'restoredAt', 'highest', 'withdrawn'].sort());
+assert.deepEqual([good.profileVersion, good.chain.length, Object.keys(good.recoveryLists), good.locations, good.highest, [...good.live.keys()].length, [...good.withdrawn.keys()]], [3, 3, ['1', '2', '3'], [AT], 4, 4, [2]]);
 rule('7.3', `What a reader keeps from an ok read: the profile's \`version\` and address, the chain, the recovery list at
 each chain length, every location ever named, the index's \`version\` and address, \`top\`, the live set with
 its hashes, and the hash of every number it saw withdrawn.`);
 
 // ---- §7.4 targets and the rumor rule ----
 const mpub = await claim(mum, 'mum', MUMAT);
-const target = (n, h = good.live.get(n)) => ({ key: A1.x, n, hash: h, loc: AT });
-for (const n of [1, 3]) await mpub.publish(n, { at: '2026-08-04T09:00:00Z', rel: 'reply', target: target(n), text: `about post ${n}` });
+const target = (number, h = good.live.get(number)) => ({ key: A1.x, number, hash: h, location: AT });
+for (const number of [1, 3]) await mpub.publish(number, { at: '2026-08-04T09:00:00Z', rel: 'reply', target: target(number), text: `about post ${number}` });
 await mpub.publish(4, { at: '2026-08-04T09:00:00Z', rel: 'reply', target: target(2, afterWithdraw.pin.withdrawn.get(2)), text: 'about the withdrawn one' });
 const mumRead = await reader.read({ learned: mum.x, at: MUMAT });
 const quiet = await cost(() => reader.rumors(new Map([[A1.x, good]]), mumRead.posts, 'mum', { now: LATER }));
@@ -162,8 +162,8 @@ await mpub.publish(5, { at: '2026-08-11T09:00:00Z', rel: 'reply', target: target
 const mumAgain = await reader.read({ learned: mum.x, at: MUMAT });
 const seen = new Map([[A1.x, good]]);
 const looked = await cost(() => reader.rumors(seen, mumAgain.posts, 'mum', { now: LATER }));
-console.log(`§7.4 — mum replies to post 5, which the reader's pin does not reach: look-again fetched ${looked.gets}, pin now top ${seen.get(A1.x).top}, said ${JSON.stringify(looked.out)}`);
-assert.deepEqual([looked.out, seen.get(A1.x).top, looked.gets > 0], [[], 5, true]);
+console.log(`§7.4 — mum replies to post 5, which the reader's pin does not reach: look-again fetched ${looked.gets}, pin now top ${seen.get(A1.x).highest}, said ${JSON.stringify(looked.out)}`);
+assert.deepEqual([looked.out, seen.get(A1.x).highest, looked.gets > 0], [[], 5, true]);
 // A thousand replies naming numbers never issued: one look-again, one line.
 const gpub = await claim(griefer, 'griefer', GRIEF);
 await gpub.publish(1, { at: '2026-08-05T09:00:00Z', rel: 'reply', target: target(500, 'x'.repeat(43)), text: 'about post 500' });

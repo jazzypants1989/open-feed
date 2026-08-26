@@ -86,7 +86,7 @@ among them, because a publisher that leaves itself out cannot read its own outbo
 
 Then the argument that makes the entry a person rather than a key. Mum replies, and for each entry
 she reads the profile at `loc`, refuses it unless its `anchor` is that entry's `key` (§3.1), and
-encrypts to the `read` key that profile carries — §3.8 is emphatic that a publisher encrypts only to
+encrypts to the `read` key that profile carries — §3.6 is emphatic that a publisher encrypts only to
 a key it took from a profile it verified, because taking the key the host served is encrypting to
 the host. The example shows that refusal working: a profile served at bro's location under someone
 else's anchor yields nothing.
@@ -102,7 +102,7 @@ told.** No error is raised anywhere, because from the protocol's point of view n
 `at` and `encrypted`, and nothing about what it answers. Inside, each `media` entry is
 `{"hash", "key"}` (§4.4) rather than a bare hash. The consequence is stated plainly and belongs to
 two other examples: public threading, relocation riding along in a reply (§3.7) and the rumor rule
-(§7.5) all read `rel` and `target`, so they work for everything a stranger could see anyway and are
+(§7.4) all read `rel` and `target`, so they work for everything a stranger could see anyway and are
 simply unavailable for anything encrypted — see `examples/moving/` and `examples/top-and-rumors/`.
 
 **Verified completely, opaque to everyone else.** The last block ties post 5 to Appendix B.8 by its
@@ -118,70 +118,5 @@ or what it answers. Hiding the size of the audience from the host is not a goal 
 to hold that neither example stages, because they are one `decrypt` call each: a later post to a
 smaller audience is simply a post bro cannot open, and he keeps post 6 forever (§13.3, no forward
 secrecy); and a new `read` key in a later profile version opens new posts only — old posts still
-open with the old private key, and nothing re-encrypts the past (§3.8).
+open with the old private key, and nothing re-encrypts the past (§3.6).
 
-## Contrast
-
-None of this construction is novel; the interesting part is what each of the alternatives costs.
-
-**JWE** (RFC 7516, JSON Serialization with `ECDH-ES+A256KW` and `A256GCM`) is the standards-track
-way to say the same thing — one shared ephemeral, a wrapped content key per recipient — and it
-costs a wire format whose rules live in four RFCs (7516, 7518, 8037, and the Concat KDF), with no
-standard library that implements them. Its per-recipient header is **not covered by the JWE's own
-AEAD**, so carrier binding has to be a rule a decrypting client performs by comparing plaintext
-fields afterwards; §6.2 is the same defence in one line of associated data.
-
-**HPKE (RFC 9180) and age** are the closest well-specified relatives — HPKE in spirit, age in shape.
-HPKE's base mode is the DHKEM half: an ephemeral X25519, HKDF-SHA256, ChaCha20-Poly1305. age's
-X25519 recipient stanza is the rest: a file key wrapped once per recipient under a single-use key
-with a nonce fixed at twelve zero bytes, exactly §6's justification for its own. RFC 9180 itself has
-neither a multi-recipient mode nor a zero nonce. Where §6 deviates from HPKE, plainly:
-
-- HPKE derives through `LabeledExtract`/`LabeledExpand` with a version prefix and a ciphersuite
-  identifier mixed into the key schedule. §6 derives straight from the raw X25519 output with
-  HKDF salted by `epk`, and `"openfeed/v1/slot"` is the whole of the domain separation.
-- HPKE's `Seal` takes a nonce from the key schedule XORed with a sequence number, because an HPKE
-  context encrypts many messages. Here a content key encrypts exactly one, so there is no sequence.
-- HPKE offers an authenticated mode. §6 does not need one: the sender is authenticated by the
-  Ed25519 signature on the file the envelope rides in, and §6.2 binds the envelope to that file.
-- HPKE and age are reviewed, tested, widely implemented, and this is not. That is a real cost of
-  the trade, and `GOALS.md` lists the construction as an open question for outside review, not a
-  closed one.
-
-**NIP-44** (Nostr's encrypted payloads, Cure53-reviewed) is the other close relative, and the
-nearest reviewed construction this one could be swapped for. The cipher suite is nearly the same
-— ChaCha20 with HKDF-SHA256 over a secp256k1 ECDH secret (Nostr's curve), with padding. Two
-differences matter. NIP-44 is a **two-party** format: a conversation key from a
-*static* pair of keys, so it has no ephemeral, no slots, and no audience; a group is N pairwise
-copies. And it encrypts-then-MACs with HMAC-SHA256 rather than using an AEAD, which is a choice §6
-does not need to make because ChaCha20-Poly1305 is in the standard library too. What §6 cannot take
-from it is the shape, because a family post to four people is one object with four slots, not four
-objects.
-
-**Signal and MLS (RFC 9420)** are the comparison people reach for, and this is not in that family
-at all. There is **no ratchet, no forward secrecy after the fact, and no
-group state.** A recipient's reading key opens every post ever addressed to it; compromise that key
-and the archive goes with it. Nobody is *added to* or *removed from* anything, because there is no
-group to be a member of — an audience is fixed at the moment a post is written, and the next post
-simply names a different list. This is **file encryption for a mailing list**, and the design says
-so rather than implying otherwise. What it buys is that a post is a static file any dumb host can
-serve and any reader can verify years later without a session, which is the property the rest of the
-protocol is built on.
-
-**Why the audience is inside and not in a header.** A header would be readable by the host, which is
-floor item 2 in reverse: the audience of a family-only post is exactly the social graph the abusive
-operator in `GOALS.md`'s divorce scenario wants. A key identifier per slot would do the same thing
-permanently, since reading keys are long-lived and published. A blinded tag needs one of the two
-private halves and is fresh per message, so an observer with every published key and the whole feed
-learns that an encrypted post exists, when, how big, and to how many. The cost of putting the
-audience inside is that recipients learn each
-other, which is the intended trade: it is what makes a reply reach the same people.
-
-**The scenarios this serves.** `GOALS.md` floor item 2 — *the host cannot read what wasn't meant for
-it* — is the centre, and §6.2 is what stops the host converting an envelope it cannot read into an
-attribution it chose. Scenario 3, *two hubs, one thread*, is the other: Jesse on one domain and Mom
-on another exchange a family-only post, a reply and a reaction **with no access control anywhere**.
-No server checks membership, because there is no membership; the audience is a list of people
-written into the plaintext by the author, and every hub in the path is serving bytes it cannot read
-to anyone who asks. That is why §6.4's entry has to name a person and not just a key — it is the
-only thing that lets the second hub's reader answer the first hub's post.

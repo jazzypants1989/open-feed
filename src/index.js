@@ -1,8 +1,8 @@
 // §4 — the index: the signed list saying what exists now. The live set is a fold over the entries;
-// a number has one hash, ever; a media file is listed by its hash alone; `top` never decreases.
+// a number has one hash, ever; a media file is listed by its hash alone; `highest` never decreases.
 import { signFile, verifyFile } from './file.js';
 
-/** §4.2: the fold. Returns `{ live: Map, top }` or null when the index is invalid. */
+/** §4.2: the fold. Returns `{ live: Map, highest }` or null when the index is invalid. */
 export function fold(entries) {
   if (!Array.isArray(entries)) return null;
   const live = new Map(), issued = new Map();
@@ -22,14 +22,14 @@ export function fold(entries) {
     if (had !== undefined && (had !== b || live.has(a))) return null;     // one hash per number, ever
     issued.set(a, b); live.set(a, { hash: b });
   }
-  return { live, top: Math.max(0, ...issued.keys()) };
+  return { live, highest: Math.max(0, ...issued.keys()) };
 }
 
-/** A index's shape: entries first (§4), a non-negative `version`, a `top` at or above the highest number. */
+/** A index's shape: entries first (§4), a non-negative `version`, a `highest` at or above the highest number. */
 export function checkIndex(obj, set) {
   if (Object.keys(obj)[0] !== 'entries') return 'entries is not the first member';
   if (!Number.isInteger(obj.version) || obj.version < 0) return 'version is not a non-negative integer';
-  if (!Number.isInteger(obj.top) || obj.top < set.top) return 'top is below the highest number issued';
+  if (!Number.isInteger(obj.highest) || obj.highest < set.highest) return 'highest is below the highest number issued';
   return null;
 }
 
@@ -41,26 +41,26 @@ export function checkAgainstPin(index, set, pin) {
   const bad = (why) => ({ verdict: 'host', why });
   if (index.obj.version < pin.indexVersion) return bad('an index older than the one this reader saw');
   if (index.obj.version === pin.indexVersion && index.address !== pin.indexHash) return bad('two indexes at one version');
-  if (index.obj.top < pin.top) return bad('the highest number used went backwards');
+  if (index.obj.highest < pin.highest) return bad('the highest number used went backwards');
   const withdrawn = new Map(pin.withdrawn ?? []);
-  for (const [n, e] of set.live) {
-    if (typeof n !== 'number' || n > pin.top) continue;
-    const was = pin.live.get(n) ?? withdrawn.get(n);
-    if (was === undefined) return bad(`post ${n} is listed now and was not before`);
-    if (was !== e.hash) return bad(`post ${n} changed after the reader saw it`);
+  for (const [number, e] of set.live) {
+    if (typeof number !== 'number' || number > pin.highest) continue;
+    const was = pin.live.get(number) ?? withdrawn.get(number);
+    if (was === undefined) return bad(`post ${number} is listed now and was not before`);
+    if (was !== e.hash) return bad(`post ${number} changed after the reader saw it`);
   }
   const notes = [];
-  for (const [n, h] of pin.live) if (!set.live.has(n)) { notes.push(`withdrawn: ${n}`); withdrawn.set(n, h); }
-  for (const n of withdrawn.keys()) if (set.live.has(n)) withdrawn.delete(n);
+  for (const [number, h] of pin.live) if (!set.live.has(number)) { notes.push(`withdrawn: ${number}`); withdrawn.set(number, h); }
+  for (const number of withdrawn.keys()) if (set.live.has(number)) withdrawn.delete(number);
   return { notes, withdrawn };
 }
 
-/** The publisher's side: the entries a rewrite keeps (§4.7) — the live set, in order. */
+/** The publisher's side: the entries a rewrite keeps (§4.5) — the live set, in order. */
 export function liveEntries(entries) {
   const m = new Map();
   for (const e of entries) { const [a, b] = e; if (e.length === 2 && b === null) m.delete(a); else m.set(a, typeof a === 'string' ? [a] : [a, b]); }
   return [...m.values()];
 }
 
-export const signIndex = ({ entries, version, top }, key) => signFile({ entries, version, top }, key);
+export const signIndex = ({ entries, version, highest }, key) => signFile({ entries, version, highest }, key);
 export const verifyIndex = (bytes, currentKey) => verifyFile(bytes, currentKey);

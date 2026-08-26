@@ -6,7 +6,7 @@
 
 ## The index
 
-**Spec:** §4 the index, §4.1 what the entries mean, §4.2 the fold, §4.6 signed by the current key.
+**Spec:** §4 the index, §4.1 what the entries mean, §4.2 the fold, §4.4 signed by the current key.
 Vectors: Appendix B.9–B.11.
 **Run:** `node examples/the-index/the-index.js`
 
@@ -71,7 +71,7 @@ canonicalization rule (`no-canonicalization/`): nobody re-serializes anything, a
 has never heard of the rule still checks the signature correctly.
 
 **Signed by the key the chain currently ends on.** Not by any key in the chain — by the current one
-(§4.6). The example gives Alice a chain of anchor → rotated → restored, and shows an index signed by
+(§4.4). The example gives Alice a chain of anchor → rotated → restored, and shows an index signed by
 the middle key failing to verify. The reason is staged rather than asserted: the index is what
 admits posts, so if a reader accepted an index from any chain key, a thief holding a rotated-out key
 would go on deciding what counts as hers, and a restore would take nothing back. **Re-signing the
@@ -81,47 +81,6 @@ The honest consequence is printed too. Between the two writes a rotation takes, 
 serving an index signed by a key the profile no longer ends on — so §7.2 says an unverifiable index
 is not an accusation. A reader with no pin reports `host`; a reader holding an index it verified
 itself keeps that one, notes `no index I can verify`, and says nothing further.
-
-### Contrast
-
-**A feed that is its items cannot say what is missing.** In RSS, Atom and JSON Feed the document
-*is* the entries, and a truncated document is indistinguishable from a short one: a host that drops
-your last three posts serves a feed that looks exactly like a feed with three fewer posts. RSS and
-JSON Feed have no place to state "and these are all of them"; Atom has one (RFC 5005's
-`fh:complete`) and an optional XML signature to put over it (RFC 4287 §5.1), and almost nobody uses
-either. None of the three can say a post *was* here and was withdrawn.
-Open Feed's index is a signed, versioned claim about the whole set, and the host cannot sign one. So
-withholding a post the index lists reads as `host: post n is listed and not served`; serving an
-older index is caught by `version` going backwards; and a number that comes back as different bytes
-is caught by the pin (§7.2). What a reader is told when a post simply stops being listed is
-`withdrawn: n` — it cannot tell a deletion from a change of mind, and does not try to. That is
-`GOALS.md` floor item 1 and scenario 1's *he cannot alter or backdate what she wrote*: the mechanism
-is not that the host is trusted, but that its options are all visible to a reader that was here
-before.
-
-**Nostr relays make the same trade in the other direction.** An absent event is unremarkable: relays
-are expected to be partial, and there is no per-author statement of completeness to compare against.
-That buys enormous flexibility in how events are spread around and gives up the ability to say a
-relay withheld something. Open Feed pays one extra signed file per identity and gets the claim.
-
-**A transparency log buys much more and costs much more.** Certificate Transparency and Merkle-log
-designs generally publish a signed tree head plus inclusion and consistency proofs, so that a third
-party — an auditor or monitor who was never a reader — can prove the log operator equivocated or
-rolled back. Open Feed has no proofs, no auditors, and no gossip between readers. Its index is
-comparable only against what *this* reader saw itself (its pin, §7.2), so a rollback shown to a
-brand-new reader is invisible to that reader. The design says so rather than dressing it up: the
-adversary is a family hub operator, the defence is exit (§10, §13.1) and verification he cannot
-forge (§7), and hash-chained proofs would have added an appendix of machinery to catch a case the
-threat model does not need caught.
-
-**The cost is bounded and flat.** One extra file per identity, rewritten at the publisher's chosen
-cadence (§4.7); what the leftover withdrawal lines weigh is measured in `rewrite/`. Nothing about the
-index scales with the number of readers or the number of identities a hub carries, which is what
-`GOALS.md` scenario 5 — ten thousand people on one commercial hub, per-identity cost flat — asks of
-it. The member-order rule and the range request are a small part of the same instinct: they let a
-returning reader ask for a few hundred bytes instead of the whole file, and they buy nothing else.
-
----
 
 ## Media
 
@@ -197,52 +156,9 @@ what it does not learn is anything from the bytes. Appendix A gives media no med
 covers the bytes and the header is not among them. A hub is free to serve the right `Content-Type`
 and a reader is free to use it for display; nothing verifies on it.
 
-### Contrast
-
-**Content addressing without the network.** Naming a file by the hash of its bytes is the oldest
-idea here: git names a blob by the hash of its content (with a short header), and IPFS names one by
-a CID that wraps a multihash. Open Feed borrows the idea and none of the machinery. There is no DHT,
-no gateway, no content-routing layer, and no third party who might have a copy: the blob lives at
-your hub, at a path under your own name, and nowhere else. What content addressing buys here is
-narrow and specific — the hub cannot swap a photograph without the reader noticing, and it buys that
-without a signature, a key, or a second file format.
-
-**Why the media file is not signed, when everything else is.** The signature on the index already
-covers the hash, and the hash already covers the bytes, so the chain from anchor key to photograph
-is complete without touching the blob. Signing it as well would mean a second file format — a
-signature line stapled to arbitrary binary, or a sidecar file, or a wrapper — and §2's whole point
-is that there is one format. The cost of the choice is that a media file taken out of the feed
-proves nothing on its own; you need the index line beside it. That seems right for what media is.
-
-**Attachments elsewhere.** In ActivityPub an object carries an `attachment` array holding URLs, and
-what happens to the bytes is up to whoever is serving them; Mastodon instances cache remote media
-and prune the cache on their own schedule, so a post can outlive its picture in one direction or the
-picture outlive the post in the other. Nothing in the object says how long the bytes should live,
-because the object is not the place that decision is made. Open Feed puts that decision in the one
-signed file the author controls: an index line is the author saying *this blob is part of my feed*,
-and its absence is the author saying it is not.
-
-**Media repositories.** Matrix keeps media in a per-homeserver repository addressed by `mxc://`
-URIs, and — this is the near-neighbour of §4.4 — in an encrypted room the file is encrypted
-client-side and the event carries the key alongside a SHA-256 **of the ciphertext** — recognisably
-the same shape as `{"hash", "key"}` in the envelope, with a different cipher under it. The
-differences are in the surroundings rather than in the idea: Matrix's URI is a server-scoped
-identifier rather than the hash itself, and retention is the homeserver's policy. MMS is the other
-extreme — the bytes are carried inside the message through a carrier's store-and-forward server and
-expire on the carrier's schedule (the sender may ask for an expiry and the carrier may cap it), and
-the part has no name that outlives the message.
-
-**The scenarios.** Scenario 1, the divorce: the family photographs attached to her family-only posts
-sit on his hub as ciphertext at a hash of that ciphertext, and what he learns is that a blob of some
-size exists. Scenario 5, the big lazy hub: ten thousand people on one commercial hub, and the
-operator's retention job is to read one signed line per file — no parsing of posts, no decryption it
-cannot do anyway, and a cost that stays flat per identity.
-
----
-
 ## Rewriting
 
-**Spec:** §4.7 rewriting, over §4.2 the fold and §7.2 a pinned reader across versions; §8.8 and
+**Spec:** §4.5 rewriting, over §4.2 the fold and §7.2 a pinned reader across versions; §8.8 and
 §13.1 for what withdrawal is not.
 **Run:** `node examples/rewrite/rewrite.js`
 
@@ -277,7 +193,7 @@ lines a rewrite keeps: the same posts, the same media file, the same `top`. A re
 re-spelling of the answer the fold already gives, so no reader can tell the difference except by
 looking at the byte count. `top` in particular does not move, because it is the highest number ever
 issued and not the highest number listed (§4.3) — a rewrite that recomputed it from the live
-entries would silently turn every reply to a withdrawn newest post into a rumor (§7.5).
+entries would silently turn every reply to a withdrawn newest post into a rumor (§7.4).
 
 **A reader that last saw version 1 returns at version 6.** This is the strongest form of "readers
 are indifferent": in between are two rewrites and three appends, four of the six versions this
@@ -317,38 +233,3 @@ That is also as far as §4.2's "one hash, ever" reaches. Once the rewrite has dr
 line, an index that lists 3 again at another hash folds cleanly, and only a reader that held a pin
 across the rewrite can tell. A cold reader has nothing to compare against.
 
-### Contrast
-
-Every protocol that lets people publish has to answer "what does delete mean," and the honest
-answers are all smaller than users expect.
-
-- **Mastodon's `Delete` activity** is a message sent to the instances the server believes have a
-  copy. It is best-effort in every direction: an instance that was down misses it, an instance that
-  never received the original ignores it, an instance running modified software may keep the row,
-  and caches, bridges, and search indexes retain what they scraped. It is a request to cooperating
-  peers, which is a reasonable design — but it produces the belief that deletion propagated, which
-  is the belief §8.8 forbids an app from creating.
-- **The "right to be forgotten"** is a claim against a data controller, enforced by a regulator. It
-  is a real remedy and it does not survive translation into a signed-file protocol, because there
-  is no controller: the bytes are signed, self-verifying, and already on other people's disks.
-  Open Feed cannot honour an erasure demand against a holder who declines, and does not offer to.
-  What it can do is make leaving cost nothing, which is the remedy that fits the adversary in
-  §13.1 — a person, not a company, who will not cooperate and cannot be sued into it.
-- **Signal's disappearing messages** are the closest analogue to a rewrite: a timer that
-  cooperating clients honour. Signal is careful to say so. A modified client, a screenshot, or a
-  second phone in the room defeats it entirely, and the feature's value is that it makes forgetting
-  the default between people who are not attacking each other. A rewrite has exactly that shape and
-  exactly that limit.
-- **Git** is the closest structural analogue. `rebase` or a history rewrite produces a new
-  history, and the old objects stay reachable by hash — in the reflog, in dangling objects, in
-  every clone — until somebody prunes them, which no other clone will do for you. An Open Feed
-  index is the same trade at a smaller scale: the new version is authoritative, the old one is
-  still whatever anyone kept.
-
-The one thing a rewrite does buy is worth stating carefully, because it is easy to oversell.
-Withdrawal removes a post from the live set immediately, for everyone, on the next fetch of the
-index — that part is not best-effort, because the index is signed and the fold is arithmetic. What
-the rewrite adds is that the *record of the withdrawal* stops being served: a stranger arriving
-next month reads a feed with no gap in it, and does not learn that on some Tuesday there was a post
-at number 3 and the author took it down. That is a real privacy gain against the public and against
-future readers, and it is the entire gain. It buys nothing back from anyone who already looked.

@@ -7,9 +7,9 @@ const k = newSigningKey();
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
 test('§2.1 a file is body, one newline, an 86-character signature over the body', () => {
-  const f = signFile({ n: 1, text: 'hi' }, k);
+  const f = signFile({ number: 1, text: 'hi' }, k);
   const { body, sigLine } = splitFile(f);
-  assert.equal(body.toString(), '{"n":1,"text":"hi"}');
+  assert.equal(body.toString(), '{"number":1,"text":"hi"}');
   assert.equal(sigLine.length, 86);
   assert.ok(verifyFile(f, k.x));
   assert.equal(verifyFile(f, newSigningKey().x), null);
@@ -45,10 +45,10 @@ test('§2.3 a host that pretty-prints, reorders, or appends a newline makes the 
 test('§2.4 the parser rejects duplicate members, __proto__, integers past 2^53, lone surrogates, raw controls', () => {
   assert.throws(() => parseStrict('{"a":1,"a":2}'), /duplicate/);
   assert.throws(() => parseStrict('{"__proto__":{"x":1}}'), /reserved/);
-  assert.throws(() => parseStrict('{"n":9007199254740993}'), /outside/);
+  assert.throws(() => parseStrict('{"number":9007199254740993}'), /outside/);
   assert.throws(() => parseStrict('{"s":"\\ud800"}'), /surrogate/);
   assert.throws(() => parseStrict('{"s":"a\tb"}'), /control/);
-  assert.deepEqual(parseStrict('{"n":9007199254740991,"f":1.5e3,"s":"\\ud83d\\ude00"}'), { n: 9007199254740991, f: 1500, s: '😀' });
+  assert.deepEqual(parseStrict('{"number":9007199254740991,"f":1.5e3,"s":"\\ud83d\\ude00"}'), { number: 9007199254740991, f: 1500, s: '😀' });
   assert.equal(JSON.parse('{"a":1,"a":2}').a, 2);           // JSON.parse sees none of the first three
 });
 
@@ -62,6 +62,6 @@ test('§2.1 a body with a BOM, a newline, invalid UTF-8, or a non-object is not 
 });
 
 test('§2.5 unknown members survive: they are inside the signature and the verifier hands them back', () => {
-  const f = signFile({ n: 1, _mood: 'sunny' }, k);
+  const f = signFile({ number: 1, _mood: 'sunny' }, k);
   assert.equal(verifyFile(f, k.x).obj._mood, 'sunny');
 });

@@ -1,7 +1,6 @@
 # Generated views
 
-**Spec:** §11, with §8's path table for where the three files are written and §12's publisher
-paragraph for the SHOULD that requires them.
+**Spec:** §10, with §8's path table for where the files are written.
 **Run:** `node examples/views/views.js`
 
 A publisher SHOULD write three ordinary web files beside its signed ones: a JSON Feed 1.1 document
@@ -12,9 +11,9 @@ readers that have never heard of it** — a feed reader written in 2005 subscrib
 without one line of Open Feed code in it.
 
 That reach is bought with a second surface, and the second surface is one the host controls
-completely. So §11 spends most of its words on what a view is *not*: **nothing in a view is signed,
+completely. So §10 spends most of its words on what a view is *not*: **nothing in a view is signed,
 and a view is never the index.** A view is something a host can regenerate; the index is something
-only the author's key can produce (§4.6). An implementation MUST NOT treat a view as evidence of
+only the author's key can produce (§4.4). An implementation MUST NOT treat a view as evidence of
 anything.
 
 ## What the output shows
@@ -31,16 +30,16 @@ signed post is the author's and is not markup.
 
 **Item ids are `urn:openfeed:<anchor key>:<n>`, not the URL.** The example prints the feed twice —
 once at `https://alice.example/alice`, once after alice has moved to `https://pence.family/alice`
-(§3.7). The URLs change; the ids do not, because the anchor key is the identity and the number is
-the post (§3, §5.1). JSON Feed 1.1 says an id is ideally the item's full URL, since URLs make good
+(§3.5). The URLs change; the ids do not, because the anchor key is the identity and the number is
+the post (§3, §5). JSON Feed 1.1 says an id is ideally the item's full URL, since URLs make good
 unique identifiers; here they make a bad one, because the URL is where alice lives and not who she
 is. Give a plain feed reader URL ids and every post reappears as unread on the day the author
 relocates — the one day a reader most needs to not be shouted at. Atom asks the same question at
 feed level, and gets the same answer: the feed's own `<id>` is `urn:openfeed:<anchor key>`.
 
 **Withdrawn posts are absent; encrypted posts are omitted; no view carries ciphertext.** Post 4 is
-withdrawn (§4.2), so the reader never fetched it and no view mentions it. Post 3 is encrypted (§6):
-the reader has it, the audience can open it, and it appears in none of the three documents. §11
+withdrawn (§4.1), so the reader never fetched it and no view mentions it. Post 3 is encrypted (§6):
+the reader has it, the audience can open it, and it appears in none of the three documents. §10
 allows either omission or an empty placeholder item at the encrypted post's number, and
 `src/views.js` omits; the example asserts what matters under both readings, which is that the
 envelope's `epk`, its slots and its `ct` appear nowhere in the three documents. A view MUST NOT
@@ -48,15 +47,22 @@ carry ciphertext. It would be an easy mistake — the envelope is JSON and it wo
 a feed generator without complaint — and the result would be an unauthenticated blob served to
 everybody who ever subscribed, sitting in feed-reader caches, for an audience of two.
 
-**The h-card's name is the profile's `name`.** `name` is a signed member of the profile (§3.2), so
+**The h-card's name is the profile's `name`.** `name` is a signed member of the profile (§3.1), so
 no hub chooses it; with no `name` the view falls back to the last segment of the location, which is
 the hub's to choose and is therefore only a label. The link on that page carries the anchor key in
 its fragment, `https://alice.example/alice/#pukq6VMQ…`, and a fragment is never sent in a request
 (RFC 3986 §3.5) — the server sees `GET /alice/`. **But the page itself came from the host.** A
 reader that scrapes the key out of a page the host served has learned the key from the host, and
-§3.1 still applies: the key has to arrive by a route the host does not control. The fragment on a
+§3.7 still applies: the key has to arrive by a route the host does not control. The fragment on a
 generated page is a convenience for the person who copies the link into a message, not a first
-contact. `examples/first-contact/` is the example for what does count.
+contact. `examples/identity/` is the example for what does count.
+
+**WebFinger.** A hub SHOULD serve a WebFinger response (RFC 7033) at `/.well-known/webfinger` for
+each name it holds. The response links the profile (`application/openfeed+json`) and the h-card
+page, so `acct:alice@alice.example` resolves to alice's profile and her human-readable page in one
+lookup. This is how the fediverse and `@user@domain` conventions discover people — and because the
+h-card already carries `<link rel="alternate">` for both the JSON Feed and the Atom feed, a single
+WebFinger query makes the whole interop surface discoverable.
 
 **Nothing in a view is signed.** This is the centre of the example. The host rewrites
 `/alice/feed.json` in place: it changes post 2's text to something alice did not write, and adds an
@@ -70,7 +76,7 @@ them side by side. Inventing a post takes an index entry, and an index the host 
 by the key the profile ends on. Changing post 2's text changes its address, and the index no longer
 lists that post. Dropping post 1 leaves a number the index lists and the host does not serve. Three
 `host` verdicts, and the reader names each one. Nothing about the view resisted; nothing about the
-signed files gave way. That is the whole distinction §11 draws, in six lines of output.
+signed files gave way. That is the whole distinction §10 draws, in six lines of output.
 
 **The stranger.** The last block runs both readers over the same origin at the same moment. The
 plain feed reader parses the host's rewritten `feed.json` and shows three items, one of which never
@@ -81,39 +87,5 @@ way to know. He has no key, does no verification, and runs no protocol code — 
 deal. This is `GOALS.md` scenario 7, the stranger, and priority 3, interop ("our content reaches
 existing feed readers and the fediverse/Bluesky with nothing built"). Scenario 7's other two halves
 — a bridge to Mastodon, and re-meeting the author after key loss — are not this example's; the
-second is §3.4 and §3.6.
+second is §3.4 and the recovery list (§3.3).
 
-## Contrast
-
-**A feed is a view, not the object.** `GOALS.md` records the decision in one line: "the JSON Feed /
-Atom feed and the h-card page are *generated views* — the interop surface, required of publishers,
-never the signed object." The other choice is to make the JSON Feed document *the* wire format —
-extension fields under an `_openfeed` member of each item, a signature beside it, a manifest listing
-item ids and versions. What goes wrong with that: signing JSON Feed items means the
-*interop* format is also the *security* format, so every question about one becomes a question about
-the other, and JSON Feed's own requirements leak into the signed bytes — a "like" had to be an item
-with `content_text: ""`. Splitting the two makes each one small: the signed files answer only to §2,
-and the view answers only to whatever a feed reader wants this year.
-
-**ActivityPub** goes the opposite way: the wire object *is* the vocabulary, and interop means
-agreeing about ActivityStreams types and JSON-LD contexts. Day to day the fediverse authenticates the
-HTTP request, not the object — which is why an object cannot be re-verified once it has left the
-wire — and the one object-level scheme it ever had, Linked Data Signatures, needed RDF dataset
-canonicalization before there were bytes to sign and is now deprecated even by Mastodon.
-**Microformats and the IndieWeb** go
-further still: the HTML page *is* the data, which is where the h-card this example generates comes
-from, and a consumer parses your presentation to learn your facts. Open Feed generates both kinds of
-surface and trusts neither. The h-card here is output, never input.
-
-**Why "MUST NOT treat a view as evidence" earns a MUST.** Because the shortcut works. An implementer
-who has to build a reader will find `feed.json` easier to parse than an index — no folding (§4.2),
-no signature check, no chain walk (§3.3), no pin — and a reader built on it will display posts
-correctly for every honest host, forever. It will simply provide none of the guarantees the protocol
-exists for, and there is no test that shows the difference until the host is the one in §13.1 who
-controls the serving path and does not cooperate. A SHOULD would be read as advice about tidiness.
-
-**What interop buys, and what it costs.** It buys the stranger: reach into every feed reader and,
-through a bridge, into networks nobody here has to build. It costs a second copy of the content that
-the host can rewrite at will, which readers will find first, and which looks authoritative because
-it is served from the author's own address. §11's answer is not to make the view trustworthy — it
-cannot be — but to say so once, plainly, in the sentence next to the SHOULD that requires it.

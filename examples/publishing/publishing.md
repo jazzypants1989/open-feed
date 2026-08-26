@@ -35,7 +35,7 @@ Nothing else was sent — no `Authorization`, no cookie, no registration call. T
 412, and so is a request that carries no `If-Match` at all against a file that exists. The 412 hands
 back the tag the hub is now serving, which is how a writer gets a usable one; it never computes a
 tag, because the tag is opaque and compared byte for byte. (`src/hub.js` happens to use the SHA-256
-of the bytes, which §8.1 permits and no writer may assume.) The views of §11 ride the same rule and
+of the bytes, which §8.1 permits and no writer may assume.) The views of §10 ride the same rule and
 appear in the table for that reason.
 
 **The race, lost twice.** Two devices hold the same tag. The phone writes post 2 and wins; the
@@ -108,59 +108,6 @@ and the reader is unmoved. The note the pinned reader prints is `withdrawn: 2`, 
 lost race produced in §8.1. **An app MUST NOT tell a user that withdrawing erased anything**:
 everyone who already read post 2 still holds it, and no rule in this protocol reaches into their
 copy. `examples/rewrite/` is where that argument lives.
-
-### Contrast
-
-**"The request is the signed file" versus a publishing API.** Micropub, the Mastodon API and AT
-Protocol's `com.atproto.repo.*` all put an authorization layer between a client and a repository —
-some mix of app registration, an OAuth flow, bearer tokens, scopes, refresh and revocation (IndieAuth
-skips the registration, Mastodon's tokens are long-lived, AT Protocol has the whole list). Open Feed
-has none of those, and the absence is not a simplification of the same design
-— it is a different one. In a token model the server decides what a client may write and can
-therefore write it itself; the token proves you asked, not that you meant it. Here the *file* is the
-credential: a hub that wants to publish as alice needs her Ed25519 private key, which never leaves
-her device. What the hub keeps is the ability to refuse a write, to delete an unlisted file, and to
-stop serving — real powers, all of them visible to a reader as `host` or as silence, and none of
-them the power to speak as her. Note the cost honestly: there is no revocation of a compromised
-client, because there is nothing to revoke. A stolen key is answered by §3.3's chain and §3.4's
-recovery list, not by the publish interface.
-
-**Bring-your-own-client as a security property.** The threat model in `CLAUDE.md` — the hub operator
-is a family member who is an abuser — makes the app-plus-server product the wrong shape at the root,
-because whoever ships the app can ship one that copies the key on first launch. Splitting the two is
-not a preference about ecosystems; it is what makes the key's location a fact rather than a promise.
-This costs interoperability work that a paired product gets for free, and it is what `GOALS.md`
-scenario 6 (a second implementer writes a publisher and a reader from the text, a third writes a
-dumb hub that serves both) is a test of.
-
-**Compare-and-swap over HTTP.** `If-Match` and `ETag` are HTTP/1.1's conditional requests (RFC 2068,
-1997; then RFC 2616, now RFC 9110) doing exactly the job they were specified for. The design uses them rather than
-inventing a version field on the wire, and buys two things: nothing new to learn, and a serving path
-that an ordinary static host already implements. Where it is thin: conditional `PUT` is far less
-widely implemented than conditional `GET`, and several popular object stores have only recently
-grown it; intermediaries and CDNs have historically felt free to rewrite or weaken `ETag`; and the
-tag covers one file, so there is no transaction spanning the post write and the index write — §8.3's
-ordering rule is what stands in for one. The index does carry a `version`, but it is the reader's
-freshness check (§7.2), not the writer's lock; the lock is the tag, and the tag is the hub's.
-
-**Squatting and create-once.** The lesson generalises past this protocol: an unchecked
-create-once write is a permanent denial of service waiting for someone bored enough to issue it, and
-the repair has to be *asymmetric* or it stops being a repair. Symmetric "last writer wins" would let
-the squatter take the number straight back; symmetric "the owner may always overwrite" would hand
-the owner an edit primitive the rest of the design spends §4.2 and §5 refusing to grant. §8.5
-threads it by defining "the owner's file" from evidence the hub can check without knowing anybody:
-the number declared inside the signed bytes, plus either the current chain key's signature or the
-index's own listing at that number and address.
-
-**Static hosting is a conforming hub.** §12 says so in as many words: serve exact bytes, allow
-cross-origin reads, hold no user's signing key. A bucket behind a CDN clears that bar, which means
-the cheapest possible deployment already delivers the read side of the floor, and everything in §8.1
-through §8.6 is the additional bar for a hub that accepts writes. That split is what keeps
-`GOALS.md` scenario 5 (ten thousand people on one commercial hub, the operator being the ex at
-scale) from turning into a fight about the operator's software: per-identity cost stays flat, and
-every floor item is enforced at the reader.
-
----
 
 ## Your copy
 
@@ -248,59 +195,3 @@ One limit of the rebuild: for an encrypted post the index gives the number and t
 the audience, which is inside the envelope (§6.4). The app knows which numbers it lacks and not whom
 to ask — which is why §10's first rule is about the bytes, not the index.
 
-### Contrast
-
-**Why "keep the bytes" is a protocol rule and not app advice.** This is the payoff of a decision
-made three chapters earlier. Because §2.3 signs the bytes that were *served*, the wire format and
-the archive format are the same object, and §10 can be one paragraph with no schema in it. A
-protocol that signs a canonicalization instead cannot do that: the thing you hold is a
-reconstruction, so the spec has to define an export bundle, give it a version, say what goes in it
-and in what order, and then define a migration path for when that changes. §12 makes "keep the bytes
-it publishes" a publisher MUST for the same reason it makes "serve back the exact bytes" a hub MUST
-(§8.7) — the two rules are one rule seen from either end, and dropping either turns every file into
-a file signed by nobody.
-
-**Everything else in this space is something you ask for.** GDPR Article 20 gives a right to data
-portability, which is a right exercised *against* a controller, with a regulator behind it if the
-controller stalls; the adversary here is a family member on a home server who will not answer either
-one. Mastodon has a real account archive — Settings, request, wait, download a tar of ActivityPub
-JSON — and it is generated by the server, rate-limited by the server, and unavailable when the
-server is down or unwilling. ActivityPub's `Move` activity forwards followers and moves no posts,
-and it needs the origin server to emit it. Twitter/X's data download is the same shape without the
-good faith: a request, a delay, a ZIP of unsigned JSON that proves nothing about who wrote it. Every
-one of these is a favour with a form attached. Open Feed's claim is not that its export is better;
-it is that **there is no export**, because the application was holding the published bytes the whole
-time, and the bytes are self-proving.
-
-**Bluesky and the AT Protocol are the closest relative, and get the important half right.** An
-account's repository is a signed commit over a Merkle search tree, so its contents are verifiable
-independently of the server that stores them, `com.atproto.sync.getRepo` hands the whole thing back
-as a CAR file, and account migration between PDSes is a documented, working operation rather than a
-promise (its guide says the mechanisms are not a formal part of the protocol, and the easy path
-assumes both PDSes cooperate). That is genuinely the same insight: sign the data, not the
-connection. Two differences are
-worth naming rather than glossing. First, the CAR file is a *second* format — the repository is
-DAG-CBOR in a CAR container, the API you read is JSON, so there is still an archive format distinct
-from the wire format, and there is still a request (`getRepo`) that a host can be slow about or
-refuse. Second, portability of the data is not portability of the name: a `did:plc` identity
-resolves through a directory, which is an operated service, so the identity layer has a party in it
-even when the data layer does not. Open Feed's identity is the anchor key itself and its continuity
-is social (§3.3, §3.4) precisely so that there is nobody left to ask. The trade is real and runs
-both ways: Bluesky's tree gives efficient sync and proofs of absence that this design's flat index
-does not, and it pays for that in machinery the weekend implementer of `GOALS.md` priority 2 does
-not have.
-
-**The uncomfortable half.** Readers hold what they saw, forever, and that cuts both ways. The same
-property that makes mum a backup makes the operator one: he keeps every byte he ever served, he
-opens every envelope he was an audience member of, and withdrawing a post reaches the live set and
-nothing else (§4.2, §8.8). A signed private message is provable by its recipient (§5.6) — which is
-protection when the recipient is being disbelieved and exposure when the recipient is the person you
-are leaving. There is no version of "signed per post" that gives the first without the second, and
-the spec says so where the rule is rather than in a footnote.
-
-**Scenarios.** This is floor item 3, *the host cannot keep you*, and the exit half of scenario 1,
-the divorce: he cannot stop her leaving, because the key was generated on her device and the copy
-never left it. Scenario 4, *the domain goes*, is the same mechanism with nobody hostile in it — the
-files move, the identity does not — and scenario 2, *Grandma onboards*, is the reason the rebuild
-block asks a named relative for a named list: the person recovering is not going to reason about
-hashes, but her application can, and her own last index tells it exactly what to ask for.

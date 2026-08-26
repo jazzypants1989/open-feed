@@ -19,7 +19,7 @@ const hub = createHub();
 const GET = (path) => hub.handle({ method: 'GET', path });
 const put = (path, bytes) => hub.handle({ method: 'PUT', path, body: bytes, headers: { 'if-match': GET(path).headers?.etag ?? null } });
 const reader = createReader({ get: async (url) => { const r = GET(new URL(url).pathname); return r.status === 200 ? { bytes: r.body, etag: r.headers.etag } : null; } });
-const post = (n, fields, k) => signFile({ n, ...fields }, k);
+const post = (number, fields, k) => signFile({ number, ...fields }, k);
 const obj = (f) => parseBody(splitFile(f).body), text = (f) => splitFile(f).body.toString();
 const member = (k, salt) => ({ key: k, salt }), REC = commit([member(MUM, 'saltmum'), member(SIS, 'saltsis'), member(BRO, 'saltbro')]);
 
@@ -27,11 +27,11 @@ put('/alice/profile', signProfile({ anchor: A1.x, name: 'Alice', version: 2, cha
 put('/mom/profile', signProfile({ anchor: MUM.x, name: 'Mum', version: 1, chain: [{ key: MUM.x }], recovery: commit([member(SIS, 'saltsis')]), locations: [MUMAT], read: xk('vector:mum-read').x }, MUM));
 const twelveA = post(12, { at: '2026-07-18T20:00:00Z', text: 'we set a date' }, MUM), twelveB = post(12, { at: '2026-07-18T20:00:00Z', text: 'we called it off' }, MUM);
 put('/mom/posts/12', twelveA);
-put('/mom/index', signIndex({ entries: [[12, address(twelveA)]], version: 1, top: 12 }, MUM));
+put('/mom/index', signIndex({ entries: [[12, address(twelveA)]], version: 1, highest: 12 }, MUM));
 
 const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1'), pngHash = sha256(png);
 const seeded = (l) => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', `openfeed/v1/vector:${l}`, '', String(i++), n)); };
-const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [{ key: A1.x, read: xk('vector:alice-read').x, loc: AT }, { key: MUM.x, read: xk('vector:mum-read').x, loc: MUMAT }],
+const dm = encrypt({ content: { text: 'I am leaving him on Friday', rel: 'root' }, audience: [{ key: A1.x, read: xk('vector:alice-read').x, location: AT }, { key: MUM.x, read: xk('vector:mum-read').x, location: MUMAT }],
   carrier: carrierOf(A1.x, 4), ephemeral: xk('vector:ephemeral/4'), contentKey: seeded('contentkey/4')(32), random: seeded('dummies/4') });
 const p = {
   1: post(1, { at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, A1),
@@ -41,34 +41,34 @@ const p = {
   5: post(5, { text: 'no at at all' }, A2),
   6: post(6, { at: 'last tuesday', text: 'a malformed at' }, A2),
 };
-for (const n of Object.keys(p)) put(`/alice/posts/${n}`, p[n]);
+for (const number of Object.keys(p)) put(`/alice/posts/${number}`, p[number]);
 put(`/alice/media/${pngHash}`, png);
-const entries = [1, 2, 3, 4, 5, 6].map((n) => [n, address(p[n])]).concat([[pngHash]]);
-put('/alice/index', signIndex({ entries, version: 1, top: 6 }, A2));
+const entries = [1, 2, 3, 4, 5, 6].map((number) => [number, address(p[number])]).concat([[pngHash]]);
+put('/alice/index', signIndex({ entries, version: 1, highest: 6 }, A2));
 const first = await reader.read({ learned: A1.x, at: AT }), mumPin = (await reader.read({ learned: MUM.x, at: MUMAT })).pin;
 
 // ---- §5 a post ----
 console.log('§5 — a post\n');
 console.log(`  ${text(p[1])}\n`);
-assert.deepEqual([first.verdict, text(p[1])], ['ok', '{"n":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}']);
+assert.deepEqual([first.verdict, text(p[1])], ['ok', '{"number":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}']);
 assert.deepEqual([verifyFile(p[1], first.chain.keys).by, verifyFile(p[3], first.chain.keys).by, put('/alice/posts/1', p[2]).status], [A1.x, A2.x, 409]);
 rule('5', `\`\`\`json
-{"n":7,"at":"2026-08-01T09:00:00Z","text":"the divorce is final",
+{"number":7,"at":"2026-08-01T09:00:00Z","text":"the divorce is final",
  "rel":"reply",
- "target":{"key":"<anchor>","n":3,"hash":"<hash>","loc":"https://mom.example/mom"},
+ "target":{"key":"<anchor>","number":3,"hash":"<hash>","location":"https://mom.example/mom"},
  "media":["<media hash>"]}
 \`\`\`
 
 A post is immutable, created once (§8.2), and signed by any key in its author's chain.`);
 
-// ---- §5.1 n ----
+// ---- §5.1 number ----
 hub.store.set('alice/posts/6', p[2]);                                // genuine post 2, served at 6
 const swapped = await reader.read({ learned: A1.x, at: AT, pin: first.pin });
 hub.store.set('alice/posts/6', p[6]);
 console.log(`§5.1 — genuine post 2 served at /posts/6: ${swapped.verdict}: ${swapped.why}\n`);
 assert.notEqual(address(p[2]), address(post(6, { at: obj(p[2]).at, text: obj(p[2]).text }, A1)));
 assert.deepEqual([swapped.verdict, swapped.why], ['host', 'post 6 is not what the index lists']);
-rule('5.1', `A post MUST declare the number it is published at inside its signed bytes. A file served at \`/posts/<n>\`
+rule('5.1', `A post MUST declare the number it is published at inside its signed bytes. A file served at \`/posts/<number>\`
 whose \`n\` is another number is not that post (§7.1).`);
 
 // ---- §5.2 at ----
@@ -79,34 +79,34 @@ verdict in this protocol is reached from a clock. A reader MUST NOT reject a pos
 malformed \`at\`.`);
 
 // ---- §5.3 rel ----
-const t1 = { key: A1.x, n: 1, hash: address(p[1]), loc: AT };
+const t1 = { key: A1.x, number: 1, hash: address(p[1]), location: AT };
 const like = post(1, { at: '2026-07-05T08:00:00Z', rel: 'like', target: t1 }, SIS);
 assert.deepEqual([obj(like).rel, decrypt(dm, xk('vector:mum-read').privateKey, carrierOf(A1.x, 4)).rel], ['like', 'root']);
 // An edit: post 7 supersedes post 3, and 3 is withdrawn; a reply to (3, hash) still resolves under the pin.
-const p7 = post(7, { at: '2026-08-15T07:20:00Z', text: 'the morning after — it was thursday', rel: 'supersedes', target: { key: A1.x, n: 3, hash: address(p[3]), loc: AT } }, A2);
+const p7 = post(7, { at: '2026-08-15T07:20:00Z', text: 'the morning after — it was thursday', rel: 'supersedes', target: { key: A1.x, number: 3, hash: address(p[3]), location: AT } }, A2);
 put('/alice/posts/7', p7);
-put('/alice/index', signIndex({ entries: [...entries, [3, null], [7, address(p7)]], version: 2, top: 7 }, A2));
+put('/alice/index', signIndex({ entries: [...entries, [3, null], [7, address(p7)]], version: 2, highest: 7 }, A2));
 const edited = await reader.read({ learned: A1.x, at: AT, pin: first.pin });
-const onOld = obj(post(4, { at: '2026-08-15T09:00:00Z', text: 'lovely', rel: 'reply', target: { key: A1.x, n: 3, hash: address(p[3]), loc: AT } }, SIS));
+const onOld = obj(post(4, { at: '2026-08-15T09:00:00Z', text: 'lovely', rel: 'reply', target: { key: A1.x, number: 3, hash: address(p[3]), location: AT } }, SIS));
 const quiet = await reader.rumors(new Map([[A1.x, edited.pin]]), new Map([[4, onOld]]), 'sis');
 console.log(`§5.3 — post 7 supersedes 3: ${edited.verdict}, ${edited.note.join('; ')}; a reply to (3, its hash) still resolves: ${onOld.target.unresolved !== true}\n`);
 assert.deepEqual([edited.verdict, edited.note, edited.posts.has(3), edited.pin.withdrawn.get(3), onOld.target.unresolved, quiet], ['ok', ['withdrawn: 3'], false, address(p[3]), undefined, []]);
 rule('5.3', `\`rel\` is \`reply\`, \`root\`, \`like\`, \`repost\`, \`quote\`, \`mention\`, or \`supersedes\`, or an absolute URL for anything
 else. An edit is a new post with \`rel: "supersedes"\` naming the old one, which is withdrawn; a reader
-holding the superseding post SHOULD show replies that target the superseded \`(n, hash)\` under it.`);
+holding the superseding post SHOULD show replies that target the superseded \`(number, hash)\` under it.`);
 
 // ---- §5.4 target ----
-const b7 = post(3, { at: '2026-07-19T09:30:00Z', text: 'congratulations, both of you', rel: 'reply', target: { key: MUM.x, n: 12, hash: sha256(Buffer.from("a post of mum's")), loc: MUMAT } }, A2);
-assert.deepEqual([Object.keys(obj(b7).target), obj(b7).target.hash.length], [['key', 'n', 'hash', 'loc'], 43]);
-const onA = obj(post(3, { at: '2026-07-19T09:00:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, n: 12, hash: address(twelveA), loc: MUMAT } }, SIS));
-const onB = obj(post(4, { at: '2026-07-19T09:05:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, n: 12, hash: address(twelveB), loc: MUMAT } }, SIS));
-const onC = obj(post(5, { at: '2026-07-19T09:06:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, n: 12, hash: address(twelveA).slice(0, 16), loc: MUMAT } }, SIS));
+const b7 = post(3, { at: '2026-07-19T09:30:00Z', text: 'congratulations, both of you', rel: 'reply', target: { key: MUM.x, number: 12, hash: sha256(Buffer.from("a post of mum's")), location: MUMAT } }, A2);
+assert.deepEqual([Object.keys(obj(b7).target), obj(b7).target.hash.length], [['key', 'number', 'hash', 'location'], 43]);
+const onA = obj(post(3, { at: '2026-07-19T09:00:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, number: 12, hash: address(twelveA), location: MUMAT } }, SIS));
+const onB = obj(post(4, { at: '2026-07-19T09:05:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, number: 12, hash: address(twelveB), location: MUMAT } }, SIS));
+const onC = obj(post(5, { at: '2026-07-19T09:06:00Z', text: 'wonderful news', rel: 'reply', target: { key: MUM.x, number: 12, hash: address(twelveA).slice(0, 16), location: MUMAT } }, SIS));
 const said = await reader.rumors(new Map([[MUM.x, mumPin]]), new Map([[3, onA], [4, onB], [5, onC]]), 'sis');
 console.log(`§5.4 — mum's index lists one post 12; a reply to it resolves, a reply to her other "post 12" does not, a 16-character prefix does not\n`);
 assert.notEqual(address(twelveA), address(twelveB));
 assert.deepEqual([onA.target.unresolved, onB.target.unresolved, onC.target.unresolved, said], [undefined, true, true, []]);
 rule('5.4', `\`\`\`json
-"target": {"key":"<author anchor>","n":3,"hash":"<43 chars>","loc":"https://mom.example/mom"}
+"target": {"key":"<author anchor>","number":3,"hash":"<43 chars>","location":"https://mom.example/mom"}
 \`\`\`
 
 All four members are REQUIRED on a post whose \`rel\` names another post: \`key\` is the target author's
@@ -116,7 +116,7 @@ the target's index lists for \`n\` — now, or when it was withdrawn — as a re
 
 // ---- §5.5 media ----
 console.log(`§5.5 — post 3 lists ${JSON.stringify(obj(p[3]).media).replace(/"[\w-]{43}"/, '"…"')}; encrypted post 4's public members are ${Object.keys(obj(p[4])).join(', ')}\n`);
-assert.deepEqual([obj(p[3]).media, sha256(edited.media.get(pngHash)), Object.keys(obj(p[4]))], [[pngHash], pngHash, ['n', 'at', 'encrypted']]);
+assert.deepEqual([obj(p[3]).media, sha256(edited.media.get(pngHash)), Object.keys(obj(p[4]))], [[pngHash], pngHash, ['number', 'at', 'encrypted']]);
 rule('5.5', `An array of media addresses (§4.3). On an encrypted post, \`rel\`, \`target\` and \`media\` are inside the
 envelope (§6.5); the public file carries only \`n\`, \`at\`, and \`encrypted\`.`);
 

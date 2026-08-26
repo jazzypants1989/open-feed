@@ -22,8 +22,8 @@ const link = (msg, key) => crypto.sign(null, Buffer.from(msg), key.privateKey).t
 // Every link carries the list that stood before it (`recovery`), so a reader meeting the chain at any
 // length holds a recovery at every length below. A rotation carries the previous key's signature; a
 // restore carries vouchers from the recovery; a link may carry both, and vouchers may be added later.
-export const rotation = (from, to, recovery) => ({ key: to.x, recovery, sig: link(`${from.x}->${to.x}`, from) });
-export const restore = (from, to, vouchers, recovery) => ({ key: to.x, recovery, vouchers: vouchers.map(({ key, salt }) => ({ key: key.x, salt, sig: link(`${from.x}->${to.x}`, key) })) });
+export const rotation = (from, to, recovery) => ({ key: to.x, recovery, signature: link(`${from.x}->${to.x}`, from) });
+export const restore = (from, to, vouchers, recovery) => ({ key: to.x, recovery, vouchers: vouchers.map(({ key, salt }) => ({ key: key.x, salt, signature: link(`${from.x}->${to.x}`, key) })) });
 export const vouched = (h, from, vouchers) => ({ ...h, vouchers: [...(h.vouchers ?? []), ...restore(from, { x: h.key }, vouchers, h.recovery).vouchers] });
 // The recovery list is committed one member at a time, so a voucher reveals only its own salt and
 // the leaf count says how many there are — which is what a majority is counted against.
@@ -34,22 +34,22 @@ export const commit = (members) => ({ leaves: members.map(({ key, salt }) => sha
 export const profile = ({ anchor, version, name, chain, recovery, locations, read }, key) =>
   file({ anchor, version, ...(name ? { name } : {}), chain, recovery, locations, ...(read ? { read } : {}) }, key);
 
-export const post = (n, fields, key) => file({ n, ...fields }, key);
+export const post = (number, fields, key) => file({ number, ...fields }, key);
 
 // entries first, so appending leaves every earlier byte where it was and a reader that cached the
-// file can fetch only the tail. `top` is the highest number ever issued and never goes down.
-export const index = ({ entries, version, top }, key) => file({ entries, version, top }, key);
+// file can fetch only the tail. `highest` is the highest number ever issued and never goes down.
+export const index = ({ entries, version, highest }, key) => file({ entries, version, highest }, key);
 
 // ---- publishing ----
 // Take the next free number, then fold the new line into the index the host is actually serving.
 // Both retries matter: the first keeps two devices from overwriting each other's posts, the second
 // keeps the loser of an index race from dropping the winner's post out of the list.
-export async function publishPost(io, at, key, n, fields) {
-  let num = n;
+export async function publishPost(io, at, key, number, fields) {
+  let num = number;
   for (;;) {
     const f = post(num, fields, key);
     const r = await io.put(`${at}/posts/${num}`, f);
-    if (r === 201 || r === 200) return { n: num, entry: [num, address(f)] };
+    if (r === 201 || r === 200) return { number: num, entry: [num, address(f)] };
     if (r !== 409) throw new Error(`publishing post ${num}: ${r}`);
     num++;
   }
@@ -60,27 +60,27 @@ export async function amendIndex(io, at, key, change) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const cur = await io.get(`${at}/index`);
     if (cur && !cur.etag) throw new Error('index: the hub sent no ETag');
-    const obj = cur ? JSON.parse(cur.subarray(0, cur.lastIndexOf(0x0a)).toString('utf8')) : { entries: [], version: 0, top: 0 };
-    const next = change({ entries: obj.entries, version: obj.version + 1, top: obj.top });
+    const obj = cur ? JSON.parse(cur.subarray(0, cur.lastIndexOf(0x0a)).toString('utf8')) : { entries: [], version: 0, highest: 0 };
+    const next = change({ entries: obj.entries, version: obj.version + 1, highest: obj.highest });
     if (await io.put(`${at}/index`, index(next, key), cur ? cur.etag : null) === 200) return next;
   }
   throw new Error('index: gave up retrying');
 }
 
-export const publish = (io, at, key, n, fields) =>
-  publishPost(io, at, key, n, fields).then(({ n: num, entry }) =>
-    amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, entry], top: Math.max(h.top, num) })).then(() => num));
+export const publish = (io, at, key, number, fields) =>
+  publishPost(io, at, key, number, fields).then(({ number: num, entry }) =>
+    amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, entry], highest: Math.max(h.highest, num) })).then(() => num));
 
 // A media file: put the bytes at their hash, then list the hash. Unsigned — the index's line admits it.
 export const publishMedia = (io, at, key, bytes) => {
   const h = sha256(bytes);
   return io.put(`${at}/media/${h}`, bytes).then((r) => { if (r !== 201 && r !== 200) throw new Error(`media: ${r}`); return amendIndex(io, at, key, (hd) => ({ ...hd, entries: [...hd.entries, [h]] })).then(() => h); });
 };
-export const withdraw = (io, at, key, n) =>
-  amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, [n, null]] }));
+export const withdraw = (io, at, key, number) =>
+  amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, [number, null]] }));
 // A withdrawn number comes back only at the hash it had — the same signed bytes.
-export const relist = (io, at, key, n, hash) =>
-  amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, [n, hash]] }));
+export const relist = (io, at, key, number, hash) =>
+  amendIndex(io, at, key, (h) => ({ ...h, entries: [...h.entries, [number, hash]] }));
 
 // Rotating or restoring changes who signs the index, so the index is written again under the new key.
 // Until it is, readers who already hold one keep it and readers who do not cannot read at all.
@@ -88,7 +88,7 @@ export const resignIndex = (io, at, key) => amendIndex(io, at, key, (h) => h);
 
 // A rewrite drops the lines a withdrawal left behind. How often is the publisher's business — the
 // reader is indifferent — so this is a setting, not a rule. Once a month is the suggested default.
-const live = (entries) => { const m = new Map(); for (const [n, h] of entries) h === null ? m.delete(n) : m.set(n, typeof n === 'string' ? [n] : [n, h]); return [...m.values()]; };
+const live = (entries) => { const m = new Map(); for (const [number, h] of entries) h === null ? m.delete(number) : m.set(number, typeof number === 'string' ? [number] : [number, h]); return [...m.values()]; };
 export const rewrite = (io, at, key) => amendIndex(io, at, key, (h) => ({ ...h, entries: live(h.entries) }));
 
 // ============================================================================================
@@ -145,27 +145,27 @@ if (isMain) {
   await io.put(`${at}/profile`, p1, null);
   await amendIndex(io, at, alice, (h) => h);
   console.log(show());
-  console.log(`  index  entries [] version ${indexNow().version} top ${indexNow().top}`);
+  console.log(`  index  entries [] version ${indexNow().version} highest ${indexNow().highest}`);
   console.log('  Without that empty index a brand-new identity reads as `host: no index served`.');
   console.log(`  recovery  one leaf: a backup key she keeps on paper (§3.4) — ${spokenCode(paper.key.x).join(' ')}\n`);
   assert.equal(commit([paper]).leaves.length, 1);
-  assert.deepEqual(indexNow(), { entries: [], version: 1, top: 0 });
+  assert.deepEqual(indexNow(), { entries: [], version: 1, highest: 0 });
 
   console.log('§8.2-8.3 — the post is written first, then folded into the index\n');
-  for (const [n, text] of [[1, 'the peonies came back'], [2, 'deleted this one'], [3, 'congratulations, both of you']]) {
-    await publish(io, at, alice, n, { at: '2026-07-04T10:15:00Z', text });
+  for (const [number, text] of [[1, 'the peonies came back'], [2, 'deleted this one'], [3, 'congratulations, both of you']]) {
+    await publish(io, at, alice, number, { at: '2026-07-04T10:15:00Z', text });
   }
   console.log(show());
-  console.log(`  index  ${JSON.stringify(indexNow().entries)}  version ${indexNow().version} top ${indexNow().top}\n`);
-  assert.equal(indexNow().top, 3);
+  console.log(`  index  ${JSON.stringify(indexNow().entries)}  version ${indexNow().version} highest ${indexNow().highest}\n`);
+  assert.equal(indexNow().highest, 3);
 
   console.log('§8.2 — a number already held is 409, and the publisher takes the next one\n');
   const other = await publishPost(io, at, alice, 1, { at: '2026-07-20T08:00:00Z', text: 'from the laptop' });
   console.log(show());
-  console.log(`  the laptop wanted 1 and got ${other.n} — numbering need not be gapless, and a\n  number nobody lists is nothing.\n`);
-  assert.equal(other.n, 4);
+  console.log(`  the laptop wanted 1 and got ${other.number} — numbering need not be gapless, and a\n  number nobody lists is nothing.\n`);
+  assert.equal(other.number, 4);
 
-  console.log('§4.7 — a withdrawal is an appended line; a rewrite drops what it left behind\n');
+  console.log('§4.5 — a withdrawal is an appended line; a rewrite drops what it left behind\n');
   await withdraw(io, at, alice, 2);
   const before = JSON.stringify(indexNow().entries);
   await rewrite(io, at, alice);
@@ -179,17 +179,17 @@ if (isMain) {
   const phone = await publishPost(io, at, alice, 5, { at: '2026-08-01T09:00:00Z', text: 'from the phone' });
   const laptop = await publishPost(io, at, alice, 6, { at: '2026-08-01T09:00:04Z', text: 'from the laptop' });
   const stale = await io.get(`${at}/index`);                        // both devices read this one
-  await amendIndex(io, at, alice, (h) => ({ ...h, entries: [...h.entries, phone.entry], top: 5 }));
-  const naive = await io.put(`${at}/index`, index({ entries: [laptop.entry], version: 2, top: 6 }, alice), stale.etag);
+  await amendIndex(io, at, alice, (h) => ({ ...h, entries: [...h.entries, phone.entry], highest: 5 }));
+  const naive = await io.put(`${at}/index`, index({ entries: [laptop.entry], version: 2, highest: 6 }, alice), stale.etag);
   console.log(show());
   console.log(`  the naive retry sends its own version with the stale tag → ${naive}, which is the`);
   console.log('  hub refusing to let the laptop drop the phone\'s post. amendIndex re-reads instead:');
-  await amendIndex(io, at, alice, (h) => ({ ...h, entries: [...h.entries, laptop.entry], top: 6 }));
+  await amendIndex(io, at, alice, (h) => ({ ...h, entries: [...h.entries, laptop.entry], highest: 6 }));
   console.log(show());
-  console.log(`  index  ${indexNow().entries.length} lines, top ${indexNow().top} — both posts survive.\n`);
+  console.log(`  index  ${indexNow().entries.length} lines, highest ${indexNow().highest} — both posts survive.\n`);
   assert.equal(naive, 412);
   assert.equal(indexNow().entries.length, 4);
-  assert.equal(indexNow().top, 6);
+  assert.equal(indexNow().highest, 6);
 
   console.log('Every line above is asserted.');
 }

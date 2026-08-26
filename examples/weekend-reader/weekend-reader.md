@@ -38,7 +38,7 @@ confirmed by measurement rather than by design document: `ok`, `host`, `identity
 **The rumor rule, at a thousand replies.** Mum replies twice from her own hub at numbers at or below
 alice's `top` and the reader says nothing and spends no extra fetch. A griefer writes a thousand
 replies naming numbers that never existed, and it costs **one look at alice — five fetches — and one
-line**, because §7.5's two bounds are look again at most once per identity per pass, and say one line
+line**, because §7.4's two bounds are look again at most once per identity per pass, and say one line
 per person. This is the finding that writing this file produced; `examples/top-and-rumors/` is the
 example that takes it apart.
 
@@ -58,7 +58,7 @@ Three sentences the text did not say, all of them invisible until the code exist
 the spec now, which is what this file was for.
 
 1. **The index must be signed by the key that is current now**, so a rotation or a restore means
-   writing the index *again* (§4.6, §3.5). Not bookkeeping — the mechanism. A thief holding a
+   writing the index *again* (§4.4, §3.5). Not bookkeeping — the mechanism. A thief holding a
    rotated-out key can still sign an index, and the index is what admits posts; if a reader accepted
    an index from any key in the chain, the thief would go on deciding what counts as hers and a
    restore would take nothing back. **Re-signing the index is what a restore actually restores.**
@@ -66,7 +66,7 @@ the spec now, which is what this file was for.
    called the mid-rotation window `host` — accusing an honest host of misbehaving during an honest
    rotation, in both write orders. The rule that works costs no state and is the same fallback as a
    host that stops updating, which the design already tolerates.
-3. **The rumor rule needs two bounds, and the naive version is an amplifier** (§7.5). A reply naming
+3. **The rumor rule needs two bounds, and the naive version is an amplifier** (§7.4). A reply naming
    a number above the top makes the reader look again — so a griefer writing a thousand replies
    naming numbers that never existed makes the reader fetch somebody else's host a thousand times.
    Look again at most once per identity per pass; say one line per person. `examples/top-and-rumors/`

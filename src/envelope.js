@@ -20,15 +20,15 @@ const slotKeys = (z, epk) => { const k = Buffer.from(crypto.hkdfSync('sha256', z
 // §6.2: the content's associated data is the ephemeral key and the carrier — the author's anchor
 // key and the post number — so an envelope lifted into another post does not open there.
 const bindAAD = (epk, carrier) => Buffer.concat([epk, Buffer.from(carrier, 'ascii')]);
-export const carrierOf = (anchor, n) => `${anchor}:${n}`;
+export const carrierOf = (anchor, number) => `${anchor}:${number}`;
 
 /**
- * Encrypt `content` to `audience` — entries `{ key, read, loc }` (§6.4) — for the post at `carrier`.
+ * Encrypt `content` to `audience` — entries `{ key, read, location }` (§6.4) — for the post at `carrier`.
  * `random`, `ephemeral`, `contentKey` are seams for reproducible vectors and nothing else.
  */
 export function encrypt({ content, audience, carrier, random = crypto.randomBytes, ephemeral, contentKey }) {
   if (typeof carrier !== 'string' || !carrier) throw new TypeError('a carrier is required (§6.2)');
-  if (!Array.isArray(audience) || !audience.every((a) => a && typeof a.key === 'string' && typeof a.read === 'string' && typeof a.loc === 'string')) throw new TypeError('audience entries are {key, read, loc} (§6.4)');
+  if (!Array.isArray(audience) || !audience.every((a) => a && typeof a.key === 'string' && typeof a.read === 'string' && typeof a.location === 'string')) throw new TypeError('audience entries are {key, read, location} (§6.4)');
   const eph = ephemeral ?? newReadingKey();
   const epk = unb64(eph.x);
   const ck = contentKey ?? random(32);
@@ -38,20 +38,20 @@ export function encrypt({ content, audience, carrier, random = crypto.randomByte
     const { tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey: eph.privateKey, publicKey: readingPublicKey(a.read) }), epk);
     return [b64(tag), b64(aead(kek, knonce, ck, epk))];
   });
-  return { epk: eph.x, slots, ct: b64(aead(ck, ZERO12, plain, bindAAD(epk, carrier))) };
+  return { ephemeral: eph.x, slots, ciphertext: b64(aead(ck, ZERO12, plain, bindAAD(epk, carrier))) };
 }
 
 /** Open an envelope with a reading key for the post at `carrier`. Null when it is not for us. */
 export function decrypt(env, privateKey, carrier) {
-  if (!env || typeof env.epk !== 'string' || !Array.isArray(env.slots) || typeof env.ct !== 'string') return null;
+  if (!env || typeof env.ephemeral !== 'string' || !Array.isArray(env.slots) || typeof env.ciphertext !== 'string') return null;
   let epk, tag, kek, knonce;
-  try { epk = unb64(env.epk); ({ tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey, publicKey: readingPublicKey(env.epk) }), epk)); } catch { return null; }
+  try { epk = unb64(env.ephemeral); ({ tag, kek, knonce } = slotKeys(crypto.diffieHellman({ privateKey, publicKey: readingPublicKey(env.ephemeral) }), epk)); } catch { return null; }
   for (const slot of env.slots) {
     if (!Array.isArray(slot) || typeof slot[0] !== 'string' || typeof slot[1] !== 'string') continue;
     const t = unb64(slot[0]);
     if (t.length !== tag.length || !crypto.timingSafeEqual(t, tag)) continue;    // a tag is a hint: a malformed or colliding one is a slot to skip
     let ck; try { ck = unaead(kek, knonce, unb64(slot[1]), epk); } catch { continue; }
-    let plain; try { plain = unaead(ck, ZERO12, unb64(env.ct), bindAAD(epk, carrier)); } catch { return null; }
+    let plain; try { plain = unaead(ck, ZERO12, unb64(env.ciphertext), bindAAD(epk, carrier)); } catch { return null; }
     try { return parseBody(plain); } catch { return null; }              // §2.4 applies to the plaintext too
   }
   return null;

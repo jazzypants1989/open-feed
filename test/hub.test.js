@@ -14,7 +14,7 @@ async function scene() {
   const hub = createHub(), io = memIo(hub), alice = person('alice'), mum = person('mum'), sis = person('sis'), ex = person('ex');
   const REC = list(mum, sis, ex), AT = 'https://x/alice';
   const pub = await claim(io, alice, AT, { recovery: REC });
-  for (let n = 1; n <= 3; n++) await pub.publish(n, { at: 'x', text: `post ${n}` });
+  for (let number = 1; number <= 3; number++) await pub.publish(number, { at: 'x', text: `post ${number}` });
   return { hub, io, alice, REC, AT, pub };
 }
 
@@ -39,13 +39,13 @@ test('§8.4 a hub that accepts writes verifies: a stranger with the public tag c
   const rollback = signProfile({ anchor: s.alice.key.x, version: 1, chain: [{ key: s.alice.key.x }], recovery: s.REC, locations: [] }, s.alice.key);
   assert.equal(put(s.hub, '/alice/profile', rollback, tag).status, 409, 'version must advance');
   const htag = get(s.hub, '/alice/index').headers.etag;
-  assert.equal(put(s.hub, '/alice/index', signFile({ entries: [], version: 99, top: 0 }, S.key), htag).status, 403);
+  assert.equal(put(s.hub, '/alice/index', signFile({ entries: [], version: 99, highest: 0 }, S.key), htag).status, 403);
   // The honest case the checks must not break: a real rotation, then the index under the new key.
   const K2 = person('k2');
   const rotated = signProfile({ anchor: s.alice.key.x, version: 2, name: 'alice', chain: [{ key: s.alice.key.x }, rotation(s.alice.key, K2.key, s.REC)], recovery: s.REC, locations: [s.AT] }, K2.key);
   assert.equal(put(s.hub, '/alice/profile', rotated, tag).status, 200);
-  assert.equal(put(s.hub, '/alice/index', signFile({ entries: [], version: 99, top: 3 }, s.alice.key), htag).status, 403, 'the old key no longer signs the index');
-  assert.equal(put(s.hub, '/alice/index', signFile({ entries: [], version: 99, top: 3 }, K2.key), htag).status, 200);
+  assert.equal(put(s.hub, '/alice/index', signFile({ entries: [], version: 99, highest: 3 }, s.alice.key), htag).status, 403, 'the old key no longer signs the index');
+  assert.equal(put(s.hub, '/alice/index', signFile({ entries: [], version: 99, highest: 3 }, K2.key), htag).status, 200);
 });
 
 test('§8.2 / §8.5 create-once, and the owner\'s reclaim under the ruled rule', async () => {
@@ -55,19 +55,19 @@ test('§8.2 / §8.5 create-once, and the owner\'s reclaim under the ruled rule',
   const tag = get(s.hub, '/alice/profile').headers.etag;
   put(s.hub, '/alice/profile', signProfile({ anchor: s.alice.key.x, version: 2, name: 'alice', chain: [{ key: s.alice.key.x }, rotation(s.alice.key, K2.key, s.REC)], recovery: s.REC, locations: [s.AT] }, K2.key), tag);
   // The thief holds G and squats 4–8; each PUT lands (nothing checked on the ordinary path)…
-  for (let n = 4; n <= 8; n++) assert.equal(put(s.hub, `/alice/posts/${n}`, signFile({ n, text: 'squat' }, s.alice.key)).status, 201);
+  for (let number = 4; number <= 8; number++) assert.equal(put(s.hub, `/alice/posts/${number}`, signFile({ number, text: 'squat' }, s.alice.key)).status, 201);
   // …and every one is reclaimed by the current key, one PUT each.
-  for (let n = 4; n <= 8; n++) assert.equal(put(s.hub, `/alice/posts/${n}`, signFile({ n, at: 'x', text: `post ${n}` }, K2.key)).status, 200);
+  for (let number = 4; number <= 8; number++) assert.equal(put(s.hub, `/alice/posts/${number}`, signFile({ number, at: 'x', text: `post ${number}` }, K2.key)).status, 200);
   // The rule does not turn around: the thief cannot take her unlisted current-key post,
-  const unlisted = signFile({ n: 9, at: 'x', text: 'mine' }, K2.key);
+  const unlisted = signFile({ number: 9, at: 'x', text: 'mine' }, K2.key);
   assert.equal(put(s.hub, '/alice/posts/9', unlisted).status, 201);
-  assert.equal(put(s.hub, '/alice/posts/9', signFile({ n: 9, text: 'squat' }, s.alice.key)).status, 409);
+  assert.equal(put(s.hub, '/alice/posts/9', signFile({ number: 9, text: 'squat' }, s.alice.key)).status, 409);
   // …nor a listed old-key post, and she cannot overwrite her own.
-  assert.equal(put(s.hub, '/alice/posts/1', signFile({ n: 1, text: 'squat' }, s.alice.key)).status, 409, 'listed, so the owner\'s');
-  assert.equal(put(s.hub, '/alice/posts/1', signFile({ n: 1, text: 'rewrite' }, K2.key)).status, 409);
+  assert.equal(put(s.hub, '/alice/posts/1', signFile({ number: 1, text: 'squat' }, s.alice.key)).status, 409, 'listed, so the owner\'s');
+  assert.equal(put(s.hub, '/alice/posts/1', signFile({ number: 1, text: 'rewrite' }, K2.key)).status, 409);
   // A file declaring another number is nobody's file for this one (§5.1: half of the reclaim rule).
-  assert.equal(put(s.hub, '/alice/posts/10', signFile({ n: 4, at: 'x', text: 'replayed' }, K2.key)).status, 201, 'stored — nothing checked on the ordinary path');
-  assert.equal(put(s.hub, '/alice/posts/10', signFile({ n: 10, at: 'x', text: 'post 10' }, K2.key)).status, 200, 'and reclaimed: a replayed genuine post does not hold a number');
+  assert.equal(put(s.hub, '/alice/posts/10', signFile({ number: 4, at: 'x', text: 'replayed' }, K2.key)).status, 201, 'stored — nothing checked on the ordinary path');
+  assert.equal(put(s.hub, '/alice/posts/10', signFile({ number: 10, at: 'x', text: 'post 10' }, K2.key)).status, 200, 'and reclaimed: a replayed genuine post does not hold a number');
 });
 
 test('§8.6 the media file twin: junk at her hash is replaced by bytes that match, and never the reverse', async () => {
@@ -90,7 +90,7 @@ test('§8.7 CORS on everything, and the preflight a browser publisher needs', as
   assert.match(pre.headers['access-control-allow-headers'], /If-Match/);
 });
 
-test('§11 views are unsigned overwritable files at conventional paths, and never evidence', async () => {
+test('§10 views are unsigned overwritable files at conventional paths, and never evidence', async () => {
   const s = await scene();
   assert.equal(put(s.hub, '/alice/feed.json', Buffer.from('{"version":"https://jsonfeed.org/version/1.1","items":[]}')).status, 200);
   assert.equal(get(s.hub, '/alice/feed.json').headers['content-type'], 'application/feed+json');

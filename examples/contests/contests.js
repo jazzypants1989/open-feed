@@ -108,7 +108,7 @@ const first = await reader.read({ learned: A.x, at: OLD }), cold = first.pin;
 const home = createPublisher({ io, key: A, at: NEW });
 await home.claim(profileOf(2, [OLD, NEW]));
 for (const [path, bytes] of old.copy) if (path.startsWith('/posts/')) await io.put(`${NEW}${path}`, bytes);
-await home.amendIndex(() => ({ entries: [[1, cold.live.get(1)]], version: 3, top: 1 }));
+await home.amendIndex(() => ({ entries: [[1, cold.live.get(1)]], version: 3, highest: 1 }));
 const after = await reader.read({ learned: A.x, at: NEW, pin: cold });
 await home.publish(2, { at: '2026-08-20T09:00:00Z', text: 'moved, and safe' });
 await home.updateProfile(profileOf(3, [NEW]));
@@ -122,7 +122,7 @@ assert.ok(trace.includes('alice.example/alice/profile') && trace.includes('alice
 // Mum replies to the post alice made after the move; her reply carries alice's location as mum knows it.
 const mumPub = createPublisher({ io, key: mum.key, at: MUM });
 await mumPub.claim({ anchor: mum.key.x, version: 1, name: 'Mum', chain: [{ key: mum.key.x }], recovery: NONE, locations: [MUM] });
-await mumPub.publish(1, { at: '2026-08-20T11:00:00Z', rel: 'reply', target: { key: A.x, n: 2, hash: now.pin.live.get(2), loc: NEW }, text: 'welcome home' });
+await mumPub.publish(1, { at: '2026-08-20T11:00:00Z', rel: 'reply', target: { key: A.x, number: 2, hash: now.pin.live.get(2), location: NEW }, text: 'welcome home' });
 const mumFeed = await reader.read({ learned: mum.key.x, at: MUM });
 const seen = new Map([[A.x, cold]]);                                    // sis: the pin she took at pence.family, and nothing else
 const raised = await reader.rumors(seen, mumFeed.posts, 'mum');

@@ -7,16 +7,16 @@ import { sha256, decodeStrict, publicKey, verifyFile, signFile, splitFile, parse
 
 const linkBytes = (from, to) => Buffer.from(`${from}->${to}`, 'ascii');
 const linkSignature = (from, to, key) => crypto.sign(null, linkBytes(from, to), key.privateKey).toString('base64url');
-const linkVerifies = (from, to, x, sig) => {
-  const b = decodeStrict(sig, 64);
+const linkVerifies = (from, to, x, signature) => {
+  const b = decodeStrict(signature, 64);
   try { return !!b && crypto.verify(null, linkBytes(from, to), publicKey(x), b); } catch { return false; }
 };
 
 // ---- building (§3.3, §3.4) ----
 /** A rotation: the previous key signs the move. `recovery` is the list in force before the link. */
-export const rotation = (from, to, recovery) => ({ key: to.x, recovery, sig: linkSignature(from.x, to.x, from) });
+export const rotation = (from, to, recovery) => ({ key: to.x, recovery, signature: linkSignature(from.x, to.x, from) });
 /** A restore: listed members vouch for the move. Each voucher reveals only its own salt. */
-export const restore = (from, to, members, recovery) => ({ key: to.x, recovery, vouchers: members.map(({ key, salt }) => ({ key: key.x, salt, sig: linkSignature(from.x, to.x, key) })) });
+export const restore = (from, to, members, recovery) => ({ key: to.x, recovery, vouchers: members.map(({ key, salt }) => ({ key: key.x, salt, signature: linkSignature(from.x, to.x, key) })) });
 /** Vouchers added to an existing link — how a rotation made alone is later backed by the recovery. */
 export const vouched = (link, from, members) => ({ ...link, vouchers: [...(link.vouchers ?? []), ...restore(from, { x: link.key }, members, link.recovery).vouchers] });
 /** §3.4: one leaf per member, each under its own salt, so a voucher reveals nobody else. */
@@ -34,7 +34,7 @@ export function vouches(from, link, recovery) {
   const leaves = new Set(recovery?.leaves ?? []);
   const ok = new Set();
   for (const v of link?.vouchers ?? []) {
-    if (v && typeof v.key === 'string' && typeof v.salt === 'string' && linkVerifies(from, link.key, v.key, v.sig) && leaves.has(leaf(v.salt, v.key))) ok.add(v.key);
+    if (v && typeof v.key === 'string' && typeof v.salt === 'string' && linkVerifies(from, link.key, v.key, v.signature) && leaves.has(leaf(v.salt, v.key))) ok.add(v.key);
   }
   return ok.size;
 }
@@ -64,9 +64,9 @@ export function walk(p, recoveryLists) {
   for (let i = 1; i < p.chain.length; i++) {
     const link = p.chain[i], from = p.chain[i - 1].key, recovery = recoveryLists[i];
     if (!recovery) return null;
-    if (!linkVerifies(from, link.key, from, link.sig) && !majority(from, link, recovery)) return null;
+    if (!linkVerifies(from, link.key, from, link.signature) && !majority(from, link, recovery)) return null;
   }
-  return { keys: p.chain.map((h) => h.key), current: p.chain.at(-1).key, restored: p.chain.length > 1 && p.chain.at(-1).sig === undefined };
+  return { keys: p.chain.map((h) => h.key), current: p.chain.at(-1).key, restored: p.chain.length > 1 && p.chain.at(-1).signature === undefined };
 }
 
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -104,7 +104,7 @@ export function verifyProfile(bytes, { learned, pin = null }) {
     } else if (p.version < pin.profileVersion) return bad('identity', 'an older profile than the one this reader saw');
     else if (p.version === pin.profileVersion && profile.address !== pin.profileHash) return bad('identity', 'contested: two profiles at one version');
     // §3.3: a version that added any unsigned link since the pin changed the key and nothing else.
-    else if (p.chain.slice(pin.chain.length).some((h) => h.sig === undefined) && !sameJson(fields, [recoveryLists[pin.chain.length], ...pin.fields.slice(1)])) return bad('identity', 'a restore changed more than the key');
+    else if (p.chain.slice(pin.chain.length).some((h) => h.signature === undefined) && !sameJson(fields, [recoveryLists[pin.chain.length], ...pin.fields.slice(1)])) return bad('identity', 'a restore changed more than the key');
   }
   return { verdict: 'ok', raw: p, chain, profile, recoveryLists, fields };
 }

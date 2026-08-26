@@ -45,7 +45,7 @@ Everything on the wire is one of four kinds of file, under a name the writer cla
 |---|---|---|---|
 | profile | `/<name>/profile` | yes, compare-and-swap | the current key — the key the chain ends on |
 | index | `/<name>/index` | yes, compare-and-swap | the current key |
-| post | `/<name>/posts/<n>` | no, created once | any key in the chain |
+| post | `/<name>/posts/<number>` | no, created once | any key in the chain |
 | media | `/<name>/media/<hash>` | no | not signed; admitted by being listed in the index |
 
 ### 2.1. The format
@@ -179,14 +179,14 @@ and pin there.
 ## 4. The index
 
 ```json
-{"entries":[[1,"<hash>"],[2,"<hash>"],[2,null],[3,"<hash>"],["<media hash>"]],"version":9,"top":3}
+{"entries":[[1,"<hash>"],[2,"<hash>"],[2,null],[3,"<hash>"],["<media hash>"]],"version":9,"highest":3}
 ```
 
 | member | meaning |
 |---|---|
 | `entries` | the lines, in order; the live set is their fold (§4.1) |
 | `version` | a non-negative integer that MUST NOT go backwards |
-| `top` | the highest post number ever issued, `0` when none has been (§4.2) |
+| `highest` | the highest post number ever issued, `0` when none has been (§4.2) |
 
 `entries` MUST come first in the body, so that appending a line leaves every earlier byte in place and a
 reader MAY fetch only the tail.
@@ -195,21 +195,21 @@ reader MAY fetch only the tail.
 
 | line | means |
 |---|---|
-| `[n, hash]` | post `n` exists at address `hash` |
-| `[n, null]` | post `n` is withdrawn |
+| `[number, hash]` | post `number` exists at address `hash` |
+| `[number, null]` | post `number` is withdrawn |
 | `[hash]` | the media file at address `hash` exists (§4.3) |
 | `[hash, null]` | that media file is withdrawn |
 
-A reader computes the live set by folding the entries in order. `n` is a positive integer. A number has
-one hash, ever: a line for an `n` already seen is legal only if it withdraws a live `n` or re-lists a
-withdrawn `n` at the identical hash. A withdrawal MUST refer to something live. `[hash]` for a media file
-already live is illegal. `top` MUST be at least the highest number in `entries`. An index that verifies
+A reader computes the live set by folding the entries in order. `number` is a positive integer. A number has
+one hash, ever: a line for an `number` already seen is legal only if it withdraws a live `number` or re-lists a
+withdrawn `number` at the identical hash. A withdrawal MUST refer to something live. `[hash]` for a media file
+already live is illegal. `highest` MUST be at least the highest number in `entries`. An index that verifies
 but does not fold is invalid, and a reader reports **host** (§7.2). A pinned reader remembers the hash of
 every number it saw withdrawn, and a number that comes back at another hash is **host**.
 
-### 4.2. `top`
+### 4.2. `highest`
 
-`top` MUST NOT decrease, even when the post holding that number is withdrawn.
+`highest` MUST NOT decrease, even when the post holding that number is withdrawn.
 
 ### 4.3. Media
 
@@ -233,17 +233,17 @@ rewritten index exactly as it accepts an appended one.
 ## 5. Posts
 
 ```json
-{"n":7,"at":"2026-08-01T09:00:00Z","text":"the divorce is final",
+{"number":7,"at":"2026-08-01T09:00:00Z","text":"the divorce is final",
  "rel":"reply",
- "target":{"key":"<anchor>","n":3,"hash":"<hash>","loc":"https://mom.example/mom"},
+ "target":{"key":"<anchor>","number":3,"hash":"<hash>","location":"https://mom.example/mom"},
  "media":["<media hash>"]}
 ```
 
 A post is immutable, created once (§8.2), and signed by any key in its author's chain.
 
-### 5.1. `n`
+### 5.1. `number`
 
-A post MUST declare the number it is published at inside its signed bytes. A file served at `/posts/<n>`
+A post MUST declare the number it is published at inside its signed bytes. A file served at `/posts/<number>`
 whose `n` is another number is not that post (§7.1).
 
 ### 5.2. `at`
@@ -256,12 +256,12 @@ malformed `at`.
 
 `rel` is `reply`, `root`, `like`, `repost`, `quote`, `mention`, or `supersedes`, or an absolute URL for anything
 else. An edit is a new post with `rel: "supersedes"` naming the old one, which is withdrawn; a reader
-holding the superseding post SHOULD show replies that target the superseded `(n, hash)` under it.
+holding the superseding post SHOULD show replies that target the superseded `(number, hash)` under it.
 
 ### 5.4. `target`
 
 ```json
-"target": {"key":"<author anchor>","n":3,"hash":"<43 chars>","loc":"https://mom.example/mom"}
+"target": {"key":"<author anchor>","number":3,"hash":"<43 chars>","location":"https://mom.example/mom"}
 ```
 
 All four members are REQUIRED on a post whose `rel` names another post: `key` is the target author's
@@ -284,8 +284,8 @@ no inbox.
 An encrypted post is a post whose content is inside an `encrypted` member:
 
 ```json
-{"n":5,"at":"2026-08-01T09:00:00Z",
- "encrypted":{"epk":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ct":"<ciphertext>"}}
+{"number":5,"at":"2026-08-01T09:00:00Z",
+ "encrypted":{"epk":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ciphertext":"<ciphertext>"}}
 ```
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
@@ -306,7 +306,7 @@ and the content, once:
 
 ```
 plain = UTF-8 JSON of {"audience": [...], ...the post's content members...}
-ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = epk || carrier)
+ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = ephemeral || carrier)
 ```
 
 `epk` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
@@ -360,8 +360,8 @@ The steps are in order; each supplies what the next checks.
    under a key in the chain, its address MUST equal the listed hash, and its `n` MUST equal the number it
    was served at. A failure, or a listed file not served: **host**.
 10. For each post naming a target whose author the reader holds a pin for: if `target.hash` is not what
-    that author's index lists for `target.n`, now or when it was withdrawn, mark the target unresolved
-    (§5.4); otherwise, if `target.n` is above that author's `top`, look again (§7.4).
+    that author's index lists for `target.number`, now or when it was withdrawn, mark the target unresolved
+    (§5.4); otherwise, if `target.number` is above that author's `top`, look again (§7.4).
 
 ### 7.2. Verdicts
 
@@ -387,7 +387,7 @@ they wrote. A reader MAY try the locations it already holds before the address i
 ```
 PUT /<name>/profile        If-Match: <etag>   → 200 | 412
 PUT /<name>/index          If-Match: <etag>   → 200 | 412
-PUT /<name>/posts/<n>                         → 201 | 200 (reclaimed) | 409
+PUT /<name>/posts/<number>                         → 201 | 200 (reclaimed) | 409
 PUT /<name>/media/<hash>                      → 201 | 200 (replaced) | 409 | 400
 PUT /<name>/feed.json | feed.xml | index.html  If-Match: <etag>  → 200 | 412   (§10)
 GET any of the above                          → 200 | 404
@@ -477,9 +477,11 @@ state of the identity.
 A publisher SHOULD write a JSON Feed 1.1 document, an Atom feed, and an h-card page, generated from the
 index and the posts, at `/<name>/feed.json`, `/<name>/feed.xml`, and `/<name>/index.html`; a hub MAY generate
 them itself. A view is unsigned, and an implementation MUST NOT treat one as evidence of anything. Item ids
-are `urn:openfeed:<anchor key>:<n>` and the feed's id is `urn:openfeed:<anchor key>`. Withdrawn posts are
+are `urn:openfeed:<anchor key>:<number>` and the feed's id is `urn:openfeed:<anchor key>`. Withdrawn posts are
 absent. Encrypted posts are omitted or rendered as an empty placeholder item at their number; a view MUST
 NOT carry ciphertext. The h-card's name is the profile's `name`.
+
+A hub SHOULD serve a WebFinger response (RFC 7033) at `/.well-known/webfinger` for each name it holds, linking the profile (`application/openfeed+json`) and the h-card page.
 
 | kind | media type |
 |---|---|

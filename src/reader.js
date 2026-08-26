@@ -1,7 +1,7 @@
 // §7 — the reader. Given the anchor key it learned out of band, a location, and optionally the pin
 // it kept from last time, it performs §7's steps in order and returns exactly one of three
 // verdicts: `ok`, `host` (this host is misbehaving), `identity` (who this is cannot be settled).
-// `recently restored`, `withdrawn: n` and `no index I can verify` are notes on an ok read.
+// `recently restored`, `withdrawn: <number>` and `no index I can verify` are notes on an ok read.
 //
 // The fetcher is injected: `get(url) → { bytes, etag } | null` for a 404, and it throws for a
 // transport failure — which is no verdict at all (§9), so the throw propagates.
@@ -35,8 +35,8 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
     if (!index) {
       if (!pin) return bad('host', hf ? 'the index is not signed by the key the profile ends on' : 'no index served');
       say('no index I can verify');
-      set = { live: new Map([...pin.live].map(([n, h]) => [n, { hash: h }])), top: pin.top };
-      index = { obj: { version: pin.indexVersion, top: pin.top }, address: pin.indexHash };
+      set = { live: new Map([...pin.live].map(([number, h]) => [number, { hash: h }])), highest: pin.highest };
+      index = { obj: { version: pin.indexVersion, highest: pin.highest }, address: pin.indexHash };
     }
     let withdrawn = new Map(pin?.withdrawn ?? []);
     if (pin) {
@@ -48,14 +48,14 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
 
     // §7.4 — the posts and media the index lists.
     const posts = new Map(), media = new Map();
-    for (const [n, e] of set.live) {
-      const isMedia = typeof n === 'string';
-      const f = await get(isMedia ? `${at}/media/${n}` : `${at}/posts/${n}`);
-      if (!f) return bad('host', `${isMedia ? 'media file' : 'post'} ${n} is listed and not served`);
-      if (isMedia) { if (sha256(f.bytes) !== n) return bad('host', `media file ${n} is not what the index lists`); media.set(n, f.bytes); continue; }
+    for (const [number, e] of set.live) {
+      const isMedia = typeof number === 'string';
+      const f = await get(isMedia ? `${at}/media/${number}` : `${at}/posts/${number}`);
+      if (!f) return bad('host', `${isMedia ? 'media file' : 'post'} ${number} is listed and not served`);
+      if (isMedia) { if (sha256(f.bytes) !== number) return bad('host', `media file ${number} is not what the index lists`); media.set(number, f.bytes); continue; }
       const post = verifyFile(f.bytes, chain.keys);
-      if (!post || post.address !== e.hash || post.obj.n !== n) return bad('host', `post ${n} is not what the index lists`);
-      posts.set(n, post.obj);
+      if (!post || post.address !== e.hash || post.obj.number !== number) return bad('host', `post ${number} is not what the index lists`);
+      posts.set(number, post.obj);
     }
 
     return {
@@ -64,14 +64,14 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
         profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields,
         restoredAt: { ...(pin?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
         locations: [...new Set([...(pin?.locations ?? []), ...raw.locations])],      // §3.7: every location ever named
-        indexVersion: index.obj.version, indexHash: index.address, top: index.obj.top,
-        live: new Map([...set.live].map(([n, e]) => [n, e.hash])), withdrawn,
+        indexVersion: index.obj.version, indexHash: index.address, highest: index.obj.highest,
+        live: new Map([...set.live].map(([number, e]) => [number, e.hash])), withdrawn,
       },
     };
   }
 
   /**
-   * §7.5 — targets and the rumor rule, over the posts of one replier. `seen` maps anchor keys to
+   * §7.4 — targets and the rumor rule, over the posts of one replier. `seen` maps anchor keys to
    * pins and is updated in place when a look-again succeeds. A reply whose target hash is not
    * what that author's index lists — now, or when it was withdrawn — is marked unresolved and says
    * nothing. Returns the rumor lines: one per replier, however many replies.
@@ -81,23 +81,23 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
     for (const p of posts.values()) {
       const t = p.target;
       if (!t || typeof t.key !== 'string' || !seen.has(t.key)) continue;
-      const s = seen.get(t.key), listed = s.live.get(t.n) ?? s.withdrawn?.get(t.n);
+      const s = seen.get(t.key), listed = s.live.get(t.number) ?? s.withdrawn?.get(t.number);
       if (listed !== undefined && listed !== t.hash) { t.unresolved = true; continue; }
-      if (t.n <= s.top) continue;                                    // withdrawn or superseded: quiet
+      if (t.number <= s.highest) continue;                                    // withdrawn or superseded: quiet
       if (!refreshed.has(t.key)) {                                   // look again, once per identity per pass
         if (refreshed.size >= maxIdentities) continue;               // §9's cap: unchecked, so no line — no verdict
         refreshed.add(t.key);
-        // The locations already held are tried before the address in the reply (§7.5): the reply's
-        // `loc` is both the relocation mechanism and a beacon, and it is hit last.
-        for (const where of [...new Set([...(s.locations ?? []), t.loc])]) {
+        // The locations already held are tried before the address in the reply (§7.4): the reply's
+        // `location` is both the relocation mechanism and a beacon, and it is hit last.
+        for (const where of [...new Set([...(s.locations ?? []), t.location])]) {
           if (typeof where !== 'string') continue;
           let again = null;
           try { again = await read({ learned: t.key, at: where, pin: seen.get(t.key), now }); } catch { /* no verdict: try the next */ }
-          if (again?.verdict === 'ok') { seen.set(t.key, again.pin); if (again.pin.top >= t.n) break; }
+          if (again?.verdict === 'ok') { seen.set(t.key, again.pin); if (again.pin.highest >= t.number) break; }
         }
       }
       const line = `${replier} replied to something I cannot see`;
-      if (t.n > seen.get(t.key).top && !out.includes(line)) out.push(line);
+      if (t.number > seen.get(t.key).highest && !out.includes(line)) out.push(line);
     }
     return out;
   }

@@ -46,7 +46,7 @@ call('PUT', '/alice/profile', { body: signProfile({ anchor: thief.x, version: 2,
 rule('8', `\`\`\`
 PUT /<name>/profile        If-Match: <etag>   → 200 | 412
 PUT /<name>/index          If-Match: <etag>   → 200 | 412
-PUT /<name>/posts/<n>                         → 201 | 200 (reclaimed) | 409
+PUT /<name>/posts/<number>                         → 201 | 200 (reclaimed) | 409
 PUT /<name>/media/<hash>                      → 201 | 200 (replaced) | 409 | 400
 PUT /<name>/feed.json | feed.xml | index.html  If-Match: <etag>  → 200 | 412   (§10)
 GET any of the above                          → 200 | 404
@@ -62,11 +62,11 @@ call('PUT', '/alice/index', { body: hub.store.get('alice/index'), expect: 412 })
 const stale = call('PUT', '/alice/index', { body: hub.store.get('alice/index'), ifMatch: '"stale"', expect: 412 });
 assert.equal(stale.headers.etag, E);
 assert.equal(E, `"${sha256(hub.store.get('alice/index'))}"`);
-const p2 = signFile({ n: 2, at: '2026-07-05T09:00:00Z', text: 'jam day' }, alice);
+const p2 = signFile({ number: 2, at: '2026-07-05T09:00:00Z', text: 'jam day' }, alice);
 call('PUT', '/alice/posts/2', { body: p2, expect: 201 });
-call('PUT', '/alice/index', { body: signIndex({ entries: [[1, h1], [2, address(p2)]], version: 3, top: 2 }, alice), ifMatch: E, expect: 200 });
+call('PUT', '/alice/index', { body: signIndex({ entries: [[1, h1], [2, address(p2)]], version: 3, highest: 2 }, alice), ifMatch: E, expect: 200 });
 pin = (await see(null)).pin;
-const p3 = signFile({ n: 3, at: '2026-07-05T18:20:00Z', text: 'and the beans' }, alice), laptop = { entries: [[1, h1], [3, address(p3)]], top: 3 };
+const p3 = signFile({ number: 3, at: '2026-07-05T18:20:00Z', text: 'and the beans' }, alice), laptop = { entries: [[1, h1], [3, address(p3)]], highest: 3 };
 const before = snap();
 call('PUT', '/alice/posts/3', { body: p3, expect: 201 });
 call('PUT', '/alice/index', { body: signIndex({ ...laptop, version: 3 }, alice), ifMatch: E, expect: 412 });          // the laptop lost the race
@@ -75,7 +75,7 @@ const lost = await see();
 assert.deepEqual([lost.verdict, lost.note, lost.posts.has(2)], ['ok', ['withdrawn: 2'], false]);
 restore(before);
 call('PUT', '/alice/posts/3', { body: p3, expect: 201 });
-await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [3, address(p3)]], top: 3 }));                            // re-read and fold
+await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [3, address(p3)]], highest: 3 }));                            // re-read and fold
 const won = await see();
 console.log(`§8.1 — the phone and the laptop both write: naive retry loses post 2; re-read and fold keeps posts ${nums(won)}\n`);
 assert.deepEqual([[...won.posts.keys()], won.note], [[1, 2, 3], []]);
@@ -86,13 +86,13 @@ writer that loses MUST re-read the file the hub now serves and fold its own line
 \`entries\`.`);
 
 // ---- §8.2 create-once ----
-const p4 = signFile({ n: 4, at: '2026-07-06T08:00:00Z', text: 'half a thought' }, alice);
+const p4 = signFile({ number: 4, at: '2026-07-06T08:00:00Z', text: 'half a thought' }, alice);
 call('PUT', '/alice/posts/4', { body: p4, expect: 201 });                                              // …and the device crashes
-call('PUT', '/alice/posts/4', { body: signFile({ n: 4, text: 'another' }, alice), expect: 409 });
+call('PUT', '/alice/posts/4', { body: signFile({ number: 4, text: 'another' }, alice), expect: 409 });
 assert.equal(await pub.publish(4, { at: '2026-07-07T11:00:00Z', text: 'jam, again' }), 5);             // it abandons 4 and takes 5
 pin = (await see()).pin;
 const late = snap(), s2 = served();
-call('PUT', '/alice/index', { body: signIndex({ entries: [...s2.entries, [4, address(p4)]], version: s2.version + 1, top: 5 }, alice), ifMatch: etag(), expect: 200 });
+call('PUT', '/alice/index', { body: signIndex({ entries: [...s2.entries, [4, address(p4)]], version: s2.version + 1, highest: 5 }, alice), ifMatch: etag(), expect: 200 });
 const caught = await see();
 console.log(`§8.2 — a crash between post 4 and its index: the next post is 5; listing 4 late reads ${caught.verdict}: ${caught.why}\n`);
 assert.deepEqual([caught.verdict, caught.why], ['host', 'post 4 is listed now and was not before']);
@@ -101,13 +101,13 @@ rule('8.2', `A hub MUST refuse a write to a number already held, except under §
 device that comes back MUST abandon a number it cannot prove it listed, and MUST NOT list one late.`);
 
 // ---- §8.3 write order ----
-const p6 = signFile({ n: 6, at: '2026-07-08T07:30:00Z', text: 'rain all day' }, alice), back = snap(), s3 = served();
-call('PUT', '/alice/index', { body: signIndex({ entries: [...s3.entries, [6, address(p6)]], version: s3.version + 1, top: 6 }, alice), ifMatch: etag(), expect: 200 });
+const p6 = signFile({ number: 6, at: '2026-07-08T07:30:00Z', text: 'rain all day' }, alice), back = snap(), s3 = served();
+call('PUT', '/alice/index', { body: signIndex({ entries: [...s3.entries, [6, address(p6)]], version: s3.version + 1, highest: 6 }, alice), ifMatch: etag(), expect: 200 });
 const early = await see();
 restore(back);
 call('PUT', '/alice/posts/6', { body: p6, expect: 201 });
 const mid = await see();
-await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [6, address(p6)]], top: 6 }));
+await pub.amendIndex((h) => ({ ...h, entries: [...h.entries, [6, address(p6)]], highest: 6 }));
 pin = (await see()).pin;
 console.log(`§8.3 — index first: ${early.verdict}; post first, read between the writes: ${mid.verdict}\n`);
 assert.deepEqual([early.verdict, mid.verdict, mid.posts.has(6)], ['host', 'ok', false]);
@@ -116,12 +116,12 @@ rule('8.3', 'The post is written before the index that lists it.');
 // ---- §8.4 claiming a name ----
 call('PUT', '/bro/profile', { body: signProfile({ anchor: bro.x, version: 1, chain: [{ key: bro.x }], recovery: REC, locations: [BRO] }, bro), expect: 200 });
 const cold = await see(null, BRO, bro.x);
-call('PUT', '/bro/index', { body: signIndex({ entries: [], version: 1, top: 0 }, bro), expect: 200 });
+call('PUT', '/bro/index', { body: signIndex({ entries: [], version: 1, highest: 0 }, bro), expect: 200 });
 const warm = await see(null, BRO, bro.x);
 assert.deepEqual([cold.verdict, cold.why, warm.verdict], ['host', 'no index served', 'ok']);
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2, chain: [{ key: alice.x }, { key: next.x, recovery: REC }] }, next), ifMatch: ptag, expect: 403 });   // the chain does not walk
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, name: 'alice again' }, alice), ifMatch: ptag, expect: 409 });                                                 // version not advanced
-call('PUT', '/alice/index', { body: signIndex({ entries: [], version: 99, top: 6 }, thief), ifMatch: etag(), expect: 403 });
+call('PUT', '/alice/index', { body: signIndex({ entries: [], version: 99, highest: 6 }, thief), ifMatch: etag(), expect: 403 });
 call('PUT', '/alice/profile', { body: signProfile({ ...fields, version: 2, chain: [{ key: alice.x }, rotation(alice, next, REC)] }, next), ifMatch: ptag, expect: 200 });
 call('PUT', '/alice/index', { body: signIndex({ ...served(), version: 99 }, alice), ifMatch: etag(), expect: 403 });                                                          // the rotated-away key
 const pub2 = createPublisher({ io, key: next, at: AT });
@@ -135,8 +135,8 @@ the key the profile it holds ends on. A publisher MUST write an index when it cl
 empty one.`);
 
 // ---- §8.5 reclaiming ----
-const junk = (n, k) => signFile({ n, at: '2026-07-09T00:00:00Z', text: 'buy cheap watches' }, k);
-const mine = (n, text) => signFile({ n, at: '2026-07-10T09:00:00Z', text }, next);
+const junk = (number, k) => signFile({ number, at: '2026-07-09T00:00:00Z', text: 'buy cheap watches' }, k);
+const mine = (number, text) => signFile({ number, at: '2026-07-10T09:00:00Z', text }, next);
 call('PUT', '/alice/posts/7', { body: junk(7, thief), expect: 201 });          // a stranger; nothing checked on the ordinary path
 call('PUT', '/alice/posts/8', { body: junk(8, alice), expect: 201 });          // a thief holding the rotated-away key
 call('PUT', '/alice/posts/7', { body: mine(7, 'the figs are early'), expect: 200 });

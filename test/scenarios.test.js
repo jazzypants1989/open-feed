@@ -17,7 +17,7 @@ test('the divorce: he cannot post as her, read what is encrypted past him, alter
   const REC = list(mum, sis, ex), AT = 'https://ex.example/alice';
   const aliceRead = newReadingKey(), mumRead = newReadingKey();
   const pub = await claim(io, alice, AT, { recovery: REC, read: aliceRead.x });
-  const audience = [{ key: alice.key.x, read: aliceRead.x, loc: AT }, { key: mum.key.x, read: mumRead.x, loc: 'https://mum.example/mum' }];
+  const audience = [{ key: alice.key.x, read: aliceRead.x, location: AT }, { key: mum.key.x, read: mumRead.x, location: 'https://mum.example/mum' }];
   await pub.publish(1, { at: '2026-08-01T00:00:00Z', encrypted: encrypt({ content: { text: 'I am leaving him on Friday' }, audience, carrier: carrierOf(alice.key.x, 1) }) });
   await pub.publish(2, { at: '2026-08-02T00:00:00Z', text: 'a public post' });
   const reader = readerOver(io);
@@ -30,13 +30,13 @@ test('the divorce: he cannot post as her, read what is encrypted past him, alter
   assert.equal(decrypt(encrypted, mumRead.privateKey, carrierOf(alice.key.x, 1)).text, 'I am leaving him on Friday');
 
   // He cannot alter or backdate: he owns the disk, not her key.
-  hub.store.set('alice/posts/2', signFile({ n: 2, at: '2026-01-01T00:00:00Z', text: 'she never wrote this' }, ex.key));
+  hub.store.set('alice/posts/2', signFile({ number: 2, at: '2026-01-01T00:00:00Z', text: 'she never wrote this' }, ex.key));
   assert.equal((await reader.read({ learned: alice.key.x, at: AT, pin: momPin })).why, 'post 2 is not what the index lists');
-  hub.store.set('alice/posts/2', signFile({ n: 2, at: '2026-08-02T00:00:00Z', text: 'a public post' }, alice.key));
+  hub.store.set('alice/posts/2', signFile({ number: 2, at: '2026-08-02T00:00:00Z', text: 'a public post' }, alice.key));
   assert.equal((await reader.read({ learned: alice.key.x, at: AT, pin: momPin })).verdict, 'ok', '§2.2: the identical body re-signed IS the post — the address is the hash of the body');
-  hub.store.set('alice/posts/2', signFile({ n: 2, at: '2026-08-02T00:00:00Z', text: 'a public post.' }, alice.key));
+  hub.store.set('alice/posts/2', signFile({ number: 2, at: '2026-08-02T00:00:00Z', text: 'a public post.' }, alice.key));
   assert.equal((await reader.read({ learned: alice.key.x, at: AT, pin: momPin })).why, 'post 2 is not what the index lists', 'one changed byte, even under her own key, is not');
-  hub.store.set('alice/posts/2', signFile({ n: 2, at: '2026-08-02T00:00:00Z', text: 'a public post' }, alice.key));
+  hub.store.set('alice/posts/2', signFile({ number: 2, at: '2026-08-02T00:00:00Z', text: 'a public post' }, alice.key));
 
   // He steals her key; she restores; the index is re-signed and what he withdrew comes back.
   const K2 = person('k2');
@@ -63,7 +63,7 @@ test('the divorce: he cannot post as her, read what is encrypted past him, alter
   for (const [path, bytes] of pub.copy) if (path !== '/index' && path !== '/profile') await homeIo.put(`https://alice.example/alice${path}`, bytes);
   const pubHome = createPublisher({ io: homeIo, key: K2.key, at: 'https://alice.example/alice' });
   await homeIo.put('https://alice.example/alice/profile', signProfile({ anchor: alice.key.x, version: 3, name: 'alice', chain: [{ key: alice.key.x }, restore(alice.key, K2.key, members(mum, sis), REC)], recovery: REC, locations: ['https://alice.example/alice'] }, K2.key));
-  await pubHome.amendIndex((h) => ({ entries: [[1, momPin.live.get(1)], [2, momPin.live.get(2)]], version: 9, top: 2 }));
+  await pubHome.amendIndex((h) => ({ entries: [[1, momPin.live.get(1)], [2, momPin.live.get(2)]], version: 9, highest: 2 }));
   const home1 = await readerOver(homeIo).read({ learned: alice.key.x, at: 'https://alice.example/alice', pin: after.pin });
   assert.equal(home1.verdict, 'ok', home1.why);
   assert.deepEqual([...home1.posts.keys()].sort(), [1, 2]);
@@ -102,7 +102,7 @@ test('two hubs, one thread: a encrypted post, a encrypted reply and a reaction c
   const seen = new Map();
   for (const [who, p] of [['mom', mom], ['jesse', jesse], ['sis', sis]]) seen.set(p.key.x, (await reader.read({ learned: p.key.x, at: at[who] })).pin);
   // Mom seals to the family, the audience naming each of them.
-  const fam = [{ key: mom.key.x, read: reads.mom.x, loc: at.mom }, { key: jesse.key.x, read: reads.jesse.x, loc: at.jesse }, { key: sis.key.x, read: reads.sis.x, loc: at.sis }];
+  const fam = [{ key: mom.key.x, read: reads.mom.x, location: at.mom }, { key: jesse.key.x, read: reads.jesse.x, location: at.jesse }, { key: sis.key.x, read: reads.sis.x, location: at.sis }];
   await mpub.publish(1, { at: '2026-08-10T09:00:00Z', encrypted: encrypt({ content: { text: 'the scan came back clear' }, audience: fam, carrier: carrierOf(mom.key.x, 1) }) });
   const momRead = await reader.read({ learned: mom.key.x, at: at.mom, pin: seen.get(mom.key.x) });
   seen.set(mom.key.x, momRead.pin);
@@ -111,7 +111,7 @@ test('two hubs, one thread: a encrypted post, a encrypted reply and a reaction c
   // Jesse replies encrypted, resolving the member he does not follow from the audience entry (§6.5).
   const unknown = inner.audience.find((a) => !seen.has(a.key));
   assert.equal(unknown, undefined, 'jesse holds pins for all three here');
-  await jpub.publish(1, { at: '2026-08-10T11:00:00Z', encrypted: encrypt({ content: { rel: 'reply', target: { key: mom.key.x, n: 1, hash: momRead.pin.live.get(1), loc: at.mom }, text: 'best news all year' }, audience: inner.audience, carrier: carrierOf(jesse.key.x, 1) }) });
+  await jpub.publish(1, { at: '2026-08-10T11:00:00Z', encrypted: encrypt({ content: { rel: 'reply', target: { key: mom.key.x, number: 1, hash: momRead.pin.live.get(1), location: at.mom }, text: 'best news all year' }, audience: inner.audience, carrier: carrierOf(jesse.key.x, 1) }) });
   const jRead = await reader.read({ learned: jesse.key.x, at: at.jesse, pin: seen.get(jesse.key.x) });
   const reply = decrypt(jRead.posts.get(1).encrypted, reads.sis.privateKey, carrierOf(jesse.key.x, 1));
   assert.equal(reply.text, 'best news all year', 'sis, on mom\'s hub, reads jesse\'s reply from his');
@@ -140,8 +140,8 @@ test('the domain goes: everyone relocates, nobody\'s identity changes, readers f
   old.store.clear();
   // The reader tries the locations it holds.
   let found = null;
-  for (const loc of moved.pin.locations) { try { const r = await reader.read({ learned: a.key.x, at: loc, pin: moved.pin }); if (r.verdict === 'ok') { found = { loc, r }; break; } } catch { /* keep trying */ } }
-  assert.equal(found?.loc, NEW);
+  for (const location of moved.pin.locations) { try { const r = await reader.read({ learned: a.key.x, at: location, pin: moved.pin }); if (r.verdict === 'ok') { found = { location, r }; break; } } catch { /* keep trying */ } }
+  assert.equal(found?.location, NEW);
   assert.ok(found.r.posts.has(1) && found.r.posts.has(2));
   assert.equal(found.r.pin.indexVersion, moved.pin.indexVersion + 1, 'the index version carried across the move');
 });
@@ -152,7 +152,7 @@ test('the stranger: a public journal reaches a plain feed reader through the gen
   const pub = await claim(io, a, AT, { recovery: list() });
   await pub.publish(1, { at: '2026-08-01T00:00:00Z', text: 'First day of the holidays.\nThe kids are feral already.' });
   await pub.publish(2, { at: '2026-08-02T00:00:00Z', text: 'Rain. Board games. <b>Not</b> HTML & such.' });
-  await pub.publish(3, { at: '2026-08-03T00:00:00Z', encrypted: { epk: 'x', slots: [], ct: 'y' } });
+  await pub.publish(3, { at: '2026-08-03T00:00:00Z', encrypted: { ephemeral: 'x', slots: [], ciphertext: 'y' } });
   const photo = await pub.publishMedia(Buffer.from('a photograph'));
   await pub.publish(4, { at: '2026-08-04T00:00:00Z', media: [photo] });
   const r = await readerOver(io).read({ learned: a.key.x, at: AT });
@@ -164,5 +164,5 @@ test('the stranger: a public journal reaches a plain feed reader through the gen
   assert.ok(views.hcard(r, AT).includes(`#${a.key.x}`), 'the h-card link carries the anchor key in its fragment');
   await pub.putView('feed.json', views.jsonFeed(r, AT), 'application/feed+json');
   assert.equal(hub.handle({ method: 'GET', path: '/alice/feed.json' }).status, 200);
-  assert.ok(!views.jsonFeed(r, AT).includes('"ct"'), 'a view never carries ciphertext');
+  assert.ok(!views.jsonFeed(r, AT).includes('"ciphertext"'), 'a view never carries ciphertext');
 });

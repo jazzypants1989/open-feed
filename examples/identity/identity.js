@@ -78,11 +78,11 @@ console.log(`  link 2   a rotation: sig by the anchor key over "${A1.x.slice(0, 
 console.log(`  link 3   a restore: vouchers by ${res.vouchers.map((v) => v.salt.slice(4)).join(' and ')} over "${A2.x.slice(0, 6)}…->${A3.x.slice(0, 6)}…"\n`);
 assert.ok(holds(chain1, {}) && holds(chain2, { 1: REC }) && holds(chain3, { 1: REC, 2: REC }));
 assert.equal(wellFormed({ ...v3, chain: [{ key: A2.x }, ...chain3.slice(1)] }), false);              // the first link is the anchor
-assert.equal(rot.sig, signOver(`${A1.x}->${A2.x}`, A1));
-assert.equal(holds([...chain1, { ...rot, sig: signOver(`${A2.x}->${A1.x}`, A1) }], { 1: REC }), false);   // the other way round
-assert.equal(holds([...chain1, { ...rot, sig: signOver(`${A3.x}->${A2.x}`, A3) }], { 1: REC }), false);   // a different previous key
-for (const v of res.vouchers) assert.ok(REC.leaves.includes(leaf(v.salt, v.key)) && v.sig === signOver(`${A2.x}->${A3.x}`, [MUM, SIS].find((m) => m.key.x === v.key).key));
-const bro = (salt) => ({ key: BRO.key.x, salt, sig: signOver(`${A2.x}->${A3.x}`, BRO.key) });
+assert.equal(rot.signature, signOver(`${A1.x}->${A2.x}`, A1));
+assert.equal(holds([...chain1, { ...rot, signature: signOver(`${A2.x}->${A1.x}`, A1) }], { 1: REC }), false);   // the other way round
+assert.equal(holds([...chain1, { ...rot, signature: signOver(`${A3.x}->${A2.x}`, A3) }], { 1: REC }), false);   // a different previous key
+for (const v of res.vouchers) assert.ok(REC.leaves.includes(leaf(v.salt, v.key)) && v.signature === signOver(`${A2.x}->${A3.x}`, [MUM, SIS].find((m) => m.key.x === v.key).key));
+const bro = (salt) => ({ key: BRO.key.x, salt, signature: signOver(`${A2.x}->${A3.x}`, BRO.key) });
 assert.equal(vouches(A2.x, { key: A3.x, vouchers: [bro('notmysalt')] }, REC), 0);                      // a good signature under the wrong salt
 rule('3.2', `The chain is an array of links. The first MUST be \`{"key": <anchor>}\`. Every later link is
 \`{"key", "recovery", "sig"?, "vouchers"?}\`: \`key\` is the key this link moves to; \`recovery\` is the recovery
@@ -104,7 +104,7 @@ assert.equal(holds(twice, { 1: REC, 2: REC }), false);
 assert.equal(holds([...chain1, restore(A1, A3, [MUM, SIS], commit([]))], { 1: commit([]) }), false);
 assert.equal(read({ ...v3, chain: sisOnly }, A3).why, 'the chain of key changes does not hold');
 const backed = vouched(rot, A1, [MUM, SIS]);
-assert.deepEqual([backed.key, backed.sig, vouches(A1.x, backed, REC)], [rot.key, rot.sig, 2]);
+assert.deepEqual([backed.key, backed.signature, vouches(A1.x, backed, REC)], [rot.key, rot.signature, 2]);
 rule('3.2', `A link is valid when \`sig\` verifies, or when the distinct voucher keys that count are more than half of
 \`recovery.leaves\`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
 list cannot restore. Vouchers MAY be added to a link after it was made.`);
@@ -128,10 +128,10 @@ for (let i = 1; i <= MAX_LINKS; i++) { const nk = key(`long/${i}`); long.push(ro
 assert.equal(long.length, MAX_LINKS + 1);
 assert.equal(wellFormed({ ...v3, chain: long }), false);
 assert.equal(wellFormed({ ...v3, chain: long.slice(0, MAX_LINKS) }), true);
-const post1 = signFile({ n: 1, at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, A1);
+const post1 = signFile({ number: 1, at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, A1);
 const now = walk({ chain: chain3 }, { 1: REC, 2: REC });
 assert.equal(verifyFile(post1, now.keys).by, A1.x);
-assert.equal(verifyFile(signFile({ entries: [], version: 4, top: 0 }, A2), now.current), null);
+assert.equal(verifyFile(signFile({ entries: [], version: 4, highest: 0 }, A2), now.current), null);
 console.log(`  ${MAX_LINKS + 1} links   well-formed ${wellFormed({ ...v3, chain: long })}`);
 console.log(`  post 1, signed by the anchor key, after two key changes   verifies under the chain: ${verifyFile(post1, now.keys) !== null}\n`);
 rule('3.2', `A chain MUST NOT exceed ${MAX_LINKS} links, and a reader MUST reject a longer one. A key rotated away from keeps its

@@ -82,43 +82,6 @@ performs.
 Every key printed comes from Appendix B.1's seeds, except the hostile host's, which is seeded the
 same way under its own label so the output still reproduces byte for byte.
 
-### Contrast
-
-Everyone building this has met the same problem, and the interesting differences are in what they
-ask a human to do.
-
-- **SSH's host-key prompt is TOFU, and §3.1 refuses it.** The prompt says the host's authenticity
-  can't be established, prints a fingerprint, and asks whether to continue connecting — almost
-  nobody has the fingerprint to compare against, so almost everybody types `yes`, and the trust
-  that gets established is trust in whoever answered the connection. That is precisely the reader
-  that has learned nothing. Open Feed's first block is that prompt, answered `yes`, with a hostile
-  host on the other end. The stakes differ: SSH is protecting a session against an active
-  attacker, whereas here the *expected* host is a party who may be hostile from the beginning (see
-  the threat model in `CLAUDE.md` and §13).
-- **Signal's safety numbers** are the closest relative: 60 digits shown as twelve groups of five,
-  compared in person or read aloud, with a QR scan as the fast path. Same shape — an out-of-band
-  check value over public keys — and the same honest admission that most people never do it. Six
-  words are shorter to say than sixty digits, at the cost of being a check on identity only.
-- **PGP fingerprints and the web of trust** are the version that failed as a human protocol.
-  Comparing 40 hex characters at a key-signing party asked people to be careful about something
-  they had no way to feel, and the usual outcome was checking the last eight characters, or none.
-  Open Feed takes the ergonomic lesson without the social graph: there is no signature-on-a-key,
-  no trust transitivity, and no keyservers. Vouching exists, but only for recovery (§3.4), only
-  from a list you chose, and only as hashes that reveal nothing until used.
-- **BIP-39** supplies the wordlist and nothing else. Its wordlist is a good one to borrow — 2,048
-  words chosen so that four letters identify each, and so they survive being said out loud — but a
-  BIP-39 mnemonic *is* a secret you can reconstruct a wallet from, and this is the opposite: six
-  words derived from a **public** key, safe to say in a room, and not enough bits to reverse.
-  Anyone who confuses the two will misfile this as "your recovery phrase", which it is not; the
-  recovery mechanism in this protocol is §3.4, a list of people.
-
-The scenarios this serves are `GOALS.md` 2 (Grandma onboards and is never shown a key) and 7 (the
-stranger, who re-meets an author after a key loss — the current-key route is how). Scenario 1's
-sister needs it too: when she leaves the ex's hub, the reader that follows her does so by anchor
-key, and the frozen copy he keeps serving reads as an older version of her rather than as her.
-
----
-
 ## The chain
 
 **Spec:** §3.3 the chain, and §3.5 for what changing a key costs in practice.
@@ -196,13 +159,13 @@ X25519 key that everything private is encrypted to.
 **A key rotated away from keeps its posts valid.** Post 1 was signed by the anchor key a year and
 two links ago, and it still verifies under the chain's keys — the chain is a set of keys that ever
 spoke for this identity, not a single current one. What the old key may no longer do is the whole of
-its closure: it cannot sign an index (§4.6 — the index MUST be signed by the key the chain
+its closure: it cannot sign an index (§4.4 — the index MUST be signed by the key the chain
 *currently* ends on, which is what a restore actually restores; see `examples/the-index/`) and it
 cannot hold a number against the owner (§8.5). There is no revocation message anywhere.
 
 **§3.5 — changing the key means writing the profile and the index again, in that order.** The last
 block shows an index signed by the key alice just left failing under the current key, which is the
-mechanical reason for the ordering: the index MUST be signed by the current key (§4.6), and a hub
+mechanical reason for the ordering: the index MUST be signed by the current key (§4.4), and a hub
 that verifies writes checks the index against the profile it holds (§8.4). Profile first, index
 second. Between the two writes an honest host is briefly serving an index its own profile disowns;
 §7.2 answers that — an index that will not verify is not an accusation against anyone.
@@ -211,55 +174,6 @@ This is `GOALS.md` scenario 2, *Grandma onboards*: she "loses her phone a year l
 calling her daughter." The daughter is a leaf in a recovery list; the phone call is a restore link;
 the chain is why the grandchildren's readers follow her to the new key instead of meeting a
 stranger.
-
-### Contrast
-
-**Revocation, and its absence.** There is no CRL, no OCSP responder, no revocation certificate, no
-expiry date and no "this key is compromised" message anywhere in Open Feed. That is not an
-omission. Every one of those is an *announcement* — a document that has to reach the reader for the
-key to be closed, and it reaches the reader over a path the host controls. Against the adversary
-§13.1 names, the one who runs the serving path and will not cooperate, **a revocation the host can
-withhold is not a revocation**. So the old key is closed by what it may no longer do rather than by
-what anyone says about it: the reader computes the current key from the chain in a profile it
-verified, and an index signed by anything else is not the identity's index. There is nothing to
-withhold, because there is nothing to deliver.
-
-**X.509 and CA chains.** A TLS certificate chain is also a chain, but it runs *outward* to a third
-party: the subject's key is vouched for by an issuer, whose key is vouched for by another issuer,
-up to a root the reader was shipped. Trust arrives from outside and revocation has to be published
-by whoever issued it. Open Feed's chain runs *inward* — every link is signed by the identity's own
-previous key or by people the identity committed to in advance, and the whole thing is carried in
-the profile the reader is already fetching. Nobody issues anything, and there is no party who could
-refuse to.
-
-**PGP key transition statements.** The closest ancestor of a rotation link: a plaintext document
-saying "old key K1 is retiring, new key K2 is me," signed by both. It is the same idea done by
-convention — the format is folklore, the signed bytes are a paragraph of English, and no
-implementation verifies it, so a human reads it and decides. §3.3 makes it 88 bytes with a fixed
-shape that a verifier checks without being asked. OpenPGP does also have revocation certificates and
-expiry, and they work about as well as key servers deliver them.
-
-**Signal.** When a contact's identity key changes you get a notification: the safety number changed,
-verify again. There is no cryptographic link from the old key to the new one, so the notice is the
-whole mechanism, and Signal itself made it non-blocking by default. Open Feed's equivalent of that
-notification is a verdict a reader computes for itself, and a restore is *not* the same event as a
-stranger substituting a key: one walks the chain, the other does not.
-
-**Matrix cross-signing** is closer: a master key signs a self-signing key, which signs device keys,
-so devices come and go under one stable identity without re-verifying each one. But replacing the
-master key itself lands in the same place as Signal — other users have to verify the identity again
-— and the whole structure lives on a homeserver rather than in a file the reader holds. The chain's
-answer to *the master key is the thing that was lost* is the recovery list.
-
-**Nostr** is the honest baseline this is competing with, because it is the closest living system
-with the same starting premise: identity is a key you hold, and there is no server that owns your
-name. It is also where that premise usually stops — in the base protocol a lost key is a lost
-identity, and the proposals for migration have not settled into something readers implement. §3.3 is
-the argument that a key-as-identity protocol can survive key loss without acquiring an account
-system, and §3.6 is the price: a chain that walks perfectly proves nothing on its own, so the
-recovery list has to do the deciding.
-
----
 
 ## The recovery list
 
@@ -334,42 +248,3 @@ stay readable a year later — who moved this identity is part of the record, no
 The three verdicts (§7.3) are ok, this host is misbehaving, and this identity is in question; a
 fourth state that cried "restored" would be a state users learn to click past.
 
-### Contrast
-
-**Shamir secret sharing, and the wallets built on it.** The usual shape of social recovery splits a
-secret — a seed phrase, a private key — into shares, and recovery means gathering enough shares to
-reassemble it. That design has a moment where the secret exists again, on one machine, and it means
-your friends are custodians of a fragment of you. Open Feed recovers *nothing*. There is no share,
-no reconstruction, and no moment where anything sensitive is assembled: the vouchers are public
-signatures over the ASCII bytes `<previous key>-><new key>`, and the new key was generated by the
-owner before she asked anybody. A voucher is a statement, not a piece of a secret.
-
-**Guardian-based smart accounts** (Argent, and the ERC-4337-era accounts that followed) are much
-closer — guardians approve a change of the controlling key rather than hand back a seed — and the
-difference is where the decision is settled. Those systems have a shared ledger to settle it on: the
-contract counts approvals once, and everyone reads the same answer. Open Feed has no ledger, so
-every reader settles it locally against what it saw first, which is why so much of §3.6 is about
-*which* copy of the list a reader is allowed to believe. The other difference is disclosure: a
-guardian set is typically visible on chain, whereas a recovery list publishes only its size.
-
-**Why not a Merkle tree.** A Merkle root would prove membership in about `log n` hashes and would
-hide the size of the set — and hiding the size is precisely what this design cannot afford, since
-§3.6 counts a majority against it. The list is a handful of members, so the compactness a tree buys
-is worth nothing here, and the property actually wanted is per-member disclosure, which a salted
-leaf gives directly. A flat array of salted hashes is the smaller construction, and §2 has no room
-for a second one.
-
-**Why the salt, and not a bare hash.** `SHA-256(key)` would commit to the member just as well, and
-would be scanned in a second: the candidate set is a family, their keys are already published in
-their own profiles, and an attacker only has to hash each one and look for it. The salt turns the
-scan into a scan the attacker cannot run without the very disclosure it is trying to avoid. It costs
-one short string per member, stored beside the member's key in the owner's own app.
-
-**The abuser on the list.** The threat model this protocol is built against is a hub operator who is
-a loved one, and he is exactly the sort of person who ends up on a recovery list — that is scenario
-1 in `GOALS.md`, the divorce. §3.4 is not the answer to him; it commits to the list and no more. The
-answer, and its open defect, is `examples/contest/`.
-
-**What a restore does not return.** The reading key is not socially recoverable (§3.8). Your people
-can give you back your name, your chain and your posts; what was encrypted to you alone is gone
-unless your app kept the key. The list is about identity, not about an archive.

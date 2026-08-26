@@ -63,7 +63,7 @@ function subjectAltName(names) {
  *
  * Returns PEM key and cert, plus the DER, so a test can hand the certificate to a fetcher as a
  * pinned CA rather than turning certificate validation off — which would quietly stop testing
- * §13.3 in the one place it could be tested.
+ * TLS validation in the one place it could be tested.
  */
 export function selfSignedCertificate(names, { commonName = names[0], days = 1 } = {}) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');

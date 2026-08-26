@@ -15,14 +15,15 @@ them**: a script proves a rule with an assertion and then prints it with `rule()
   makes**, exiting non-zero on surprise, and prints each spec rule with `rule()` only after the
   assertion that proves it. One concept per script; comments of one line; no dependency
   beyond Node's standard library. **Length: about 120 lines.** The examples that take a whole chapter
-  rather than one rule — `the-reader` (§7) and `publish-interface` (§8) — run to roughly 200, and the
+  rather than one rule — `reading` (§7) and `publishing` (§8) — run to roughly 200, and the
   extra is printed narration, not machinery. If yours is long for any other reason it is two examples.
-- **`<slug>.md`** — the concept in plain words: the spec section it illustrates, what the output
-  shows, and any contrast with how other protocols do it. This is where supporting prose lives when
-  it leaves the spec. It should read well beside the script and its output on a docs page.
+- **`<slug>.md`** — the concept in plain words: the spec section it illustrates and what the output
+  shows. This is where supporting prose lives when it leaves the spec. It should read well beside
+  the script and its output on a docs page. Comparisons with other protocols live in
+  `COMPARISON.md` at the repo root.
 
 Every example illustrates the **current spec only**. Designs that were considered and not adopted
-belong in `archive/`, or in a `.md` as a contrast — never in a script.
+belong in `archive/` — never in a script.
 
 ## Reading order
 

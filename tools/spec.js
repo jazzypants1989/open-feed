@@ -26,9 +26,9 @@ const SECTIONS = [
   ['2.4', 'JSON hygiene'], ['2.5', 'Unknown members'],
   ['3', 'Identity'], ['3.1', 'The profile'], ['3.2', 'The chain'], ['3.3', 'The recovery list'],
   ['3.4', 'Contests'], ['3.5', 'Locations'], ['3.6', 'The reading key'], ['3.7', 'First contact'],
-  ['4', 'The index'], ['4.1', 'Entries and the fold'], ['4.2', '`top`'], ['4.3', 'Media'],
+  ['4', 'The index'], ['4.1', 'Entries and the fold'], ['4.2', '`highest`'], ['4.3', 'Media'],
   ['4.4', 'Who signs the index'], ['4.5', 'Rewriting'],
-  ['5', 'Posts'], ['5.1', '`n`'], ['5.2', '`at`'], ['5.3', '`rel`'], ['5.4', '`target`'], ['5.5', '`media`'],
+  ['5', 'Posts'], ['5.1', '`number`'], ['5.2', '`at`'], ['5.3', '`rel`'], ['5.4', '`target`'], ['5.5', '`media`'],
   ['5.6', 'Private messages'],
   ['6', 'Encrypted content'], ['6.1', 'The envelope'], ['6.2', 'Carrier binding'], ['6.3', 'Slots and tags'],
   ['6.4', 'The audience'], ['6.5', 'An encrypted post\'s target'],
@@ -105,13 +105,13 @@ for (const slug of ORDER) {
 
 // Assemble.
 const level = (n) => (n.includes('.') ? `### ${n}. ` : `## ${n}. `);
-const has = (n) => rules.get(n).length > 0 || [...rules.keys()].some((k) => k.startsWith(`${n}.`) && rules.get(k).length > 0);
+const has = (number) => rules.get(number).length > 0 || [...rules.keys()].some((k) => k.startsWith(`${number}.`) && rules.get(k).length > 0);
 let out = PREAMBLE;
-for (const [n, title] of SECTIONS) {
-  if (!has(n)) continue;
-  out += `\n${level(n)}${title}\n`;
+for (const [number, title] of SECTIONS) {
+  if (!has(number)) continue;
+  out += `\n${level(number)}${title}\n`;
   const seen = new Set();
-  for (const { text } of rules.get(n)) {
+  for (const { text } of rules.get(number)) {
     if (seen.has(text)) continue;
     seen.add(text);
     out += `\n${text}\n`;

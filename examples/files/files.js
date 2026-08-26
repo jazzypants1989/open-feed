@@ -12,7 +12,7 @@ import { createReader } from '../../src/reader.js';
 // The test vectors' keys, so every byte printed here is one an implementer can check against.
 const key = (label) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest());
 const alice = key('alice/anchor'), mum = key('mum');
-const post = { n: 1, at: '2026-07-04T10:15:00Z', text: 'the peonies came back' };
+const post = { number: 1, at: '2026-07-04T10:15:00Z', text: 'the peonies came back' };
 const file = signFile(post, alice);
 const { body, sigLine } = splitFile(file);
 const refile = (text, sig = sigLine) => Buffer.concat([Buffer.from(text, 'utf8'), Buffer.from('\n'), Buffer.from(sig)]);
@@ -23,13 +23,13 @@ console.log(`  body       ${body}`);
 console.log('  separator  one \\n byte');
 console.log(`  signature  ${sigLine}\n`);
 assert.equal(file.length, body.length + 1 + 86);
-assert.equal(body.toString(), '{"n":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}');
+assert.equal(body.toString(), '{"number":1,"at":"2026-07-04T10:15:00Z","text":"the peonies came back"}');
 assert.equal(verifyFile(file, alice.x).by, alice.x);
 assert.equal(verifyFile(file, mum.x), null);
 
 // A newline inside a string is the two characters `\n`; compact JSON never holds the raw byte, so
 // splitting the file at its last raw `\n` is unambiguous.
-const newsy = signFile({ n: 2, text: 'line one\nline two' }, alice);
+const newsy = signFile({ number: 2, text: 'line one\nline two' }, alice);
 assert.equal(splitFile(newsy).body.includes(0x0a), false);
 assert.equal(verifyFile(newsy, alice.x).obj.text, 'line one\nline two');
 
@@ -64,7 +64,7 @@ bytes.`);
 const AT = 'https://alice.example/alice';
 const REC = commit([{ key: mum, salt: 'saltmum' }]);
 const profile = signProfile({ anchor: alice.x, version: 1, name: 'Alice', chain: [{ key: alice.x }], recovery: REC, locations: [AT] }, alice);
-const index = signIndex({ entries: [[1, address(file)], [sha256(png)]], version: 1, top: 1 }, alice);
+const index = signIndex({ entries: [[1, address(file)], [sha256(png)]], version: 1, highest: 1 }, alice);
 const served = new Map([[`${AT}/profile`, profile], [`${AT}/index`, index], [`${AT}/posts/1`, file], [`${AT}/media/${sha256(png)}`, png]]);
 const asked = [];
 const reader = createReader({ get: async (u) => { asked.push(u); return served.has(u) ? { bytes: served.get(u) } : null; } });
@@ -80,7 +80,7 @@ rule('2', `Everything on the wire is one of four kinds of file, under a name the
 |---|---|---|---|
 | profile | \`/<name>/profile\` | yes, compare-and-swap | the current key — the key the chain ends on |
 | index | \`/<name>/index\` | yes, compare-and-swap | the current key |
-| post | \`/<name>/posts/<n>\` | no, created once | any key in the chain |
+| post | \`/<name>/posts/<number>\` | no, created once | any key in the chain |
 | media | \`/<name>/media/<hash>\` | no | not signed; admitted by being listed in the index |`);
 
 // ---- §2.3 no canonicalization ----
@@ -89,7 +89,7 @@ console.log('§2.3 — re-spellings of the signed object\n');
 const respellings = {
   'pretty-printed': JSON.stringify(post, null, 2).replace(/\n/g, ' '),
   'members sorted': JSON.stringify(Object.fromEntries(Object.keys(post).sort().map((k) => [k, post[k]]))),
-  'number spelled 1.0': body.toString().replace('"n":1', '"n":1.0'),
+  'number spelled 1.0': body.toString().replace('"number":1', '"number":1.0'),
 };
 for (const [what, text] of Object.entries(respellings)) {
   assert.ok(isDeepStrictEqual(parseBody(Buffer.from(text)), post));
@@ -106,9 +106,9 @@ received; neither re-serializes.`);
 // ---- §2.4 JSON hygiene ----
 console.log('§2.4 — four bodies JSON.parse accepts and a §2.4 parser rejects\n');
 const hazards = [
-  ['a duplicate member', '{"n":1,"n":2}'],
-  ['__proto__ as a member', '{"__proto__":{"n":9}}'],
-  ['an integer past 2^53', '{"n":9007199254740993}'],
+  ['a duplicate member', '{"number":1,"number":2}'],
+  ['__proto__ as a member', '{"__proto__":{"number":9}}'],
+  ['an integer past 2^53', '{"number":9007199254740993}'],
   ['a lone surrogate', '{"text":"\\ud800"}'],
 ];
 for (const [what, text] of hazards) {
@@ -116,14 +116,14 @@ for (const [what, text] of hazards) {
   assert.throws(() => parseStrict(text), FileError, what);
   console.log(`  ${what.padEnd(24)} ${text}`);
 }
-assert.equal(JSON.parse('{"n":1,"n":2}').n, 2);                            // another parser keeps the first
-assert.equal(JSON.parse('{"n":9007199254740993}').n, 9007199254740992);    // rounded, silently
-for (const obj of [{ ['__proto__']: 1 }, { n: 2 ** 53 }, { text: '\ud800' }]) assert.throws(() => signFile(obj, alice));
+assert.equal(JSON.parse('{"number":1,"number":2}').number, 2);                            // another parser keeps the first
+assert.equal(JSON.parse('{"number":9007199254740993}').number, 9007199254740992);    // rounded, silently
+for (const obj of [{ ['__proto__']: 1 }, { number: 2 ** 53 }, { text: '\ud800' }]) assert.throws(() => signFile(obj, alice));
 console.log('\n  a §2.4 producer refuses to sign any of them\n');
-const copied = Object.assign({}, JSON.parse('{"__proto__":{"n":9}}'));
-assert.equal(copied.n, 9);
-assert.equal(Object.hasOwn(copied, 'n'), false);
-assert.equal(Object.create(null).n, undefined);
+const copied = Object.assign({}, JSON.parse('{"__proto__":{"number":9}}'));
+assert.equal(copied.number, 9);
+assert.equal(Object.hasOwn(copied, 'number'), false);
+assert.equal(Object.create(null).number, undefined);
 rule('2.4', `A producer MUST NOT emit a duplicate member name, a member named \`__proto__\`, an integer outside
 ±(2^53 − 1), or an unpaired UTF-16 surrogate. A reader SHOULD reject a body containing any of them, and
 one that accepts \`__proto__\` MUST parse into an object that does not inherit from it.`);

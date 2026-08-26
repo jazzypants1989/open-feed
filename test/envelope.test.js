@@ -6,7 +6,7 @@ import { encrypt, decrypt, carrierOf, newReadingKey, encryptMedia, decryptMedia 
 import { newSigningKey } from '../src/file.js';
 
 const alice = { key: newSigningKey(), read: newReadingKey() }, mum = { key: newSigningKey(), read: newReadingKey() }, host = newReadingKey();
-const entry = (p, loc) => ({ key: p.key.x, read: p.read.x, loc });
+const entry = (p, location) => ({ key: p.key.x, read: p.read.x, location });
 const fam = [entry(alice, 'https://a.example/a'), entry(mum, 'https://m.example/m')];
 const carrier = carrierOf(alice.key.x, 5);
 
@@ -30,7 +30,7 @@ test('§6.3 a tag is a hint: a malformed or colliding slot is skipped, never a c
   const env = encrypt({ content: { text: 'x' }, audience: fam, carrier });
   const hostile = { ...env, slots: [['AAAA', 'junk'], ['', ''], [null, 1], ...env.slots] };
   assert.equal(decrypt(hostile, mum.read.privateKey, carrier).text, 'x');
-  assert.equal(decrypt({ epk: 'nonsense', slots: [], ct: '' }, mum.read.privateKey, carrier), null);
+  assert.equal(decrypt({ ephemeral: 'nonsense', slots: [], ciphertext: '' }, mum.read.privateKey, carrier), null);
   assert.equal(decrypt(null, mum.read.privateKey, carrier), null);
 });
 
@@ -44,11 +44,11 @@ test('§6.1 one slot per recipient, all the same width, and the ciphertext is th
   assert.equal(dm.slots.length, 1); assert.equal(family.slots.length, 2);
   assert.equal(new Set(family.slots.map(([t, w]) => `${t.length}/${w.length}`)).size, 1);
   const plain = Buffer.from(JSON.stringify({ audience: [fam[1]], text: 'call me' }));
-  assert.equal(Buffer.from(dm.ct, 'base64url').length, plain.length + 16);
+  assert.equal(Buffer.from(dm.ciphertext, 'base64url').length, plain.length + 16);
 });
 
 test('§6.1 / §2.4 the rules for a body hold inside the envelope: a producer refuses to emit them, a reader refuses to open them', () => {
-  assert.throws(() => encrypt({ content: { n: 2 ** 53 }, audience: fam, carrier }), /2\^53/);
+  assert.throws(() => encrypt({ content: { number: 2 ** 53 }, audience: fam, carrier }), /2\^53/);
   assert.throws(() => encrypt({ content: { text: '\ud800' }, audience: fam, carrier }), /surrogate/);
   assert.throws(() => encrypt({ content: { ['__proto__']: { text: 'x' } }, audience: fam, carrier }), /__proto__/);
   const env = encrypt({ content: { text: 'x' }, audience: fam, carrier });

@@ -57,32 +57,6 @@ signature; a store that strips it hands back something that no longer verifies. 
 makes preservation a MUST rather than politeness: there is no way to drop a member and still have
 a file.
 
-### Contrast
-
-Most signed-document formats put a layer between the bytes served and the bytes signed, and the
-layer is where the interoperability bugs live.
-
-- **JWS compact serialization** base64url-encodes the payload, so what a reader receives is not
-  what the signer signed. RFC 7797's unencoded-payload option fixes that, at the cost of a header
-  with `"b64":false` and a `crit` list every verifier must negotiate before it can even look at the
-  signature. "Body, newline, signature" is that option with the header removed.
-- **Canonical JSON (RFC 8785 / JCS)** signs a re-serialization. A verifier must parse what it was
-  served, re-serialize it by the canonicalization rules, and hope its number formatting, string
-  escaping and member sorting agree with the producer's. Every parser divergence lives in that gap.
-  §2.3 removes the gap by removing the step; `no-canonicalization/` is the example for it.
-- **Nostr** signs the SHA-256 of a serialized array with its own escaping rules, so the JSON on the
-  wire is again not the signed input.
-- **The Linked Data Signatures Mastodon layered on ActivityPub** (`RsaSignature2017`) need RDF
-  dataset canonicalization (URDNA2015) before anything can be signed at all — the most expensive
-  version of the same idea, and the draft it rests on is superseded; the fediverse signs the HTTP
-  request instead, so an object cannot be re-verified once it has left the wire.
-
-The trade Open Feed makes is that a publisher must keep the bytes it signed and serve *those*. It
-cannot regenerate a file from a database row and expect it to verify. In exchange, verification is
-three standard-library calls and needs no library at all, which is priority 1 in `GOALS.md`.
-
----
-
 ## No canonicalization
 
 **Spec:** §2.3, and §8.7 for the obligation it puts on a hub.
@@ -125,35 +99,6 @@ alice's file through three hubs and shows the reader's verdict for each. The cos
 **a hub cannot regenerate a file from a database row.** It stores the bytes it was given and returns
 them. Everything else a hub does — compare-and-swap, create-once, reclaim (§8) — is arranged around
 that one fact.
-
-### Contrast
-
-The alternative is to define a canonical form and sign that. RFC 8785 (JSON Canonicalization Scheme)
-is the well-made version: sort members by UTF-16 code unit, format numbers by ECMAScript rules,
-escape strings a fixed way. Three things count against it here:
-
-1. **It needs a library, or 200 lines.** Priority 1 in `GOALS.md` is implementability from a
-   standard library. No standard library canonicalizes JSON.
-2. **The library is not enough anyway.** `JSON.parse` cannot reject a duplicate member name, so a
-   strict parser is required *in addition* to the canonicalizer (see `json-hygiene/`). Two pieces
-   of machinery where this design has one small parser and no canonicalizer.
-3. **It reintroduces the gap it was meant to close.** Because the signature covers canonical bytes
-   rather than served bytes, a further rule is needed — "a document must arrive as its own
-   canonicalization" — to stop a verifier from pinning a normalization of what it was served
-   instead of what it was served. That rule is easy to skip, and skipping it is silent.
-
-The trade runs the other way here: publishing is stricter (keep your bytes) and verifying is three
-standard-library calls. For a protocol whose adversary controls the server (`GOALS.md`, the
-divorce), moving the strictness onto the *publisher's stored bytes* and away from the *verifier's
-reconstruction* is also the safer direction — the reader's job gets smaller, and the reader is the
-one who has to be right.
-
-One apparent exception is not one. §4 requires `entries` to come first in an index's body — the
-protocol's only member-order rule. It exists so that appending a line leaves every earlier byte where
-it was, and a reader that cached the file can fetch only the tail. Nobody re-serializes anything, and
-no verifier has to know the rule to check a signature.
-
----
 
 ## JSON hygiene
 
@@ -212,27 +157,3 @@ last block also closes a loop with §2.3: the escape `\ud83d\udc90` and a litera
 same string and are *different files*. There is no canonical spelling; the one that was served is
 the one that was signed.
 
-### Contrast
-
-RFC 7493 (I-JSON) covers three of these four — unique names and no lone surrogates as MUST NOTs,
-and integers outside the IEEE-754 exact range as a SHOULD NOT — and Open Feed's rules are I-JSON's
-rules made uniform plus `__proto__`, which is a language hazard rather than an interchange one. The
-difference is where the enforcement lives. I-JSON is a profile you are asked to conform to; §2.4 is
-a parser you have to write anyway, because `JSON.parse` cannot express any of it and no standard
-library ships a parser that catches all four (Python's `object_pairs_hook` gets the duplicate, and
-nothing gets the surrogate).
-
-The duplicate-member case in particular is a known attack class, not a hypothetical: parser
-differentials between two services reading one document have been shown to produce authorization
-bypasses (Bishop Fox, 2021).
-Open Feed's exposure is narrower than a typical API's — there is one document format and one
-verifier — but the consequence is sharper, because the document is signed. A body that says two
-different things to two readers is a signature over an ambiguity, and the author can point at
-whichever reading suits them afterwards.
-
-The cost is about 100 lines of parser, once. `src/file.js` holds it, and it is the only place in the
-reference implementation that knows what JSON looks like. That cost is also the sharpest tension in
-`GOALS.md`: priority 1 says no dependencies, priority 2 says a second implementer finishes in a
-weekend (scenario 6), and this parser is where the two meet — about a sixth of the weekend reader
-is this parser. The alternative was a canonicalizer *plus* a strict parser, which is why the tension
-resolves in favour of the parser alone.

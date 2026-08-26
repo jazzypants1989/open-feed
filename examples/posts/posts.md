@@ -78,7 +78,7 @@ that makes the full hash more than decoration, and the example stages the attack
 two signed files that each say "post 12"; her index lists one of them. Sis replies to each. For a
 reader holding a pin for mum, the first reply threads and the second is returned with its target
 marked unresolved — and, correctly, the reader says nothing about it, because a mismatched target is
-not evidence against anybody in particular (§7.5). Both replies are genuine and signed. What the
+not evidence against anybody in particular (§7.4). Both replies are genuine and signed. What the
 rule denies is the *author* who shows one room one post 12 and another room a different one: only
 one of them is in the index a given reader verified, so only one of the two threads can look right.
 The third reply names a 16-character prefix of the right hash, and it lands nowhere too: the
@@ -102,69 +102,3 @@ message), are `examples/envelope/` and `examples/the-reader/`; that alice's sign
 ciphertext makes it provable by mum forever, and that withdrawing it reaches neither her copy nor
 her proof, is `examples/your-copy/`.
 
-## Contrast
-
-**"Everything is a post" as a design choice.** ActivityPub goes the other way: an extensible
-vocabulary of activity types over ActivityStreams 2.0 — `Create`, `Like`, `Announce`, `Follow`,
-`Undo` and more — delivered by POST to an actor's `inbox`. That buys expressiveness and a place to
-hang new verbs. It costs a server that must know what each type means, a delivery side channel with
-its own authentication story, and an `Undo` for every verb. Open Feed has one object and a `rel`, so
-there is **one code path, one verifier, and one retention rule**: everything is a numbered file the
-index lists or does not. The cost is real and worth naming — a `rel` value is not self-describing to
-a client that has not heard of it, and there is no negotiation, no type registry, and no way to make
-a new kind of post behave differently on the wire. A reader that does not recognise a `rel` has a
-post it can verify and display and cannot interpret. The bet is that this is the better failure.
-
-**The full target hash, against threading by identifier alone.** Email's `In-Reply-To` names a
-`Message-ID`, and ActivityPub's `inReplyTo` names a URI: in both cases the identifier says *which*
-object, and nothing about *what it said*. The thing at that URI can change afterwards, and every
-reply to it silently comes to be answering something else. Nostr is the closer relative — an `e` tag
-holds an event id that is itself a hash of the event, so a Nostr reply does bind its parent's
-content. What Open Feed adds on top is the pairing with a **number**: because `(author, n)` is the
-slot a post lives in and the index is signed, a reply naming `(key, n, hash)` can be checked against
-what that author's index lists at `n`, now or when the reader saw it withdrawn. That check is what
-makes a number safe to use as a join key at all. Without it, an author could hand out two files that
-both claim to be post 12 and let two audiences build two coherent threads under "the same" post;
-with it, one of the two lands nowhere.
-
-**`at` deciding nothing, against timestamp precedence.** Plenty of protocols resolve conflicts with
-a wall clock. Nostr's replaceable events are the nearby example: relays keep the copy with the
-largest `created_at`, breaking ties on the id — a timestamp the publisher chooses. Last-write-wins
-registers in CRDT-flavoured systems do the same thing. It works when nobody has an incentive to lie.
-Open Feed's adversary is the operator of the family hub, who supplies the serving path and can set
-any clock he likes, so precedence is carried by monotonic counters he cannot forge instead:
-`version` on the profile and the index, and one-hash-per-number on posts, all inside signed bytes.
-`at` is left to do the only job it can honestly do, which is tell an app what order to draw things
-in.
-
-**The direct-message trade, against Signal.** This is the least comfortable part of §5 and it
-deserves plain arithmetic. Signal hides the sender from its own server for delivery (sealed sender)
-and authenticates messages with a MAC under a key both parties hold rather than with a signature —
-so a recipient cannot hand a transcript to a third party as cryptographic proof of who wrote it.
-That property is usually called deniability, and it is worth being modest about: it is a
-cryptographic property, not a social one, and it does not stop anybody being believed.
-
-Open Feed gives up both, deliberately and by construction.
-
-- **Sealed sender is not available**, because a message *is* a numbered file on the sender's own
-  hub. The host holds it; the shape of the correspondence is visible to whoever serves it (§13.3).
-- **Deniability is given up**, because the same per-post signature that stops the ex from posting as
-  his wife also makes anything she sends provable by whoever received it. There is no separate
-  construction for messages (§6): one signing rule covers the whole protocol, and that is most of
-  why a second implementer can write a verifier in an afternoon.
-- **There is no forward secrecy** either (§13.3): a reading key that leaks opens every encrypted
-  post ever addressed to it, and changing `read` in a new profile version does not re-encrypt the
-  past.
-
-For the person in `GOALS.md` scenario 1 — the sister publishing from her ex's hub during a divorce —
-the ledger reads: the property she needs most, that he cannot write anything in her name and cannot
-alter or backdate what she wrote, is exactly the property that makes her own private messages
-provable by their recipients. She should be told that, in those words, by any client that offers her
-messaging. §13.1 already forbids the marketing claim; this is the same honesty pointed at the
-recipient's side of the wire.
-
-The other scenario this example serves is `GOALS.md` scenario 3, **two hubs, one thread**. Because a
-`target` names an anchor key and a location rather than an account on a server, sis replying from
-her own hub to mum's post 12, and mum reacting to alice's post from a third, need no federation
-handshake, no shared access control, and no agreement between the hubs at all. Each reply is a file
-its author publishes on her own host; threading is something readers do afterwards, out of hashes.

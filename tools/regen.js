@@ -72,15 +72,15 @@ const post2 = pub.post(2, { at: '2026-07-11T18:02:00Z', text: 'deleted this one'
 const post3 = pub.post(3, {
   at: '2026-07-19T09:30:00Z', text: 'congratulations, both of you',
   rel: 'reply',
-  target: { key: edKey('mum').x, n: 12, hash: sha256(Buffer.from('a post of mum\'s')), loc: 'https://mom.example/mom' },
+  target: { key: edKey('mum').x, number: 12, hash: sha256(Buffer.from('a post of mum\'s')), location: 'https://mom.example/mom' },
 }, A2);
 const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
 const pngHash = sha256(png);
 const post4 = pub.post(4, { at: '2026-08-15T07:00:00Z', text: 'the morning after', media: [pngHash] }, A3);
-// A encrypted post: n and at in the clear, everything else — text, rel, target, media — inside (§6.5).
+// A encrypted post: number and at in the clear, everything else — text, rel, target, media — inside (§6.5).
 const envelope = encrypt({
   content: { text: 'I am leaving him on Friday', rel: 'root' },
-  audience: [{ key: A1.x, read: READ_ALICE.x, loc: AT }, { key: MUM.key.x, read: READ_MUM.x, loc: 'https://mom.example/mom' }],
+  audience: [{ key: A1.x, read: READ_ALICE.x, location: AT }, { key: MUM.key.x, read: READ_MUM.x, location: 'https://mom.example/mom' }],
   carrier: carrierOf(A1.x, 5),
   ephemeral: xKey('vector:ephemeral/5'),
   contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/5').digest(),
@@ -91,11 +91,11 @@ const H = (f) => pub.address(f);
 const h1 = H(post1), h2 = H(post2), h3 = H(post3), h4 = H(post4), h5 = H(post5);
 
 // ---- the indexes: three versions of one file ----
-const head1 = pub.index({ entries: [[1, h1], [2, h2], [3, h3]], version: 1, top: 3 }, A3);
-const head2 = pub.index({ entries: [[1, h1], [2, h2], [3, h3], [2, null], [4, h4], [5, h5], [pngHash]], version: 2, top: 5 }, A3);
-// The rewrite drops the lines the withdrawal left behind (§4.7), and post 2 comes back at the hash
-// it had (§4.2).
-const head3 = pub.index({ entries: [[1, h1], [3, h3], [4, h4], [5, h5], [pngHash], [2, h2]], version: 3, top: 5 }, A3);
+const head1 = pub.index({ entries: [[1, h1], [2, h2], [3, h3]], version: 1, highest: 3 }, A3);
+const head2 = pub.index({ entries: [[1, h1], [2, h2], [3, h3], [2, null], [4, h4], [5, h5], [pngHash]], version: 2, highest: 5 }, A3);
+// The rewrite drops the lines the withdrawal left behind (§4.5), and post 2 comes back at the hash
+// it had (§4.1).
+const head3 = pub.index({ entries: [[1, h1], [3, h3], [4, h4], [5, h5], [pngHash], [2, h2]], version: 3, highest: 5 }, A3);
 
 // ---- verification: the composed reader over an in-memory fetcher, no socket ----
 const files = new Map([
@@ -222,7 +222,7 @@ const appendix = [
   vec('10. Index, `version` 2 — a withdrawal, a media file',
     `Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the media file is listed by its\naddress alone. The media file's bytes are ${png.length} bytes hashing to \`${pngHash}\`.`, f(head2)),
   vec('11. Index, `version` 3 — the rewrite, and a number that comes back',
-    'The lines the withdrawal left behind are gone (§4.7), and post 2 is re-listed at the hash it had\n(§4.2). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes\ncoming back are not a change.', f(head3)),
+    'The lines the withdrawal left behind are gone (§4.5), and post 2 is re-listed at the hash it had\n(§4.1). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes\ncoming back are not a change.', f(head3)),
   '## 12. The spoken code (§3.1)',
   '',
   'Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.1).',

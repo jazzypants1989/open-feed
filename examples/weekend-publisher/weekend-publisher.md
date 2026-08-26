@@ -1,6 +1,6 @@
 # The weekend publisher
 
-**Spec:** §8 the publish interface, and §4.7 for the rewrite; it produces the files of §2, §3 and §4.
+**Spec:** §8 the publish interface, and §4.5 for the rewrite; it produces the files of §2, §3 and §4.
 **Run:** `node examples/weekend-publisher/weekend-publisher.js`
 
 The other capstone. **A whole conforming publisher in one file**, standard library only, written
@@ -36,7 +36,7 @@ exactly what a crash between the two writes looks like — and the demo leaves i
 number nobody lists is nothing*. A device that comes back MUST abandon a number it cannot prove it
 listed, and MUST NOT list one late.
 
-**A withdrawal is an appended line; a rewrite drops what it left behind (§4.7).** Both index bodies
+**A withdrawal is an appended line; a rewrite drops what it left behind (§4.5).** Both index bodies
 are printed. Same live set, fewer lines.
 
 **The loser of a race re-reads and folds (§8.1).** The phone and the laptop both read the same index

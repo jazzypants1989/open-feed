@@ -12,30 +12,40 @@ import https from 'node:https';
 import { sha256, splitFile, parseBody, verifyFile } from './file.js';
 import { wellFormed, walk, adoptRecoveryLists } from './profile.js';
 import { fold } from './index.js';
+import { webfinger } from './views.js';
 
 const PATH = /^\/([A-Za-z0-9_-]{1,64})\/(profile|index|posts\/([1-9][0-9]*)|media\/([A-Za-z0-9_-]{43})|feed\.json|feed\.xml|index\.html)$/;
 const TYPES = { profile: 'application/openfeed+json', index: 'application/openfeed+json', post: 'application/openfeed+json', 'feed.json': 'application/feed+json', 'feed.xml': 'application/atom+xml', 'index.html': 'text/html; charset=utf-8' };
 const CORS = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'ETag' };
 
-/** A store is a Map-like of path → Buffer. `createHub({ store })` accepts anything with get/set/has/delete. */
-export function createHub({ store = new Map(), mediaTypeOf = () => 'application/octet-stream' } = {}) {
+/** A store is a Map-like of path → Buffer. `createHub({ store })` accepts anything with get/set/has/delete. `origin` enables WebFinger (`https://hub.example`). */
+export function createHub({ store = new Map(), mediaTypeOf = () => 'application/octet-stream', origin = null } = {}) {
   const etag = (bytes) => `"${sha256(bytes)}"`;
   const body = (bytes) => { try { const s = splitFile(bytes); return s && parseBody(s.body); } catch { return null; } };
   // The chain of the profile held at a name, walked under the recoveryLists the chain itself carries —
   // the hub has no pin and keeps none; it checks that the file hangs together, not who she is.
   const chainOf = (name) => { const p = body(store.get(`${name}/profile`) ?? Buffer.alloc(0)); return p && wellFormed(p) ? walk(p, adoptRecoveryLists({}, p, 0)) : null; };
-  const listed = (name, n, hash) => { const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && fold(h.entries); return !!set && set.live.get(n)?.hash === hash; };
+  const listed = (name, number, hash) => { const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && fold(h.entries); return !!set && set.live.get(number)?.hash === hash; };
   // §8.5: "the owner's file for this number" declares the number in its signed bytes, and is signed
   // by the key the chain currently ends on or is what the index lists there.
-  const ownersFile = (name, bytes, n) => {
+  const ownersFile = (name, bytes, number) => {
     const chain = chainOf(name); if (!chain) return false;
-    const s = splitFile(bytes); const o = s && body(bytes); if (!o || o.n !== n) return false;
-    return listed(name, n, sha256(s.body)) || !!verifyFile(bytes, chain.current);
+    const s = splitFile(bytes); const o = s && body(bytes); if (!o || o.number !== number) return false;
+    return listed(name, number, sha256(s.body)) || !!verifyFile(bytes, chain.current);
   };
 
-  function handle({ method, path, headers = {}, body: bytes = Buffer.alloc(0) }) {
-    const m = PATH.exec(path);
+  function handle({ method, path, query = '', headers = {}, body: bytes = Buffer.alloc(0) }) {
     if (method === 'OPTIONS') return { status: 204, headers: { ...CORS, 'access-control-allow-methods': 'GET, PUT, OPTIONS', 'access-control-allow-headers': 'If-Match, Content-Type', 'access-control-max-age': '86400' } };
+    if (origin && method === 'GET' && path === '/.well-known/webfinger') {
+      const params = new URLSearchParams(query);
+      const resource = params.get('resource');
+      if (!resource) return { status: 400, headers: CORS };
+      const acct = resource.match(/^acct:([A-Za-z0-9_-]{1,64})@(.+)$/);
+      if (!acct || !store.has(`${acct[1]}/profile`)) return { status: 404, headers: CORS };
+      const jrd = Buffer.from(webfinger(acct[1], `${origin}/${acct[1]}`), 'utf8');
+      return { status: 200, headers: { ...CORS, 'content-type': 'application/jrd+json', 'content-length': String(jrd.length) }, body: jrd };
+    }
+    const m = PATH.exec(path);
     if (!m) return { status: 404, headers: CORS };
     const [, name, kind, num, hash] = m, key = `${name}/${kind}`, cur = store.get(key) ?? null;
     const type = hash ? mediaTypeOf(key) : TYPES[kind] ?? TYPES.post;
@@ -69,9 +79,9 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
       store.set(key, bytes);
       return { status: cur ? 200 : 201, headers: CORS };
     }
-    const n = Number(num);                                                // §8.2 create-once, §8.5 reclaim
+    const number = Number(num);                                                // §8.2 create-once, §8.5 reclaim
     if (cur) {
-      if (ownersFile(name, cur, n) || !ownersFile(name, bytes, n)) return { status: 409, headers: CORS };
+      if (ownersFile(name, cur, number) || !ownersFile(name, bytes, number)) return { status: 409, headers: CORS };
       store.set(key, bytes);
       return { status: 200, headers: CORS };
     }
@@ -102,7 +112,8 @@ export function listen(hub, { port = 0, host = '127.0.0.1', tls = null } = {}) {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
-      const r = hub.handle({ method: req.method, path: req.url.split('?')[0], headers: req.headers, body: Buffer.concat(chunks) });
+      const [p, q] = req.url.split('?');
+      const r = hub.handle({ method: req.method, path: p, query: q ?? '', headers: req.headers, body: Buffer.concat(chunks) });
       res.writeHead(r.status, r.headers ?? {});
       res.end(r.body);
     });

@@ -12,7 +12,7 @@ export class PublishError extends Error { constructor(message, status) { super(m
  * `keep(path, bytes)` is §10: the app MUST keep the signed bytes of everything it publishes. The
  * default keeps them in memory; an app passes its own store. `last` is the bytes of the last index
  * this app published anywhere (§10): a name claimed at a new hub continues from its `version` and
- * `top`, so readers pinned elsewhere do not meet a second index at a version they already hold.
+ * `highest`, so readers pinned elsewhere do not meet a second index at a version they already hold.
  */
 export function createPublisher({ io, key, at, keep = null, last = null }) {
   const copy = new Map();
@@ -36,12 +36,12 @@ export function createPublisher({ io, key, at, keep = null, last = null }) {
     return p;
   }
 
-  /** §8.2: take the next free number at or above `n`. */
-  async function publishPost(n, fields) {
-    for (let num = n; ; num++) {
-      const f = signFile({ n: num, ...fields }, key);
+  /** §8.2: take the next free number at or above `number`. */
+  async function publishPost(number, fields) {
+    for (let num = number; ; num++) {
+      const f = signFile({ number: num, ...fields }, key);
       const r = await putKept(`/posts/${num}`, f);
-      if (r.status === 201 || r.status === 200) return { n: num, entry: [num, address(f)], file: f };
+      if (r.status === 201 || r.status === 200) return { number: num, entry: [num, address(f)], file: f };
       if (r.status !== 409) throw new PublishError(`post ${num}: ${r.status}`, r.status);
     }
   }
@@ -50,10 +50,10 @@ export function createPublisher({ io, key, at, keep = null, last = null }) {
     for (let attempt = 0; attempt < 5; attempt++) {
       const cur = await io.get(`${at}/index`);
       if (cur && !cur.etag) throw new PublishError('the hub sent no ETag', 0);
-      let obj = { entries: [], version: 0, top: 0 };
+      let obj = { entries: [], version: 0, highest: 0 };
       const from = cur?.bytes ?? last ?? copy.get('/index');           // the hub's, else our own last (§10, §3.7)
       if (from) { try { obj = parseBody(splitFile(from).body); } catch { throw new PublishError('the served index does not parse', 0); } }
-      const next = change({ entries: obj.entries, version: obj.version + 1, top: obj.top });
+      const next = change({ entries: obj.entries, version: obj.version + 1, highest: obj.highest });
       const r = await putKept('/index', signIndex(next, key), { ifMatch: cur?.etag ?? null });
       if (r.status === 200) return next;
       if (r.status !== 412) throw new PublishError(`index: ${r.status}`, r.status);
@@ -61,13 +61,13 @@ export function createPublisher({ io, key, at, keep = null, last = null }) {
     throw new PublishError('index: gave up after five races', 412);
   }
   /** §8.3: the post, then the index that lists it. */
-  const publish = async (n, fields) => { const { n: num, entry } = await publishPost(n, fields); await amendIndex((h) => ({ ...h, entries: [...h.entries, entry], top: Math.max(h.top, num) })); return num; };
+  const publish = async (number, fields) => { const { number: num, entry } = await publishPost(number, fields); await amendIndex((h) => ({ ...h, entries: [...h.entries, entry], highest: Math.max(h.highest, num) })); return num; };
   const publishMedia = async (bytes) => { const h = sha256(bytes); const r = await putKept(`/media/${h}`, bytes, { contentType: 'application/octet-stream' }); if (r.status !== 201 && r.status !== 200) throw new PublishError(`media: ${r.status}`, r.status); await amendIndex((hd) => ({ ...hd, entries: [...hd.entries, [h]] })); return h; };
-  const withdraw = (n) => amendIndex((h) => ({ ...h, entries: [...h.entries, [n, null]] }));
-  const relist = (n, hash) => amendIndex((h) => ({ ...h, entries: [...h.entries, [n, hash]] }));
+  const withdraw = (number) => amendIndex((h) => ({ ...h, entries: [...h.entries, [number, null]] }));
+  const relist = (number, hash) => amendIndex((h) => ({ ...h, entries: [...h.entries, [number, hash]] }));
   const resignIndex = () => amendIndex((h) => h);
   const rewrite = () => amendIndex((h) => ({ ...h, entries: liveEntries(h.entries) }));
-  /** §11: the views are unsigned overwritable files at conventional paths. */
+  /** §10: the views are unsigned overwritable files at conventional paths. */
   async function putView(name, text, contentType) {
     const path = `/${name}`, cur = await io.get(`${at}${path}`);
     const r = await io.put(`${at}${path}`, Buffer.from(text, 'utf8'), { ifMatch: cur?.etag ?? null, contentType });
