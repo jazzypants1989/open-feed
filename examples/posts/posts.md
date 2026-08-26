@@ -1,4 +1,4 @@
-# Posts and targets
+# Posts
 
 **Spec:** §5 entire — §5.1 `n`, §5.2 `at`, §5.3 `rel`, §5.4 `target`, §5.5 `media`, §5.6 private
 messages are posts. Appendix B.6 and B.7 are its vectors.

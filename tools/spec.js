@@ -17,7 +17,7 @@ const write = process.argv.includes('--write');
 const ORDER = [
   'files', 'identity', 'contests',
   'the-index', 'top-and-rumors',
-  'posts-and-targets', 'envelope', 'the-reader', 'publish-interface',
+  'posts', 'envelope', 'the-reader', 'publish-interface',
   'fetching', 'your-copy', 'views',
   'weekend-reader', 'weekend-publisher',
 ];

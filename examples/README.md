@@ -36,7 +36,7 @@ runs in well under a second, and `npm run spec` runs all of them.
 | 03 | [contests](contests/) | §3.4–3.5 | two profiles claiming one identity; locations and moving |
 | 04 | [the-index](the-index/) | §4 | entries and the fold, `top`, media, who signs the index, rewriting |
 | 05 | [top-and-rumors](top-and-rumors/) | §7.4 | why `top` outlives its post; both bounds of the rumor rule |
-| 13 | [posts-and-targets](posts-and-targets/) | §5 | the number inside the bytes; the full target hash |
+| 06 | [posts](posts/) | §5 | the number inside the bytes; `at`, `rel`, the full target hash; private messages |
 | 14 | [envelope](envelope/) | §6 | slots, blinded tags, and the carrier bound as associated data |
 | 15 | [the-reader](the-reader/) | §7 | the order of steps; three verdicts and the notes on an ok read |
 | 16 | [publish-interface](publish-interface/) | §8 | compare-and-swap, create-once, reclaim, the media twin |

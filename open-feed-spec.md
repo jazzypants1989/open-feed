@@ -229,3 +229,52 @@ chain.
 
 A publisher MAY replace the index with the fold of its entries, at a higher `version`. A reader accepts a
 rewritten index exactly as it accepts an appended one.
+
+## 5. Posts
+
+```json
+{"n":7,"at":"2026-08-01T09:00:00Z","text":"the divorce is final",
+ "rel":"reply",
+ "target":{"key":"<anchor>","n":3,"hash":"<hash>","loc":"https://mom.example/mom"},
+ "media":["<media hash>"]}
+```
+
+A post is immutable, created once (§8.2), and signed by any key in its author's chain.
+
+### 5.1. `n`
+
+A post MUST declare the number it is published at inside its signed bytes. A file served at `/posts/<n>`
+whose `n` is another number is not that post (§7.1).
+
+### 5.2. `at`
+
+`at` is an RFC 3339 timestamp. It is what apps display and order by, and it decides nothing else: no
+verdict in this protocol is reached from a clock. A reader MUST NOT reject a post for a missing or
+malformed `at`.
+
+### 5.3. `rel`
+
+`rel` is `reply`, `root`, `like`, `repost`, `quote`, `mention`, or `supersedes`, or an absolute URL for anything
+else. An edit is a new post with `rel: "supersedes"` naming the old one, which is withdrawn; a reader
+holding the superseding post SHOULD show replies that target the superseded `(n, hash)` under it.
+
+### 5.4. `target`
+
+```json
+"target": {"key":"<author anchor>","n":3,"hash":"<43 chars>","loc":"https://mom.example/mom"}
+```
+
+All four members are REQUIRED on a post whose `rel` names another post: `key` is the target author's
+anchor key, `n` the number, `hash` the full 43-character address of the target post, `loc` where the
+replier last knew that author to be served (§3.5). A reader MUST treat a reply whose `hash` is not what
+the target's index lists for `n` — now, or when it was withdrawn — as a reply to something else.
+
+### 5.5. `media`
+
+An array of media addresses (§4.3). On an encrypted post, `rel`, `target` and `media` are inside the
+envelope (§6.5); the public file carries only `n`, `at`, and `encrypted`.
+
+### 5.6. Private messages
+
+A private message is a post encrypted to its recipients (§6), listed in the sender's own index. There is
+no inbox.
