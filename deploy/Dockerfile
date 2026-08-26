@@ -19,7 +19,10 @@ USER bridge
 EXPOSE 4568
 
 # The Actor is the endpoint that has to work; it exercises the reader over the whole hub.
+# 127.0.0.1, not localhost: the server binds 0.0.0.0, and busybox wget resolves localhost to [::1]
+# first, so a `localhost` probe fails with ECONNREFUSED -- and Traefik will not route an unhealthy
+# container, so the whole deploy silently 404s.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:4568/users/alice || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:4568/users/alice || exit 1
 
 CMD ["node", "bridge/mastodon-test.js"]

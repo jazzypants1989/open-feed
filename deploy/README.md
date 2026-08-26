@@ -79,3 +79,9 @@ If a remote instance runs `authorized_fetch` (Mastodon's secure mode), it requir
 `resolveInbox` in `bridge/inbox.js` fetches the follower's Actor unsigned, so it would get a 401 and
 never learn where to deliver the Accept — the follow would sit pending with nothing in the logs but a
 202. `sign()` in `bridge/signatures.js` is what that path would need.
+
+## If Traefik 404s a container that is plainly running
+
+Traefik will not route a container Docker reports as **unhealthy**, and it says nothing about it —
+the router simply never appears in `/api/http/routers`. Check `docker ps` for the health column
+before suspecting the labels.
