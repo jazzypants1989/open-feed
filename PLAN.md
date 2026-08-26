@@ -28,7 +28,7 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 - [x] §5 Posts ← `posts` (was `posts-and-targets`)
 - [x] §6 Encrypted content ← `envelope`
 - [x] §7 Reading ← `reading` (was `the-reader` + `top-and-rumors`)
-- [ ] §8 Publishing ← `publish-interface`, `weekend-publisher`, `your-copy`
+- [x] §8 Publishing ← `publishing` (was `publish-interface` + `your-copy`)
 - [ ] §9 Fetching ← `fetching`
 - [ ] §10 Views ← `views`
 - [ ] `CLAUDE.md` and `examples/README.md` reflect the final script set
@@ -42,7 +42,6 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 - The Contrast sections in the example `.md`s (~800 lines). Left as they are until the owner raises it.
 - `GOALS.md` scenario 7 (interop / bridges) is promised and cashed nowhere in the repo;
   `examples/views/views.md` disclaims it.
-- The spec caps a *reader's* outbound fetches (§9) and says nothing about a writable hub's own limits.
 - From `DISTRIBUTION-MODEL.md`, archived but not fully rehoused — six things with no home yet, kept
   here verbatim as the only record: hub operations belong in
   `examples/publish-interface/publish-interface.md`: the two cache classes and why the split is

@@ -380,3 +380,72 @@ A look-again re-reads the target's author at the locations the reader holds (§3
 `loc`, and updates the pin on an ok read. Two bounds are REQUIRED: look again at most once per identity
 per pass, and say one line per replier — *"X replied to something I cannot see"* — however many replies
 they wrote. A reader MAY try the locations it already holds before the address in the reply.
+
+## 8. Publishing
+
+```
+PUT /<name>/profile        If-Match: <etag>   → 200 | 412
+PUT /<name>/index          If-Match: <etag>   → 200 | 412
+PUT /<name>/posts/<n>                         → 201 | 200 (reclaimed) | 409
+PUT /<name>/media/<hash>                      → 201 | 200 (replaced) | 409 | 400
+PUT /<name>/feed.json | feed.xml | index.html  If-Match: <etag>  → 200 | 412   (§10)
+GET any of the above                          → 200 | 404
+```
+
+There is no account, token, or session: the request is the signed file. A hub that checks the proof (§8.4)
+answers 403 for a profile or index that does not verify and 409 for a name held under another anchor or a
+`version` that has not advanced.
+
+### 8.1. Compare-and-swap
+
+A writer MUST send `If-Match` with the entity tag of the version it read, and a hub MUST answer 412 if the
+file has changed since, or if the file exists and the request carries no `If-Match`. The tag is strong,
+opaque to the writer, and compared byte for byte; a hub MAY use the SHA-256 of the bytes it serves. A
+writer that loses MUST re-read the file the hub now serves and fold its own line into that file's
+`entries`.
+
+### 8.2. Create-once
+
+A hub MUST refuse a write to a number already held, except under §8.5. Numbering need not be gapless: a
+device that comes back MUST abandon a number it cannot prove it listed, and MUST NOT list one late.
+
+### 8.3. Write order
+
+The post is written before the index that lists it.
+
+### 8.4. Claiming a name
+
+First come, with the profile as the proof. Later writes under that name MUST carry the same `anchor` and a
+`version` that has advanced. A hub that accepts writes MUST refuse a profile whose chain does not walk or
+whose signature does not verify under the key the chain ends on, and an index that does not verify under
+the key the profile it holds ends on. A publisher MUST write an index when it claims a name, even an
+empty one.
+
+### 8.5. Reclaiming a number
+
+A number held by a file that is not the owner's MAY be overwritten by the owner, and by nobody else. The
+owner's file declares that number in its body and is either signed by the key the profile's chain
+currently ends on or listed at that number and address in the index. A hub MAY check nothing on the
+ordinary path of a post or a media file; it MUST NOT ignore a collision.
+
+### 8.6. Media
+
+A hub MUST replace a file at `/<name>/media/<hash>` whose bytes do not hash to that name when offered
+bytes that do, and MAY refuse bytes that do not hash to the name.
+
+### 8.7. What a hub must do
+
+Serve back the exact bytes it was given (§2.3). Allow cross-origin reads with
+`Access-Control-Allow-Origin: *`; a hub that accepts writes MUST answer the preflight for a cross-origin
+`PUT` with `If-Match` and expose `ETag`. A hub MAY require more of its own writers — a pass, an account, a
+rate limit, a bill.
+
+### 8.8. Withdrawal and deletion
+
+There is no `DELETE`. Withdrawing removes a line from the index, not a file. A hub MAY remove a file the
+current index does not list, after a grace window covering §8.3. An app MUST NOT tell a user that
+withdrawing erased anything.
+
+### 8.9. Your copy
+
+An app MUST keep the signed bytes of everything it publishes.
