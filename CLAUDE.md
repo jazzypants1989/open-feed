@@ -20,7 +20,7 @@ already in the repo. That is a narrow gate. This file should get shorter more of
 Open Feed: a small protocol for publishing from a place you control with an identity that is a key,
 aimed at families and small groups first. Everything on the wire is a signed file built from a
 standard library's primitives (Ed25519, X25519, SHA-256, ChaCha20-Poly1305, HKDF, JSON, HTTP).
-`PLAN.md` is the current multi-session plan and its state; read it before starting work.
+`GOALS.md` is the floor the work is judged against; read it before starting.
 
 | Where | What |
 | ----- | ---- |
