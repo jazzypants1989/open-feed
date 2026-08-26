@@ -61,18 +61,17 @@ correctness or security defects; post-1.0, additive only.
 2. **Guard the simplicity.** The spec's value is how little of it there is: one way of doing each
    thing, stated once. Resist a second construction, a second model, or a second document growing
    up beside the first. Supporting prose belongs in an example's `.md`, not in the spec.
-3. **Keep the rule, cut the archaeology.** Justification sitting next to a MUST is load-bearing —
-   it is what stops the next implementer weakening it, so it stays. A paragraph about what an
-   earlier draft got wrong does not.
-4. **Run `node tools/regen.js`** after any change touching signing, document shape, the envelope, or
-   the vectors. It self-verifies with both readers and confirms every vector appears verbatim in the
-   spec. Exits non-zero on drift.
+4. **The spec is generated.** A rule is a `rule()` call in the example that proves it, placed after
+   the assertion. Edit it there, then `npm run spec -- --write`; `npm run vectors -- --write` after any
+   change touching signing, document shape, or the envelope. Both exit non-zero on drift. Nothing
+   hand-typed into `open-feed-spec.md` or `test-vectors.md` survives the next `--write`.
 5. **Vocabulary is fixed**: anchor key, chain, link, recovery list, profile, index, post, media,
    encrypted, pin, withdraw, hub. Code, tests, examples, and docs use the spec's words and its
    section numbers; a rename is a spec change first.
 6. **No changelog appendix, no version bump.** Record the change in the commit.
-7. **There is no line budget. Do not reintroduce one.** The target is the shortest spec that still
-   covers its bases, and the lever that moves it is design, not compression.
+7. **Rules only.** No motivation beside a rule, no "consequences", no attack narratives, no
+   restatement of one section in another. The old hand-written draft is
+   `archive/spec-before-generation.md`; its explanations belong in an example's `.md` if anywhere.
 
 ## Editing the README
 
@@ -90,7 +89,5 @@ example that argues a thing rather than re-arguing it.
   members are both just `version`.
 - The reader re-fetches a target's profile on a look-again (§7.5) — that is the rumor rule, not a
   missing cache; a cross-read cache silently stops fork detection.
-- `tools/regen.js` checks every hash-shaped literal in Appendix B against the current run; a vector
-  quoted twice needs the rule to reach both.
-- The capstones carry a demo below a `// ====` marker. The measurement they report is
-  the implementation above it, so do not move the marker.
+- The capstones carry a demo below a `// ====` marker; the implementation is above it, and
+  `tools/regen.js` imports it. Do not move the marker.

@@ -31,7 +31,7 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 - [x] §8 Publishing ← `publishing` (was `publish-interface` + `your-copy`)
 - [x] §9 Fetching ← `fetching`
 - [ ] §10 Views ← `views`
-- [ ] `CLAUDE.md` and `examples/README.md` reflect the final script set
+- [x] `CLAUDE.md` and `examples/README.md` reflect the final script set
 
 ## Open — the owner's questions, not decided
 
