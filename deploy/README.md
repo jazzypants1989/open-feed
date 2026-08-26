@@ -27,6 +27,12 @@ from this side but to wait out its cache. Leave it unset only behind a throwaway
 (every signed file the hub holds), `followers.json`. **`keys.json` is the identity.** It is in a
 Docker named volume (`bridge-data`); back it up before destroying anything.
 
+## The origin must be a domain you control
+
+A tunnel is not a substitute. `trycloudflare.com` is blocklisted by mastodon.social — the Actor is
+never fetched and the failure looks like nothing at all. `ngrok` and friends are worth assuming the
+same of. Use a real hostname with a real certificate.
+
 ## Deploy
 
 Requires a reverse proxy terminating TLS. This compose file targets the Traefik on

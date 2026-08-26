@@ -52,20 +52,33 @@ protocol; all protocols see exactly the same public posts.
 
 ## What remains — in order
 
-### 1. Live testing against real instances
+### 1. Live testing against real instances — done
 
-The bridges work in-memory. Testing against real instances answers format questions:
+Every question the in-memory bridges could not answer, answered against something real.
 
-**Mastodon:** Does the Ed25519 legacy `publicKey` PEM format work, or does Mastodon 4.7+ require
-FEP-521a (`assertionMethod`/`Multikey`)? The base58btc encoder for FEP-521a is already built.
+**Mastodon.** The legacy `publicKey` PEM works — with **RSA-2048**, not Ed25519. An Ed25519 key in
+that field is rejected silently: no error, the Actor simply never verifies. RSA is what
+`bridge/actor.js` uses and what works everywhere; FEP-521a (`assertionMethod`/`Multikey`) would
+avoid it but only on Mastodon 4.7+, so the base58btc encoder stays unused for now.
+`@alice@bridge.jovialpenguin.com` resolves, shows its three posts, and completes Follow → Accept.
 
-**Nostr relays:** Do the BIP-340 signatures verify? The signing implementation passes all BIP-340
-test vectors, but real relay testing confirms.
+**Nostr.** BIP-340 signatures verify against a real relay: event `07b18ad…` accepted by
+`relay.damus.io`.
 
-**Bluesky:** The XRPC client is ready for app-password auth. The full DID:PLC path needs testing
-against `plc.directory`.
+**Bluesky.** App-password auth and the XRPC client work end to end:
+`at://did:plc:qwwvkiocc2g7rsvbcj4zsxrs/app.bsky.feed.post/3mtyvq5or3a2m`.
 
-**Feed readers:** Try generated JSON Feed and Atom in NetNewsWire, Miniflux.
+**The origin has to be a real domain.** `trycloudflare.com` is blocklisted by mastodon.social, so a
+tunnel cannot stand in for a hostname you control. The bridge runs at `bridge.jovialpenguin.com`;
+`deploy/` holds the Dockerfile and the reverse-proxy configuration.
+
+**Two defects the live test exposed**, both fixed: the AP inbox never read its request body off the
+socket, so a real Follow returned 500 and no Accept was ever delivered; and every restart minted a
+fresh identity and AP key, which is unusable once a remote instance has cached the Actor.
+`bridge/state.js` persists the keys, the hub's files, and the follower list.
+
+**Still untried:** the full DID:PLC path against `plc.directory` (only app-password auth is proven),
+and the generated JSON Feed and Atom in NetNewsWire or Miniflux.
 
 ### 2. The document layer: README, TLDR, and the spec Summary
 

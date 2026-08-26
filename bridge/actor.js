@@ -5,8 +5,9 @@
 // unchanged. The bridge is the AP identity, backed by the Open Feed identity.
 //
 // Uses RSA-2048 for the AP key because Mastodon's legacy publicKey field requires RSA.
-// Ed25519 support (FEP-521a assertionMethod/Multikey) would avoid RSA but only works
-// with Mastodon 4.7+ — RSA works everywhere.
+// Ed25519 in that field was tried against mastodon.social and is rejected *silently* — no error
+// anywhere, the Actor just never verifies. Ed25519 support (FEP-521a assertionMethod/Multikey)
+// would avoid RSA but only works with Mastodon 4.7+ — RSA works everywhere.
 import crypto from 'node:crypto';
 
 const AP_CONTEXT = ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'];
