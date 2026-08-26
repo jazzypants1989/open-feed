@@ -5,7 +5,7 @@ import { replay, checkIndex, checkAgainstCheckpoint, liveEntries } from '../src/
 
 const live = (s) => [...s.live.keys()];
 
-test('§4.2 replay: admit, withdraw, re-list at the identical hash only', () => {
+test('§4.1 replay: admit, withdraw, re-list at the identical hash only', () => {
   assert.deepEqual(live(replay([[1, 'a'], [2, 'b'], [1, null]])), [2]);
   assert.equal(replay([[1, 'a'], [1, null], [1, 'b']]), null, 'another hash, ever');
   assert.deepEqual(live(replay([[1, 'a'], [1, null], [1, 'a']])), [1], 'the same bytes come back');
@@ -17,7 +17,7 @@ test('§4.2 replay: admit, withdraw, re-list at the identical hash only', () => 
   assert.equal(replay([[1, 'a'], [2, 'b'], [2, null]]).highest, 2, 'highest counts what was issued');
 });
 
-test('§4.4 media: listed by hash, new whenever they appear, withdrawn by [hash, null]', () => {
+test('§4.3 media: listed by hash, new whenever they appear, withdrawn by [hash, null]', () => {
   assert.deepEqual(live(replay([['h1'], ['h2'], ['h1', null]])), ['h2']);
   assert.equal(replay([['h1'], ['h1']]), null);
   assert.equal(replay([['h1', null]]), null);
@@ -25,7 +25,7 @@ test('§4.4 media: listed by hash, new whenever they appear, withdrawn by [hash,
   assert.equal(replay([['h1', 'x']]), null);
 });
 
-test('§4 / §4.3 the index\'s shape: entries first, version and highest integers, highest at or above the highest number', () => {
+test('§4 the index\'s shape: entries first, version and highest integers, highest at or above the highest number', () => {
   const set = replay([[3, 'c']]);
   assert.equal(checkIndex({ entries: [[3, 'c']], version: 1, highest: 3 }, set), null);
   assert.match(checkIndex({ version: 1, entries: [[3, 'c']], highest: 3 }, set), /first member/);
@@ -34,7 +34,7 @@ test('§4 / §4.3 the index\'s shape: entries first, version and highest integer
   assert.equal(checkIndex({ entries: [[3, 'c']], version: 1, highest: 7 }, set), null, 'highest may run ahead of what is listed');
 });
 
-test('§7.2 step 9 against a checkpoint: no rollback, no insertion below highest, no change, withdrawn hashes remembered', () => {
+test('§7.1 steps 8–11 against a checkpoint: no rollback, no insertion below highest, no change, withdrawn hashes remembered', () => {
   const checkpoint = { indexVersion: 2, indexHash: 'H2', highest: 3, live: new Map([[1, 'a'], [3, 'c']]), withdrawn: new Map([[2, 'b']]) };
   const ok = (entries, version = 3, highest = 3, address = 'H3') => checkAgainstCheckpoint({ obj: { version, highest }, address }, replay(entries), checkpoint);
   assert.equal(ok([[1, 'a'], [3, 'c']]).notes.length, 0);
@@ -45,8 +45,8 @@ test('§7.2 step 9 against a checkpoint: no rollback, no insertion below highest
   assert.equal(ok([[1, 'a'], [2, 'b'], [3, 'c']]).notes.length, 0, 'post 2 comes back at the hash it had');
   assert.equal(ok([[1, 'a'], [2, 'x'], [3, 'c']]).why, 'post 2 changed after the reader saw it');
   assert.equal(ok([[1, 'x'], [3, 'c']]).why, 'post 1 changed after the reader saw it');
-  assert.equal(ok([[1, 'a'], [3, 'c']], 3, 5).notes.length, 0, 'top may rise without posts');
-  assert.equal(ok([[1, 'a'], [3, 'c'], [4, 'd']], 3, 4).notes.length, 0, 'a new number above the old top');
+  assert.equal(ok([[1, 'a'], [3, 'c']], 3, 5).notes.length, 0, 'highest may rise without posts');
+  assert.equal(ok([[1, 'a'], [3, 'c'], [4, 'd']], 3, 4).notes.length, 0, 'a new number above the old highest');
   assert.equal(ok([[1, 'a'], [3, 'c'], [2, 'z']], 3, 3).why, 'post 2 changed after the reader saw it');
   assert.equal(checkAgainstCheckpoint({ obj: { version: 3, highest: 3 }, address: 'H3' }, replay([[1, 'a'], [3, 'c']]), { ...checkpoint, withdrawn: new Map(), live: new Map([[1, 'a'], [3, 'c']]) }).notes.length, 0);
   assert.equal(checkAgainstCheckpoint({ obj: { version: 3, highest: 3 }, address: 'H3' }, replay([[1, 'a'], [2, 'b'], [3, 'c']]), { ...checkpoint, withdrawn: new Map() }).why, 'post 2 is listed now and was not before');

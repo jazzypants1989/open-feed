@@ -86,7 +86,7 @@ gQTvN-c31p-2SO4_h4dASM4wzwE_FZM_g41zShGynUWSldq24wzXzsLqYwg-PRqqib--5Ct5x0rJooSd
 
 ## 8. Post — encrypted
 
-Only `n` and `at` are in the clear; the text, the relation, the target and the media references are
+Only `number` and `at` are in the clear; the text, the relation, the target and the media references are
 inside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and
 location (§6.4): one slot per recipient. The binding bound into the associated data is
 `pukq6VMQM9Sbp4ae71bJjcKbLLpFuWi47cDS60xH7CY:5`.
@@ -126,9 +126,9 @@ coming back are not a change.
 ka-dUj6NUciN6beB1d71HGHH-PzYUBPkt24CslUAOLYY-ycBR3vyeXkcsQvUKtOB35xt5fsdokRv-omRgOFTDg
 ```
 
-## 12. The spoken code (§3.1)
+## 12. The spoken code (§3.7)
 
-Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.1).
+Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.7).
 
 ```
 HKDF-SHA256(ikm = key, salt = "", info = "openfeed/v1/spoken", 9 bytes)

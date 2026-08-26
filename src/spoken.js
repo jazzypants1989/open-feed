@@ -1,4 +1,4 @@
-// §3.1 — the spoken code: six words derived from a key, for the phone call. It distinguishes
+// §3.7 — the spoken code: six words derived from a key, for the phone call. It distinguishes
 // identities; it cannot distinguish two branches of one, which is why it is defined over any key.
 import crypto from 'node:crypto';
 import { decodeStrict } from './file.js';

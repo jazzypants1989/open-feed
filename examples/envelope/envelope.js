@@ -36,10 +36,10 @@ assert.equal(splitFile(post5).sigLine.length, 86);
 assert.deepEqual(Object.keys(JSON.parse(splitFile(post5).body)), ['number', 'at', 'encrypted']);
 assert.deepEqual(Object.keys(dm), ['ephemeral', 'slots', 'ciphertext']);
 assert.equal(address(post5), 'jPXhIAtS7czC2KidAM1Uad5mbt0_ghFDJxsj6da1hEU');
-assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
-// A host whose reading key is in the audience opens the post like any other member.
-const hostRead = xk('example:host-read'), toHost = encrypt({ content: { text: 'for the family' }, audience: [who(alice), { key: thief.x, read: hostRead.x, location: 'https://hub.example/op' }], binding: c6, ephemeral: xk('example:ephemeral/9'), contentKey: ck('example:contentkey/9') });
-assert.equal(decrypt(toHost, hostRead.privateKey, c6).text, 'for the family');
+assert.equal(decrypt(dm, xk('example:hub-read').privateKey, c5), null);
+// A hub whose reading key is in the audience opens the post like any other member.
+const hubRead = xk('example:hub-read'), toHub = encrypt({ content: { text: 'for the family' }, audience: [who(alice), { key: thief.x, read: hubRead.x, location: 'https://hub.example/op' }], binding: c6, ephemeral: xk('example:ephemeral/9'), contentKey: ck('example:contentkey/9') });
+assert.equal(decrypt(toHub, hubRead.privateKey, c6).text, 'for the family');
 rule('6', `An encrypted post is a post whose content is inside an \`encrypted\` member:
 
 \`\`\`json

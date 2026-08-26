@@ -1,6 +1,6 @@
 # The envelope
 
-**Spec:** §6 the three visibilities, §6.1 the envelope, §6.2 carrier binding, §6.3 slots and tags,
+**Spec:** §6 the three visibilities, §6.1 the envelope, §6.2 post binding, §6.3 slots and tags,
 §6.4 the audience is inside, §6.5 an encrypted post's target.
 **Run:** `node examples/envelope/envelope.js`
 
@@ -19,8 +19,8 @@ behind B.8 live in `tools/regen.js`.
 
 ## What the output shows
 
-**Three visibilities, one mechanism.** A public post carries `n`, `at` and `text`. The family post
-and the direct message carry `n`, `at` and `encrypted`, and are otherwise indistinguishable from
+**Three visibilities, one mechanism.** A public post carries `number`, `at` and `text`. The family post
+and the direct message carry `number`, `at` and `encrypted`, and are otherwise indistinguishable from
 each other and from any other post: body, one `\n`, 86 signature characters. The DM is not a
 different kind of object — it is the same envelope with one member in the audience besides alice
 herself. Comments and reactions on an encrypted post are encrypted in turn, which the reply later in
@@ -28,12 +28,12 @@ the output shows.
 
 **The construction, printed as the spec states it.** One ephemeral pair per message. Per recipient
 `R`: `Z = X25519(ephemeral private, R)`, then
-`tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52)`,
-then `wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = epk)`. The content once:
+`tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = ephemeral, info = "openfeed/v1/slot", 52)`,
+then `wrapped = ChaCha20-Poly1305(kek, knonce, content key, aad = ephemeral)`. The content once:
 `plain` is UTF-8 JSON of the audience followed by the post's content members, under §2.4's rules
-like any body, and `ct = ChaCha20-Poly1305(content key, 12 zero bytes, plain, aad = epk || carrier)`.
-Wherever `epk` appears in a derivation — the salt and both AADs — it is the 32 raw bytes, not the
-43-character text; the carrier is ASCII. The example prints `Z`, the three derived pieces, the wrap and the ciphertext, and asserts
+like any body, and `ciphertext = ChaCha20-Poly1305(content key, 12 zero bytes, plain, aad = ephemeral || binding)`.
+Wherever `ephemeral` appears in a derivation — the salt and both AADs — it is the 32 raw bytes, not the
+43-character text; the binding is ASCII. The example prints `Z`, the three derived pieces, the wrap and the ciphertext, and asserts
 that the slot it built by hand is byte-for-byte the second slot of Appendix B.8 — which is also the
 example's check that `src/envelope.js`'s info string is the spec's, since the derivation here spells
 `"openfeed/v1/slot"` out rather than importing it.
@@ -48,19 +48,19 @@ ephemeral reused across two posts wraps two content keys under one `(kek, knonce
 over the content keys, and the same tag for that recipient on both posts. One ephemeral per message
 is a rule, not a habit. (`FINDINGS.md` §1 is where the missing MUST is filed.)
 
-**The carrier is associated data.** This is the sharpest block. The thief lifts alice's envelope out
+**The post binding is associated data.** This is the sharpest block. The thief lifts alice's envelope out
 of her post 5 and drops it into a post of his own — number 1, signed by his key, listed in his
 index. His post is *valid*: it verifies under his key, and a reader is right to accept it as his.
-Then mum's client tries to open the envelope against the carrier it was served in,
-`<thief's anchor key>:1`, and gets nothing. A client that passes no carrier at all gets nothing
+Then mum's client tries to open the envelope against the binding it was served in,
+`<thief's anchor key>:1`, and gets nothing. A client that passes no binding at all gets nothing
 either.
 
-The output then shows what the binding buys, by building the same ciphertext with `epk` alone as
-associated data: that unwrap takes no carrier argument, so there is nothing to compare and nothing
+The output then shows what the binding buys, by building the same ciphertext with `ephemeral` alone as
+associated data: that unwrap takes no binding argument, so there is nothing to compare and nothing
 to forget, and the identical bytes open wherever they are pasted — alice's words rendered under the
 thief's name, from an envelope he could never read. **Binding as associated data rather than
 comparing fields afterwards is the difference between a rule a client can skip and a rule a client
-cannot reach around.** A wrong carrier is not a failed comparison; it is a wrong key.
+cannot reach around.** A wrong binding is not a failed comparison; it is a wrong key.
 
 **A tag is a hint, never a decision.** A recipient derives its own tag and scans for it. The example
 opens the DM twice: once by scanning, once with an opener that ignores every tag and simply tries to
@@ -85,10 +85,10 @@ each `{key, read, loc}` — an anchor key, an X25519 reading key, and a location
 among them, because a publisher that leaves itself out cannot read its own outbox.
 
 Then the argument that makes the entry a person rather than a key. Mum replies, and for each entry
-she reads the profile at `loc`, refuses it unless its `anchor` is that entry's `key` (§3.1), and
+she reads the profile at `location`, refuses it unless its `anchor` is that entry's `key` (§3.1), and
 encrypts to the `read` key that profile carries — §3.6 is emphatic that a publisher encrypts only to
-a key it took from a profile it verified, because taking the key the host served is encrypting to
-the host. The example shows that refusal working: a profile served at bro's location under someone
+a key it took from a profile it verified, because taking the key the hub served is encrypting to
+the hub. The example shows that refusal working: a profile served at bro's location under someone
 else's anchor yields nothing.
 
 The counterfactual is the point. Had the audience been reading keys and nothing else, mum would hold
@@ -98,22 +98,22 @@ out to the one member she already knew. **The thread splits in half, silently, a
 told.** No error is raised anywhere, because from the protocol's point of view nothing went wrong.
 
 **`rel`, `target` and `media` go inside.** Mum's reply is a reply, but the public bytes of her post
-13 do not contain the string `reply`, and do not contain alice's key. The public file carries `n`,
+13 do not contain the string `reply`, and do not contain alice's key. The public file carries `number`,
 `at` and `encrypted`, and nothing about what it answers. Inside, each `media` entry is
-`{"hash", "key"}` (§4.4) rather than a bare hash. The consequence is stated plainly and belongs to
-two other examples: public threading, relocation riding along in a reply (§3.7) and the rumor rule
+`{"hash", "key"}` (§4.3) rather than a bare hash. The consequence is stated plainly and belongs to
+two other examples: public threading, relocation riding along in a reply (§3.5) and the rumor rule
 (§7.4) all read `rel` and `target`, so they work for everything a stranger could see anyway and are
-simply unavailable for anything encrypted — see `examples/moving/` and `examples/top-and-rumors/`.
+simply unavailable for anything encrypted — see `examples/contests/` and `examples/reading/`.
 
 **Verified completely, opaque to everyone else.** The last block ties post 5 to Appendix B.8 by its
-address and shows the host's own reading key opening nothing. A reader outside the audience runs
-§7.4's three checks on it exactly as on any post — signature under a chain key, address, `n` — and
-hands `encrypted` back whole; `examples/the-reader/` stages that read, and this file does not repeat
+address and shows the hub's own reading key opening nothing. A reader outside the audience runs
+§7.4's three checks on it exactly as on any post — signature under a chain key, address, `number` — and
+hands `encrypted` back whole; `examples/reading/` stages that read, and this file does not repeat
 it.
 
-**What the host learns**, said plainly: that an encrypted post exists, when it was written, how
+**What the hub learns**, said plainly: that an encrypted post exists, when it was written, how
 big it is, and how many slots it has — so how many people it is for. It does not learn who they are
-or what it answers. Hiding the size of the audience from the host is not a goal of this design, and
+or what it answers. Hiding the size of the audience from the hub is not a goal of this design, and
 the protocol does not try to hide it. Two facts a family app has
 to hold that neither example stages, because they are one `decrypt` call each: a later post to a
 smaller audience is simply a post bro cannot open, and he keeps post 6 forever (no forward

@@ -122,8 +122,8 @@ rule('5.5', `An array of media addresses (§4.3). On an encrypted post, \`rel\`,
 envelope (§6.5); the public file carries only \`number\`, \`at\`, and \`encrypted\`.`);
 
 // ---- §5.6 private messages ----
-console.log(`§5.6 — post 4 is a message to mum on alice's host; PUT /mom/inbox → ${hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status}\n`);
+console.log(`§5.6 — post 4 is a message to mum on alice's hub; PUT /mom/inbox → ${hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status}\n`);
 assert.ok(edited.posts.has(4));
-assert.deepEqual([hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status, decrypt(obj(p[4]).encrypted, xk('vector:host-read').privateKey, postBinding(A1.x, 4)), decrypt(obj(p[4]).encrypted, xk('vector:mum-read').privateKey, postBinding(A1.x, 4)).text], [404, null, 'I am leaving him on Friday']);
+assert.deepEqual([hub.handle({ method: 'PUT', path: '/mom/inbox', body: Buffer.from('hi') }).status, decrypt(obj(p[4]).encrypted, xk('vector:hub-read').privateKey, postBinding(A1.x, 4)), decrypt(obj(p[4]).encrypted, xk('vector:mum-read').privateKey, postBinding(A1.x, 4)).text], [404, null, 'I am leaving him on Friday']);
 rule('5.6', `A private message is a post encrypted to its recipients (§6), listed in the sender's own index. There is
 no inbox.`);

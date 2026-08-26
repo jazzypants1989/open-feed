@@ -37,7 +37,7 @@ const edKey = (label) => {
   return { label, privateKey, x: crypto.createPublicKey(privateKey).export({ format: 'jwk' }).x };
 };
 
-// ---- §3.1's spoken code ----
+// ---- §3.7's spoken code ----
 export function spokenIndices(keyX) {
   const bits = Buffer.from(crypto.hkdfSync('sha256', Buffer.from(keyX, 'base64url'), Buffer.alloc(0), 'openfeed/v1/spoken', 9));
   let acc = 0n;
@@ -134,7 +134,7 @@ serveIndex(head3);
 const rewritten = await read(get, { learned: A1.x, at: AT, checkpoint: checkpointed.checkpoint });
 check('the rewrite is accepted by a reader that held the index before it, and post 2 is back at the hash it had',
   rewritten.verdict === 'ok' && [...rewritten.posts.keys()].sort().join(',') === '1,2,3,4,5' && !rewritten.note.some((n) => n.startsWith('withdrawn')));
-check('a number that came back at another hash would be host', (await read(get, { learned: A1.x, at: AT, checkpoint: { ...checkpointed.checkpoint, withdrawn: new Map([[2, 'x']]) } })).verdict === 'tampered');
+check('a number that came back at another hash would be tampered', (await read(get, { learned: A1.x, at: AT, checkpoint: { ...checkpointed.checkpoint, withdrawn: new Map([[2, 'x']]) } })).verdict === 'tampered');
 check('the reader hands back the verified profile\'s reading key', rewritten.read === READ_ALICE.x);
 
 const sealedField = JSON.parse(body(post5)).encrypted;
@@ -145,7 +145,7 @@ check('the encrypted post opens for a recipient, with the audience inside',
 check('lifted into another post, the same envelope does not open — the binding is associated data',
   unseal(post5FieldOf(), READ_MUM.privateKey, postBinding(edKey('thief').x, 1)) === null
   && unseal(post5FieldOf(), READ_MUM.privateKey, '') === null);
-check('a non-recipient cannot open it', unseal(post5FieldOf(), xKey('vector:host-read').privateKey, postBinding(A1.x, 5)) === null);
+check('a non-recipient cannot open it', unseal(post5FieldOf(), xKey('vector:hub-read').privateKey, postBinding(A1.x, 5)) === null);
 check('one slot per recipient, every slot the same width',
   envelope.slots.length === 2 && new Set(envelope.slots.map(([t, w]) => `${t.length}/${w.length}`)).size === 1);
 
@@ -217,15 +217,15 @@ const appendix = [
   vec('6. Post', 'The number is inside the signed bytes (§5.1).', f(post1)),
   vec('7. Post — a reply', 'The target names the author\'s anchor key, the number, all 43 characters of the address, and where\nthe replier last knew that author to live (§5.4).', f(post3)),
   vec('8. Post — encrypted',
-    `Only \`n\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.4): one slot per recipient. The binding bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
+    `Only \`number\` and \`at\` are in the clear; the text, the relation, the target and the media references are\ninside the envelope (§6.5), and so is the audience, naming each recipient by anchor key, reading key and\nlocation (§6.4): one slot per recipient. The binding bound into the associated data is\n\`${A1.x}:5\`.`, f(post5)),
   vec('9. Index, `version` 1', 'Three posts live.', f(head1)),
   vec('10. Index, `version` 2 — a withdrawal, a media file',
     `Post 2 is withdrawn by an appended line, post 5 is the encrypted one, and the media file is listed by its\naddress alone. The media file's bytes are ${png.length} bytes hashing to \`${pngHash}\`.`, f(head2)),
   vec('11. Index, `version` 3 — the rewrite, and a number that comes back',
     'The lines the withdrawal left behind are gone (§4.5), and post 2 is re-listed at the hash it had\n(§4.1). A reader holding `version` 2 accepts this: it remembers the withdrawn hash, and the same bytes\ncoming back are not a change.', f(head3)),
-  '## 12. The spoken code (§3.1)',
+  '## 12. The spoken code (§3.7)',
   '',
-  'Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.1).',
+  'Six 11-bit indices into the BIP-39 English list, and the words they select, from the anchor key above — or from any key (§3.7).',
   '',
   '```',
   `HKDF-SHA256(ikm = key, salt = "", info = "openfeed/v1/spoken", 9 bytes)`,

@@ -37,7 +37,7 @@ test('§3.1 a profile whose anchor is not the key learned is refused before anyt
   assert.equal(verifyProfile(prof(1, [{ key: G.x }], G), { learned: K2.x }).why, 'not the identity this reader learned');
 });
 
-test('§3.6 rule 1: a served chain must extend the checkpoint key for key; a prefix at a higher version is a split', () => {
+test('§3.4 rule 1: a served chain must extend the checkpoint key for key; a prefix at a higher version is a divergence', () => {
   const checkpointed = cpOf(prof(3, [honest[0], honest[1], vouched(honest[2], K2, [mum, sis])], K3));
   const forgotten = verify(prof(9, honest.slice(0, 2), K2), checkpointed);
   assert.equal(forgotten.why, 'serves a branch the recovery rejected', 'her vouched link at 2 out-votes a branch that pretends it never happened');
@@ -51,20 +51,20 @@ function cpOf(bytes, checkpoint = null) {
   return { profileVersion: r.raw.version, profileHash: r.profile.address, chain: r.raw.chain, recoveryLists: r.recoveryLists, fields: r.fields };
 }
 
-test('§3.6 rule 2–3: recoveryLists are held at every length from the first read, and a carried recovery at a held length is ignored', () => {
+test('§3.4 rule 2–3: recoveryLists are held at every length from the first read, and a carried recovery at a held length is ignored', () => {
   const checkpoint = cpOf(prof(3, honest, K3));
   assert.deepEqual(Object.keys(checkpoint.recoveryLists), ['1', '2', '3']);
   // A forger with no key of hers: a self-vouched restore at index 2 carrying a recovery of one.
   const forged = prof(4, [honest[0], honest[1], restore(K2, T, [ex], HIS)], T, { recovery: HIS });
   assert.equal(verify(forged, checkpoint).why, 'the chain of key changes does not hold');
   assert.equal(verify(prof(4, [honest[0], restore(G, T, [ex], HIS)], T, { recovery: HIS }), checkpoint).why, 'the chain of key changes does not hold');
-  // The same at the current length — an extension, not a split — is judged by the held recovery too.
+  // The same at the current length — an extension, not a divergence — is judged by the held recovery too.
   assert.equal(verify(prof(4, [...honest, restore(K3, T, [ex], HIS)], T, { recovery: HIS }), checkpoint).why, 'the chain of key changes does not hold');
   // A cold reader has only the carried copy, and follows it: the stated limit.
   assert.equal(verify(forged).verdict, 'ok');
 });
 
-test('§3.6 rule 4: a majority at the split wins; a signature is not a vote; Alice repairs a rotation with vouchers', () => {
+test('§3.4 rule 4: a majority at the divergence point wins; a signature is not a vote; Alice repairs a rotation with vouchers', () => {
   const checkpoint = cpOf(prof(3, honest, K3));
   const thief = prof(4, [honest[0], honest[1], rotation(K2, T, REC)], T);   // he really holds K2
   assert.match(verify(thief, checkpoint).why, /no majority/);
@@ -77,11 +77,11 @@ test('§3.6 rule 4: a majority at the split wins; a signature is not a vote; Ali
   // The ex, listed, vouches for himself against her bare rotation: one of three is not a majority.
   const exAlone = prof(4, [honest[0], honest[1], restore(K2, T, [ex], REC)], T);
   assert.match(verify(exAlone, checkpoint).why, /does not hold/, 'one of three is not a majority under the held recovery');
-  // The same self-vouched restore as an EXTENSION of the checkpointed chain — no split, so only §3.3 stands between him and the identity.
+  // The same self-vouched restore as an EXTENSION of the checkpointed chain — no divergence, so only §3.3 stands between him and the identity.
   assert.match(verify(prof(4, [...honest, restore(K3, T, [ex], REC)], T), checkpoint).why, /does not hold/, 'a listed member alone cannot extend the chain to his own key');
 });
 
-test('§3.6: a one-member list is a recovery of one', () => {
+test('§3.4: a one-member list is a recovery of one', () => {
   const ONE = commit([ex]);
   const chain = [{ key: G.x }, rotation(G, K2, ONE)];
   const checkpoint = cpOf(signProfile({ anchor: G.x, version: 2, chain, recovery: ONE, locations: [] }, K2));
@@ -122,13 +122,13 @@ test('§3.3 / §3.4 bounds: a chain past MAX_LINKS or a list past MAX_LEAVES is 
   assert.equal(verify(prof(1, [{ key: G.x }], G, { recovery: { k: 2, leaves: [] } })).verdict, 'ok', 'an unknown member on the list is ignored (§2.5)');
 });
 
-test('§3.6 outside a split: version never goes backwards, and the same version at another address is contested', () => {
+test('§3.4 outside a divergence: version never goes backwards, and the same version at another address is contested', () => {
   const checkpoint = cpOf(prof(3, honest, K3));
   assert.equal(verify(prof(2, honest, K3), checkpoint).why, 'an older profile than the one this reader saw');
   assert.match(verify(prof(3, honest, K3, { name: 'Alice' }), checkpoint).why, /two profiles at one version/);
 });
 
-test('§3.1 the spoken code: six 11-bit indices, B.12 reproduces, and two branches of one identity share it', () => {
+test('§3.7 the spoken code: six 11-bit indices, B.12 reproduces, and two branches of one identity share it', () => {
   assert.deepEqual(spokenIndices('KgEodEif3xsa539zA8FLVaFvAOiXBEXBlvGWJo9Oo4Y'), [1991, 1056, 613, 530, 955, 1997]);
   assert.equal(spokenCode('KgEodEif3xsa539zA8FLVaFvAOiXBEXBlvGWJo9Oo4Y').join(' '), 'wedding lottery erosion drastic jazz whale');
   assert.deepEqual(spokenIndices(G.x), spokenIndices(G.x));

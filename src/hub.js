@@ -23,7 +23,7 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
   const etag = (bytes) => `"${sha256(bytes)}"`;
   const body = (bytes) => { try { const s = splitFile(bytes); return s && parseBody(s.body); } catch { return null; } };
   // The chain of the profile held at a name, walked under the recoveryLists the chain itself carries —
-  // the hub has no pin and keeps none; it checks that the file hangs together, not who she is.
+  // the hub has no checkpoint and keeps none; it checks that the file hangs together, not who she is.
   const chainOf = (name) => { const p = body(store.get(`${name}/profile`) ?? Buffer.alloc(0)); return p && wellFormed(p) ? walk(p, adoptRecoveryLists({}, p, 0)) : null; };
   const listed = (name, number, hash) => { const h = body(store.get(`${name}/index`) ?? Buffer.alloc(0)); const set = h && replay(h.entries); return !!set && set.live.get(number)?.hash === hash; };
   // §8.5: "the owner's file for this number" declares the number in its signed bytes, and is signed

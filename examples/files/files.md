@@ -6,8 +6,8 @@
 
 ## A signed file
 
-**Spec:** §2.1 the file format, §2.2 addresses, §2.5 extension fields.
-**Run:** `node examples/signed-file/signed-file.js`
+**Spec:** §2.1 the file format, §2.2 addresses, §2.5 unknown members.
+**Run:** `node examples/files/files.js`
 
 Everything Open Feed puts on the wire is a file of this shape:
 
@@ -30,7 +30,7 @@ in your head, which is the point — a second implementer has to reproduce it fr
 verified, the address, and *which key signed*. Under mum's key the same file is not a file at all.
 Nothing else in the protocol establishes authorship — not the domain it came from, not a field
 inside the object claiming a name, not the path it was served at. This is `GOALS.md` floor item 1,
-the host cannot speak for you, reduced to a single function call.
+the hub cannot speak for you, reduced to a single function call.
 
 **86 characters that re-encode to themselves.** Base64 admits more than one spelling of the same 64
 bytes: the final character of an 86-character signature carries two bits that decode to nothing, so
@@ -60,7 +60,7 @@ a file.
 ## No canonicalization
 
 **Spec:** §2.3, and §8.7 for the obligation it puts on a hub.
-**Run:** `node examples/no-canonicalization/no-canonicalization.js`
+**Run:** `node examples/files/files.js`
 
 **The bytes served are the bytes signed.** There is no canonical form, no member ordering rule, and
 no re-serialization step anywhere in Open Feed. A producer serializes once and signs what it
@@ -74,7 +74,7 @@ whoever serves the file, which is what this example is mostly about.
 **The same object, three re-spellings.** The example pretty-prints alice's post, sorts its members,
 and re-serializes it — three things an ordinary server, proxy, or template does without being asked.
 All three parse to the object she signed. Two of them are not her file, and a reader cannot tell
-"my host reformatted this" from "somebody rewrote this": both come out as *not signed by alice*.
+"my hub reformatted this" from "somebody rewrote this": both come out as *not signed by alice*.
 
 The third — re-serializing with the same serializer that produced it — happens to verify. That is
 worth seeing precisely because it is a trap: it will hold on the machine you tested and fail on the
@@ -103,7 +103,7 @@ that one fact.
 ## JSON hygiene
 
 **Spec:** §2.4.
-**Run:** `node examples/json-hygiene/json-hygiene.js`
+**Run:** `node examples/files/files.js`
 
 A signed body reaches every reader as the same bytes. §2.4 is about the four ways those identical
 bytes can still *mean* different things to two honest readers — and the whole protocol rests on them
@@ -126,10 +126,10 @@ A producer MUST NOT emit any of them. A reader SHOULD reject any of them.
 standard one, which takes them, and the §2.4 parser in `src/file.js`, which names what is wrong.
 That parser exists for exactly this reason — it is the one piece of JSON machinery the protocol
 needs, and it replaced a canonicalizer plus a strict parser in the earlier design (see
-`no-canonicalization/`).
+§2.3's block above).
 
-**The disagreements are not untidiness.** A duplicate `n` makes one signed body post 1 to you and
-post 2 to me — and `n` is what the index admits (§4.1) and what a reply targets (§5.1). The integer
+**The disagreements are not untidiness.** A duplicate `number` makes one signed body post 1 to you and
+post 2 to me — and `number` is what the index admits (§4.1) and what a reply targets (§5.1). The integer
 case is worse than a disagreement: no reader is *given* the choice, because the rounding happens
 inside the parse. `9007199254740993` becomes `9007199254740992` with no error anywhere.
 
@@ -148,7 +148,7 @@ everybody, and the reader's check is there for the author who is not honest.
 JavaScript-family runtime the danger is not what the author meant — it is what the *reader's own
 copy* does. `JSON.parse` gives an own member named `__proto__`; the moment anything copies that
 object with `Object.assign`, spread, or a merge helper, the copy inherits from whatever the member
-held. The example shows `copied.n === 9` with no own member named `n`. Hence the fallback clause:
+held. The example shows `copied.number === 9` with no own member named `number`. Hence the fallback clause:
 a reader that does not reject `__proto__` MUST at least parse into an object it does not inherit
 from, so a member can never arrive from a prototype.
 

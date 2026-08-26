@@ -25,11 +25,11 @@ const chain1 = [{ key: A1.x }], chain2 = [...chain1, rot], chain3 = [...chain2, 
 const v3 = { ...base, version: 3, chain: chain3 };
 
 // ---- §3 the anchor key ----
-// A host serves a perfectly good profile under a key of its own. A reader that learned alice's key
+// A hub serves a perfectly good profile under a key of its own. A reader that learned alice's key
 // out of band refuses it; one that learned the key from the page accepts it.
-const impostor = key('hostile-host');
+const impostor = key('hostile-hub');
 const hostile = signProfile({ anchor: impostor.x, version: 7, name: 'Alice', chain: [{ key: impostor.x }], recovery: commit([]), locations: [LOC] }, impostor);
-console.log('§3 — the host serves a valid profile under its own key\n');
+console.log('§3 — the hub serves a valid profile under its own key\n');
 console.log(`  learned from the page   ${verifyProfile(hostile, { learned: impostor.x }).verdict}`);
 console.log(`  learned out of band     ${verifyProfile(hostile, { learned: A1.x }).verdict}\n`);
 assert.ok(verifyFile(hostile, impostor.x));
@@ -53,7 +53,7 @@ assert.equal(read({ ...v3, read: undefined, name: undefined }, A3).verdict, 'ok'
 assert.equal(read({ ...v3, version: 2 }, A3, pinOf(ok)).why, 'an older profile than the one this reader saw');
 rule('3.1', `\`\`\`json
 {"anchor":"<key>","version":3,"name":"Alice",
- "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"leaves":["<hash>","<hash>","<hash>"]},"sig":"<86 chars>"}],
+ "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"leaves":["<hash>","<hash>","<hash>"]},"signature":"<86 chars>"}],
  "recovery":{"leaves":["<hash>","<hash>","<hash>"]},
  "locations":["https://alice.example/alice"],
  "read":"<x25519 key>"}
@@ -74,7 +74,7 @@ The profile MUST be signed by the key its chain ends on.`);
 // ---- §3.2 the chain ----
 console.log('§3.2 — the chain\n');
 console.log(`  link 1   ${JSON.stringify(chain1[0])}`);
-console.log(`  link 2   a rotation: sig by the anchor key over "${A1.x.slice(0, 6)}…->${A2.x.slice(0, 6)}…"`);
+console.log(`  link 2   a rotation: signature by the anchor key over "${A1.x.slice(0, 6)}…->${A2.x.slice(0, 6)}…"`);
 console.log(`  link 3   a restore: vouchers by ${res.vouchers.map((v) => v.salt.slice(4)).join(' and ')} over "${A2.x.slice(0, 6)}…->${A3.x.slice(0, 6)}…"\n`);
 assert.ok(holds(chain1, {}) && holds(chain2, { 1: REC }) && holds(chain3, { 1: REC, 2: REC }));
 assert.equal(wellFormed({ ...v3, chain: [{ key: A2.x }, ...chain3.slice(1)] }), false);              // the first link is the anchor
@@ -85,10 +85,10 @@ for (const v of res.vouchers) assert.ok(REC.leaves.includes(leaf(v.salt, v.key))
 const bro = (salt) => ({ key: BRO.key.x, salt, signature: signOver(`${A2.x}->${A3.x}`, BRO.key) });
 assert.equal(vouches(A2.x, { key: A3.x, vouchers: [bro('notmysalt')] }, REC), 0);                      // a good signature under the wrong salt
 rule('3.2', `The chain is an array of links. The first MUST be \`{"key": <anchor>}\`. Every later link is
-\`{"key", "recovery", "sig"?, "vouchers"?}\`: \`key\` is the key this link moves to; \`recovery\` is the recovery
-list as it stood before this link; \`sig\` is an Ed25519 signature by the previous link's key over the ASCII
+\`{"key", "recovery", "signature"?, "vouchers"?}\`: \`key\` is the key this link moves to; \`recovery\` is the recovery
+list as it stood before this link; \`signature\` is an Ed25519 signature by the previous link's key over the ASCII
 bytes \`<previous key>-><new key>\`, checked as §2.1 checks a signature line — a **rotation**; \`vouchers\`
-are \`{key, salt, sig}\` signatures over the same bytes by recovery-list members, and one counts when its
+are \`{key, salt, signature}\` signatures over the same bytes by recovery-list members, and one counts when its
 signature verifies and \`SHA-256(salt ‖ "|" ‖ key)\` in base64url is one of \`recovery.leaves\` — a
 **restore**.`);
 
@@ -105,7 +105,7 @@ assert.equal(holds([...chain1, restore(A1, A3, [MUM, SIS], commit([]))], { 1: co
 assert.equal(read({ ...v3, chain: sisOnly }, A3).why, 'the chain of key changes does not hold');
 const backed = vouched(rot, A1, [MUM, SIS]);
 assert.deepEqual([backed.key, backed.signature, vouches(A1.x, backed, REC)], [rot.key, rot.signature, 2]);
-rule('3.2', `A link is valid when \`sig\` verifies, or when the distinct voucher keys that count are more than half of
+rule('3.2', `A link is valid when \`signature\` verifies, or when the distinct voucher keys that count are more than half of
 \`recovery.leaves\`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
 list cannot restore. Vouchers MAY be added to a link after it was made.`);
 
@@ -119,7 +119,7 @@ assert.equal(served({}).verdict, 'ok');
 for (const f of [{ locations: ['https://elsewhere.example/alice'] }, { name: 'Alise' }, { read: A2.x }, { recovery: commit([MUM, SIS]) }])
   assert.deepEqual([served(f).verdict, served(f).why], ['contested', 'a restore changed more than the key']);
 rule('3.2', `A restore changes the key and nothing else: a checkpointed reader MUST report **contested** for a profile whose
-chain has grown by any link without \`sig\` and whose \`recovery\`, \`locations\`, \`name\`, or \`read\` differ from
+chain has grown by any link without \`signature\` and whose \`recovery\`, \`locations\`, \`name\`, or \`read\` differ from
 the checkpoint.`);
 
 // The cap, and what a rotated-away key keeps.

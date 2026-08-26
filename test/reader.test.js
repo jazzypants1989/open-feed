@@ -1,5 +1,5 @@
 // §7 — the composed reader over the in-memory hub: the order, the three verdicts, the notes, the
-// rumor rule. Most scenarios run twice — cold and checkpointed — because pinning is what §7 is about.
+// rumor rule. Most scenarios run twice — cold and checkpointed — because checkpointing is what §7 is about.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHub } from '../src/hub.js';
@@ -51,7 +51,7 @@ test('§7.1 what a missing, garbled, substituted or unsigned profile reads as', 
   assert.equal((await s.read()).verdict, 'ok');
 });
 
-test('§7.2 the index: withholding, a rollback, a swap, and the rotation window', async () => {
+test('§7.1 the index: withholding, a rollback, a swap, and the rotation window', async () => {
   const s = await scene();
   const good = await s.read();
   const headBytes = s.files.get('alice/index');
@@ -73,7 +73,7 @@ test('§7.2 the index: withholding, a rollback, a swap, and the rotation window'
   assert.equal(view(await s.read()), 'tampered: post 1 is not what the index lists');
 });
 
-test('§4.4 / §7.2 a rotation: the index is re-signed under the new key; in between, a checkpointed reader notes and a cold one retries', async () => {
+test('§4.4 / §7.1 a rotation: the index is re-signed under the new key; in between, a checkpointed reader notes and a cold one retries', async () => {
   const s = await scene();
   const before = await s.read();
   const K2 = person('k2');
@@ -88,7 +88,7 @@ test('§4.4 / §7.2 a rotation: the index is re-signed under the new key; in bet
   assert.equal(view(await s.read()), 'ok [1,2,3]', 'the hub refused it (§8.4), so the K2 index still stands');
 });
 
-test('§3.4 / §7.3 a restore: "recently restored" is a note for seven days of the reader\'s clock, never a verdict', async () => {
+test('§3.3 / §7.2 a restore: "recently restored" is a note for seven days of the reader\'s clock, never a verdict', async () => {
   const s = await scene();
   const before = await s.read();
   const K2 = person('k2');
@@ -105,7 +105,7 @@ test('§3.4 / §7.3 a restore: "recently restored" is a note for seven days of t
   assert.equal(view(await s.read(before.checkpoint, { now: t0 })), 'contested: a restore changed more than the key');
 });
 
-test('§7.3 a frozen copy reads as identity to a reader that saw the newer profile, never as host', async () => {
+test('§7.2 a frozen copy reads as contested to a reader that saw the newer profile, never as tampered', async () => {
   const s = await scene();
   const checkpoint = (await s.read()).checkpoint;
   const frozen = { profile: s.files.get('alice/profile'), index: s.files.get('alice/index') };
@@ -118,7 +118,7 @@ test('§7.3 a frozen copy reads as identity to a reader that saw the newer profi
   assert.equal(view(await s.read()), 'ok [1,2,3]', 'a reader with no social path sees an unmarked page');
 });
 
-test('§7.4 the rumor rule: quiet below top, one look per identity per pass, one line per person, target hash checked', async () => {
+test('§7.4 the rumor rule: quiet below highest, one look per identity per pass, one line per person, target hash checked', async () => {
   const s = await scene();
   const seen = new Map([[s.alice.key.x, (await s.read()).checkpoint]]);
   const bob = person('bob'), BAT = 'https://x/bob';

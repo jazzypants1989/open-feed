@@ -78,6 +78,6 @@ for (const err of [new FetchError('over the cap', { code: 'too_large' }), new Fe
   const thrown = await createReader({ get: async () => { throw err; } }).read({ learned: 'x', at: 'https://hub.example/mum' }).then(() => null, (e) => e);
   assert.ok(thrown instanceof FetchError && thrown.verdict === undefined);
 }
-console.log('  nothing served: host; a cap, a timeout, a failed lookup: thrown, no verdict\n');
+console.log('  nothing served: tampered; a cap, a timeout, a failed lookup: thrown, no verdict\n');
 rule('9', `A cap or a transport failure is no verdict: the read did not complete, and a reader MUST NOT show it as a
 state of the identity.`);

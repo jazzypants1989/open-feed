@@ -87,7 +87,7 @@ hub does not control (§3.7) and MUST refuse a profile whose `anchor` differs fr
 
 ```json
 {"anchor":"<key>","version":3,"name":"Alice",
- "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"leaves":["<hash>","<hash>","<hash>"]},"sig":"<86 chars>"}],
+ "chain":[{"key":"<anchor>"},{"key":"<key2>","recovery":{"leaves":["<hash>","<hash>","<hash>"]},"signature":"<86 chars>"}],
  "recovery":{"leaves":["<hash>","<hash>","<hash>"]},
  "locations":["https://alice.example/alice"],
  "read":"<x25519 key>"}
@@ -108,19 +108,19 @@ The profile MUST be signed by the key its chain ends on.
 ### 3.2. The chain
 
 The chain is an array of links. The first MUST be `{"key": <anchor>}`. Every later link is
-`{"key", "recovery", "sig"?, "vouchers"?}`: `key` is the key this link moves to; `recovery` is the recovery
-list as it stood before this link; `sig` is an Ed25519 signature by the previous link's key over the ASCII
+`{"key", "recovery", "signature"?, "vouchers"?}`: `key` is the key this link moves to; `recovery` is the recovery
+list as it stood before this link; `signature` is an Ed25519 signature by the previous link's key over the ASCII
 bytes `<previous key>-><new key>`, checked as §2.1 checks a signature line — a **rotation**; `vouchers`
-are `{key, salt, sig}` signatures over the same bytes by recovery-list members, and one counts when its
+are `{key, salt, signature}` signatures over the same bytes by recovery-list members, and one counts when its
 signature verifies and `SHA-256(salt ‖ "|" ‖ key)` in base64url is one of `recovery.leaves` — a
 **restore**.
 
-A link is valid when `sig` verifies, or when the distinct voucher keys that count are more than half of
+A link is valid when `signature` verifies, or when the distinct voucher keys that count are more than half of
 `recovery.leaves`. A reader MUST reject a profile whose chain contains a link that is neither. An empty
 list cannot restore. Vouchers MAY be added to a link after it was made.
 
 A restore changes the key and nothing else: a checkpointed reader MUST report **contested** for a profile whose
-chain has grown by any link without `sig` and whose `recovery`, `locations`, `name`, or `read` differ from
+chain has grown by any link without `signature` and whose `recovery`, `locations`, `name`, or `read` differ from
 the checkpoint.
 
 A chain MUST NOT exceed 64 links, and a reader MUST reject a longer one. A key rotated away from keeps its
@@ -149,7 +149,7 @@ A reader MUST apply four rules to a served profile:
    be overwritten.
 3. A link is judged by the list the reader holds at that length, never by the copy the link carries. A
    checkpointed reader MUST NOT adopt a carried list at any length its chain already reaches.
-4. More than half of the recovery list at the divergence point, vouching on exactly one side, wins. `sig` is not a
+4. More than half of the recovery list at the divergence point, vouching on exactly one side, wins. `signature` is not a
    vote. If both sides reach a majority, or neither, the identity is **contested** (§7.2) and the reader
    follows no branch until handed the current key (§3.7).
 
@@ -202,7 +202,7 @@ reader MAY fetch only the tail.
 | `[hash, null]` | that media file is withdrawn |
 
 A reader computes the live set by replaying the entries in order. `number` is a positive integer. A number has
-one hash, ever: a line for an `number` already seen is legal only if it withdraws a live `number` or re-lists a
+one hash, ever: a line for a `number` already seen is legal only if it withdraws a live `number` or re-lists a
 withdrawn `number` at the identical hash. A withdrawal MUST refer to something live. `[hash]` for a media file
 already live is illegal. `highest` MUST be at least the highest number in `entries`. An index that verifies
 but entries are invalid is invalid, and a reader reports **tampered** (§7.2). A checkpointed reader remembers the hash of
@@ -349,7 +349,7 @@ The steps are in order; each supplies what the next checks.
 3. Adopt a recovery list for every chain length beyond those the checkpointed chain reaches, from the links'
    `recovery` and the profile's, keeping any list already held.
 4. Walk the chain (§3.2), judging each link by the list held at its length. A link that fails, or a link
-   without `sig` beside a change it may not make: **contested**.
+   without `signature` beside a change it may not make: **contested**.
 5. Verify the signature under the key the chain ends on. Failure: **contested**.
 6. Against a checkpoint, apply §3.4.
 7. Fetch `<location>/index`, verify it under the current key (§4.4), replay it (§4.1). An index that does
@@ -359,7 +359,7 @@ The steps are in order; each supplies what the next checks.
 9. Against a checkpoint: the same `version` at a different address is **tampered**.
 10. Against a checkpoint: every live number at or below the checkpointed `highest` MUST have been live or
     withdrawn before at the identical hash, else **tampered**. Media files are exempt.
-11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted `withdrawn: n`
+11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted `withdrawn: <number>`
     and their hashes kept.
 12. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
     under a key in the chain, its address MUST equal the listed hash, and its `number` MUST equal the number it
@@ -371,7 +371,7 @@ The steps are in order; each supplies what the next checks.
 ### 7.2. Verdicts
 
 A read returns exactly one of **ok**, **tampered** (this hub is misbehaving), or **contested** (this identity
-is contested), and a reader MUST NOT invent a fourth. `recently restored`, `withdrawn: n`, and `no index I
+is contested), and a reader MUST NOT invent a fourth. `recently restored`, `withdrawn: <number>`, and `no index I
 can verify` are notes on an ok read.
 
 ### 7.3. The checkpoint

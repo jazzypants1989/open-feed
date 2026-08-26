@@ -41,7 +41,7 @@ export const post = (number, fields, key) => file({ number, ...fields }, key);
 export const index = ({ entries, version, highest }, key) => file({ entries, version, highest }, key);
 
 // ---- publishing ----
-// Take the next free number, then merge the new line into the index the host is actually serving.
+// Take the next free number, then merge the new line into the index the hub is actually serving.
 // Both retries matter: the first keeps two devices from overwriting each other's posts, the second
 // keeps the loser of an index race from dropping the winner's post out of the list.
 export async function publishPost(io, at, key, number, fields) {
@@ -146,7 +146,7 @@ if (isMain) {
   await amendIndex(io, at, alice, (h) => h);
   console.log(show());
   console.log(`  index  entries [] version ${indexNow().version} highest ${indexNow().highest}`);
-  console.log('  Without that empty index a brand-new identity reads as `host: no index served`.');
+  console.log('  Without that empty index a brand-new identity reads as `tampered: no index served`.');
   console.log(`  recovery  one leaf: a backup key she keeps on paper (§3.4) — ${spokenCode(paper.key.x).join(' ')}\n`);
   assert.equal(commit([paper]).leaves.length, 1);
   assert.deepEqual(indexNow(), { entries: [], version: 1, highest: 0 });

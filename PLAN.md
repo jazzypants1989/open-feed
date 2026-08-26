@@ -23,6 +23,7 @@ sections, generated from examples, verified by two independent readers.
 | Stale references | ~20 §12/§13/§14 refs rephrased in example `.md` files; GOALS.md section refs removed |
 | Dead tooling | `tools/examples.js`, `tools/revert.js`, `_seeds/`, `.out.txt` → `archive/` |
 | Contrast | moved to `COMPARISON.md`; weekend-publisher Contrast section removed |
+| Naming pass | `host`→`hub`; the vocabulary the earlier renames left in prose; the `sig` spec bug; ~100 stale cross-references; 16 dangling example paths |
 
 ### Interop — complete
 
@@ -127,18 +128,70 @@ prose printed by scripts, so a rename that touches only code leaves the spec wro
 §6.4's audience named `loc` while the assertion three lines above it proved `location`. Both were
 rules an implementer would have followed off a cliff.
 
+### The naming pass — complete
+
+`host` → `hub` everywhere the word meant the serving party: `src/cli.js`, `src/reader.js`,
+`src/publish.js`, the example scripts, and 87 occurrences of example prose. Left standing where the
+word is not ours: `hub.js`'s `listen({ host })` socket bind, `new URL(...).host`, the DNS
+`resolve(host, …)` callback, SSH's *host key* in `COMPARISON.md`, `hostile`, and "where she is hosted".
+
+Four further classes came out of that pass, each the same defect wearing different clothes — a
+rename or a restructuring that reached the code and stopped short of the prose.
+
+**Vocabulary the renames never finished.** The tables above record what the earlier passes moved
+inside `rule()` strings; the same words were still standing in the prose around them.
+
+| was | is | note |
+|-----|-----|------|
+| `` `n` ``, `` `loc` ``, `` `epk` ``, `` `ct` ``, `` `top` `` | `number`, `location`, `ephemeral`, `ciphertext`, `highest` | 58 in prose, plus bare `epk`/`ct` inside `envelope.md`'s derivation formulas |
+| `carrier` | post binding | §6.2's own heading; the aad formula now reads `aad = ephemeral \|\| binding` |
+| `fold` | replay | "an index that does not fold" → "whose entries do not replay" |
+| `pin` | checkpoint | the six TLS/CID *pinning* uses are a different word and stayed |
+| `split` | divergence point | the `String.split` calls and the English verb stayed |
+| `host`, `identity` as verdicts | `tampered`, `contested` | in prose, comments, test names, and printed output |
+
+**One live spec bug.** §3.1's chain example and six places of §3.2/§3.3/§7.1 prose named the link
+member `sig`; `src/profile.js` has always emitted `signature`, and `test-vectors.md` shows
+`"signature"` on the wire. §7.1 step 11 and §7.2 also carried `withdrawn: n`, and §4.1 read "a line
+for an `number`" — batch-rename damage. **`npm run spec` cannot catch any of this**: the spec is
+whatever the scripts print, so a wrong name in a `rule()` is a green build.
+
+**The cross-references had gone partial**, which is worse than uniformly stale — some refs had been
+remapped and some had not, so neither number could be trusted. `archive/spec-before-generation.md`
+has the old numbering and gives the map:
+
+| refs pointing at | meant | fixed |
+|---|---|---|
+| §3.6 (now the reading key) | contests → **§3.4** | 21 |
+| §3.1 (now the profile) | first contact → **§3.7** | 16 |
+| §3.7 (now first contact) | locations → **§3.5** | 10 |
+| §3.5 (now locations) | recovery list, who signs → **§3.3**, **§4.4** | 7 |
+| §4.2 (now `highest`) | entries and replay → **§4.1** | 7 |
+| §4.4 (now who signs) | media → **§4.3** | 10 |
+| §7.3 (now the checkpoint) | verdicts → **§7.2** | 12 |
+| §7.2 (now verdicts) | the steps → **§7.1**, with the right step number | 13 |
+| §10 (now views) | your copy → **§8.9** | 7 |
+
+Every `**Spec:**` header line is correct, and no reference names a section that no longer exists.
+
+**Two examples cited a rule the spec does not have.** `reading.md` said "§7.2 asks that cold reader
+to retry the whole read once" and `weekend-reader.md` said "§7.2's cold-reader retry". There is no
+retry rule anywhere in the spec — §9 says only that a cap or a transport failure is no verdict. The
+false citations are gone and the advice is left as app-level, which is what `weekend-reader.md`
+already called it in the same sentence. **If that should be a rule, it needs an example that proves
+it.**
+
+**Sixteen example directories that no longer exist** were still being pointed at, the wreckage of the
+consolidation into twelve: `the-reader`/`top-and-rumors` → `reading`, `first-contact`/`the-chain`/
+`recovery-list` → `identity`, `contest`/`moving` → `contests`, `signed-file`/`no-canonicalization`/
+`json-hygiene` → `files`, `media`/`rewrite` → `the-index`, `posts-and-targets` → `posts`,
+`publish-interface`/`your-copy` → `publishing`. **Fourteen of the twenty-one `Run:` lines were
+commands that could not work.** Five references pointed into the example they now live inside and
+were reworded rather than repointed.
+
 ## What remains — in order
 
-### 1. `host` → `hub` in the code and the example prose — owner's call
-
-The spec is on `hub` throughout; `src/` and `examples/` are not. `src/cli.js` prints
-`this host is misbehaving` and its usage line says `somewhere other than the host`; `src/reader.js`'s
-header comment says the same; and the prose of roughly six example `.md` files uses "host" for the
-serving party. Mechanical, but two things make it not a blind sed: the example `.md` files quote
-`cli.js`'s output, so the two move together or both go stale, and it is somebody's writing. Small
-enough to do in one pass once the owner says go.
-
-### 2. DISTRIBUTION-MODEL.md — phased rewrite
+### 1. DISTRIBUTION-MODEL.md — phased rewrite
 
 The current document (20K words) describes a family journaling app with AI assistance built on the
 **old** protocol. It has a stale-content banner. The product vision is current; the technical
@@ -152,7 +205,7 @@ architecture is not. Phase the rewrite to respect the owner-document constraint:
 **This is an owner document.** Agents may edit it, but must clarify changes with the owner first —
 especially product vision, business model, or privacy guarantees.
 
-### 3. GOALS.md — rewrite
+### 2. GOALS.md — rewrite
 
 The five "Still open" questions are all resolved by the completed spec:
 1. Publish interface → signed PUT to conventional paths (§8)
@@ -184,11 +237,19 @@ Final: `npm run check` (tests + vectors + the README's three budgeted sections).
 - `GOALS.md` is the owner's document. Do not edit without an instruction that names the file.
 - `DISTRIBUTION-MODEL.md` is an owner document. Agents may edit it, but must clarify changes with
   the owner first — especially product vision, business model, or privacy guarantees.
-- The `n` → `number` rename taught a lesson twice over. A batch script that renames wire-member
-  patterns (`{n:`, `.n`) misses function parameters and callback variables that carry the same name;
-  verify every example runs (`npm run spec`) before declaring a rename done. It also misses the
-  `rule()` strings, and **`npm run spec` cannot catch that** — the spec is whatever the scripts
-  print, so a stale name in a rule is a green build and a wrong spec. Grep the regenerated
-  `open-feed-spec.md` for the old name as well.
+- The `n` → `number` rename taught a lesson four times over, and the naming pass finished paying for
+  it. A batch script that renames wire-member patterns (`{n:`, `.n`) misses function parameters and
+  callback variables that carry the same name; verify every example runs (`npm run spec`) before
+  declaring a rename done. It also misses the `rule()` strings, and **`npm run spec` cannot catch
+  that** — the spec is whatever the scripts print, so a stale name in a rule is a green build and a
+  wrong spec. Grep the regenerated `open-feed-spec.md` for the old name too. Then grep everything the
+  generator never reads: example `.md` prose, code comments, test names, printed output.
+- **A rename or a renumbering is not done until the prose is done, and a half-done one is worse than
+  an untouched one.** When some references have been remapped and some have not, no number in the
+  repo can be trusted. Renumbering a spec section silently invalidates every `§N.M` outside the
+  generator, and nothing checks them: `**Spec:**` headers, `**Run:**` lines, and `examples/<slug>/`
+  pointers are all plain prose. After any restructuring, walk every cross-reference against the
+  regenerated headings — `archive/spec-before-generation.md` holds the old numbering when a map is
+  needed — and confirm every path named still exists.
 - The AP bridge uses Ed25519 with the legacy `publicKey` PEM format. Mastodon 4.7+ may require
   FEP-521a for Ed25519. Test against a real instance before committing to one format.

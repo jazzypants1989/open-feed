@@ -184,7 +184,7 @@ current index does not list, after a grace window covering §8.3. A publisher MU
 withdrawing erased anything.`);
 
 // ---- §8.9 your copy ----
-console.log(`§8.9 — the publisher kept ${pub2.copy.size + pub.copy.size} files it wrote, every one a signed file that verifies with no host\n`);
+console.log(`§8.9 — the publisher kept ${pub2.copy.size + pub.copy.size} files it wrote, every one a signed file that verifies with no hub\n`);
 for (const [path, bytes] of [...pub.copy, ...pub2.copy]) if (!path.startsWith('/media/') && !path.startsWith('/feed')) assert.ok(verifyFile(bytes, [alice.x, next.x]), path);
 assert.ok(pub.copy.has('/posts/1') && pub2.copy.has('/index'));
 rule('8.9', 'A publisher MUST keep the signed bytes of everything it publishes.');

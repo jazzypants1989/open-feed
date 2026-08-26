@@ -89,9 +89,9 @@ const move = async (what, k, v) => { const saved = store.get(k); v === null ? st
 const battery = [
   await move('withholds a listed post', 'alice/posts/3', null),
   await move('serves an older index', 'alice/index', oldIndex),
-  await move('rolls the index back, keeping top', 'alice/index', signIndex({ ...cur, version: cur.version - 1 }, A3)),
+  await move('rolls the index back, keeping highest', 'alice/index', signIndex({ ...cur, version: cur.version - 1 }, A3)),
   await move('serves a second index at one version', 'alice/index', signIndex({ ...cur, entries: [...cur.entries, [sha256(Buffer.from('a blob nobody listed'))]] }, A3)),
-  await move('drops post 4 and lowers top', 'alice/index', signIndex({ entries: cur.entries.filter((e) => e[0] !== 4), version: cur.version + 1, highest: 3 }, A3)),
+  await move('drops post 4 and lowers highest', 'alice/index', signIndex({ entries: cur.entries.filter((e) => e[0] !== 4), version: cur.version + 1, highest: 3 }, A3)),
   await move('swaps a post for another she signed', 'alice/posts/1', signFile({ number: 1, at: '2026-08-09T00:00:00Z', text: 'not what she wrote' }, A3)),
   await move('serves genuine post 3 at number 1', 'alice/posts/1', store.get('alice/posts/3')),
   await move('serves a post signed by a key that was never hers', 'alice/posts/3', signFile({ number: 3, at: '2026-08-01T10:15:00Z', text: 'post 3' }, THIEF)),
@@ -113,7 +113,7 @@ rule('7.1', `1. Fetch \`<location>/profile\`. Not served: **tampered**. Does not
 3. Adopt a recovery list for every chain length beyond those the checkpointed chain reaches, from the links'
    \`recovery\` and the profile's, keeping any list already held.
 4. Walk the chain (§3.2), judging each link by the list held at its length. A link that fails, or a link
-   without \`sig\` beside a change it may not make: **contested**.
+   without \`signature\` beside a change it may not make: **contested**.
 5. Verify the signature under the key the chain ends on. Failure: **contested**.
 6. Against a checkpoint, apply §3.4.
 7. Fetch \`<location>/index\`, verify it under the current key (§4.4), replay it (§4.1). An index that does
@@ -123,7 +123,7 @@ rule('7.1', `1. Fetch \`<location>/profile\`. Not served: **tampered**. Does not
 9. Against a checkpoint: the same \`version\` at a different address is **tampered**.
 10. Against a checkpoint: every live number at or below the checkpointed \`highest\` MUST have been live or
     withdrawn before at the identical hash, else **tampered**. Media files are exempt.
-11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted \`withdrawn: n\`
+11. Against a checkpoint: numbers the checkpoint held that are no longer live are noted \`withdrawn: <number>\`
     and their hashes kept.
 12. For each live entry, fetch it. A media file's bytes MUST hash to the listed address. A post MUST verify
     under a key in the chain, its address MUST equal the listed hash, and its \`number\` MUST equal the number it
@@ -138,7 +138,7 @@ console.log(`§7.2 — distinct verdicts across everything above: ${[...verdicts
 assert.deepEqual([...verdicts].sort(), ['contested', 'ok', 'tampered']);
 for (const r of [afterWithdraw, midRotation, afterRestore]) assert.equal(r.verdict, 'ok');
 rule('7.2', `A read returns exactly one of **ok**, **tampered** (this hub is misbehaving), or **contested** (this identity
-is contested), and a reader MUST NOT invent a fourth. \`recently restored\`, \`withdrawn: n\`, and \`no index I
+is contested), and a reader MUST NOT invent a fourth. \`recently restored\`, \`withdrawn: <number>\`, and \`no index I
 can verify\` are notes on an ok read.`);
 
 // ---- §7.3 the checkpoint ----
@@ -156,15 +156,15 @@ for (const number of [1, 3]) await mpub.publish(number, { at: '2026-08-04T09:00:
 await mpub.publish(4, { at: '2026-08-04T09:00:00Z', rel: 'reply', target: target(2, afterWithdraw.checkpoint.withdrawn.get(2)), text: 'about the withdrawn one' });
 const mumRead = await reader.read({ learned: mum.x, at: MUMAT });
 const quiet = await cost(() => reader.rumors(new Map([[A1.x, good]]), mumRead.posts, 'mum', { now: LATER }));
-assert.deepEqual([quiet.out, quiet.gets], [[], 0]);                                       // at or below top, or withdrawn at that hash: quiet
-// A stale checkpoint: alice publishes 5; a reader checkpointed at top 4 sees mum's reply to 5 and looks again, once.
+assert.deepEqual([quiet.out, quiet.gets], [[], 0]);                                       // at or below highest, or withdrawn at that hash: quiet
+// A stale checkpoint: alice publishes 5; a reader checkpointed at highest 4 sees mum's reply to 5 and looks again, once.
 await pub3.publish(5, { at: '2026-08-10T09:00:00Z', text: 'post 5' });
 const nowPin = (await read(good, LATER)).checkpoint;
 await mpub.publish(5, { at: '2026-08-11T09:00:00Z', rel: 'reply', target: target(5, nowPin.live.get(5)), text: 'about post 5' });
 const mumAgain = await reader.read({ learned: mum.x, at: MUMAT });
 const seen = new Map([[A1.x, good]]);
 const looked = await cost(() => reader.rumors(seen, mumAgain.posts, 'mum', { now: LATER }));
-console.log(`§7.4 — mum replies to post 5, which the reader's checkpoint does not reach: look-again fetched ${looked.gets}, checkpoint now top ${seen.get(A1.x).highest}, said ${JSON.stringify(looked.out)}`);
+console.log(`§7.4 — mum replies to post 5, which the reader's checkpoint does not reach: look-again fetched ${looked.gets}, checkpoint now highest ${seen.get(A1.x).highest}, said ${JSON.stringify(looked.out)}`);
 assert.deepEqual([looked.out, seen.get(A1.x).highest, looked.gets > 0], [[], 5, true]);
 // A thousand replies naming numbers never issued: one look-again, one line.
 const gpub = await claim(griefer, 'griefer', GRIEF);

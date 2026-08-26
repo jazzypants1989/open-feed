@@ -1,6 +1,6 @@
 // §6 — encrypted content. One X25519 ephemeral per message; per recipient a blinded tag, a wrapped
 // content key; the content under a single-use key with the post binding as associated data; the
-// audience inside, naming people. And §4.4's encrypted media file.
+// audience inside, naming people. And §4.3's encrypted media file.
 import crypto from 'node:crypto';
 import { parseBody } from './file.js';
 
@@ -57,7 +57,7 @@ export function decrypt(env, privateKey, binding) {
   return null;
 }
 
-// ---- §4.4: a encrypted media file ----
+// ---- §4.3: an encrypted media file ----
 /** Returns `{ bytes, hash, key }`: the ciphertext to list and serve, its address, and the key for the envelope. */
 export function encryptMedia(plain, random = crypto.randomBytes) {
   const key = random(32);

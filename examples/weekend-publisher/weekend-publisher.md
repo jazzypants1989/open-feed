@@ -19,9 +19,9 @@ on the way out.
 that separates the publisher from the demo. Around 50.
 
 **Claiming a name is a profile — and an index, even an empty one (§8.4).** The demo writes both.
-Without that empty index a brand-new identity on a perfectly honest hub reads as `host: no index
+Without that empty index a brand-new identity on a perfectly honest hub reads as `tampered: no index
 served` at the moment somebody signs up, which is the worst possible first impression for a
-protocol whose whole point is telling a bad host from a good one.
+protocol whose whole point is telling a bad hub from a good one.
 
 **The post is written before the index that lists it (§8.3).** The wire log shows the order for
 every post: `PUT /alice/posts/n`, then `PUT /alice/index` with the entity tag of the version that was
@@ -31,7 +31,7 @@ nobody has listed is nothing to anybody. The asymmetry is the whole reason there
 **A number already held is 409, and the publisher takes the next one (§8.2).** The laptop asks for 1,
 2 and 3, gets refused three times, and lands on 4. Nothing is lost and nothing is retried in place.
 
-**Numbering need not be gapless.** Post 4 is written and never folded into the index, which is
+**Numbering need not be gapless.** Post 4 is written and never listed in the index, which is
 exactly what a crash between the two writes looks like — and the demo leaves it there, because *a
 number nobody lists is nothing*. A device that comes back MUST abandon a number it cannot prove it
 listed, and MUST NOT list one late.

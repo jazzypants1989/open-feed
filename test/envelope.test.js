@@ -1,4 +1,4 @@
-// §6 — the envelope: post binding, blinded tags, §2.4 inside, the audience inside; §4.4 encrypted media.
+// §6 — the envelope: post binding, blinded tags, §2.4 inside, the audience inside; §4.3 encrypted media.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -61,7 +61,7 @@ test('§6.4 the audience must name people, and the publisher includes itself', (
   assert.equal(decrypt(env, alice.read.privateKey,  binding), null, 'a publisher that leaves itself out cannot read its own outbox');
 });
 
-test('§4.4 a encrypted media file: random key, the listed hash is the ciphertext\'s, the key travels in the envelope', () => {
+test('§4.3 an encrypted media file: random key, the listed hash is the ciphertext\'s, the key travels in the envelope', () => {
   const png = Buffer.from('\x89PNG a tiny png');
   const { bytes, hash, key } = encryptMedia(png);
   assert.equal(crypto.createHash('sha256').update(bytes).digest('base64url'), hash);

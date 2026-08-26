@@ -17,7 +17,7 @@ const read = (o, signer, checkpoint = null) => verifyProfile(signProfile(o, sign
 const checkpointOf = (r) => ({ profileVersion: r.raw.version, profileHash: r.profile.address, chain: r.raw.chain, recoveryLists: r.recoveryLists, fields: r.fields });
 const checkpointTo = (o, signer, checkpoint = null) => { const r = read(o, signer, checkpoint); assert.equal(r.verdict, 'ok', r.why); return checkpointOf(r); };
 const got = (r) => [r.verdict, r.why], say = (r) => (r.verdict === 'ok' ? 'ok' : `${r.verdict}: ${r.why}`);
-const HOST = ['tampered', 'serves a branch the recovery rejected'], TIE = ['contested', 'two histories, and no majority settles it'];
+const TAMPERED = ['tampered', 'serves a branch the recovery rejected'], TIE = ['contested', 'two histories, and no majority settles it'];
 const NOHOLD = ['contested', 'the chain of key changes does not hold'];
 const divergesAt = (checkpoint, o) => { const i = o.chain.findIndex((h, j) => j < checkpoint.chain.length && checkpoint.chain[j].key !== h.key); return i < 0 && o.chain.length < checkpoint.chain.length && o.version > checkpoint.profileVersion ? o.chain.length : i; };
 
@@ -35,7 +35,7 @@ console.log(`  checkpointed      version 3   anchor → A2 → A3 (restored by m
 console.log(`  he serves   version 4   anchor → A2 → his key     diverges at ${divergesAt(checkpointed, branch)}: ${say(read(branch, EX, checkpointed))}`);
 console.log(`  he serves   version 9   anchor → A2               diverges at ${divergesAt(checkpointed, forgotten)}: ${say(read(forgotten, A2, checkpointed))}\n`);
 assert.ok(walk(branch, adoptRecoveryLists({}, branch, 0)));                                   // his chain walks; walking is no test
-assert.deepEqual([divergesAt(checkpointed, branch), divergesAt(checkpointed, forgotten), got(read(branch, EX, checkpointed)), got(read(forgotten, A2, checkpointed))], [2, 2, HOST, HOST]);
+assert.deepEqual([divergesAt(checkpointed, branch), divergesAt(checkpointed, forgotten), got(read(branch, EX, checkpointed)), got(read(forgotten, A2, checkpointed))], [2, 2, TAMPERED, TAMPERED]);
 
 // ---- rule 2: a list per length, never overwritten ----
 const early = checkpointTo(prof(2, [anchor, L1], family), A2);
@@ -56,7 +56,7 @@ const r3b = read(prof(4, [anchor, L1, both], his), EX, checkpointTo(prof(3, [anc
 console.log('§3.4 — judged by the list held\n');
 console.log(`  his link: 1 of ${carried.leaves.length} by the copy it carries, ${vouches(A2.x, exRest, heldList)} of ${heldList.leaves.length} by the list held   ${say(r3)}`);
 console.log(`  a valid link of his (signed with A2) against her restore by two of three   ${say(r3b)}\n`);
-assert.deepEqual([vouches(A2.x, exRest, heldList), vouches(A2.x, exRest, carried), adopted[2], got(r3), got(r3b)], [1, 1, family, NOHOLD, HOST]);
+assert.deepEqual([vouches(A2.x, exRest, heldList), vouches(A2.x, exRest, carried), adopted[2], got(r3), got(r3b)], [1, 1, family, NOHOLD, TAMPERED]);
 
 // ---- rule 4: a majority on exactly one side ----
 const coerced = restore(A2, EX, [mum, ex], family);
@@ -65,7 +65,7 @@ for (const [mine, link, what] of [[restA3, exRot, 'her restore (2) vs his rotati
   const r = read(prof(4, [anchor, L1, link], family), EX, checkpointTo(prof(3, [anchor, L1, mine], family), A3));
   console.log(`  ${what.padEnd(48)} ${say(r)}`);
   const [a, b] = [vouches(A2.x, mine, family) * 2 > 3, vouches(A2.x, link, family) * 2 > 3];
-  assert.deepEqual(got(r), a === b ? TIE : HOST);
+  assert.deepEqual(got(r), a === b ? TIE : TAMPERED);
 }
 console.log();
 // Outside a divergence: version backwards, and the same version with a different body.
@@ -80,7 +80,7 @@ rule('3.4', `A reader MUST apply four rules to a served profile:
    be overwritten.
 3. A link is judged by the list the reader holds at that length, never by the copy the link carries. A
    checkpointed reader MUST NOT adopt a carried list at any length its chain already reaches.
-4. More than half of the recovery list at the divergence point, vouching on exactly one side, wins. \`sig\` is not a
+4. More than half of the recovery list at the divergence point, vouching on exactly one side, wins. \`signature\` is not a
    vote. If both sides reach a majority, or neither, the identity is **contested** (§7.2) and the reader
    follows no branch until handed the current key (§3.7).
 

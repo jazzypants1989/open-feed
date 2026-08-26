@@ -10,9 +10,9 @@ overwritable, and a hub MAY generate them itself instead. **They are how this pr
 readers that have never heard of it** — a feed reader written in 2005 subscribes to alice's journal
 without one line of Open Feed code in it.
 
-That reach is bought with a second surface, and the second surface is one the host controls
+That reach is bought with a second surface, and the second surface is one the hub controls
 completely. So §10 spends most of its words on what a view is *not*: **nothing in a view is signed,
-and a view is never the index.** A view is something a host can regenerate; the index is something
+and a view is never the index.** A view is something a hub can regenerate; the index is something
 only the author's key can produce (§4.4). An implementation MUST NOT treat a view as evidence of
 anything.
 
@@ -42,7 +42,7 @@ withdrawn (§4.1), so the reader never fetched it and no view mentions it. Post 
 the reader has it, the audience can open it, and it appears in none of the three documents. §10
 allows either omission or an empty placeholder item at the encrypted post's number, and
 `src/views.js` omits; the example asserts what matters under both readings, which is that the
-envelope's `epk`, its slots and its `ct` appear nowhere in the three documents. A view MUST NOT
+envelope's `ephemeral`, its slots and its `ciphertext` appear nowhere in the three documents. A view MUST NOT
 carry ciphertext. It would be an easy mistake — the envelope is JSON and it would round-trip through
 a feed generator without complaint — and the result would be an unauthenticated blob served to
 everybody who ever subscribed, sitting in feed-reader caches, for an audience of two.
@@ -51,9 +51,9 @@ everybody who ever subscribed, sitting in feed-reader caches, for an audience of
 no hub chooses it; with no `name` the view falls back to the last segment of the location, which is
 the hub's to choose and is therefore only a label. The link on that page carries the anchor key in
 its fragment, `https://alice.example/alice/#pukq6VMQ…`, and a fragment is never sent in a request
-(RFC 3986 §3.5) — the server sees `GET /alice/`. **But the page itself came from the host.** A
-reader that scrapes the key out of a page the host served has learned the key from the host, and
-§3.7 still applies: the key has to arrive by a route the host does not control. The fragment on a
+(RFC 3986 §3.5) — the server sees `GET /alice/`. **But the page itself came from the hub.** A
+reader that scrapes the key out of a page the hub served has learned the key from the hub, and
+§3.7 still applies: the key has to arrive by a route the hub does not control. The fragment on a
 generated page is a convenience for the person who copies the link into a message, not a first
 contact. `examples/identity/` is the example for what does count.
 
@@ -64,7 +64,7 @@ lookup. This is how the fediverse and `@user@domain` conventions discover people
 h-card already carries `<link rel="alternate">` for both the JSON Feed and the Atom feed, a single
 WebFinger query makes the whole interop surface discoverable.
 
-**Nothing in a view is signed.** This is the centre of the example. The host rewrites
+**Nothing in a view is signed.** This is the centre of the example. The hub rewrites
 `/alice/feed.json` in place: it changes post 2's text to something alice did not write, and adds an
 item at number 5 saying she has moved to his hub. The doctored file is still valid JSON Feed, still
 parses, still renders. Read as a signed file (§2.1) it is `null` — there is no signature in it to
@@ -72,17 +72,17 @@ break. And the reader's verdict on the identity is still `ok`, because a §7 rea
 view at all.
 
 Then the same three edits are made to the files the view was generated from, and the output puts
-them side by side. Inventing a post takes an index entry, and an index the host signs is not signed
+them side by side. Inventing a post takes an index entry, and an index the hub signs is not signed
 by the key the profile ends on. Changing post 2's text changes its address, and the index no longer
-lists that post. Dropping post 1 leaves a number the index lists and the host does not serve. Three
+lists that post. Dropping post 1 leaves a number the index lists and the hub does not serve. Three
 `tampered` verdicts, and the reader names each one. Nothing about the view resisted; nothing about the
 signed files gave way. That is the whole distinction §10 draws, in six lines of output.
 
 **The stranger.** The last block runs both readers over the same origin at the same moment. The
-plain feed reader parses the host's rewritten `feed.json` and shows three items, one of which never
+plain feed reader parses the hub's rewritten `feed.json` and shows three items, one of which never
 existed. The Open Feed reader returns `tampered` and names the reason. The stranger is protected against
 a network attacker, because §9 makes every fetch HTTPS to a public address, and against nobody else:
-the host he is reading can invent, edit, backdate and unpublish anything on that page, and he has no
+the hub he is reading can invent, edit, backdate and unpublish anything on that page, and he has no
 way to know. He has no key, does no verification, and runs no protocol code — which is exactly the
 deal. This is `GOALS.md` scenario 7, the stranger, and priority 3, interop ("our content reaches
 existing feed readers and the fediverse/Bluesky with nothing built"). Scenario 7's other two halves

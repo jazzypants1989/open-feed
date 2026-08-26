@@ -1,8 +1,8 @@
 # Posts
 
-**Spec:** §5 entire — §5.1 `n`, §5.2 `at`, §5.3 `rel`, §5.4 `target`, §5.5 `media`, §5.6 private
+**Spec:** §5 entire — §5.1 `number`, §5.2 `at`, §5.3 `rel`, §5.4 `target`, §5.5 `media`, §5.6 private
 messages are posts. Appendix B.6 and B.7 are its vectors.
-**Run:** `node examples/posts-and-targets/posts-and-targets.js`
+**Run:** `node examples/posts/posts.js`
 
 A post is the last of the three file shapes and the only one that carries what somebody wrote. It is
 an ordinary signed file (§2) whose object says at most four things: the number it is published at,
@@ -27,11 +27,11 @@ the same design: the key can move, the file cannot.
 
 **The number is inside the signed bytes.** §5.1 is one sentence and it is doing structural work. The
 example signs one `at` and one `text` at number 2 and again at number 6, and the two files have
-different addresses; strip `n` out of the body and both hash to the same thing. That is the whole
+different addresses; strip `number` out of the body and both hash to the same thing. That is the whole
 mechanism — because the number is inside the bytes, it is inside the address, and post 2 *is not*
-post 6 at any hash. So a host that wants to show you post 2 where post 6 should be has to serve a
-whole different file, and the reader that checks the served file's address and its `n` against the
-index says **this host is misbehaving** (§7.3) — `post 6 is not what the index lists`.
+post 6 at any hash. So a hub that wants to show you post 2 where post 6 should be has to serve a
+whole different file, and the reader that checks the served file's address and its `number` against the
+index says **tampered** (§7.2) — `post 6 is not what the index lists`.
 Nothing about the file was tampered with: the signature is alice's and the bytes are hers. It is
 simply not that post.
 
@@ -39,16 +39,16 @@ simply not that post.
 ordinary path of a post, so a stranger can `201` a file into a number alice has not reached yet —
 and the file he replays can be one of *hers*, signed by the key her chain ends on. What tells the
 hub it is not her file for that number is that it does not declare that number. When she publishes
-her own post 9 it does, and the hub replaces his (§8.5). Take `n` out of the bytes and the replay is
+her own post 9 it does, and the hub replaces his (§8.5). Take `number` out of the bytes and the replay is
 indistinguishable from her own post 9: the hub would have to keep it and refuse her, forever, on her
-own name. `examples/publish-interface/` owns §8.5; this block only shows the half that §5.1
+own name. `examples/publishing/` owns §8.5; this block only shows the half that §5.1
 supplies.
 
 **`at` is content time, and is never a verdict.** This one is worth being emphatic about. The
 example publishes a post dated 1970 and a post dated 3026. Both are perfectly valid; the reader
 returns **ok** with no note; an app that sorts by `at` gets `5 1 2 3 4 6` while the index's own
 order is `1 2 3 4 5 6`. Neither timestamp was consulted to reach any verdict, and neither decides
-precedence: a number has one hash ever (§4.2) and the index that says so is signed. The
+precedence: a number has one hash ever (§4.1) and the index that says so is signed. The
 complete list of places a clock appears in this protocol — `at`, the seven-day "recently restored"
 flag, the rewrite cadence — and not one of them gates anything. The reason is in the threat model:
 the adversary runs the server, and a party who runs the server also sets its clock.
@@ -62,15 +62,15 @@ vocabulary of seven does not cover.
 **An edit is a new post that withdraws the old one.** Post 7 carries `rel: "supersedes"` and a
 target naming post 3 and its hash; the index withdraws 3 in the same amendment. The reader reads
 **ok** and notes `withdrawn: 3`, and — this is the part that makes the SHOULD implementable — **the
-pin keeps the hash post 3 had**. So sis's older reply, which targets `(3, that hash)`, still
+the checkpoint keeps the hash post 3 had**. So sis's older reply, which targets `(3, that hash)`, still
 resolves: the reader can see what it was answering even though the post is gone from the live set.
 §5.3 asks a reader holding post 7 to show those replies under it, and without the remembered hash
 every edit would orphan its thread.
 
 **`target`, and the full hash.** The block prints Appendix B.7 byte for byte and names all four
 members. `key` is the target author's **anchor key, never a URL**, because the URL can change and
-the identity cannot; `loc` is where the replier last knew that author to live, which is how someone
-who moved gets found again (§3.7). `hash` is all 43 characters of the target's address — not a
+the identity cannot; `location` is where the replier last knew that author to live, which is how someone
+who moved gets found again (§3.5). `hash` is all 43 characters of the target's address — not a
 prefix, not an opaque id.
 
 **A reply whose target hash the index does not list is a reply to something else.** This is the rule
@@ -87,18 +87,18 @@ a post whose hash they had only seen part of.
 
 **`media`, and none on an encrypted post.** A public post carries `media` as an array of addresses;
 the index lists each file by its address alone and the reader checks that the bytes hash to it
-(§4.4). The encrypted post's public members are exactly `n`, `at`, `encrypted` — no `media`, no
+(§4.3). The encrypted post's public members are exactly `number`, `at`, `encrypted` — no `media`, no
 `rel`, no `target`, because on an encrypted post all three are inside the envelope, and each media
-entry there is `{hash, key}` rather than a bare hash (§6.5). `examples/media/` and
+entry there is `{hash, key}` rather than a bare hash (§6.5). `examples/the-index/` and
 `examples/envelope/` are where those live.
 
-**A private message is a post.** It sits at `/alice/posts/4` on **alice's own host**, listed in her
+**A private message is a post.** It sits at `/alice/posts/4` on **alice's own hub**, listed in her
 own index, and there is no inbox anywhere for it to be delivered to — the example PUTs at a
 plausible inbox path on mum's hub and gets a `404`, because the path does not exist in the protocol.
 A non-recipient's reading key opens nothing; mum's opens it. The costs §5.6 insists on stating are
-staged where they belong: what the host learns from the shape of the file, and that it can withhold
-the file and be named for it (`host: post 4 is listed and not served` — which does not give mum the
-message), are `examples/envelope/` and `examples/the-reader/`; that alice's signature over this
+staged where they belong: what the hub learns from the shape of the file, and that it can withhold
+the file and be named for it (`tampered: post 4 is listed and not served` — which does not give mum the
+message), are `examples/envelope/` and `examples/reading/`; that alice's signature over this
 ciphertext makes it provable by mum forever, and that withdrawing it reaches neither her copy nor
-her proof, is `examples/your-copy/`.
+her proof, is `examples/publishing/`.
 

@@ -1,6 +1,6 @@
 // A self-signed certificate, built here because there is no other way to test the real thing.
 //
-// §3.1 says an identity URL is HTTPS, and every layer enforces it: `normalizeIdentityUrl`
+// §3.7 says an identity URL is HTTPS, and every layer enforces it: `normalizeIdentityUrl`
 // refuses anything else, so a `kid` cannot name a plaintext identity and an item published
 // under one would not verify. That is correct, and it means an end-to-end test either runs
 // over TLS or does not run over the transport the protocol actually specifies.

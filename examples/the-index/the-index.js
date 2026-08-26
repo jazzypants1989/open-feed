@@ -84,7 +84,7 @@ rule('4.1', `| line | means |
 | \`[hash, null]\` | that media file is withdrawn |
 
 A reader computes the live set by replaying the entries in order. \`number\` is a positive integer. A number has
-one hash, ever: a line for an \`number\` already seen is legal only if it withdraws a live \`number\` or re-lists a
+one hash, ever: a line for a \`number\` already seen is legal only if it withdraws a live \`number\` or re-lists a
 withdrawn \`number\` at the identical hash. A withdrawal MUST refer to something live. \`[hash]\` for a media file
 already live is illegal. \`highest\` MUST be at least the highest number in \`entries\`. An index that verifies
 but entries are invalid is invalid, and a reader reports **tampered** (§7.2). A checkpointed reader remembers the hash of

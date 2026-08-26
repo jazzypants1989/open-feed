@@ -1,6 +1,6 @@
 // §3 — identity. The anchor key is the identity; the profile names the keys, the locations and
 // the recovery list; the chain is one link shape carrying its recovery; a reader keeps a recovery per
-// chain length and judges every link by the recovery it holds there (§3.6). A restore is valid when
+// chain length and judges every link by the recovery it holds there (§3.4). A restore is valid when
 // more than half of that list vouches — the one bar, used for validity and for a contest alike.
 import crypto from 'node:crypto';
 import { sha256, decodeStrict, publicKey, verifyFile, signFile, splitFile, parseBody } from './file.js';
@@ -24,7 +24,7 @@ export const commit = (members) => ({ leaves: members.map(({ key, salt }) => lea
 export const leaf = (salt, x) => sha256(Buffer.from(`${salt}|${x}`, 'utf8'));
 export const signProfile = (fields, key) => signFile(fields, key);
 
-// ---- verifying (§3.3, §3.6) ----
+// ---- verifying (§3.3, §3.4) ----
 // §3.4: a recovery list is its leaves, at most MAX_LEAVES of them; §3.3: a chain is at most MAX_LINKS long.
 // Both bound the signature checks a hostile profile can demand of a reader.
 export const MAX_LINKS = 64, MAX_LEAVES = 32;
@@ -38,7 +38,7 @@ export function vouches(from, link, recovery) {
   }
   return ok.size;
 }
-/** §3.3 / §3.6 rule 4: more than half of the held list vouches. An empty list can never restore. */
+/** §3.3 / §3.4 rule 4: more than half of the held list vouches. An empty list can never restore. */
 const majority = (from, link, recovery) => vouches(from, link, recovery) * 2 > (recovery?.leaves.length ?? Infinity);
 
 /** Shape checks a profile must pass before anything is verified. */
@@ -50,7 +50,7 @@ export function wellFormed(p) {
 }
 
 /**
- * §3.6 rule 2 and 3: the recoveryLists a reader holds, extended by what the served chain carries at
+ * §3.4 rule 2 and 3: the recoveryLists a reader holds, extended by what the served chain carries at
  * lengths the checkpointed chain does not reach. `from` is the first index a carried recovery may fill.
  */
 export function adoptRecoveryLists(recoveryLists, p, from) {

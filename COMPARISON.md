@@ -64,7 +64,7 @@ whose `anchor` differs.
 can't be established, prints a fingerprint, and asks whether to continue connecting — almost nobody
 has the fingerprint to compare against, so almost everybody types `yes`, and the trust that gets
 established is trust in whoever answered the connection. Open Feed's first concern is that prompt,
-answered `yes`, with a hostile host on the other end.
+answered `yes`, with a hostile hub on the other end.
 
 **Signal's safety numbers** are the closest relative: 60 digits shown as twelve groups of five,
 compared in person or read aloud, with a QR scan as the fast path. Same shape — an out-of-band
@@ -92,8 +92,8 @@ no expiry date.
 
 **Revocation, and its absence.** Every revocation mechanism elsewhere is an *announcement* — a
 document that has to reach the reader for the key to be closed, and it reaches the reader over a
-path the host controls. Against the adversary `GOALS.md` names, the one who runs the serving path
-and will not cooperate, **a revocation the host can withhold is not a revocation**. So the old key
+path the hub controls. Against the adversary `GOALS.md` names, the one who runs the serving path
+and will not cooperate, **a revocation the hub can withhold is not a revocation**. So the old key
 is closed by what it may no longer do rather than by what anyone says about it: the reader computes
 the current key from the chain, and an index signed by anything else is not the identity's index.
 There is nothing to withhold, because there is nothing to deliver.
@@ -182,7 +182,7 @@ A contest is two profiles claiming one identity. A move is a profile naming a ne
 
 **There is no timestamp anywhere in this rule, and that is deliberate.** The adversary runs the
 server. He can serve any file at any moment, hold one back for a week, or publish a branch dated
-before the one it is fighting. A wall clock decides nothing here. Systems that settle a split by
+before the one it is fighting. A wall clock decides nothing here. Systems that settle a divergence by
 "latest wins" hand the decision to whoever can write the newest file, which in this threat model is
 the abuser. Open Feed settles it by *who vouched*, counted against a list the reader already had.
 
@@ -205,7 +205,7 @@ global ledger everyone must agree on, to publish family photos from a Raspberry 
 **"Just ask them."** This is what §3.7's exit is, and the spec says so in as many words rather than
 dressing it up. The difference from the systems above is that the asking is *bounded*: it is needed
 only when the recovery list produces no majority, and what gets handed over is one key, over a
-channel the host does not control.
+channel the hub does not control.
 
 ### Relocation
 
@@ -214,17 +214,17 @@ Every other design answers "how do people find you after you move" by asking som
 **Mastodon / ActivityPub.** Migration is `alsoKnownAs` on the new account plus a `Move` activity
 issued *from the old one*: you must still be able to log in to the server you are leaving, and it
 must be willing to emit the activity. Followers transfer; posts do not. Open Feed's adversary is a
-host that will not cooperate, so a migration whose first step is an action by the old host is not
+hub that will not cooperate, so a migration whose first step is an action by the old hub is not
 available at all.
 
 **AT Protocol / Bluesky.** The closest comparison, and a good design: identity is a DID that
-survives a move between hosts, and a holder of the rotation key can repoint the DID document without
-the old host's blessing. The cost is the resolution layer everyone must consult — `did:plc` is a
+survives a move between hubs, and a holder of the rotation key can repoint the DID document without
+the old hub's blessing. The cost is the resolution layer everyone must consult — `did:plc` is a
 directory, `did:web` is a domain you have to keep paying for. Open Feed's `locations` is the cheap
 version of the same idea: no directory and no log, and the price is that the list is only as current
 as the last profile a given reader verified.
 
-**HTTP 301 and `Link rel=canonical`.** The redirect is served by the host you left. It is the right
+**HTTP 301 and `Link rel=canonical`.** The redirect is served by the hub you left. It is the right
 answer when you own both ends and useless in exactly the case this protocol cares about. §9 refuses
 cross-origin redirects for the same reason: a `Location` header is not identity equivalence, and
 moving is expressed in the profile.
@@ -242,10 +242,10 @@ The index is a signed, versioned claim about the whole set: which posts exist, w
 and the highest number ever issued.
 
 **A feed that is its items cannot say what is missing.** In RSS, Atom and JSON Feed the document
-*is* the entries, and a truncated document is indistinguishable from a short one: a host that drops
+*is* the entries, and a truncated document is indistinguishable from a short one: a hub that drops
 your last three posts serves a feed that looks exactly like a feed with three fewer posts. None of
 the three can say a post *was* here and was withdrawn. Open Feed's index is a signed, versioned
-claim about the whole set, and the host cannot sign one.
+claim about the whole set, and the hub cannot sign one.
 
 **Nostr relays make the same trade in the other direction.** An absent event is unremarkable: relays
 are expected to be partial, and there is no per-author statement of completeness to compare against.
@@ -329,7 +329,7 @@ display and cannot interpret. The bet is that this is the better failure.
 object, and nothing about *what it said*. Nostr is the closer relative — an `e` tag holds an event
 id that is itself a hash. What Open Feed adds is the pairing with a **number**: because
 `(author, n)` is the slot a post lives in and the index is signed, a reply naming `(key, n, hash)`
-can be checked against what that author's index lists at `n`. That check is what makes a number safe
+can be checked against what that author's index lists at `number`. That check is what makes a number safe
 to use as a join key at all.
 
 **`at` deciding nothing, against timestamp precedence.** Nostr's replaceable events keep the copy
@@ -343,7 +343,7 @@ profile and the index, and one-hash-per-number on posts, all inside signed bytes
 deserves plain arithmetic.
 
 - **Sealed sender is not available**, because a message *is* a numbered file on the sender's own
-  hub. The host holds it; the shape of the correspondence is visible.
+  hub. The hub holds it; the shape of the correspondence is visible.
 - **Deniability is given up**, because the same per-post signature that stops the ex from posting as
   his wife also makes anything she sends provable by whoever received it. There is no separate
   construction for messages (§6): one signing rule covers the whole protocol.
@@ -364,7 +364,7 @@ for the content (§6).
 **JWE** (RFC 7516, JSON Serialization with `ECDH-ES+A256KW` and `A256GCM`) is the standards-track
 way to say the same thing, and it costs a wire format whose rules live in four RFCs, with no
 standard library that implements them. Its per-recipient header is **not covered by the JWE's own
-AEAD**, so carrier binding has to be a rule a decrypting client performs by comparing plaintext
+AEAD**, so post binding has to be a rule a decrypting client performs by comparing plaintext
 fields afterwards; §6.2 is the same defence in one line of associated data.
 
 **HPKE (RFC 9180) and age** are the closest well-specified relatives — HPKE in spirit, age in
@@ -373,7 +373,7 @@ age's X25519 recipient stanza is the rest: a file key wrapped once per recipient
 key. Where §6 deviates from HPKE:
 
 - HPKE derives through `LabeledExtract`/`LabeledExpand` with a version prefix and a ciphersuite
-  identifier. §6 derives straight from the raw X25519 output with HKDF salted by `epk`, and
+  identifier. §6 derives straight from the raw X25519 output with HKDF salted by `ephemeral`, and
   `"openfeed/v1/slot"` is the whole of the domain separation.
 - HPKE's `Seal` takes a nonce from the key schedule XORed with a sequence number, because an HPKE
   context encrypts many messages. Here a content key encrypts exactly one.
@@ -393,7 +393,7 @@ all. There is **no ratchet, no forward secrecy after the fact, and no group stat
 fixed at the moment a post is written, and the next post simply names a different list. This is
 **file encryption for a mailing list**, and the design says so.
 
-**Why the audience is inside and not in a header.** A header would be readable by the host, which is
+**Why the audience is inside and not in a header.** A header would be readable by the hub, which is
 floor item 2 in reverse: the audience of a family-only post is exactly the social graph the abusive
 operator wants. A key identifier per slot would do the same thing permanently, since reading keys
 are long-lived and published. A blinded tag needs one of the two private halves and is fresh per
@@ -406,7 +406,7 @@ same people.
 
 ## 9. Reading and verdicts
 
-A read returns exactly one of **ok**, **host**, or **identity** (§7.2), and a reader MUST NOT
+A read returns exactly one of **ok**, **tampered**, or **contested** (§7.2), and a reader MUST NOT
 invent a fourth.
 
 **TLS certificate validation** is the cautionary case. A browser's chain validation has a genuinely
@@ -422,8 +422,8 @@ accounts, almost nobody ever set the values, so in practice the whole lattice co
 this key" versus "I do not."
 
 **Signal's "safety number changed"** is the closest relative and it is deliberately binary. It maps
-almost exactly onto `identity`: something about who this is has changed and cannot be settled from
-here. Open Feed adds one state Signal has no need for, `host`, because Open Feed's reader re-fetches
+almost exactly onto `contested`: something about who this is has changed and cannot be settled from
+here. Open Feed adds one state Signal has no need for, `tampered`, because Open Feed's reader re-fetches
 a history a hub could withhold or roll back, while a Signal server relays messages it cannot replay.
 
 The general rule: **the number of states is a UI budget, not a correctness budget.** The protocol
@@ -496,7 +496,7 @@ commit over a Merkle search tree, so its contents are verifiable independently o
 documented, working operation. That is genuinely the same insight: sign the data, not the
 connection. Two differences: the CAR file is a *second* format — DAG-CBOR in a CAR container, the
 API is JSON, so there is still an archive format distinct from the wire format, and there is still
-a request a host can refuse. And portability of the data is not portability of the name: a `did:plc`
+a request a hub can refuse. And portability of the data is not portability of the name: a `did:plc`
 identity resolves through a directory, so the identity layer has a party in it even when the data
 layer does not. The trade runs both ways: Bluesky's tree gives efficient sync and proofs of absence
 that a flat index does not.
@@ -535,8 +535,8 @@ to have the bug separately.
 implementers who agree on the sentence and disagree on the list have produced a bypass — and the
 reader with the shorter list is the one whose users get hurt.
 
-**"No verdict is not a verdict."** If a failure to reach a host is reported as evidence about the
-host, then every flaky coffee-shop connection becomes an accusation against somebody's aunt. The
+**"No verdict is not a verdict."** If a failure to reach a hub is reported as evidence about the
+hub, then every flaky coffee-shop connection becomes an accusation against somebody's aunt. The
 verdicts in §7.2 are strong claims, and they are only worth anything if they are never raised by a
 timeout. §9 makes the distinction structural rather than advisory.
 
@@ -564,13 +564,13 @@ neither. The h-card is output, never input.
 
 **Why "MUST NOT treat a view as evidence" earns a MUST.** Because the shortcut works. An implementer
 who has to build a reader will find `feed.json` easier to parse than an index — no signature check,
-no chain walk, no pin — and a reader built on it will display posts correctly for every honest host,
+no chain walk, no checkpoint — and a reader built on it will display posts correctly for every honest hub,
 forever. It will simply provide none of the guarantees the protocol exists for, and there is no test
-that shows the difference until the host is the one who controls the serving path and does not
+that shows the difference until the hub is the one who controls the serving path and does not
 cooperate. A SHOULD would be read as advice about tidiness.
 
 **What interop buys, and what it costs.** It buys the stranger: reach into every feed reader and,
 through a bridge, into networks nobody here has to build. It costs a second copy of the content that
-the host can rewrite at will, which readers will find first, and which looks authoritative because
+the hub can rewrite at will, which readers will find first, and which looks authoritative because
 it is served from the author's own address. §10's answer is not to make the view trustworthy — it
 cannot be — but to say so once, plainly, in the sentence next to the SHOULD that requires it.

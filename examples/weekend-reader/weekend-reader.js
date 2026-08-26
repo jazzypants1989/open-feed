@@ -110,9 +110,9 @@ function replay(entries) {
 }
 
 // ---- the reader ----
-// `learned` is the anchor key the reader got off the host's path — a link, a scanned code. `checkpoint`
+// `learned` is the anchor key the reader got off the hub's path — a link, a scanned code. `checkpoint`
 // is what it remembers from the last time it verified this identity itself. Three verdicts:
-// ok, host (this host is misbehaving), identity (who this is is in question).
+// ok, tampered (this hub is misbehaving), contested (who this is is in question).
 const WEEK = 7 * 86400e3;
 export async function read(get, { learned, at, checkpoint = null, now = Date.now() } = {}) {
   const note = [], say = (v) => note.includes(v) || note.push(v);
@@ -126,7 +126,7 @@ export async function read(get, { learned, at, checkpoint = null, now = Date.now
   // The recovery. A reader keeps, for every chain length it has seen, the FIRST recovery list it saw
   // there — from the link that carried it, or from the profile. A checkpointed reader adopts nothing at a
   // length its checkpointed chain already reaches. A served chain that does not extend the checkpointed one is
-  // a split; the list that stood at the split judges it, and the branch whose link there has a
+  // a divergence; the list that stood at the divergence point judges it, and the branch whose link there has a
   // majority of that list wins. No majority on exactly one side: contested.
   const recoveryLists = { ...(checkpoint?.recoveryLists ?? {}) };
   const adopt = (from) => { raw.chain.forEach((h, j) => { if (j >= from && h.recovery && !(j in recoveryLists)) recoveryLists[j] = h.recovery; }); if (raw.chain.length >= from) recoveryLists[raw.chain.length] ??= raw.recovery; };
@@ -162,7 +162,7 @@ export async function read(get, { learned, at, checkpoint = null, now = Date.now
   const hf = await get(`${at}/index`);
   let index = hf && openFile(hf, chain.current);
   let set = index && replay(index.obj.entries);
-  // §4.2 is replay; `entries` first, a non-negative `version` and `highest`'s floor are §4's shape.
+  // §4.1 is replay; `entries` first, a non-negative `version` and `highest`'s floor are §4's shape.
   const shape = index && (!set ? 'the index entries are invalid' : Object.keys(index.obj)[0] !== 'entries' ? 'entries is not the first member' : !(Number.isInteger(index.obj.version) && index.obj.version >= 0) ? 'version is not a non-negative integer' : !(Number.isInteger(index.obj.highest) && index.obj.highest >= set.highest) ? 'highest is below the highest number issued' : null);
   if (shape) return bad('tampered', shape);
   if (!index) {
@@ -177,7 +177,7 @@ export async function read(get, { learned, at, checkpoint = null, now = Date.now
     if (index.obj.version === checkpoint.indexVersion && index.address !== checkpoint.indexHash) return bad('tampered', 'two indexes at one version');
     if (index.obj.highest < checkpoint.highest) return bad('tampered', 'the highest number used went backwards');
     // Whatever was rewritten since, a post the reader saw either survived unchanged, was withdrawn,
-    // or came back at the hash it had; a number at or below the old top cannot appear that was
+    // or came back at the hash it had; a number at or below the old highest cannot appear that was
     // never there, and cannot come back as something else.
     for (const [number, e] of set.live) {
       if (typeof number !== 'number' || number > checkpoint.highest) continue;
@@ -211,9 +211,9 @@ export async function read(get, { learned, at, checkpoint = null, now = Date.now
 
 // A reply names its target by key, number, hash and location. A target whose hash is not what that
 // author's index lists — now, or when it was withdrawn — is a reply to something else, and says
-// nothing. A number above the top of the index the reader holds for that author is the only thing
+// nothing. A number above the highest of the index the reader holds for that author is the only thing
 // worth raising, and it is a rumor naming the replier, never an accusation: re-fetch, and if the
-// host still will not show it, say so.
+// hub still will not show it, say so.
 export async function rumors(get, seen, posts, replier) {
   const out = [], refreshed = new Set();
   for (const p of posts.values()) {
@@ -223,7 +223,7 @@ export async function rumors(get, seen, posts, replier) {
     if (listed() !== undefined && listed() !== t.hash) { t.unresolved = true; continue; }
     if (t.number <= seen.get(t.key).highest) continue;                         // withdrawn, or superseded — quiet
     // Look again, but once per identity per pass: a thousand replies naming a number that does not
-    // exist must not turn into a thousand fetches aimed at somebody else's host.
+    // exist must not turn into a thousand fetches aimed at somebody else's hub.
     if (!refreshed.has(t.key)) {
       refreshed.add(t.key);
       const again = await read(get, { learned: t.key, at: t.location, checkpoint: seen.get(t.key) });
@@ -271,7 +271,7 @@ if (isMain) {
 
   // Alice: three posts and a photograph, but only 1 and 3 are listed. Post 2's bytes exist and
   // nobody listed them — a number nobody lists is nothing (§8.2), and it is also the bait for
-  // a host that would like to backdate one into her history.
+  // a hub that would like to backdate one into her history.
   const posts = [1, 2, 3].map((number) => P.post(number, { at: `2026-07-0${number}T10:00:00Z`, text: `post ${number}` }, A1));
   posts.forEach((f, i) => put(`${at}/posts/${i + 1}`, f));
   const photo = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
@@ -292,14 +292,14 @@ if (isMain) {
   console.log('§7 — an honest read\n');
   const ok = await read(get, { learned: A1.x, at, now: NOW });
   console.log(`  verdict  ${ok.verdict}`);
-  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   top ${ok.checkpoint.highest}`);
+  console.log(`  posts    ${[...ok.posts.keys()].join(', ')}   media 1   highest ${ok.checkpoint.highest}`);
   console.log(`  notes    ${ok.note.length ? ok.note.join('; ') : '(none)'}\n`);
   assert.equal(ok.verdict, 'ok');
   assert.deepEqual([...ok.posts.keys()], [1, 3]);
   const checkpoint = ok.checkpoint;
 
   // A second checkpoint, taken from the restored chain, so a profile that "forgets" the restore is a
-  // strict prefix at a higher version — a split at the end of the prefix (§3.6 rule 1).
+  // strict prefix at a higher version — a divergence at the end of the prefix (§3.4 rule 1).
   const restoredChain = [{ key: A1.x }, P.rotation(A1, A2, REC), P.restore(A2, A3, [MUM, SIS], REC)];
   const keep = new Map(files);
   put(`${at}/profile`, P.profile({ ...base, version: 3, chain: restoredChain }, A3));
@@ -309,7 +309,7 @@ if (isMain) {
   assert.equal(restoredRead.verdict, 'ok');
   files.clear(); keep.forEach((v, k) => files.set(k, v));
 
-  console.log('§7.3 — the hostile moves, and the verdict each one earns\n');
+  console.log('§7.2 — the hostile moves, and the verdict each one earns\n');
   const moves = [];
   const clean = new Map(files);
   // Each move names the verdict it must earn. Counting three at the end is not enough by itself:
@@ -334,7 +334,7 @@ if (isMain) {
   await move('an older index served', 'tampered', () => reindex([[1, P.address(posts[0])]], 1, 3));
   await move('a listed media file withheld', 'tampered', () => files.delete(`${at}/media/${mediaHash}`));
   await move('a media file that is not its own hash', 'tampered', () => put(`${at}/media/${mediaHash}`, Buffer.from('other bytes entirely')));
-  await move('a number below the top that was never there', 'tampered', () => reindex([...listing, [2, P.address(posts[1])]], 2, 3));
+  await move('a number below the highest that was never there', 'tampered', () => reindex([...listing, [2, P.address(posts[1])]], 2, 3));
   await move('a number re-listed at another hash', 'tampered', () => reindex([...listing, [2, P.address(posts[1])], [2, null], [2, P.address(other2)]], 2, 3));
   await move('a whole other identity at this address', 'contested', () => put(`${at}/profile`, P.profile({ ...base, anchor: THIEF.x, version: 1, chain: [{ key: THIEF.x }] }, THIEF)));
   await move("a branch vouched only by a list the link brought", 'contested', () => put(`${at}/profile`,
@@ -348,18 +348,18 @@ if (isMain) {
   await move('an index with `entries` not first', 'tampered', () => put(`${at}/index`, P.file({ version: 2, highest: 3, entries: listing }, A1)));
   const verdicts = new Set(moves.map(([, v]) => v));
   console.log(`\n  ${moves.length} moves, ${verdicts.size} distinct verdicts: ${[...verdicts].sort().join(', ')}`);
-  console.log('  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.\n');
+  console.log('  §7.2 allows exactly three, and a reader that invents a fourth cries wolf.\n');
   assert.equal(verdicts.size, 3);
   files.clear(); clean.forEach((v, k) => files.set(k, v));
 
-  console.log('§7.2 — an index it cannot verify is not an accusation\n');
+  console.log('§7.1 — an index it cannot verify is not an accusation\n');
   const midway = new Map(files);
   put(`${at}/profile`, P.profile({ ...base, version: 2, chain: [{ key: A1.x }, P.rotation(A1, A2, REC)] }, A2));
   const mid = await read(get, { learned: A1.x, at, now: NOW, checkpoint });
   console.log(`  mid-rotation, checkpointed   ${mid.verdict}  notes: ${mid.note.join('; ')}`);
   const cold = await read(get, { learned: A1.x, at, now: NOW });
   console.log(`  mid-rotation, cold     ${cold.verdict} — ${cold.why}`);
-  console.log('\n  The honest host is between its two writes (§3.5). A reader holding an index it');
+  console.log('\n  The honest hub is between its two writes (§4.4). A reader holding an index it');
   console.log('  verified itself keeps that one and says nothing; only a reader with none reports.\n');
   assert.equal(mid.verdict, 'ok');
   assert.ok(mid.note.some((n) => n.includes('no index I can verify')));
@@ -379,10 +379,10 @@ if (isMain) {
   const body = (f) => JSON.parse(f.subarray(0, f.lastIndexOf(0x0a)).toString('utf8'));
   const asPosts = (made) => new Map(made.map((f, i) => [i + 1, body(f)]));
   const seen = new Map([[A1.x, { ...checkpoint }]]);
-  const quiet = speak('Mum', MUM.key, mumAt, [[1, 1], [2, 2]]);          // 1 exists; 2 is at or below top
+  const quiet = speak('Mum', MUM.key, mumAt, [[1, 1], [2, 2]]);          // 1 exists; 2 is at or below highest
   let before = fetches;
   const noRumor = await rumors(get, seen, asPosts(quiet), 'Mum');
-  console.log(`  two replies at or below alice's top   ${noRumor.length} lines, ${fetches - before} extra fetches`);
+  console.log(`  two replies at or below alice's highest   ${noRumor.length} lines, ${fetches - before} extra fetches`);
   assert.deepEqual(noRumor, []);
   assert.equal(fetches - before, 0);
 
@@ -395,7 +395,7 @@ if (isMain) {
   console.log(`  the line                              ${JSON.stringify(raised[0])}`);
   console.log('\n  Both bounds are required: look again at most once per identity per pass, and say');
   console.log('  one line per person. Without them a thousand cheap replies buy a thousand fetches');
-  console.log("  aimed at somebody else's hub, and a thousand messages. See examples/top-and-rumors/.\n");
+  console.log("  aimed at somebody else's hub, and a thousand messages. See examples/reading/.\n");
   assert.equal(raised.length, 1);
   assert.ok(looks <= 8, 'one look at that identity, not one per reply');
 

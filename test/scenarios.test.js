@@ -132,7 +132,7 @@ test('the domain goes: everyone relocates, nobody\'s identity changes, readers f
   const checkpoint = (await reader.read({ learned: a.key.x, at: AT })).checkpoint;
   await pub.updateProfile({ anchor: a.key.x, version: 2, name: 'alice', chain: [{ key: a.key.x }], recovery: list(), locations: [AT, NEW] });
   const moved = await reader.read({ learned: a.key.x, at: AT, checkpoint });
-  // Move the files, then the old domain dies. The new name continues from her own last index (§10):
+  // Move the files, then the old domain dies. The new name continues from her own last index (§8.9):
   // a fresh index at version 1 would meet every checkpointed reader as a second index at a version it holds.
   const pubNew = createPublisher({ io, key: a.key, at: NEW, last: pub.copy.get('/index') });
   await pubNew.claim({ anchor: a.key.x, version: 3, name: 'alice', chain: [{ key: a.key.x }], recovery: list(), locations: [NEW] });
@@ -157,7 +157,7 @@ test('the stranger: a public journal reaches a plain feed reader through the gen
   await pub.publish(4, { at: '2026-08-04T00:00:00Z', media: [photo] });
   const r = await readerOver(io).read({ learned: a.key.x, at: AT });
   const feed = JSON.parse(views.jsonFeed(r, AT));
-  assert.equal(feed.items.length, 3, 'encrypted posts are omitted from views; a post with media and no text is listed (§4.4)');
+  assert.equal(feed.items.length, 3, 'encrypted posts are omitted from views; a post with media and no text is listed (§4.3)');
   assert.equal(feed.items[2].content_text, '');
   assert.equal(feed.items[0].id, `urn:openfeed:${a.key.x}:1`, 'ids survive a relocation');
   assert.ok(views.atom(r, AT).includes('&lt;b&gt;'), 'text is escaped, never trusted');

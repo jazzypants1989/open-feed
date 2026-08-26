@@ -14,7 +14,7 @@ import { jsonFeed, atom, hcard, webfinger } from '../../src/views.js';
 const key = (l) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
 const xkey = (l) => readingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${l}`).digest());
 const seeded = (() => { let i = 0; return (n) => Buffer.from(crypto.hkdfSync('sha256', 'openfeed/v1/vector:views', '', String(i++), n)); })();
-const alice = key('alice/anchor'), mum = key('mum'), host = key('bro');
+const alice = key('alice/anchor'), mum = key('mum'), hubKey = key('bro');
 const AT = 'https://alice.example/alice', NEW = 'https://pence.family/alice';
 
 const sealed = encrypt({ content: { text: 'the solicitor rang back' }, audience: [{ key: alice.x, read: xkey('alice-read').x, location: AT }, { key: mum.x, read: xkey('mum-read').x, location: 'https://mom.example/mom' }],
@@ -50,15 +50,15 @@ assert.notDeepEqual(there.items.map((i) => i.url), feed.items.map((i) => i.url))
 // Withdrawn absent, encrypted omitted, no ciphertext.
 assert.ok(read.posts.has(3) && !read.posts.has(4));
 assert.ok(!docs.some((d) => d.includes(sealed.ciphertext) || d.includes(sealed.ephemeral) || d.includes(sealed.slots[0][1]) || d.includes('solicitor') || d.includes('Peonies')));
-// A view is not evidence: the host rewrites feed.json and the reader never notices; the same edits to the files are caught.
+// A view is not evidence: the hub rewrites feed.json and the reader never notices; the same edits to the files are caught.
 const doctored = JSON.parse(jsonFeed(read, AT));
 doctored.items.push({ id: `urn:openfeed:${alice.x}:5`, url: `${AT}/posts/5`, date_published: '2026-08-05T08:00:00Z', content_text: 'I have moved to his hub — follow me there.' });
 store.set(`${AT}/feed.json`, Buffer.from(JSON.stringify(doctored)));
 assert.equal(verifyFile(store.get(`${AT}/feed.json`), alice.x), null);
 assert.equal((await reader.read({ learned: alice.x, at: AT })).verdict, 'ok');
-store.set(`${AT}/index`, signIndex({ entries: [...entries, [5, address(signFile({ number: 5, text: 'x' }, host))]], version: 3, highest: 5 }, host));
+store.set(`${AT}/index`, signIndex({ entries: [...entries, [5, address(signFile({ number: 5, text: 'x' }, hubKey))]], version: 3, highest: 5 }, hubKey));
 assert.equal((await reader.read({ learned: alice.x, at: AT })).verdict, 'tampered');
-console.log('  the host invents an item in feed.json: the reader never fetched it; the same edit to the index: host\n');
+console.log('  the hub invents an item in feed.json: the reader never fetched it; the same edit to the index: tampered\n');
 rule('10', `A publisher SHOULD write a JSON Feed 1.1 document, an Atom feed, and an h-card page, generated from the
 index and the posts, at \`/<name>/feed.json\`, \`/<name>/feed.xml\`, and \`/<name>/index.html\`; a hub MAY generate
 them itself. A view is unsigned, and a reader MUST NOT treat one as evidence of anything. Item ids

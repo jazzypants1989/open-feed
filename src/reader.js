@@ -1,6 +1,6 @@
 // §7 — the reader. Given the anchor key it learned out of band, a location, and optionally the checkpoint
 // it kept from last time, it performs §7's steps in order and returns exactly one of three
-// verdicts: `ok`, `tampered` (this host is misbehaving), `contested` (who this is cannot be settled).
+// verdicts: `ok`, `tampered` (this hub is misbehaving), `contested` (who this is cannot be settled).
 // `recently restored`, `withdrawn: <number>` and `no index I can verify` are notes on an ok read.
 //
 // The fetcher is injected: `get(url) → { bytes, etag } | null` for a 404, and it throws for a
@@ -27,7 +27,7 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
     const restoredAt = chain.restored ? (checkpoint?.restoredAt?.[raw.chain.length] ?? now) : null;
     if (restoredAt !== null && now - restoredAt < WEEK) say('recently restored');
 
-    // §7.2 — the index, under the current key. An unverifiable index is not an accusation.
+    // §7.1 — the index, under the current key. An unverifiable index is not an accusation.
     const hf = await get(`${at}/index`);
     let index = hf && verifyIndex(hf.bytes, chain.current);
     let set = index && replay(index.obj.entries);
@@ -63,7 +63,7 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
       checkpoint: {
         profileVersion: raw.version, profileHash: profile.address, chain: raw.chain, recoveryLists, fields,
         restoredAt: { ...(checkpoint?.restoredAt ?? {}), ...(restoredAt !== null ? { [raw.chain.length]: restoredAt } : {}) },
-        locations: [...new Set([...(checkpoint?.locations ?? []), ...raw.locations])],      // §3.7: every location ever named
+        locations: [...new Set([...(checkpoint?.locations ?? []), ...raw.locations])],      // §3.5: every location ever named
         indexVersion: index.obj.version, indexHash: index.address, highest: index.obj.highest,
         live: new Map([...set.live].map(([number, e]) => [number, e.hash])), withdrawn,
       },

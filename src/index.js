@@ -2,7 +2,7 @@
 // a number has one hash, ever; a media file is listed by its hash alone; `highest` never decreases.
 import { signFile, verifyFile } from './file.js';
 
-/** §4.2: replay. Returns `{ live: Map, highest }` or null when the index is invalid. */
+/** §4.1: replay. Returns `{ live: Map, highest }` or null when the index is invalid. */
 export function replay(entries) {
   if (!Array.isArray(entries)) return null;
   const live = new Map(), issued = new Map();
@@ -34,7 +34,7 @@ export function checkIndex(obj, set) {
 }
 
 /**
- * §7.2 step 9: a served index against the checkpoint. Returns `{ verdict, why }` on a refusal, else
+ * §7.1 steps 8–11: a served index against the checkpoint. Returns `{ verdict, why }` on a refusal, else
  * `{ notes, withdrawn }` where `withdrawn` is the map of withdrawn numbers to the hash they had.
  */
 export function checkAgainstCheckpoint(index, set, checkpoint) {

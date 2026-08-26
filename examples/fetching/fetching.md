@@ -1,11 +1,11 @@
 # Fetching
 
-**Spec:** §9 fetching, with §7.4 the rumor rule and the beacon, and §7.3 the three verdicts.
+**Spec:** §9 fetching, with §7.4 the rumor rule and the beacon, and §7.2 the three verdicts.
 **Run:** `node examples/fetching/fetching.js`
 
 Every rule in §9 binds a reader's outbound requests, and none of it is optional politeness. The
 rumor rule (§7.4) follows a URL that a **replier** chose: someone writes a reply naming a target,
-puts a `loc` on it, and a reader that holds a checkpoint for the targeted identity goes and fetches it. So
+puts a `location` on it, and a reader that holds a checkpoint for the targeted identity goes and fetches it. So
 a reader's fetch layer sits in front of attacker-supplied addresses **by design**, not by accident,
 and it is the one part of the protocol where a miss is a vulnerability rather than a bug.
 
@@ -62,7 +62,7 @@ host that is already an IP literal.
 against a throwaway HTTP origin on `127.0.0.1` — no DNS, nothing off this machine — because a
 redirect rule can only be shown by following one. A same-origin `302` is followed. A `302` to
 `elsewhere.example` is `cross_origin_redirect`: **a cross-origin redirect is never identity
-equivalence**, because moving is expressed in the profile's location list (§3.7), signed by the
+equivalence**, because moving is expressed in the profile's location list (§3.5), signed by the
 person moving, and not in a `Location` header written by whoever holds the socket. A `302` to
 `169.254.169.254` is `blocked_address` and a `302` to `gopher:` is `bad_scheme` — every link is
 re-checked for scheme and address, not just the first, which is what turns "the first URL was safe"
@@ -75,21 +75,21 @@ is per fetch, 1 MB for the profile, the index and a post, larger for media, and 
 one being hit: a 64 KiB body under a 1 KiB cap is `too_large`, and the transfer is destroyed rather
 than buffered and then measured. `MAX_SOCKETS_PER_ORIGIN` bounds concurrency per origin, and
 `MAX_IDENTITIES_PER_PASS` bounds how many identities one pass will resolve — the bound that keeps a
-reply storm from turning one reader's pass into a thousand fetches aimed at somebody else's host.
+reply storm from turning one reader's pass into a thousand fetches aimed at somebody else's hub.
 
 **A cap is no verdict, not an accusation.** The most important block in the example, and the easiest
 one to get wrong in an app rather than in a protocol. The first row is a hub that answered and
-answered wrongly: no profile at the location, verdict **host**, and that is evidence about a hub.
+answered wrongly: no profile at the location, verdict **tampered**, and that is evidence about a hub.
 The next three are a body over the cap, a timeout, and a name that does not resolve — and each one
-comes back out of `read()` as a thrown `FetchError` with no `verdict` on it at all. §7.3 has three
+comes back out of `read()` as a thrown `FetchError` with no `verdict` on it at all. §7.2 has three
 verdicts and this is not a fourth; it is the **absence** of one. The read did not complete and the
 publisher may have done nothing, so an app shows "could not check", never a state of the identity.
-The `transient` flag carries the rest of the rule: a reader SHOULD retry before reporting **host**,
+The `transient` flag carries the rest of the rule: a reader SHOULD retry before reporting **tampered**,
 and SHOULD distinguish "I could not reach this" from "this was answered, and wrongly."
 
-**Following a reply's `loc` is both the feature and the beacon.** The last block runs the rumor rule
+**Following a reply's `location` is both the feature and the beacon.** The last block runs the rumor rule
 with a reader whose fetches all fail, purely to watch the order of addresses it tries. Two replies
-from dad name post 9 of mum, above the `top` of 4 this reader checkpointed, so the reader looks again —
+from dad name post 9 of mum, above the `highest` of 4 this reader checkpointed, so the reader looks again —
 and it tries the two locations it already holds **first**, and the address dad wrote **last**, which
 is the permission §7.4's last paragraph grants: "a reader MAY try the locations it already holds
 before the address in the reply." Two replies cost three fetches, not six: look again at most
@@ -97,6 +97,6 @@ once per identity per pass. And one line comes out, not two: say one line per pe
 replies they wrote. The beacon is what is left over after all of that. Fetching an address a replier
 chose tells that replier the address and the moment of every reader that holds a checkpoint for the name
 they targeted. §9's caps bound what it costs; they do not make it private. The spec names the price
-rather than hiding it, because the alternative — not following `loc` — is the reader who never finds
+rather than hiding it, because the alternative — not following `location` — is the reader who never finds
 someone who moved.
 
