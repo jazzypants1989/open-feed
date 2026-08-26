@@ -1,7 +1,7 @@
 # Distribution Model
 
 > **This document describes the previous design** (`archive/open-feed-spec.md`) and is being rewritten
-> for the current `open-feed-spec.md` — see `PLAN.md`, Stage C.
+> for the current `open-feed-spec.md`.
 
 A family journaling app with AI assistance, built as a conforming **Open Feed** implementation (see `open-feed-spec.md`, Version 0.1.0). Start simple, add complexity only when needed — but stay on-protocol from day one, so hub users and self-hosted members interoperate through the same signed formats rather than a private API that diverges from the spec.
 
