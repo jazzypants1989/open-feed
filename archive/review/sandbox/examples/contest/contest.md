@@ -1,0 +1,137 @@
+# Contests: two profiles claiming one identity
+
+**Spec:** §3.6, leaning on §3.3 (the chain) and §3.4 (the recovery list), reaching §7.3 for the
+`contested` verdict and §3.1 for the exit.
+**Run:** `node examples/contest/contest.js`
+
+A thief holding one of your keys can publish a profile whose chain walks perfectly from your anchor
+key. So can somebody holding none of them, with a link vouched by a recovery list of their own
+making. **Checking that the chain walks is therefore not a test of anything** — it is the
+observation §3.6 starts from, and the first block below prints `true` for the thief's chain to make
+it concrete. Everything in §3.6 exists because the walk is free.
+
+The person doing this is not a stranger. He is the hub operator, he is family, he is on the recovery
+list because he was on it before the divorce, and he will not cooperate (`CLAUDE.md`'s threat model;
+`GOALS.md` scenario 1). This example stages him by name.
+
+Four rules settle a contest, and a reader MUST apply all four. Each is staged here so that the rule,
+and not the fact that a chain walks, is what decides the verdict; `tools/revert.js` holds the edit
+to `src/` that turns each one off and must turn this example red.
+
+## What the output shows
+
+**The pin holds the chain, and a served chain must extend it key for key.** The reader pinned Alice
+at `version` 3: anchor key, a rotation to A2, a restore to A3. The ex holds A2 — the key she rotated
+away from, which stays in her chain and keeps her old posts valid (§3.3) — and serves a chain that
+walks from the anchor and ends on his own key. The **split** is index 2, the first index at which
+the two chains differ, and the reader's verdict names the host, not Alice.
+
+The second half of the rule is the sharper one: he serves `version` 9 with the chain from *before*
+her restore. Nothing in it is forged; it is simply shorter. A profile at a higher `version` whose
+chain is a strict **prefix** of the pinned chain is a split too, at the end of the prefix — that is
+the thief pretending a restore never happened, and without this clause he wins by picking a big
+number. The block closes with the two plain rules that hold against a pin outside any split:
+`version` MUST NOT go backwards, and the same `version` with a different address is contested.
+
+**A recovery list is kept per chain length, and is never overwritten.** The ex holds A2, so he can
+sign a profile at the chain length the reader is pinned at. He republishes with a recovery list of
+one — himself — and the read comes back `ok`, because *nothing distinguishes his edit from hers*:
+the key that signs is the key her chain ends on. What he does not get is the reader's list. A reader
+keeps the first recovery list it ever saw at each chain length, and because every link carries the
+list that stood before it (§3.3), a pinned reader holds one at **every** length its chain reaches,
+from its first read. When he then splits the chain with a restore his own list would have
+blessed, the list at the split is still the three-member one: his single voucher is not a majority
+of it, hers are, and his branch is rejected.
+
+**A link is judged by the list the reader holds, never by the copy it carries.** The same split,
+counted twice. Against the list the reader holds — three members — his self-vouched restore is one
+of three and Alice's plain rotation is zero of three: no majority either way. Against the copy his
+link carries — one member, himself — he has a majority and she has none. The carried copy exists
+only for a reader with no list at that length; a pinned reader MUST NOT prefer it, and MUST NOT
+adopt one at any length its chain already reaches. The example shows the reader's list at index 2
+unchanged after the read.
+
+**A majority of the list at the split wins, on exactly one side.** Five splits in a table, with the
+voucher counts the reference implementation actually computed. Row 2 is the point about signatures:
+two signed rotations, one from Alice and one from the ex with the key he took, and the verdict is
+contested. **A link's `sig` is not a vote.** It proves that whoever held the previous key moved, and
+he held it too. Row 5 is the other tie — mum was made to vouch for him, so both branches reach a
+majority — and it also resolves to contested. Both sides, or neither: the reader follows nobody.
+
+**Majority, and not `k`.** The single most important block. The recovery list is three people with
+`k` = 1, which is a setting a real app would offer ("any one of your people can bring you back"),
+and the ex is one of the three. He vouches for himself. Alice, meanwhile, has done nothing dramatic
+— she rotated her key, alone, as anybody does when they get a new phone. The example runs that one
+split under both candidate rules and prints both outcomes:
+
+- **under a threshold of `k`:** his 1 ≥ 1, her 0 < 1 — *he is Alice now*.
+- **under a majority:** 1 of 3 is not more than half, and neither is 0 — *contested*.
+
+One listed adversary, acting alone, takes her identity under `k` and cannot take it under a
+majority. That is the whole difference between the two rules, and it is the case the protocol exists
+for.
+
+**The price, and the repair.** The majority rule is not free, and the spec says so where the rule is
+stated rather than in a footnote. On a list of two with `k` = 1, a restore mum vouched alone is
+*enough for `k` and is not a majority*, so it draws against the ex's bare rotation and the reader is
+stuck at contested. Alice needs a second member, and until she gets one nobody following her sees
+anything new.
+
+What the single link shape (§3.3) buys is that she does not pay that price twice. Vouchers MAY be
+added to a link **after it was made**, so sis signs the same `A2 -> A3` move Alice already
+published, Alice republishes at a higher `version`, and the chain is unchanged key for key: A3 still
+signs, and the post A3 signed before any of this still verifies. Without that, her only move would
+be to restore *again* to a fresh key, abandoning A3 and every post it signed.
+
+**Two limits, and the only exit.** A cold reader's recovery list is whatever the first profile it
+saw carried. The example runs a reader with no pin against the ex's branch: it follows him, adopts
+his list of one, and thereafter rejects Alice's real profile outright — *the real Alice is the one
+it turns away*. Nothing in the protocol repairs that, and an app MUST NOT hide it (§13.3). The
+second limit is quieter: a list change reaches other readers only through a link, so Alice adding
+her brother at the same chain length changes nothing for a pinned reader until she rotates and a
+link carries the new list — which is why §3.5 asks an app to rotate when the list changes.
+
+The exit is §3.1, and it runs through a person: somebody hands the reader the key the owner's chain
+**currently ends on**, by link or by spoken code, and the reader follows the branch whose chain
+contains that key. Alice's chain contains A3; his does not. See `examples/first-contact/` for the
+two routes. There is no other way out of a contest, and the design says so rather than inventing
+one.
+
+## Contrast
+
+**There is no timestamp anywhere in this rule, and that is deliberate.** The adversary runs the
+server. He can serve any file at any moment, hold one back for a week, or publish a branch dated
+before the one it is fighting. A wall clock decides nothing here, and §13.2 lists every place a
+clock appears in the whole protocol — an author's `at` on a post, the seven-day "recently restored"
+flag, and the rewrite cadence — none of which gates a verdict. Systems that settle a split by
+"latest wins" hand the decision to whoever can write the newest file, which in this threat model is
+the abuser. Open Feed settles it by *who vouched*, counted against a list the reader already had.
+
+- **Signal's safety numbers.** A key change produces a notification, and the user decides. That is
+  honest and it is the right shape for a two-party session, but it puts the whole question on a
+  person at the moment they are least able to answer it. Open Feed's `contested` verdict is the same
+  admission with a rule attached: the reader keeps following nobody until the recovery list settles
+  it or a person hands over the current key.
+- **Matrix cross-signing and device verification.** A master key signs your devices and your
+  contacts sign your master key. It solves the multi-device problem well; it does not answer *two
+  profiles claiming one identity* without a user comparing emoji again. The closest analogue to a
+  recovery list is the social layer around it, which is not part of the resolution rule.
+- **Key transparency and CONIKS-style logs.** Genuinely strong, and the wrong shape for this
+  project: they need a log and an auditor, and in `GOALS.md` scenario 1 the plausible log operator
+  is the hub — the adversary. A gossip layer to keep the log honest is a second protocol at least as
+  large as this one, against priority 1 ("no dependencies") and priority 4 ("minimal").
+- **Blockchain-anchored identity** (ION, `did:*` methods with a ledger). Same objection, more so: a
+  global ledger everyone must agree on, to publish family photos from a Raspberry Pi in a spare
+  room.
+- **"Just ask them."** This is what §3.1's exit is, and the spec says so in as many words rather
+  than dressing it up. The difference from the systems above is that the asking is *bounded*: it is
+  needed only when the recovery list produces no majority, and what gets handed over is one key,
+  over a channel the host does not control.
+
+The scenario this serves is `GOALS.md` scenario 1, **the divorce** — the sister on her ex-husband's
+hub, who must be able to leave with her identity intact and her people able to bring her back. It is
+also what makes scenario 2, **grandma onboards**, survivable: she is never shown a key and gets back
+in by calling her daughter, which is a restore, which is exactly the mechanism a listed adversary
+would abuse if the rule were a threshold instead of a majority. Scenario 1's 2026-08-21 rewording
+already conceded a related limit — a reader with no social path to Alice sees the ex's frozen copy
+as an unmarked page — and the cold-reader limit above is that same honesty applied to a contest.

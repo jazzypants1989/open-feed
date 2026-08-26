@@ -1,0 +1,71 @@
+§4.4 — a media file is the one unsigned file
+
+  bytes             26 — a PNG signature and some text, standing in for a photograph
+  address           fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g
+  which is          base64url SHA-256 of those 26 bytes, and the whole of its verification
+  path              /alice/media/fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g
+  read as a file    null — no body, no separator, no signature
+
+  That is Appendix B.10's media file, byte for byte. Everything else on the wire is signed;
+  this one is named by its content instead, so there is nothing left for a signature to add.
+
+§4.4 — what admits it is being listed in the index; what checks it is its hash
+
+  the index line    ["fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g"]  — the address alone
+  listed, served    ok, and the reader hands back 26 bytes: the original true
+  bytes swapped     this host is misbehaving — media file fKGh1GT8… is not what the index lists
+  bytes withheld    this host is misbehaving — media file fKGh1GT8… is listed and not served
+
+  A reader MUST verify that the bytes it fetched hash to the name it fetched them under.
+  That check is why nothing signs the blob, and why swapping it is caught anyway.
+
+§4.4 — a media file the index does not list is simply not there
+
+  post 6 says       "media":["exoWtC7jg90r1eEvmHWjar-OrSSNOlgpDCCdcXL918U"]
+  the hub serves    /alice/media/exoWtC7j… — 35 bytes, right where the post points
+  the index says    nothing about it
+  the read          ok; post 6 present true; media present false
+
+  The post is not broken by it and the reader says nothing. Being served is not being
+  there; being listed is.
+
+§4.4 — listed in the index, so retention is one rule that reaches encrypted posts
+
+  post 7 in the clear   members: n, at, encrypted
+  a media reference?    false — on an encrypted post it is inside the envelope (§5.5, §6.6)
+  the index line        ["CpQDyIo_ztyC2XZR78PjgDON0z4kf4WY3hD6Qbxxcrc"]
+
+  The host cannot read post 7 and so cannot know which blobs it needs. The index line tells
+  it anyway: keep this one. That is the whole argument for listing media in the index rather
+  than leaving retention to the posts that reference it.
+
+§4.4 — encrypted media: the listed hash is the hash of the ciphertext
+
+  ChaCha20-Poly1305(key, nonce = 12 zero bytes, plaintext = the media bytes, aad = "")
+
+  ciphertext        42 bytes — 26 plus a 16-byte tag
+  listed and served CpQDyIo_ztyC2XZR78PjgDON0z4kf4WY3hD6Qbxxcrc   = SHA-256 of the ciphertext
+  not               fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g   = SHA-256 of the photograph
+  in the envelope   {"hash":"CpQDyIo_…","key":"qJjKJpfF…"}
+  mum opens it, checks the hash, decrypts: back to the original true
+
+§4.4 — the key MUST NOT be reused for a second media file
+
+  ciphertext1 XOR ciphertext2   000000000000000000154811491d184d15480a020a091b0f1749
+  photograph1 XOR photograph2   000000000000000000154811491d184d15480a020a091b0f1749
+  identical: true — the nonce is fixed at 12 zero bytes, so one key is one keystream
+
+  Anyone holding both blobs recovers the XOR of the two photographs without holding the key,
+  and the repeated Poly1305 one-time key lets them forge tags. Draw a fresh key per media file.
+
+§4.4 — what the hub learns
+
+  /media/fKGh1GT8…   26 bytes
+  /media/exoWtC7j…   35 bytes
+  /media/CpQDyIo_…   42 bytes
+
+  That a blob of some size exists, and nothing else. Appendix A gives media no type of its
+  own — "whatever the bytes are" — and nothing the protocol checks reads that header: the hash
+  covers the bytes, and the header is not among them.
+
+Every line above is asserted.

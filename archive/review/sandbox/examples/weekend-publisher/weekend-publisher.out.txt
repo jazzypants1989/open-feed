@@ -1,0 +1,51 @@
+weekend-publisher — §8, written from the text alone
+
+  51 non-blank, non-comment lines above the marker, standard library only.
+  It imports nothing from the weekend reader, and nothing from src/. That is the point.
+
+§8.4 — claiming a name is a profile, and an index even when it is empty
+
+  PUT /alice/profile                                → 200
+  PUT /alice/index                                  → 200
+  index  entries [] version 1 top 0
+  Without that empty index a brand-new identity reads as `host: no index served`.
+
+§8.2-8.3 — the post is written first, then folded into the index
+
+  PUT /alice/posts/1                                → 201
+  PUT /alice/index  If-Match: 5RgsaBeT…             → 200
+  PUT /alice/posts/2                                → 201
+  PUT /alice/index  If-Match: PfbF_ERC…             → 200
+  PUT /alice/posts/3                                → 201
+  PUT /alice/index  If-Match: WwVH1EYH…             → 200
+  index  [[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"CoSXxfG0XyinQCUtnz3ihhEFTQSI4JbVWD6UeFlocjU"],[3,"4gvR7UL_xt0Wz7_eag0gwZ_7TFR6BPetZqSXasLVHZ8"]]  version 4 top 3
+
+§8.2 — a number already held is 409, and the publisher takes the next one
+
+  PUT /alice/posts/1                                → 409
+  PUT /alice/posts/2                                → 409
+  PUT /alice/posts/3                                → 409
+  PUT /alice/posts/4                                → 201
+  the laptop wanted 1 and got 4 — numbering need not be gapless, and a
+  number nobody lists is nothing.
+
+§4.7 — a withdrawal is an appended line; a rewrite drops what it left behind
+
+  PUT /alice/index  If-Match: UFMxXki8…             → 200
+  PUT /alice/index  If-Match: L0KurakP…             → 200
+  after the withdrawal  [[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[2,"CoSXxfG0XyinQCUtnz3ihhEFTQSI4JbVWD6UeFlocjU"],[3,"4gvR7UL_xt0Wz7_eag0gwZ_7TFR6BPetZqSXasLVHZ8"],[2,null]]
+  after the rewrite     [[1,"hURWhg38Wl033FFA1HeqvE5bZQiPnEOREVbvIJij9kY"],[3,"4gvR7UL_xt0Wz7_eag0gwZ_7TFR6BPetZqSXasLVHZ8"]]
+  Same live set, fewer lines. Post 4 is still unlisted: nobody folded it in.
+
+§8.1 — the loser of a race re-reads and folds, and never re-sends its own version
+
+  PUT /alice/posts/5                                → 201
+  PUT /alice/posts/6                                → 201
+  PUT /alice/index  If-Match: O_SESJ2g…             → 200
+  PUT /alice/index  If-Match: O_SESJ2g…             → 412
+  the naive retry sends its own version with the stale tag → 412, which is the
+  hub refusing to let the laptop drop the phone's post. amendIndex re-reads instead:
+  PUT /alice/index  If-Match: wrmrN7mD…             → 200
+  index  4 lines, top 6 — both posts survive.
+
+Every line above is asserted.

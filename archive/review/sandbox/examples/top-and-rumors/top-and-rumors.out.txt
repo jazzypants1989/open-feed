@@ -1,0 +1,61 @@
+§4.3 — the highest number ever issued, not the highest number listed
+
+  entries  [1,"zVYB7g…"] [2,"FkUW0b…"] [3,"AQ_Han…"] [3,null]
+  live     1, 2
+  top      3   — post 3 is withdrawn and its number is never handed back
+
+  a rewrite (§4.7) clears both lines about 3, and only `top` still remembers it:
+
+  entries  [1,"zVYB7g…"] [2,"FkUW0b…"]
+  top      3
+
+§4.3 — why `top` outlives its post
+
+  mum's third reply targets post 3 — the one alice withdrew on purpose.
+
+  with top = 3, as §4.3 requires    3 is at or below the top, so there is nothing to look into
+    rumors                         (none)
+    fetches at alice's host        0
+
+  with top allowed to fall to 2    3 is above the top, so it is worth looking into
+    rumors                         mum replied to something I cannot see
+    fetches at alice's host        4   — one whole read: profile, index, posts 1 and 2
+
+  a reader that already knew top was 3 catches the drop instead of believing it:
+    pinned read                    host: the highest number used went backwards
+
+  The cold reader is right about the bytes and wrong about the world: every reply to a
+  post its author deleted has become a rumor that her host is withholding it.
+
+§7.5 — 1,000 replies, and what the reader pays for them
+
+  replies to posts alice has listed       look-agains 0     fetches 0     lines 0
+  replies naming 500…1499, never issued   look-agains 1     fetches 4     lines 1
+  the same replies, looked at per reply   look-agains 1000  fetches 4000  lines 1000   — the naive rule
+
+  the one line said:  griefer replied to something I cannot see
+
+  Both bounds are REQUIRED (§7.5): look again at most once per identity per pass, and say
+  one line per person. The rumor names who, not how often. Without them a reader is a
+  request amplifier, aimed at a third party by whoever writes the most replies.
+
+§7.5 — a rumor is never raised over a post the author withdrew
+
+  the pin of the reader that watched it:  live 1, 2   withdrawn 3 → "AQ_Han…"   top 3
+  mum's reply names that exact hash, and 3 is at or below the top:
+    rumors                         (none)
+    fetches at alice's host        0
+
+§7.3 — a rumor is a note on an ok read, not a fourth state
+
+  the read of mum, whose replies these are   ok   3 posts, notes: (none)
+  the read of alice, while a rumor stands    ok   notes: (none)
+  the read of the griefer's own feed         ok   nothing he wrote is a verdict against him
+  the earlier read that saw the withdrawal   ok   notes: withdrawn: 3
+  the rumor                                 griefer replied to something I cannot see
+
+  A read returns exactly one of three verdicts — ok, this host is misbehaving, this
+  identity is in question — and a conforming reader MUST NOT invent a fourth. The rumor is
+  said beside an ok read and names the replier, the only party the reader has evidence about.
+
+Every line above is asserted.

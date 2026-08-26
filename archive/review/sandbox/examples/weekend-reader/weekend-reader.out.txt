@@ -1,0 +1,50 @@
+weekend-reader — §7, written from the text alone
+
+  170 non-blank, non-comment lines above the marker, standard library only.
+  About a quarter of it is the strict JSON scan, which exists because JSON.parse
+  cannot see a duplicate member (§2.4). It imports nothing from the publisher.
+
+§7 — an honest read
+
+  verdict  ok
+  posts    1, 3   media 1   top 3
+  notes    (none)
+
+§7.3 — the hostile moves, and the verdict each one earns
+
+  nothing wrong                                      ok
+  a listed post withheld                             host — post 3 is listed and not served
+  post 1 served at the path for post 3               host — post 3 is not what the index lists
+  a post signed by a key that was never hers         host — post 3 is not what the index lists
+  an older index served                              host — two indexes at one version
+  a listed media file withheld                       host — media file fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g is listed and not served
+  a media file that is not its own hash              host — media file fKGh1GT8MtRZogFKb3upiE9A63CETyE-sjhJwE5HK5g is not what the index lists
+  a number below the top that was never there        host — post 2 is listed now and was not before
+  a number re-listed at another hash                 host — the index does not fold
+  a whole other identity at this address             identity — not the identity this reader learned
+  a branch vouched only by a list the link brought   identity — the chain of key changes does not hold
+  a newer profile that forgets her restore           identity — contested: two histories, and no majority settles it
+  an index signed by a rotated-out key, to a cold reader host — the index is not signed by the key the profile ends on
+
+  13 moves, 3 distinct verdicts: host, identity, ok
+  §7.3 allows exactly three, and a reader that invents a fourth cries wolf.
+
+§7.2 — an index it cannot verify is not an accusation
+
+  mid-rotation, pinned   ok  notes: no index I can verify
+  mid-rotation, cold     host — the index is not signed by the key the profile ends on
+
+  The honest host is between its two writes (§3.5). A reader holding an index it
+  verified itself keeps that one and says nothing; only a reader with none reports.
+
+§7.5 — the rumor rule, and what it costs
+
+  two replies at or below alice's top   0 lines, 0 extra fetches
+  1000 replies naming numbers above it   1 line, 5 fetches — one look at alice, not 1000
+  the line                              "a griefer replied to something I cannot see"
+
+  Both bounds are required: look again at most once per identity per pass, and say
+  one line per person. Without them a thousand cheap replies buy a thousand fetches
+  aimed at somebody else's hub, and a thousand messages. See examples/top-and-rumors/.
+
+Every line above is asserted.

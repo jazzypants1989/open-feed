@@ -1,0 +1,20 @@
+P1 §5.4 prefix hash	posts-and-targets=GREEN  top-and-rumors=GREEN  moving=GREEN
+P2 §8.4 version must advance	publish-interface=GREEN  the-reader=GREEN  moving=GREEN  your-copy=GREEN
+P3 §7.2 media exempt	the-reader=GREEN  media=GREEN  rewrite=red@rewrite.js:78  publish-interface=GREEN  your-copy=GREEN  posts-and-targets=GREEN  views=GREEN
+P4 §7.4 any chain key	the-reader=red@the-reader.js:103  posts-and-targets=red@posts-and-targets.js:63  rewrite=red@rewrite.js:78
+P5 row117 subtler: drop entries only	publish-interface=red@publish-interface.js:86
+P6 row69 subtler: fetch post-referenced media	media=red@media.js:68
+P7 §7.2 index version backwards	the-reader=GREEN  publish-interface=GREEN  rewrite=GREEN
+P8 §7.2 same index version diff address	the-reader=GREEN  publish-interface=GREEN  rewrite=GREEN  views=GREEN
+P9 §3.6 same profile version diff address	contest=red@contest.js:51  the-reader=red@the-reader.js:178
+P10 §3.6 host for rejected branch	contest=red@contest.js:51
+P11 §7.2 never-there number	publish-interface=GREEN  the-reader=GREEN
+P12 §9 cross-origin redirect	fetching=red@fetching.js:76
+P13 §9 https only	fetching=red@fetching.js:19
+P14 §6.1 carrierOf format	envelope=red@envelope.js:163  media=GREEN  padding=GREEN
+P15 §6.1 hkdf salt	envelope=red@envelope.js:58
+P16 §6.1 length prefix LE	envelope=red@envelope.js:68  padding=red@padding.js:51
+P17 §8.2 create-once for strangers	publish-interface=red@publish-interface.js:93  posts-and-targets=GREEN
+P18 §8.4 same anchor	publish-interface=red@publish-interface.js:23
+P19 §7.1 unparseable body -> identity	the-reader=GREEN  first-contact=GREEN
+P20 §7.2 top below issued	the-index=red@the-index.js:76  the-reader=GREEN  top-and-rumors=GREEN
