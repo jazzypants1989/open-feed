@@ -26,7 +26,7 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 - [x] §3 Identity ← `identity` (was `first-contact` + `the-chain` + `recovery-list`), `contests` (was `contest` + `moving`)
 - [x] §4 The index ← `the-index` (absorbed `media` and `rewrite`)
 - [x] §5 Posts ← `posts` (was `posts-and-targets`)
-- [ ] §6 Encrypted content ← `envelope`
+- [x] §6 Encrypted content ← `envelope`
 - [ ] §7 Reading ← `the-reader`, `top-and-rumors`, `moving`, `fetching`
 - [ ] §8 Publishing ← `publish-interface`, `weekend-publisher`, `your-copy`
 - [ ] §9 Fetching ← `fetching`

@@ -278,3 +278,57 @@ envelope (§6.5); the public file carries only `n`, `at`, and `encrypted`.
 
 A private message is a post encrypted to its recipients (§6), listed in the sender's own index. There is
 no inbox.
+
+## 6. Encrypted content
+
+An encrypted post is a post whose content is inside an `encrypted` member:
+
+```json
+{"n":5,"at":"2026-08-01T09:00:00Z",
+ "encrypted":{"epk":"<x25519 key>","slots":[["<tag>","<wrapped>"],...],"ct":"<ciphertext>"}}
+```
+
+It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
+it and returns it with `encrypted` opaque (§7.1).
+
+### 6.1. The envelope
+
+One X25519 ephemeral key pair per message. For each recipient reading key `R`:
+
+```
+Z                               = X25519(ephemeral private, R)
+tag(8) || kek(32) || knonce(12) = HKDF-SHA256(ikm = Z, salt = epk, info = "openfeed/v1/slot", 52 bytes)
+wrapped                         = ChaCha20-Poly1305(key = kek, nonce = knonce, plaintext = content key, aad = epk)
+```
+
+and the content, once:
+
+```
+plain = UTF-8 JSON of {"audience": [...], ...the post's content members...}
+ct    = ChaCha20-Poly1305(key = content key, nonce = 12 zero bytes, plaintext = plain, aad = epk || carrier)
+```
+
+`epk` is the ephemeral public key in base64url; wherever it is used as bytes it is the 32 raw key bytes.
+Each slot is a `[tag, wrapped]` pair of base64url strings. An implementation MUST reject an all-zero `Z`.
+The content key MUST be 32 random bytes and MUST NOT be reused across messages. `plain` is a JSON object
+body and §2.4 applies to it.
+
+### 6.2. Carrier binding
+
+`carrier` is the ASCII bytes `<author anchor key>:<post number>` of the post the envelope is published in,
+and MUST be bound as associated data of `ct` together with `epk`.
+
+### 6.3. Slots and tags
+
+A recipient derives its own tag from its own `Z` and scans the slots for it. A tag is a hint: a match
+whose unwrap fails is a collision, and the reader MUST keep scanning.
+
+### 6.4. The audience
+
+`audience` MUST be an array of the recipients inside the plaintext, each
+`{"key": <anchor>, "read": <x25519 key>, "loc": <location>}`, and a publisher MUST include itself.
+
+### 6.5. An encrypted post's target
+
+Inside the envelope, `rel` and `target` are as in §5, and each `media` entry is
+`{"hash": <listed hash>, "key": <base64url>}` (§4.3).
