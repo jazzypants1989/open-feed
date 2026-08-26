@@ -1,12 +1,12 @@
 # The index
 
-§4 of the spec: entries and the fold, `top`, media, who signs the index, rewriting. One script; the prose below is the former the-index, media and rewrite examples.
+§4 of the spec: entries and replay, `top`, media, who signs the index, rewriting. One script; the prose below is the former the-index, media and rewrite examples.
 
 ---
 
 ## The index
 
-**Spec:** §4 the index, §4.1 what the entries mean, §4.2 the fold, §4.4 signed by the current key.
+**Spec:** §4 the index, §4.1 what the entries mean, §4.2 replay, §4.4 signed by the current key.
 Vectors: Appendix B.9–B.11.
 **Run:** `node examples/the-index/the-index.js`
 
@@ -16,7 +16,7 @@ post is written once and never again. Its body has three members: `entries`, the
 `version`, which never goes backwards; and `top`, the highest post number ever issued.
 
 Nothing in it is a diff and nothing is a patch. A reader recomputes the whole live set from line one
-every time, by **folding** the entries in order (§4.2), so a reader that joined at `version` 1 and a
+every time, by **replaying** the entries in order (§4.2), so a reader that joined at `version` 1 and a
 reader that joined at `version` 6 hold the same answer about today. The value of having such a file
 at all is completeness: because the author signed a statement of what exists, a host cannot quietly
 drop a post and have the absence look like nothing.
@@ -34,27 +34,27 @@ an appended line, post 5 encrypted, and one media file listed by its address alo
 own example (`media/`, §4.4); what matters here is that it is admitted by *being listed*, and
 checked by its hash, so retention is one rule that reaches **encrypted** posts too.
 
-**The live set is the fold of the entries, in order.** The example folds B.10's seven lines one at a
+**The live set is replay of the entries, in order.** The example replays B.10's seven lines one at a
 time and prints the live set after each: post 2 appears, then leaves when `[2, null]` is reached,
 and the media file joins at the end. The fourth line shape, `[<media hash>, null]`, takes the media
 file back out again.
 
-**An index that does not fold is invalid, and the verdict is `host`.** Five malformed entry lists
+**An index that does not fold is invalid, and the verdict is `tampered`.** Five malformed entry lists
 are shown being refused — a number listed twice, a withdrawal of something that is not live, a
 number below 1, a media file listed twice, a media withdrawal of nothing — and then one of them is
 served to a reader, which reports `host: the index does not fold`. The spec is honest about this
 label and so is the narration: the index **verified**, so it came from the author's own key, not
-from a misbehaving hub. It is reported as `host` anyway because a fourth reader state was not worth
+from a misbehaving hub. It is reported as `tampered` anyway because a fourth reader state was not worth
 the complexity (§7.3 allows exactly three), and an app SHOULD word it as *the files at this address
 do not make sense* rather than as an accusation against the operator. The same block shows `top`'s
 floor — it MUST be at or above the highest number anywhere in `entries` — and that a feed which has
 issued nothing has `top` 0. *Why* `top` outlives the post holding it is §4.3 and belongs to
 `top-and-rumors/`.
 
-**A number has one hash, ever.** Within one index the fold enforces it: a withdrawn number may come
+**A number has one hash, ever.** Within one index replay enforces it: a withdrawn number may come
 back at the identical hash (Appendix B.11 does exactly that) and at no other. Across a rewrite the
 fold cannot see it — once the `[2, null]` line has been swept away, that index has never heard of
-post 2 — and the example runs one reader through four versions to show the half that is the pinned
+post 2 — and the example runs one reader through four versions to show the half that is the checkpointed
 reader's memory (§7.2). Why the identical-hash repeat is allowed, and why the cross-version rule is
 the way back from a thief, is `rewrite/`'s argument; this example only shows both halves firing.
 
@@ -79,7 +79,7 @@ index is what a restore actually restores.**
 
 The honest consequence is printed too. Between the two writes a rotation takes, a truthful host is
 serving an index signed by a key the profile no longer ends on — so §7.2 says an unverifiable index
-is not an accusation. A reader with no pin reports `host`; a reader holding an index it verified
+is not an accusation. A reader with no checkpoint reports `tampered`; a reader holding an index it verified
 itself keeps that one, notes `no index I can verify`, and says nothing further.
 
 ## Media
@@ -150,7 +150,7 @@ that makes it fixed, which is one fresh key per media file.
 
 **What the hub learns.** The three blobs and their sizes, and nothing else. Not which post an
 encrypted one belongs to, and not whether two of them are the same photograph encrypted twice. It
-does of course learn who fetched what and when, as it does for every file it serves (§5.6, §13.1);
+does of course learn who fetched what and when, as it does for every file it serves (§5.6);
 what it does not learn is anything from the bytes. Appendix A gives media no media type of its own —
 "whatever the bytes are" — and nothing the protocol checks reads that header, because the hash
 covers the bytes and the header is not among them. A hub is free to serve the right `Content-Type`
@@ -158,15 +158,15 @@ and a reader is free to use it for display; nothing verifies on it.
 
 ## Rewriting
 
-**Spec:** §4.5 rewriting, over §4.2 the fold and §7.2 a pinned reader across versions; §8.8 and
-§13.1 for what withdrawal is not.
+**Spec:** §4.5 rewriting, over §4.2 replay and §7.2 a checkpointed reader across versions; §8.8 and
+the threat model for what withdrawal is not.
 **Run:** `node examples/rewrite/rewrite.js`
 
 Withdrawing a post is an appended line: `[n, null]`. The line that listed the post stays exactly
 where it was, because appending is the only edit that leaves every earlier byte alone — which is
 what lets a reader fetch the tail of an index it already holds (§4). So a withdrawal costs two
 lines, and both of them are about a post nobody can read: the number that went, and the hash it
-had. Rewriting is the author writing the whole file out again from the fold — the live set, in
+had. Rewriting is the author writing the whole file out again from replay — the live set, in
 order, and nothing else. Version `version` goes up by one and the lines are gone.
 
 The reason to do it is privacy, and the honest version of that claim is smaller than it sounds.
@@ -176,7 +176,7 @@ remember.** There is no permanent deletion record, no retained-version history, 
 into a copy someone else holds — and no verb that would let an author try. A rewrite changes what
 the *next* person to fetch the index can see. It says nothing at all about the people who already
 fetched it, and nothing at all about the host operator, who fetched every version by definition
-(§13.1). Pretending otherwise would be the dishonest design, so §8.8 states the limit as a MUST
+(the threat model). Pretending otherwise would be the dishonest design, so §8.8 states the limit as a MUST
 NOT: an app **MUST NOT** tell a user that withdrawing erased anything.
 
 ### What the output shows
@@ -190,7 +190,7 @@ next block is.
 
 **The rewrite changes the file and never the live set.** Fold version 2's entries and fold the
 lines a rewrite keeps: the same posts, the same media file, the same `top`. A rewrite is a
-re-spelling of the answer the fold already gives, so no reader can tell the difference except by
+re-spelling of the answer replay already gives, so no reader can tell the difference except by
 looking at the byte count. `top` in particular does not move, because it is the highest number ever
 issued and not the highest number listed (§4.3) — a rewrite that recomputed it from the live
 entries would silently turn every reply to a withdrawn newest post into a rumor (§7.4).
@@ -199,13 +199,13 @@ entries would silently turn every reply to a withdrawn newest post into a rumor 
 are indifferent": in between are two rewrites and three appends, four of the six versions this
 reader never fetched and never will. It reads `ok`. It is told `withdrawn: 3` — the one thing it is
 owed, because post 3 is a post it held and no longer has — and that is a **note on an ok read**,
-never a verdict (§7.3). Its pin quietly keeps the hash post 3 had, which is what makes the next
+never a verdict (§7.3). Its checkpoint quietly keeps the hash post 3 had, which is what makes the next
 block possible.
 
 **A number that comes back.** Appendix B.11 re-lists post 2 at the hash it had. That is legal, and
 it is the *only* legal repeat: §4.2 allows a withdrawn number back at the identical hash and
-nothing else. The example shows the pinned reader accepting it and then shows the illegal twin —
-the same number back at a different hash — coming back as **host**, because the pin remembered.
+nothing else. The example shows the checkpointed reader accepting it and then shows the illegal twin —
+the same number back at a different hash — coming back as **host**, because the checkpoint remembered.
 The rule exists for the restore: a thief who held the current key and withdrew everything is
 undone by the owner re-listing her own posts at their own hashes, and that has to work whether or
 not he happened to rewrite first. The fold's half of the same rule — one hash per number *inside* a
@@ -221,15 +221,15 @@ that the withdrawn line stops being public.
 **What it buys, and what it does not.** After the rewrite the index carries no line about post 3 at
 all, and a reader arriving now sees a feed in which it never existed. Three things do not change.
 Post 3's bytes are still served at `/posts/3` and still verify — there is no DELETE verb, an author
-cannot overwrite her own post, and the fold refuses a withdrawal of something that was never listed
+cannot overwrite her own post, and replay refuses a withdrawal of something that was never listed
 (§8.8). An honest hub **MAY** remove a file the current index does not list, which is how it can
 honour a deletion request, and it is a MAY because no reader depends on it either way. And an
 operator who kept every version he ever served still holds version 4, which contains `[3,null]` —
 the line, the hash, and the hour he served it. That is `GOALS.md` scenario 1, the divorce, and
 scenario 5, the same operator at commercial scale: against him the protocol's answer is never
-confidentiality after the fact, it is **exit** (§10, §13.1).
+confidentiality after the fact, it is **exit** (§8.9).
 
 That is also as far as §4.2's "one hash, ever" reaches. Once the rewrite has dropped the `[3,null]`
-line, an index that lists 3 again at another hash folds cleanly, and only a reader that held a pin
+line, an index that lists 3 again at another hash replays cleanly, and only a reader that held a checkpoint
 across the rewrite can tell. A cold reader has nothing to compare against.
 

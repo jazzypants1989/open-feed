@@ -10,7 +10,7 @@
 **Run:** `node examples/the-reader/the-reader.js`
 
 A reader is given three things: **the anchor key it learned** (§3.1), **a location**, and optionally
-**the pin it kept from last time**. It performs eleven steps in an order the spec makes normative,
+**the checkpoint it kept from last time**. It performs eleven steps in an order the spec makes normative,
 and it returns exactly one of three verdicts: **ok**, **this host is misbehaving**, and **this
 identity is in question**. `recently restored`, `withdrawn: n` and `no index I can verify` are notes
 on an ok read, not a fourth state.
@@ -49,23 +49,23 @@ honest event in an honest identity's life.
 ways. A publisher rotating her key writes the profile and then re-signs the index (§4.4); between
 those two writes an honest host is serving an index signed by a key the profile no longer ends on. A
 reader **holding an index it verified itself** keeps that one, notes it, hands back its posts and
-says nothing further. Only a reader **holding none** has anything to report, and it reports `host`.
+says nothing further. Only a reader **holding none** has anything to report, and it reports `tampered`.
 §7.2 asks that cold reader to retry the whole read once — profile and index — before it does.
 
 **Every live entry is checked before it is handed back (§7.4).** A media file's bytes must hash to
 the address the index lists. A post must verify under *any* key in the chain — post 1 here is still
 signed by the anchor key, two links back, and is still hers — its address must equal the hash the
-index lists, and its `n` must equal the number it was served at. Any failure is `host`. The last row
+index lists, and its `n` must equal the number it was served at. Any failure is `tampered`. The last row
 is the encrypted post: this reader holds no reading key, never looked for one, and hands back
 `encrypted` whole and unopened. Opening it is the client's business (§6), and a post is verified
 identically whether or not anyone present can read it.
 
 **A frozen copy is about the identity, not the host.** After she leaves, the old hub serves the
 profile and index it had, forever. To a reader that has seen the newer profile that is `identity: an
-older profile than the one this reader saw`. It is emphatically **not** `host`: this host is serving
+older profile than the one this reader saw`. It is emphatically **not** `tampered`: this host is serving
 exactly what it has, and nothing it did was misbehaviour. Two claims about one identity are in play
 and this reader has seen the newer one, so the open question is which of them is her. A reader
-arriving cold has no second claim and reads an unmarked page — §13.3 states that limit plainly, and
+arriving cold has no second claim and reads an unmarked page — that is an inherent limit of any protocol, and
 `top-and-rumors/` shows the one mechanism (§3.7, through public replies) that reaches anybody else
 at all.
 
@@ -100,17 +100,17 @@ behaviour anyway — keep the index you verified, or retry and then report — a
 them would be inviting an app to *explain* a difference none of its users can act on.
 
 **Why the verdict names a party at all.** A verdict is not a description of a file; it is an answer
-to "who do I take this up with?" `host` means the files served do not hang together in a way that
+to "who do I take this up with?" `tampered` means the files served do not hang together in a way that
 withholding, swapping or rolling back would explain, and the author's own signature is the thing
 that makes that attributable — the host is the only party in the exchange that could have done it.
 `identity` means the question is upstream of any host: which key is hers.
 
 There is one case where the label is charged to the wrong party. §4.2: **an index that verifies but
 does not fold came from the author's own key**, not from a misbehaving hub, and is reported as
-`host` anyway, because a fourth state for it is not worth the complexity. The spec's answer is a
+`tampered` anyway, because a fourth state for it is not worth the complexity. The spec's answer is a
 wording rule rather than a state: an app SHOULD say *the files at this address do not make sense*,
-not *this operator is cheating you*. That is good advice for all of `host`, and it is why the
-verdict in the implementation is a bare token (`host`) with a separate sentence attached, rather
+not *this operator is cheating you*. That is good advice for all of `tampered`, and it is why the
+verdict in the implementation is a bare token (`tampered`) with a separate sentence attached, rather
 than a phrase an app is expected to show verbatim.
 
 ## Scenarios
@@ -118,7 +118,7 @@ than a phrase an app is expected to show verbatim.
 `GOALS.md` scenario 1 (**the divorce**) is the centre. Its ending is the frozen copy: after she
 leaves, Mom's app follows her with one tap and reads the ex's frozen copy "as an older version of
 her, not as her" — which is precisely `identity: an older profile than the one this reader saw`, and
-precisely not `host`. Getting that one verdict wrong turns the scenario's resolution into an
+precisely not `tampered`. Getting that one verdict wrong turns the scenario's resolution into an
 accusation against a hub that did nothing.
 
 Scenario 6 (**the weekend**) is the other. The three verdicts were not decided and then implemented:
@@ -171,7 +171,7 @@ to a withdrawn newest post becomes an accusation of withholding. That is the who
 argument, and it is why the constraint is on the publisher's number rather than on the reader's
 inference.
 
-**A pinned reader is not fooled by the drop.** The same forged-low index shown to a reader that
+**A checkpointed reader is not fooled by the drop.** The same forged-low index shown to a reader that
 already recorded `top` 3 comes back **host: the highest number used went backwards** (§7.2 step 9).
 So the falling `top` hurts exactly the reader who has no history to check it against — a new one —
 and that is the reader most likely to believe the rumor.
@@ -190,7 +190,7 @@ with only one of them is still broken in the other direction.
 **A rumor is never raised over a post the author withdrew.** The reader that watched the withdrawal
 holds `3` in its pin's withdrawn map, with the hash it had. Mum's reply names that exact hash, 3 is
 at or below the top, and the reader stays quiet at a cost of zero fetches. Note that this reader
-would stay quiet even without the pin's memory of the hash: the `top` check alone is enough. The
+would stay quiet even without the checkpoint's memory of the hash: the `top` check alone is enough. The
 withdrawn map is what lets it also tell a reply to *her* post 3 from a reply to some other post
 claiming that number (§5.4) — that one is marked unresolved, and it too says nothing.
 

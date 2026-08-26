@@ -27,7 +27,7 @@ below are `src/profile.js`'s wording; the spec fixes only the three verdicts (§
 
 ### What the output shows
 
-**The pin holds the chain, and a served chain must extend it key for key.** The reader pinned Alice
+**The checkpoint holds the chain, and a served chain must extend it key for key.** The reader checkpointed Alice
 at `version` 3: anchor key, a rotation to A2, a restore to A3. The ex holds A2 — the key she rotated
 away from, which stays in her chain and keeps her old posts valid (§3.3) — and serves a chain that
 walks from the anchor and ends on his own key. The **split** is index 2, the first index at which
@@ -35,17 +35,17 @@ the two chains differ, and the reader's verdict names the host, not Alice.
 
 The second half of the rule is the sharper one: he serves `version` 9 with the chain from *before*
 her restore. Nothing in it is forged; it is simply shorter. A profile at a higher `version` whose
-chain is a strict **prefix** of the pinned chain is a split too, at the end of the prefix — that is
+chain is a strict **prefix** of the checkpointed chain is a split too, at the end of the prefix — that is
 the thief pretending a restore never happened, and without this clause he wins by picking a big
-number. The block closes with the two plain rules that hold against a pin outside any split:
+number. The block closes with the two plain rules that hold against a checkpoint outside any split:
 `version` MUST NOT go backwards, and the same `version` with a different address is contested.
 
 **A recovery list is kept per chain length, and is never overwritten.** The ex holds A2, so he can
-sign a profile at the chain length the reader is pinned at. He republishes with a recovery list of
+sign a profile at the chain length the reader is checkpointed at. He republishes with a recovery list of
 one — himself — and the read comes back `ok`, because *nothing distinguishes his edit from hers*:
 the key that signs is the key her chain ends on. What he does not get is the reader's list. A reader
 keeps the first recovery list it ever saw at each chain length, and because every link carries the
-list that stood before it (§3.3), a pinned reader holds one at **every** length its chain reaches,
+list that stood before it (§3.3), a checkpointed reader holds one at **every** length its chain reaches,
 from its first read. When he then splits the chain with a restore his own list would have
 blessed, the list at the split is still the three-member one: his single voucher is not a majority
 of it, so his link is not a valid link at all (§3.3), and the read ends before any contest.
@@ -56,7 +56,7 @@ of three, which is not a valid link. Against the copy his link carries — one m
 has a majority and would be Alice. The block closes with a link of his that *is* valid — a rotation
 signed with the A2 he holds, vouched by himself, carrying his list of one — against her restore by mum
 and sis: under the held list his one voucher of three loses to her two, and the reader names the host. The carried copy exists
-only for a reader with no list at that length; a pinned reader MUST NOT prefer it, and MUST NOT
+only for a reader with no list at that length; a checkpointed reader MUST NOT prefer it, and MUST NOT
 adopt one at any length its chain already reaches. The example shows the reader's list at index 2
 unchanged after the read.
 
@@ -71,12 +71,12 @@ contested. Both sides, or neither: the reader follows nobody.
 
 **He moves first.** The threat model (`CLAUDE.md`) gives the operator the serving path and first
 move, and the key he holds is not one she rotated away from but her *live* one. So the block stages
-the order he would actually choose: a reader pinned at `version` 2, whose chain ends on A2, is served
-his rotation A2 → his key. No split — the chain extends the pin — and the reader follows him, `ok`.
+the order he would actually choose: a reader checkpointed at `version` 2, whose chain ends on A2, is served
+his rotation A2 → his key. No split — the chain extends the checkpoint — and the reader follows him, `ok`.
 Then her restore, vouched by mum and sis, reaches the same reader at `version` 4: now there is a
 split at index 2, hers has the majority, his does not, and the reader switches back to A3. That is
 the arm of rule 4 that works *for* the reader, and it is also the honest limit of it: on his hub her
-restore may never arrive. Withholding is the move no rule in §3.6 answers, and §13.3 says so.
+restore may never arrive. Withholding is the move no rule in §3.6 answers, and that is an inherent limit of the protocol.
 
 **One bar, a majority.** The recovery list is three people and the ex is one of them. He vouches
 for himself. Alice, meanwhile, has done nothing dramatic — she rotated her key, alone, as anybody
@@ -86,27 +86,27 @@ the reader already holds, so there is no split and rule 4 never runs. Both read 
 of key changes does not hold`, because §3.3 makes a restore valid only when **more than half** of
 the list vouches, and one of three is not more than half. That is why the spec has no separate
 threshold for a restore: any lower bar would be a second door into the identity — one the contest
-rule never watches, since a chain that extends the pin is never contested. The majority is the one
+rule never watches, since a chain that extends the checkpoint is never contested. The majority is the one
 bar, for a link's validity and for a contest alike.
 
 **The price, and the repair.** The majority rule is not free, and the spec says so where the rule is
 stated. On a list of two, a restore mum vouched alone is one of two — not more than half — so the
-link does not hold and a pinned reader reads `identity`. Alice needs a second member, and until she
+link does not hold and a checkpointed reader reads `identity`. Alice needs a second member, and until she
 gets one she cannot come back.
 
 What the single link shape (§3.3) buys is that she does not pay that price twice. Vouchers MAY be
 added to a link **after it was made**, so sis signs the same `A2 -> A3` move Alice already made,
 Alice republishes at a higher `version`, and the chain is unchanged key for key: A3 still signs, and
 the post A3 signed before any of this still verifies. The ex rotating her old key against that link
-now reads `host`. Without that, her only move would be to restore *again* to a fresh key, abandoning
+now reads `tampered`. Without that, her only move would be to restore *again* to a fresh key, abandoning
 A3 and every post it signed.
 
 **Two limits, and the only exit.** A cold reader's recovery list is whatever the first profile it
-saw carried. The example runs a reader with no pin against the ex's branch: it follows him, adopts
+saw carried. The example runs a reader with no checkpoint against the ex's branch: it follows him, adopts
 his list of one, and thereafter rejects Alice's real profile outright — *the real Alice is the one
-it turns away*. Nothing in the protocol repairs that, and an app MUST NOT hide it (§13.3). The
+it turns away*. Nothing in the protocol repairs that, and an app MUST NOT hide it . The
 second limit is quieter: a list change reaches other readers only through a new chain length, so
-Alice adding her brother at the same chain length changes nothing for a pinned reader until she
+Alice adding her brother at the same chain length changes nothing for a checkpointed reader until she
 rotates and the profile carries the new list at the new length — which is why §3.5 asks an app to
 rotate when the list changes.
 
@@ -119,18 +119,18 @@ says so rather than inventing one.
 
 ## Moving
 
-**Spec:** §3.7 locations and moving, §5.4 `target.loc` for the mechanism, §13.3 for the limit.
+**Spec:** §3.7 locations and moving, §5.4 `target.loc` for the mechanism, the threat model for the limit.
 **Run:** `node examples/moving/moving.js`
 
 Your identity is your anchor key (§3), so a location is only where the files happen to sit. Moving
 is therefore not an identity event: you write the same signed files somewhere else and publish a
 profile with a higher `version` naming the new place. Nothing has to be signed by the old host,
 asked of it, or served from it — which matters, because the host you are leaving is often the one
-this protocol is built against (§13.1).
+this protocol is built against.
 
 What that buys is exact, and worth stating in both directions. **Identity survives the move without
 anyone's cooperation; reach survives only through people who reply to you.** A reader that holds a
-location you no longer answer at, and has no social path to you, is not reached. §13.3 says so
+location you no longer answer at, and has no social path to you, is not reached. the protocol states this limit plainly
 rather than papering over it.
 
 ### What the output shows
@@ -151,7 +151,7 @@ makes the next block work. The set lives in the reader's pin, which is the reade
 never a wire member.
 
 **The reader who never learns the new location is the honest limit.** `pence.family` goes on serving
-the last profile alice wrote there, and can do so forever. sis, whose pin is that profile and who
+the last profile alice wrote there, and can do so forever. sis, whose checkpoint is that profile and who
 has no social path to alice, reads `ok`: `version` 1, `top` 1, one post, no notes. An unmarked page.
 Not an error, not a redirect, not a "moved" marker — there is nowhere for a marker to come from that
 she would have any reason to believe. The identical bytes read against mum's pin, which has followed
@@ -162,7 +162,7 @@ reworded to say exactly that.
 **When one location stops answering, the reader tries the others.** The domain finally lapses.
 mum's app is still pointed at it, gets a transport failure — **no verdict at all** (§9), not an
 accusation about anybody — and tries the other location it remembers. Two lines later she is reading
-alice again, against the pin she already held, and no third party was asked anything.
+alice again, against the checkpoint she already held, and no third party was asked anything.
 
 **The address rides along in other people's posts.** sis has no social path to alice until mum
 writes a public reply. §5.4 makes all four members of `target` REQUIRED, and `loc` is where the
@@ -175,7 +175,7 @@ because having followed she can now see the post the reply names.
 an address he controls, signed by him and listed in his own index. It verifies, and the reader does
 fetch the address it names — once, after the locations it already holds (§7.4). What is served there
 is a profile carrying alice's anchor and bro's signature, and the verdict is `identity — the profile
-is not signed by the key it ends on`. The pin does not move. What is at the far end still has to
+is not signed by the key it ends on`. The checkpoint does not move. What is at the far end still has to
 verify under the anchor key the reader learned out of band (§3.1, §7.1); without that check this
 would be an open redirect for the whole network. The fetch itself is the price, and §7.4 names it:
 following a reply's `loc` is both the feature and a beacon, which is why it is bounded to once per

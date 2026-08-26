@@ -68,7 +68,7 @@ alice from another.
 identity and no majority of the recovery list settles it, the reader stops at **contested** and
 follows neither branch. §3.1's answer is that the same two routes MAY carry the key the owner's
 chain **currently ends on** instead of the anchor — a different key, so a different six words, and
-a reader given it MUST follow the branch whose chain contains that key and pin there. The example
+a reader given it MUST follow the branch whose chain contains that key and checkpoint there. The example
 shows alice's branch and a thief's agreeing on the anchor's code and disagreeing on the current
 key's. It is one block here on purpose; `examples/contest/` is where §3.6 lives.
 
@@ -148,7 +148,7 @@ again onto a fresh key and abandon everything signed since; it is for her people
 she already made. One link shape is what buys that.
 
 **A restore changes the key and nothing else.** A link with no `sig` MUST NOT arrive, in the same
-profile version, with a change to `locations`, `recovery`, `name` or `read`, and a pinned reader
+profile version, with a change to `locations`, `recovery`, `name` or `read`, and a checkpointed reader
 MUST catch it. The example pins a reader at version 2 and then serves it version 3 twice: once
 honestly, which reads `ok`, and once with `locations` moved to another host, which reads
 **identity — a restore changed more than the key**. The script asserts the same verdict for a

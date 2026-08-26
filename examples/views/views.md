@@ -75,12 +75,12 @@ Then the same three edits are made to the files the view was generated from, and
 them side by side. Inventing a post takes an index entry, and an index the host signs is not signed
 by the key the profile ends on. Changing post 2's text changes its address, and the index no longer
 lists that post. Dropping post 1 leaves a number the index lists and the host does not serve. Three
-`host` verdicts, and the reader names each one. Nothing about the view resisted; nothing about the
+`tampered` verdicts, and the reader names each one. Nothing about the view resisted; nothing about the
 signed files gave way. That is the whole distinction §10 draws, in six lines of output.
 
 **The stranger.** The last block runs both readers over the same origin at the same moment. The
 plain feed reader parses the host's rewritten `feed.json` and shows three items, one of which never
-existed. The Open Feed reader returns `host` and names the reason. The stranger is protected against
+existed. The Open Feed reader returns `tampered` and names the reason. The stranger is protected against
 a network attacker, because §9 makes every fetch HTTPS to a public address, and against nobody else:
 the host he is reading can invent, edit, backdate and unpublish anything on that page, and he has no
 way to know. He has no key, does no verification, and runs no protocol code — which is exactly the

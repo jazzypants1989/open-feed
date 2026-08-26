@@ -25,7 +25,7 @@ protocol whose whole point is telling a bad host from a good one.
 
 **The post is written before the index that lists it (§8.3).** The wire log shows the order for
 every post: `PUT /alice/posts/n`, then `PUT /alice/index` with the entity tag of the version that was
-read. An index listing bytes that are not there yet is `host` to every reader until they land; a post
+read. An index listing bytes that are not there yet is `tampered` to every reader until they land; a post
 nobody has listed is nothing to anybody. The asymmetry is the whole reason there is an order.
 
 **A number already held is 409, and the publisher takes the next one (§8.2).** The laptop asks for 1,
@@ -39,32 +39,14 @@ listed, and MUST NOT list one late.
 **A withdrawal is an appended line; a rewrite drops what it left behind (§4.5).** Both index bodies
 are printed. Same live set, fewer lines.
 
-**The loser of a race re-reads and folds (§8.1).** The phone and the laptop both read the same index
+**The loser of a race re-reads and replays (§8.1).** The phone and the laptop both read the same index
 and both publish a post. The phone's index write wins. The laptop's *naive* retry — re-sending its
 own version with the tag it read — gets 412, and that 412 is the hub refusing to let the laptop drop
-the phone's post. `amendIndex` re-reads what the hub is now serving and folds its line into that, and
+the phone's post. `amendIndex` re-reads what the hub is now serving and replays its line into that, and
 both posts survive. **This is the single easiest thing to get wrong in the whole protocol**, because
 the naive version works perfectly until two devices are used at once, and then it silently deletes
 posts — and the loss reads to every reader as an ordinary withdrawal, which is to say, as something
 the author did on purpose.
-
-## Contrast
-
-**There is no account, no token, and no session: the request is the signed file.** Compare with
-Micropub, the Mastodon API, or AT Protocol's repo endpoints, all of which begin with an authorization
-story — a token, a scope, a refresh, a server that decides who you are. Here the hub cannot decide
-who you are; it can only decide whether to accept bytes. Anyone's client can write to anyone's hub,
-and that is a security property rather than a convenience: **a hub that ships the app can take the
-key**, so the spec makes clients and hubs a market instead of a pairing.
-
-**Compare-and-swap over `If-Match` and `ETag`** is a 1997 mechanism (RFC 2068, then 2616, now RFC
-9110) doing exactly the job it was designed for. The design uses it rather than inventing a version field, which is why static hosting
-is a conforming hub for reading (§12) and why a browser-based publisher works at all, given the
-preflight rules of §8.7.
-
-**The publisher forgets; readers remember.** There is no DELETE verb here, no retained-version
-history, and no permanent deletion record. `examples/rewrite/` and `examples/your-copy/` carry that
-argument; what this file shows is that the client side of it is a handful of lines.
 
 The demo below the marker in the source file is not part of the publisher — it includes a hub in
 eleven lines, which is `GOALS.md` scenario 6's third implementer in miniature.

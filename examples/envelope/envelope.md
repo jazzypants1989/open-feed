@@ -114,9 +114,9 @@ it.
 **What the host learns**, said plainly: that an encrypted post exists, when it was written, how
 big it is, and how many slots it has — so how many people it is for. It does not learn who they are
 or what it answers. Hiding the size of the audience from the host is not a goal of this design, and
-§13.3 says so. Two facts a family app has
+the protocol does not try to hide it. Two facts a family app has
 to hold that neither example stages, because they are one `decrypt` call each: a later post to a
-smaller audience is simply a post bro cannot open, and he keeps post 6 forever (§13.3, no forward
+smaller audience is simply a post bro cannot open, and he keeps post 6 forever (no forward
 secrecy); and a new `read` key in a later profile version opens new posts only — old posts still
 open with the old private key, and nothing re-encrypts the past (§3.6).
 

@@ -8,7 +8,7 @@
 
 **Spec:** §8 entire — §8.1 compare-and-swap, §8.2 create-once, §8.3 write order, §8.4 claiming a
 name, §8.5 reclaiming a squatted number, §8.6 the same rule for media, §8.7 what a hub MUST do, §8.8
-withdrawal. §12's hub paragraph is the summary.
+withdrawal. §8.7 is the summary of what a hub must do.
 **Run:** `node examples/publish-interface/publish-interface.js`
 
 Four signed kinds and the views beside them, two verbs, one conditional header. **There is no account, no token, and no session: the
@@ -40,10 +40,10 @@ appear in the table for that reason.
 
 **The race, lost twice.** Two devices hold the same tag. The phone writes post 2 and wins; the
 laptop writes post 3, loses with a 412, and then does the naive thing — takes the hub's new tag and
-re-sends *its own* entries. The result is not an error anywhere. A pinned reader says `ok
+re-sends *its own* entries. The result is not an error anywhere. A checkpointed reader says `ok
 ["withdrawn: 2"]`: post 2 is gone and the loss is **indistinguishable from alice withdrawing it**,
 because in the wire format those are the same thing. That is why §8.1's MUST is about re-reading
-rather than about retrying. The second run replays the race and folds the new line into what the hub
+rather than about retrying. The second run replays the race and replays the new line into what the hub
 is serving instead; both posts survive and there is no note at all.
 
 **§8.2 — create-once, and the gap that follows.** The device writes post 4 and crashes before the
@@ -51,7 +51,7 @@ index. A reader sees posts 1, 2, 3 and is *indifferent* — a number nobody list
 is not evidence of anything and needs no explanation. When the device comes back it cannot prove it
 listed 4, so it abandons it: `PUT /alice/posts/4` → 409, `PUT /alice/posts/5` → 201, and 4 is a
 permanent hole. The block then shows what happens if it lists 4 late anyway. The hub stores it — the
-hub cannot tell — and the pinned reader returns `host: post 4 is listed now and was not before`.
+hub cannot tell — and the checkpointed reader returns `host: post 4 is listed now and was not before`.
 **That is the same check that catches a host backdating a post into someone's history** (§7.2),
 which is why the publisher's rule has to be the strict one: a reader cannot distinguish a sloppy
 device from a hostile host, and it is not asked to.
@@ -95,7 +95,7 @@ readable, and — for a hub that accepts writes — the `OPTIONS` preflight a br
 cross-origin `PUT` with `If-Match`, plus `ETag` in `Access-Control-Expose-Headers`, without which a
 browser-based publisher cannot read the tag it is required to send. Then the ceiling. The operator
 does the worst thing available to him and overwrites her index in his own store: a reader who never
-met her gets `host`, a reader holding a pin gets `ok` with the note `no index I can verify` and her
+met her gets `tampered`, a reader holding a checkpoint gets `ok` with the note `no index I can verify` and her
 posts unchanged. **Whatever a hub does, it can never write as you, because it cannot make your
 signature. The worst it can do is refuse you or delete things** — and a hub MAY require a pass, an
 account, a rate limit or a bill on top, which changes nothing about that ceiling.
@@ -104,14 +104,14 @@ account, a rate limit or a bill on top, which changes nothing about that ceiling
 withdrawing post 2 removes a line from the index while the bytes stay exactly where they were. A hub
 MAY then drop what the current index does not list, after a grace window long enough to cover §8.3's
 write order — here that collects the withdrawn post, the burned number, and the two reclaimed files,
-and the reader is unmoved. The note the pinned reader prints is `withdrawn: 2`, the same note the
+and the reader is unmoved. The note the checkpointed reader prints is `withdrawn: 2`, the same note the
 lost race produced in §8.1. **An app MUST NOT tell a user that withdrawing erased anything**:
 everyone who already read post 2 still holds it, and no rule in this protocol reaches into their
 copy. `examples/rewrite/` is where that argument lives.
 
 ## Your copy
 
-**Spec:** §10; §13.1 for the adversary, §8 for what leaving costs, §5.6 for the uncomfortable half.
+**Spec:** §10; the threat model for the adversary, §8 for what leaving costs, §5.6 for the uncomfortable half.
 **Run:** `node examples/your-copy/your-copy.js`
 
 **An app MUST keep the signed bytes of everything it publishes.** Not the text, not a database row —
@@ -144,7 +144,7 @@ person: one that is gone (`host: no profile served`), one that refuses the conne
 at all** — §9 is explicit that a read that did not complete is not an accusation), and one that
 lies, serving post 1's bytes at post 3 (`host: post 3 is not what the index lists`). Then the copy
 on her phone, checked against her anchor key with **no fetcher at all**: the profile is signed by
-the key the chain ends on, the index verifies and folds, and each post's address is the line the
+the key the chain ends on, the index verifies and replays, and each post's address is the line the
 index carries. There is no export format here and no bundle to define — the file on the wire already
 *is* the archive format. `GOALS.md` retired the export bundle in one clause: *you always had the
 copy*.
@@ -178,17 +178,17 @@ network: `ok`, posts 1, 3, 4, 5.
 **Leaving is writing the same files somewhere else.** The posts and the index go to the new hub byte
 for byte, in the order §8.3 requires: same bytes, same addresses, same signatures, `201` and `200`.
 Exactly one file is re-signed, and only to name the new location (§3.7) — the profile. The old host
-was asked for nothing and had nothing to refuse, which is the sentence §10 ends on. Mum's pin from
+was asked for nothing and had nothing to refuse, which is the sentence §10 ends on. Mum's checkpoint from
 the old hub, pointed at the new one, reads `ok` with the note `withdrawn: 2`: same anchor key, same
 identity, no re-introduction. How a reader who was *never told* finds her at all is a different
 mechanism and belongs to `moving/`.
 
-**Where §10 meets §13.1, said plainly.** Post 3 was family-only and the operator is family, so his
+**Where §8.9 meets the threat model, said plainly.** Post 3 was family-only and the operator is family, so his
 reading key is in its audience. He opens it from bytes he already holds, with no host involved, and
 her leaving changes that not at all. A key that was never in the audience gets `null`; sis, who was
 in it, reads the message. **Encryption chose who; it cannot un-choose them, and a withdrawal does
 not reach a copy.** §5.6 says the same thing from the other side: a private message is provable by
-its recipient forever. The answer to that operator is exit, not secrecy — and §13.1 makes it a MUST
+its recipient forever. The answer to that operator is exit, not secrecy — and the spec makes it a MUST
 NOT to market it as anything else.
 
 One limit of the rebuild: for an encrypted post the index gives the number and the address but not

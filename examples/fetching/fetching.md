@@ -5,7 +5,7 @@
 
 Every rule in §9 binds a reader's outbound requests, and none of it is optional politeness. The
 rumor rule (§7.4) follows a URL that a **replier** chose: someone writes a reply naming a target,
-puts a `loc` on it, and a reader that holds a pin for the targeted identity goes and fetches it. So
+puts a `loc` on it, and a reader that holds a checkpoint for the targeted identity goes and fetches it. So
 a reader's fetch layer sits in front of attacker-supplied addresses **by design**, not by accident,
 and it is the one part of the protocol where a miss is a vulnerability rather than a bug.
 
@@ -89,13 +89,13 @@ and SHOULD distinguish "I could not reach this" from "this was answered, and wro
 
 **Following a reply's `loc` is both the feature and the beacon.** The last block runs the rumor rule
 with a reader whose fetches all fail, purely to watch the order of addresses it tries. Two replies
-from dad name post 9 of mum, above the `top` of 4 this reader pinned, so the reader looks again —
+from dad name post 9 of mum, above the `top` of 4 this reader checkpointed, so the reader looks again —
 and it tries the two locations it already holds **first**, and the address dad wrote **last**, which
 is the permission §7.4's last paragraph grants: "a reader MAY try the locations it already holds
 before the address in the reply." Two replies cost three fetches, not six: look again at most
 once per identity per pass. And one line comes out, not two: say one line per person, however many
 replies they wrote. The beacon is what is left over after all of that. Fetching an address a replier
-chose tells that replier the address and the moment of every reader that holds a pin for the name
+chose tells that replier the address and the moment of every reader that holds a checkpoint for the name
 they targeted. §9's caps bound what it costs; they do not make it private. The spec names the price
 rather than hiding it, because the alternative — not following `loc` — is the reader who never finds
 someone who moved.

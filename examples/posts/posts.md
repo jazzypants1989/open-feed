@@ -48,7 +48,7 @@ supplies.
 example publishes a post dated 1970 and a post dated 3026. Both are perfectly valid; the reader
 returns **ok** with no note; an app that sorts by `at` gets `5 1 2 3 4 6` while the index's own
 order is `1 2 3 4 5 6`. Neither timestamp was consulted to reach any verdict, and neither decides
-precedence: a number has one hash ever (§4.2) and the index that says so is signed. §13.2 is the
+precedence: a number has one hash ever (§4.2) and the index that says so is signed. The
 complete list of places a clock appears in this protocol — `at`, the seven-day "recently restored"
 flag, the rewrite cadence — and not one of them gates anything. The reason is in the threat model:
 the adversary runs the server, and a party who runs the server also sets its clock.
@@ -76,7 +76,7 @@ prefix, not an opaque id.
 **A reply whose target hash the index does not list is a reply to something else.** This is the rule
 that makes the full hash more than decoration, and the example stages the attack it stops. Mum has
 two signed files that each say "post 12"; her index lists one of them. Sis replies to each. For a
-reader holding a pin for mum, the first reply threads and the second is returned with its target
+reader holding a checkpoint for mum, the first reply threads and the second is returned with its target
 marked unresolved — and, correctly, the reader says nothing about it, because a mismatched target is
 not evidence against anybody in particular (§7.4). Both replies are genuine and signed. What the
 rule denies is the *author* who shows one room one post 12 and another room a different one: only

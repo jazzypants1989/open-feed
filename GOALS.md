@@ -74,7 +74,7 @@ reasoning for the old position is answered in `rejections.md` as the sketch land
   knew the old location may be lost; a resolver is an extension slot, not a mechanism.
 - **The publisher forgets; readers remember.** No retained versions, no permanent deletion
   record. Deletion is a signed tombstone; what a reader already fetched is the reader's. *Retires:*
-  derived version URLs, skip links, history budgets, the walk, the `deleted` map, §13.8's leak.
+  derived version URLs, skip links, history budgets, the walk, the `deleted` map.
 - **The completeness story is one paragraph.** A signed, sequenced head lists what exists; a
   reader may pin it and notice when something it saw vanishes without a tombstone. *Retires:*
   derived item URLs, `items: true`, the lag/withheld/violation/stale lattice, freshness deadlines,
@@ -103,7 +103,7 @@ Code defends scenarios, not rules. Every gate in the redesign answers one of the
    2026-08-21, the owner's ruling on `REVIEW-final.md` Q8 / intent-map sign-off 4: the original said
    "reads as stale", and it does not for a reader with no social path to her — that reader sees an
    unmarked page. Ruling 7 chose location-through-replies as how people learn, and every mechanism
-   that would tell everyone else was priced and rejected. Spec-2 §14.3 states the limit.)*
+   that would tell everyone else was priced and rejected. The spec states this limit plainly.)*
 2. **Grandma onboards.** Installs an app, picks a name, is never shown a key, never told to store
    a file outside the house. Loses her phone a year later and is back by calling her daughter.
 3. **Two hubs, one thread.** Jesse on `jessepence.com`, Mom on the family hub; a family-only post,

@@ -19,7 +19,7 @@ the text does not say, that is a finding about the text, not about the code.
 lines above the marker that separates the reader from the demo below it. It is around 170 lines,
 about a sixth of which is the strict JSON scan of §2.4 — which exists only because `JSON.parse`
 cannot see a duplicate member (see `examples/json-hygiene/`). Everything else — the file format, the
-chain walk, the recovery lists, the contest rules, the fold, admission, the rumor rule — is the rest.
+chain walk, the recovery lists, the contest rules, replay, admission, the rumor rule — is the rest.
 
 **An honest read**, so the shape of a result is visible: a verdict, the posts, the notes.
 
@@ -32,7 +32,7 @@ a genuine post listed at a number its body does not declare, and an index with `
 and **each one names the verdict it must earn**, which matters: counting three distinct
 verdicts at the end is not enough by itself, because a check that stopped working would move one row
 to another verdict and leave the count at three. The count is asserted too, and it is §7.3's rule
-confirmed by measurement rather than by design document: `ok`, `host`, `identity`, and no fourth.
+confirmed by measurement rather than by design document: `ok`, `tampered`, `identity`, and no fourth.
 `examples/the-reader/` takes §7 apart step by step; this file is the whole of it running at once.
 
 **The rumor rule, at a thousand replies.** Mum replies twice from her own hub at numbers at or below
@@ -44,8 +44,8 @@ example that takes it apart.
 
 **An index it cannot verify is not an accusation.** The last block stages the honest case: alice
 rotates, and between her two writes (§3.5) the host is serving an index signed by the key her
-profile no longer ends on. A pinned reader keeps the index it verified itself and notes *"no index I
-can verify"*; a cold reader, holding none, reports `host`. Nobody is accused of anything, and the
+profile no longer ends on. A checkpointed reader keeps the index it verified itself and notes *"no index I
+can verify"*; a cold reader, holding none, reports `tampered`. Nobody is accused of anything, and the
 reader cannot tell that case from a 404 or a garbled file — which is the trade §7.2 makes on purpose.
 
 Two SHOULDs it does not implement, so that the measurement stays honest about what a weekend buys:
@@ -63,7 +63,7 @@ the spec now, which is what this file was for.
    an index from any key in the chain, the thief would go on deciding what counts as hers and a
    restore would take nothing back. **Re-signing the index is what a restore actually restores.**
 2. **An index that will not verify is not an accusation** (§7.2). The first version of this reader
-   called the mid-rotation window `host` — accusing an honest host of misbehaving during an honest
+   called the mid-rotation window `tampered` — accusing an honest host of misbehaving during an honest
    rotation, in both write orders. The rule that works costs no state and is the same fallback as a
    host that stops updating, which the design already tolerates.
 3. **The rumor rule needs two bounds, and the naive version is an amplifier** (§7.4). A reply naming
@@ -76,7 +76,7 @@ the spec now, which is what this file was for.
 
 The interesting comparison is not with another protocol but with the same protocol's other reader.
 `src/reader.js` is the reference implementation: one module per spec chapter, an injected fetcher,
-a pin with named fields. This file is one flat page written by somebody who had only the text. They
+a checkpoint with named fields. This file is one flat page written by somebody who had only the text. They
 agree on all 49 vectors, and the disagreements they had along the way became the three findings
 above.
 
