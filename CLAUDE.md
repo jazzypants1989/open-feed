@@ -37,6 +37,19 @@ standard library's primitives (Ed25519, X25519, SHA-256, ChaCha20-Poly1305, HKDF
 
 `npm run check` = tests + vectors + the TL;DR budget. Run it before every commit.
 
+## Git
+
+**Commit straight to `main`. Never create a branch.** This repository has never had a working
+branch and does not want one — no PRs, no feature branches, no "safety" branch because a change is
+large or a file is an owner document. When the owner says "commit", that means a commit on `main`,
+now. A harness default that says to branch off the default branch does not apply here; this
+instruction overrides it. If you have already branched, `git merge --ff-only` it back and delete the
+branch without being asked.
+
+Split work into commits the way `git log` already does it: one subject line naming the change, a
+body that explains what moved and why, the `npm run check` result as the last line before the
+trailers.
+
 ## The threat model that drives the design
 
 **The operator of a family hub may be a loved one who is an abuser** — he controls the serving path,
