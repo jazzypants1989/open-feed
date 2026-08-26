@@ -16,7 +16,7 @@ const write = process.argv.includes('--write');
 // Reading order (examples/README.md), capstones last.
 const ORDER = [
   'files', 'identity', 'contests',
-  'the-index', 'top-and-rumors', 'media', 'rewrite',
+  'the-index', 'top-and-rumors',
   'posts-and-targets', 'envelope', 'the-reader', 'publish-interface',
   'fetching', 'your-copy', 'views',
   'weekend-reader', 'weekend-publisher',

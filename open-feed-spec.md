@@ -175,3 +175,57 @@ info = "openfeed/v1/spoken", 9 bytes)`, the first 66 bits read as six 11-bit big
 BIP-39 English wordlist, which implementations MUST use. When a reader is contested, either route MAY carry
 the key the owner's chain currently ends on; a reader given that key MUST follow the branch containing it
 and pin there.
+
+## 4. The index
+
+```json
+{"entries":[[1,"<hash>"],[2,"<hash>"],[2,null],[3,"<hash>"],["<media hash>"]],"version":9,"top":3}
+```
+
+| member | meaning |
+|---|---|
+| `entries` | the lines, in order; the live set is their fold (§4.1) |
+| `version` | a non-negative integer that MUST NOT go backwards |
+| `top` | the highest post number ever issued, `0` when none has been (§4.2) |
+
+`entries` MUST come first in the body, so that appending a line leaves every earlier byte in place and a
+reader MAY fetch only the tail.
+
+### 4.1. Entries and the fold
+
+| line | means |
+|---|---|
+| `[n, hash]` | post `n` exists at address `hash` |
+| `[n, null]` | post `n` is withdrawn |
+| `[hash]` | the media file at address `hash` exists (§4.3) |
+| `[hash, null]` | that media file is withdrawn |
+
+A reader computes the live set by folding the entries in order. `n` is a positive integer. A number has
+one hash, ever: a line for an `n` already seen is legal only if it withdraws a live `n` or re-lists a
+withdrawn `n` at the identical hash. A withdrawal MUST refer to something live. `[hash]` for a media file
+already live is illegal. `top` MUST be at least the highest number in `entries`. An index that verifies
+but does not fold is invalid, and a reader reports **host** (§7.2). A pinned reader remembers the hash of
+every number it saw withdrawn, and a number that comes back at another hash is **host**.
+
+### 4.2. `top`
+
+`top` MUST NOT decrease, even when the post holding that number is withdrawn.
+
+### 4.3. Media
+
+A media file is listed by `[hash]` and served at `/<name>/media/<hash>`; a reader MUST verify that the bytes
+hash to the name it fetched them under. A media file referenced by a post but not listed in the index is
+absent. A media file attached to an encrypted post is encrypted: `ChaCha20-Poly1305(key, nonce = 12 zero
+bytes, plaintext = the bytes, aad = "")` under a random 32-byte key; the ciphertext is what is listed and
+served, and the key is carried as `{"hash": <listed hash>, "key": <base64url>}` in the envelope's `media`
+(§6.5). A key MUST NOT be reused for a second media file.
+
+### 4.4. Who signs the index
+
+The index MUST be signed by the key the profile's chain currently ends on, not by any earlier key in the
+chain.
+
+### 4.5. Rewriting
+
+A publisher MAY replace the index with the fold of its entries, at a higher `version`. A reader accepts a
+rewritten index exactly as it accepts an appended one.
