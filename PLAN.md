@@ -29,7 +29,7 @@ section, two for the big ones; the old scripts are raw material, merged or delet
 - [x] §6 Encrypted content ← `envelope`
 - [x] §7 Reading ← `reading` (was `the-reader` + `top-and-rumors`)
 - [x] §8 Publishing ← `publishing` (was `publish-interface` + `your-copy`)
-- [ ] §9 Fetching ← `fetching`
+- [x] §9 Fetching ← `fetching`
 - [ ] §10 Views ← `views`
 - [ ] `CLAUDE.md` and `examples/README.md` reflect the final script set
 

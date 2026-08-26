@@ -289,7 +289,8 @@ An encrypted post is a post whose content is inside an `encrypted` member:
 ```
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
-it and returns it with `encrypted` opaque (§7.1).
+it and returns it with `encrypted` opaque (§7.1). An implementation MUST NOT present encryption or audience
+control as protection from a host that is in the audience.
 
 ### 6.1. The envelope
 
@@ -449,3 +450,43 @@ withdrawing erased anything.
 ### 8.9. Your copy
 
 An app MUST keep the signed bytes of everything it publishes.
+
+## 9. Fetching
+
+Every rule here binds a reader's outbound requests; the rumor rule (§7.4) follows a URL a replier chose.
+
+- HTTPS only, certificates validated.
+- At most 5 redirects, never to a different origin; each redirect is re-checked for scheme and address.
+- Refuse non-public addresses, checked on the resolved address before the socket connects, and on address
+  literals in the URL. Blocked IPv4: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`,
+  `192.0.0/24`, `192.0.2/24`, `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, `224/4`, `240/4`.
+  Blocked IPv6: the unspecified address, loopback, link-local, unique-local, multicast `ff00::/8`, discard
+  `100::/64`, documentation `2001:db8::/32`, ORCHID `2001:10::/28` and `2001:20::/28`, Teredo `2001::/32`,
+  and every embedded-IPv4 form judged as the IPv4 address it carries: `::ffff:a.b.c.d`, `::a.b.c.d`,
+  `::ffff:0:a.b.c.d`, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`. A dotted quad with a leading zero MUST be
+  refused.
+- Bound everything: one timeout over connect, redirects and body (10 s RECOMMENDED); a body cap per fetch
+  (1 MB RECOMMENDED for the profile, index and a post; larger for media); a cap on concurrent sockets per
+  origin (10 RECOMMENDED); a cap on identities resolved per pass.
+
+A cap or a transport failure is no verdict: the read did not complete, and an app MUST NOT show it as a
+state of the identity.
+
+## 10. Views
+
+A publisher SHOULD write a JSON Feed 1.1 document, an Atom feed, and an h-card page, generated from the
+index and the posts, at `/<name>/feed.json`, `/<name>/feed.xml`, and `/<name>/index.html`; a hub MAY generate
+them itself. A view is unsigned, and an implementation MUST NOT treat one as evidence of anything. Item ids
+are `urn:openfeed:<anchor key>:<n>` and the feed's id is `urn:openfeed:<anchor key>`. Withdrawn posts are
+absent. Encrypted posts are omitted or rendered as an empty placeholder item at their number; a view MUST
+NOT carry ciphertext. The h-card's name is the profile's `name`.
+
+| kind | media type |
+|---|---|
+| profile, index, post | `application/openfeed+json` |
+| JSON Feed view | `application/feed+json` |
+| Atom view | `application/atom+xml` |
+| h-card page | `text/html` |
+| media | whatever the bytes are |
+
+A reader MUST NOT reject a signed file for its declared media type.

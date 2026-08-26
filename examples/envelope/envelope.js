@@ -37,6 +37,9 @@ assert.deepEqual(Object.keys(JSON.parse(splitFile(post5).body)), ['n', 'at', 'en
 assert.deepEqual(Object.keys(dm), ['epk', 'slots', 'ct']);
 assert.equal(address(post5), '8qFSXwoaFAli1MIuMi8T52UhD-XvYuIMLALNt_OEQQs');
 assert.equal(decrypt(dm, xk('example:host-read').privateKey, c5), null);
+// A host whose reading key is in the audience opens the post like any other member.
+const hostRead = xk('example:host-read'), toHost = encrypt({ content: { text: 'for the family' }, audience: [who(alice), { key: thief.x, read: hostRead.x, loc: 'https://hub.example/op' }], carrier: c6, ephemeral: xk('example:ephemeral/9'), contentKey: ck('example:contentkey/9') });
+assert.equal(decrypt(toHost, hostRead.privateKey, c6).text, 'for the family');
 rule('6', `An encrypted post is a post whose content is inside an \`encrypted\` member:
 
 \`\`\`json
@@ -45,7 +48,8 @@ rule('6', `An encrypted post is a post whose content is inside an \`encrypted\` 
 \`\`\`
 
 It is signed, addressed, and listed exactly as any other post, and a reader that cannot open it verifies
-it and returns it with \`encrypted\` opaque (§7.1).`);
+it and returns it with \`encrypted\` opaque (§7.1). An implementation MUST NOT present encryption or audience
+control as protection from a host that is in the audience.`);
 
 // ---- §6.1 the envelope, derived from node:crypto alone ----
 const eph = xk('vector:ephemeral/5'), epk = unb64(eph.x), key5 = ck('openfeed/v1/vector:contentkey/5');

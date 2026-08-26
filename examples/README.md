@@ -39,8 +39,8 @@ runs in well under a second, and `npm run spec` runs all of them.
 | 07 | [envelope](envelope/) | §6 | slots, blinded tags, and the carrier bound as associated data |
 | 08 | [reading](reading/) | §7 | the steps in order; three verdicts; the pin; the rumor rule and its bounds |
 | 09 | [publishing](publishing/) | §8 | compare-and-swap, create-once, reclaim, the media twin, your copy |
-| 17 | [fetching](fetching/) | §9 | non-public addresses, redirects, and caps that are no verdict |
-| 19 | [views](views/) | §11 | JSON Feed, Atom, and an h-card generated from the index |
+| 10 | [fetching](fetching/) | §9 | non-public addresses, redirects, and caps that are no verdict |
+| 11 | [views](views/) | §10 | JSON Feed, Atom, and an h-card generated from the index |
 | — | [weekend-reader](weekend-reader/) | §7 | **capstone**: the whole reader in one file, standard library only |
 | — | [weekend-publisher](weekend-publisher/) | §8 | **capstone**: the whole publisher in one file |
 
