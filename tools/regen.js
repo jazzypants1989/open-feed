@@ -107,7 +107,8 @@ const get = async (p) => files.get(p) ?? null;
 const serveIndex = (h) => files.set(`${AT}/index`, h);
 
 const fail = [];
-const check = (what, ok) => { if (!ok) fail.push(what); return ok; };
+let ran = 0;
+const check = (what, ok) => { ran++; if (!ok) fail.push(what); return ok; };
 
 for (const [name, f] of [['profile version 1', p1], ['profile version 2', p2], ['profile version 3', p3],
   ['post 1', post1], ['post 2', post2], ['post 3', post3], ['post 4', post4], ['post 5', post5],
@@ -167,6 +168,56 @@ check('the spoken code is six 11-bit indices', idx.length === 6 && idx.every((i)
   check("src: the spoken code agrees", spokenIndicesRef(A1.x).join() === idx.join());
   check('src: the six words are the BIP-39 words at those indices', spokenCode(A1.x).length === 6 && spokenCode(A1.x).every((w) => /^[a-z]+$/.test(w)));
 }
+
+// ---- negative vectors: the two readers must agree on REJECTION, not only on acceptance ----
+// Every vector above is well-formed, so the two-reader check proves the readers agree on what to
+// accept and says nothing about what they refuse. That is the gap the archived review found twice:
+// `src/` and the weekend reader diverged on a shape failure, and both accepted the `k` defects,
+// with no vector driving a failure through either. Each case below is built by the weekend
+// publisher — no second implementation lives here — and both readers must return the same verdict.
+{
+  const bad = new Map(files);
+  const r2 = createReader({ get: async (p) => (bad.has(p) ? { bytes: bad.get(p), etag: '"t"' } : null) });
+  const getBad = async (p) => bad.get(p) ?? null;
+  const flip = (f, needle, to) => { const i = f.indexOf(Buffer.from(needle)); const c = Buffer.from(f); c[i] = to.charCodeAt(0); return c; };
+  const T = edKey('vector:thief');
+
+  // A recovery list of one, and the same restore under a list of two: §3.2's bar, from both sides.
+  const ONE = pub.commit([MUM]);
+  const soloProfile = pub.profile({ anchor: A1.x, version: 4, name: 'Alice', chain: [{ key: A1.x }, pub.restore(A1, T, [MUM], ONE)], recovery: ONE, locations: [AT] }, T);
+  // The positive twin EXTENDS the real chain, so the posts still verify under a key in it.
+  const realChain = JSON.parse(body(p3)).chain;
+  const pairProfile = pub.profile({ anchor: A1.x, version: 4, name: 'Alice', chain: [...realChain, pub.restore(A3, T, [MUM, SIS], REC)], recovery: REC, locations: [AT] }, T);
+  const wide = pub.commit(Array.from({ length: 33 }, (_, i) => ({ key: edKey(`vector:leaf${i}`), salt: `s${i}` })));
+  const wideProfile = pub.profile({ anchor: A1.x, version: 4, name: 'Alice', chain: [{ key: A1.x }, pub.restore(A1, T, [MUM, SIS], wide)], recovery: wide, locations: [AT] }, T);
+
+  const cases = [
+    ['a flipped byte in a post body', () => bad.set(`${AT}/posts/1`, flip(post1, 'text', 'T')), 'tampered'],
+    ['a post whose `number` is not the number it is served at (§5.1)', () => bad.set(`${AT}/posts/3`, post4), 'tampered'],
+    ['a listed post that is not served', () => bad.delete(`${AT}/posts/3`), 'tampered'],
+    ['media bytes that do not hash to the listed address (§4.3)', () => bad.set(`${AT}/media/${pngHash}`, Buffer.from('not the picture')), 'tampered'],
+    ['a signature line that decodes but does not re-encode (§2.1)', () => bad.set(`${AT}/profile`, Buffer.concat([body(p3), Buffer.from(`\n${sigLine(p3).slice(0, 85)}=`)])), 'contested'],
+    ['a duplicate member in the profile body (§2.4)', () => bad.set(`${AT}/profile`, Buffer.concat([Buffer.from(body(p3).toString('utf8').replace('{"anchor"', '{"anchor":"x","anchor"')), Buffer.from(`\n${sigLine(p3)}`)])), 'contested'],
+    ['a restore vouched by a recovery list of one (§3.2)', () => bad.set(`${AT}/profile`, soloProfile), 'contested'],
+    ['a recovery list past 32 leaves (§3.3)', () => bad.set(`${AT}/profile`, wideProfile), 'contested'],
+    ['an index signed by a key the chain has rotated away from (§4.4)', () => bad.set(`${AT}/index`, pub.index(JSON.parse(body(head3)), A1)), 'tampered'],
+  ];
+  for (const [what, mutate, want] of cases) {
+    bad.clear(); for (const [k, v] of files) bad.set(k, v); bad.set(`${AT}/index`, head3);
+    mutate();
+    const w = await read(getBad, { learned: A1.x, at: AT });
+    const r = await r2.read({ learned: A1.x, at: AT });
+    check(`negative: ${what} — both readers say ${want}`, w.verdict === want && r.verdict === want);
+    check(`negative: ${what} — the two readers agree`, w.verdict === r.verdict);
+  }
+  // And the positive twin of the recovery bar, so the rule is proved from both sides.
+  bad.clear(); for (const [k, v] of files) bad.set(k, v);
+  bad.set(`${AT}/profile`, pairProfile);
+  bad.set(`${AT}/index`, pub.index(JSON.parse(body(head3)), T));            // §4.4: the key the chain now ends on
+  const wOk = await read(getBad, { learned: A1.x, at: AT }), rOk = await r2.read({ learned: A1.x, at: AT });
+  check('negative: two of two restores, and both readers say ok', wOk.verdict === 'ok' && rOk.verdict === 'ok');
+}
+
 serveIndex(head3);
 
 // ---- render ----
@@ -250,4 +301,4 @@ if (write) {
 } else {
   console.log('test-vectors.md is current.');
 }
-console.log(`all ${11 * 3 + 16} vector checks hold`);
+console.log(`all ${ran} vector checks hold, ${fail.length} failing`);
