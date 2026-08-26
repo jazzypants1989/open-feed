@@ -50,7 +50,7 @@ const RETIRED = [
 ];
 // bridge/ is interop and holds no rule of ours, so it keeps the other protocols' words (AT
 // Protocol's genesis operation, HTTP's Host header). The wordlist is BIP-39's, not ours.
-const VOCAB_SKIP = /^(tools\/refs\.js|COMPARISON\.md|RETROSPECTIVE\.md|src\/wordlist\.js|bridge\/)/;
+const VOCAB_SKIP = /^(tools\/refs\.js|COMPARISON\.md|RETROSPECTIVE\.md|HANDOFF\.md|src\/wordlist\.js|bridge\/)/;
 
 for (const f of files) {
   for (const [rel, n, line] of lines(f)) {

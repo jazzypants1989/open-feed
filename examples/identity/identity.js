@@ -188,6 +188,9 @@ console.log(`  read   ${ok.raw.read}   32-byte X25519 public key, from a profile
 assert.equal(decodeStrict(ok.raw.read, 32).length, 32);
 assert.equal(unread.raw.read, undefined);
 assert.equal(verifyProfile(hostile, { learned: A1.x }).raw, undefined);                     // nothing to encrypt to from a failed read
+// UNPROVEN (HANDOFF.md job 2a): the three assertions above test the key's shape, not this rule. The
+// stale-key case — a publisher encrypting from a checkpoint older than the owner's current `read` —
+// has to be staged here before this rule has anything behind it.
 rule('3.6', `\`read\` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to the
 \`read\` of the highest profile \`version\` it has verified, and SHOULD read the profile again before encrypting:
 a \`read\` the owner has replaced still verifies, and content encrypted to it is readable by whoever took it and
