@@ -101,29 +101,38 @@ test('two hubs, one thread: a encrypted post, a encrypted reply and a reaction c
   const M = createHub(), J = createHub();                                     // Mom's hub (the ex runs it), Jesse's own
   const mio = memIo(M), jio = memIo(J);
   const io = { get: (u) => (u.includes('//j.example') ? jio.get(u) : mio.get(u)), put: (u, b, o) => (u.includes('//j.example') ? jio.put(u, b, o) : mio.put(u, b, o)) };
-  const mom = person('mom'), jesse = person('jesse'), sis = person('sis');
-  const reads = { mom: newReadingKey(), jesse: newReadingKey(), sis: newReadingKey() };
-  const at = { mom: 'https://m.example/mom', jesse: 'https://j.example/jesse', sis: 'https://m.example/sis' };
-  const mpub = await claim(io, mom, at.mom, { recovery: list(jesse), read: reads.mom.x });
-  const jpub = await claim(io, jesse, at.jesse, { recovery: list(mom), read: reads.jesse.x });
-  await claim(io, sis, at.sis, { recovery: list(mom), read: reads.sis.x });
+  const mom = person('mom'), jesse = person('jesse'), sis = person('sis'), aunt = person('aunt');
+  const reads = { mom: newReadingKey(), jesse: newReadingKey(), sis: newReadingKey(), aunt: newReadingKey() };
+  const at = { mom: 'https://m.example/mom', jesse: 'https://j.example/jesse', sis: 'https://m.example/sis', aunt: 'https://j.example/aunt' };
+  const mpub = await claim(io, mom, at.mom, { recovery: list(jesse, sis), read: reads.mom.x });
+  const jpub = await claim(io, jesse, at.jesse, { recovery: list(mom, sis), read: reads.jesse.x });
+  await claim(io, sis, at.sis, { recovery: list(mom, jesse), read: reads.sis.x });
+  await claim(io, aunt, at.aunt, { recovery: list(mom, jesse), read: reads.aunt.x });   // Jesse has never read her
   const reader = readerOver(io);
   const seen = new Map();
   for (const [who, p] of [['mom', mom], ['jesse', jesse], ['sis', sis]]) seen.set(p.key.x, (await reader.read({ learned: p.key.x, at: at[who] })).checkpoint);
   // Mom encrypts to the family, the audience naming each of them.
-  const fam = [{ key: mom.key.x, read: reads.mom.x, location: at.mom }, { key: jesse.key.x, read: reads.jesse.x, location: at.jesse }, { key: sis.key.x, read: reads.sis.x, location: at.sis }];
+  const fam = [{ key: mom.key.x, read: reads.mom.x, location: at.mom }, { key: jesse.key.x, read: reads.jesse.x, location: at.jesse }, { key: sis.key.x, read: reads.sis.x, location: at.sis }, { key: aunt.key.x, read: reads.aunt.x, location: at.aunt }];
   await mpub.publish(1, { at: '2026-08-10T09:00:00Z', encrypted: encrypt({ content: { text: 'the scan came back clear' }, audience: fam, binding: postBinding(mom.key.x, 1) }) });
   const momRead = await reader.read({ learned: mom.key.x, at: at.mom, checkpoint: seen.get(mom.key.x) });
   seen.set(mom.key.x, momRead.checkpoint);
   const inner = decrypt(momRead.posts.get(1).encrypted, reads.jesse.privateKey, postBinding(mom.key.x, 1));
   assert.equal(inner.text, 'the scan came back clear');
-  // Jesse replies encrypted, resolving the member he does not follow from the audience entry (§6.5).
+  // Jesse replies encrypted, resolving the member he does not follow from the audience entry (§6.4).
+  // The entry is {key, read, location} for exactly this: a replier who meets someone only inside an
+  // envelope holds a key to verify by, a key to encrypt to, and somewhere to go and read them.
   const unknown = inner.audience.find((a) => !seen.has(a.key));
-  assert.equal(unknown, undefined, 'jesse holds checkpoints for all three here');
+  assert.equal(unknown.key, aunt.key.x, 'jesse has never read the aunt');
+  const met = await reader.read({ learned: unknown.key, at: unknown.location });
+  assert.equal(met.verdict, 'ok', 'the audience entry is enough to find and verify her');
+  assert.equal(met.read, unknown.read, 'and the reading key it carried is the one her profile names');
+  seen.set(unknown.key, met.checkpoint);
   await jpub.publish(1, { at: '2026-08-10T11:00:00Z', encrypted: encrypt({ content: { rel: 'reply', target: { key: mom.key.x, number: 1, hash: momRead.checkpoint.live.get(1), location: at.mom }, text: 'best news all year' }, audience: inner.audience, binding: postBinding(jesse.key.x, 1) }) });
   const jRead = await reader.read({ learned: jesse.key.x, at: at.jesse, checkpoint: seen.get(jesse.key.x) });
   const reply = decrypt(jRead.posts.get(1).encrypted, reads.sis.privateKey, postBinding(jesse.key.x, 1));
   assert.equal(reply.text, 'best news all year', 'sis, on mom\'s hub, reads jesse\'s reply from his');
+  assert.equal(decrypt(jRead.posts.get(1).encrypted, reads.aunt.privateKey, postBinding(jesse.key.x, 1)).text, 'best news all year',
+    'and so does the aunt, whom he reached only through the audience he was handed');
   // Neither operator reads any of it, and the public files name no recipient.
   assert.equal(decrypt(momRead.posts.get(1).encrypted, newReadingKey().privateKey, postBinding(mom.key.x, 1)), null);
   assert.ok(!JSON.stringify([...M.store.keys(), ...(M.store.get('mom/posts/1') ?? '').toString()]).includes(reads.sis.x.slice(0, 10)));

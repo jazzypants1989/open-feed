@@ -130,7 +130,9 @@ rule('7.1', `1. Fetch \`<location>/profile\`. Not served: **tampered**. Does not
     was served at. A failure, or a listed file not served: **tampered**.
 13. For each post naming a target whose author the reader holds a checkpoint for: if \`target.hash\` is not what
     that author's index lists for \`target.number\`, now or when it was withdrawn, mark the target unresolved
-    (§5.4); otherwise, if \`target.number\` is above that author's \`highest\`, look again (§7.4).`);
+    (§5.4); otherwise, if \`target.number\` is above that author's \`highest\`, look again (§7.4). This step
+    needs a checkpoint for an author other than the one being read, so it runs across a pass rather than
+    inside a single read, and a reader MAY omit it.`);
 
 // ---- §7.2 verdicts ----
 const verdicts = new Set([...battery.map(([, r]) => r.verdict), cold.verdict, none.verdict, garbled.verdict]);

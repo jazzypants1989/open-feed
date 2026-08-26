@@ -9,7 +9,7 @@ identity is a cryptographic key — not a URL, not an account — so it travels 
 Everything you publish is a signed file at a stable URL, and readers can verify it without trusting
 your hub. The entire protocol is built from primitives found in most languages' standard libraries.
 
-Your hub is just storage — a static file server is a fully conforming hub. People on different
+Your hub is just storage — a static file server is a conforming hub for reading. People on different
 hubs reply, react, and share encrypted content with each other as easily as people on the same one.
 The protocol is designed for the case where your hub operator can look at everything, refuse to
 cooperate, and may not be on your side — the adversary is a loved one who controls the family hub —
@@ -369,7 +369,9 @@ The steps are in order; each supplies what the next checks.
     was served at. A failure, or a listed file not served: **tampered**.
 13. For each post naming a target whose author the reader holds a checkpoint for: if `target.hash` is not what
     that author's index lists for `target.number`, now or when it was withdrawn, mark the target unresolved
-    (§5.4); otherwise, if `target.number` is above that author's `highest`, look again (§7.4).
+    (§5.4); otherwise, if `target.number` is above that author's `highest`, look again (§7.4). This step
+    needs a checkpoint for an author other than the one being read, so it runs across a pass rather than
+    inside a single read, and a reader MAY omit it.
 
 ### 7.2. Verdicts
 

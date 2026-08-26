@@ -50,7 +50,7 @@ identity is a cryptographic key — not a URL, not an account — so it travels 
 Everything you publish is a signed file at a stable URL, and readers can verify it without trusting
 your hub. The entire protocol is built from primitives found in most languages' standard libraries.
 
-Your hub is just storage — a static file server is a fully conforming hub. People on different
+Your hub is just storage — a static file server is a conforming hub for reading. People on different
 hubs reply, react, and share encrypted content with each other as easily as people on the same one.
 The protocol is designed for the case where your hub operator can look at everything, refuse to
 cooperate, and may not be on your side — the adversary is a loved one who controls the family hub —

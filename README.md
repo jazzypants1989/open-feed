@@ -5,7 +5,8 @@
 Open Feed is a simple, interoperable protocol for publishing content. Everything on the wire is a
 signed file, built from primitives already in a standard library — Ed25519, X25519, SHA-256,
 ChaCha20-Poly1305, HKDF, JSON, HTTP. There is no server software to install and no account to
-hold: a static file server is a fully conforming hub.
+hold: a static file server is a conforming hub for reading. A hub that accepts writes checks a
+little more ([§8.4](open-feed-spec.md#84-claiming-a-name), [§8.5](open-feed-spec.md#85-reclaiming-a-number)).
 
 **Status: 0.1.0, draft, unreleased.**
 
