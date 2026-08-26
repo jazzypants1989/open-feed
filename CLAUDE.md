@@ -83,7 +83,8 @@ example that argues a thing rather than re-arguing it.
 - **`GOALS.md` is the owner's document.** It records the owner's values, decisions, and open
   questions, in the owner's words. Never edit it — not to "tidy", rename vocabulary, update
   references, or mark a question answered — without an instruction from the owner that names the
-  file. The same holds for `DISTRIBUTION-MODEL.md`: do not move, archive, or fold it.
+  file. `DISTRIBUTION-MODEL.md` is also an owner document — agents may edit it, but must clarify
+  changes with the owner first, especially product vision, business model, or privacy guarantees.
 - A checkpoint is the reader's own state, not a wire object: `profileVersion`/`profileHash`,
   `indexVersion`/`indexHash`, `recoveryLists` per chain length, `live`, `withdrawn`, `top`. The wire
   members are both just `version`.
