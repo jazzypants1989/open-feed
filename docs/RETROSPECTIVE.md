@@ -117,7 +117,7 @@ grows by a line per post.
 
 ---
 
-## Two open questions
+## One open question, and one that closed
 
 **kimi's challenge**, the sharpest thing the outside review produced:
 
@@ -129,12 +129,24 @@ The freeze demonstration is a partial answer: something did remain, it's §7.4, 
 only when someone the reader already follows has replied. That precondition is now written into the
 rule. Whether it's enough is still live.
 
-**glm's root-of-trust gap:**
+**glm's root-of-trust gap** — answered, and the answer cost two spec changes:
 
 > Whoever chooses her app — the daughter, or in a worse family, the son-in-law "helping her set it
 > up" — is her undeclared root of trust, and the spec is silent about it.
 
-That person can no longer be a recovery list of one. Everything else about it stands.
+`test/setup.test.js` stages him. §3.2's floor — a list of fewer than two leaves cannot restore —
+turned out not to reach him, because the leaf he was given is not the only one he holds: the backup
+key §3.3 told the app to make was generated on the phone in his hands. Him plus that key is two of
+two. Him, her daughter, and that key is two of three. Both are majorities, both walk the chain to a
+key of his, and both read **ok** with the note "recently restored" — the same note an honest rescue
+shows. A fourth leaf is the first width that refuses him, because a majority of four is three. So
+§3.3 now asks for a backup key beside at least **three** other members instead of one, and a reader
+reports the keys that vouched, which the link published anyway.
+
+What does not go away: a leaf is a hash of a salt and a key, and no rule tells two keys of one
+person from two people. The honest rescue and the takeover are the same bytes in every respect a
+reader checks — `test/setup.test.js` asserts exactly that, side by side. The protocol's whole answer
+is the width of the list and the name beside each key, and the app is where that gets asked for.
 
 ---
 
@@ -148,6 +160,7 @@ Why each thing is the way it is. Reversing one means answering its reason.
 - *The recovery list is salted hashes, revealed only on vouching.* Cleartext lists leak the family.
 - *A restore changes the key and nothing else* (§3.2). Converts a permanent takeover into one the owner's people can undo.
 - *No revocation.* A rotated-away key keeps its posts valid but can't sign an index (§4.4) or hold a number (§8.5).
+- *The recommended list is a backup key beside at least three others* (§3.3). A member holding the backup key and one leaf of their own is a majority of any list of three or fewer, and the backup key is made on a device somebody else may have set up.
 - *One key per person, synced between devices.* Per-device keys need a vouching key, and every home for it contradicts something. Caveat: **defensible for families, wrong for journalists.**
 - *A separate X25519 reading key.* Deriving from the signing key needs Edwards-to-Montgomery math no standard library exposes.
 

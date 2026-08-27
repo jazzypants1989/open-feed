@@ -164,9 +164,18 @@ const paper = { key: key('alice/backup'), salt: 'saltpaper' }, fresh = key('alic
 const one = commit([BRO]);
 assert.equal(walk({ chain: [...chain1, restore(A1, fresh, [paper], commit([paper]))] }, { 1: commit([paper]) }), null);
 assert.equal(walk({ chain: [...chain1, restore(A1, BRO.key, [BRO], one)] }, { 1: one }), null);
-// Bro plus the backup key is two, and two of two carries her to a new phone.
+// Bro plus the backup key is two, and two of two carries her to a new phone. But that key was made
+// on the phone whoever set it up was holding: if that was bro, the two leaves are one hand and the
+// same arithmetic hands him the identity. Two of three does it as well — a fourth leaf is the first
+// width that stops him, because a majority of four is three.
 const pair = commit([BRO, paper]);
 assert.equal(walk({ chain: [...chain1, restore(A1, fresh, [BRO, paper], pair)] }, { 1: pair }).current, fresh.x);
+const three = commit([BRO, MUM, paper]), four = commit([BRO, MUM, SIS, paper]);
+assert.equal(walk({ chain: [...chain1, restore(A1, BRO.key, [BRO, paper], three)] }, { 1: three }).current, BRO.key.x);
+assert.equal(walk({ chain: [...chain1, restore(A1, BRO.key, [BRO, paper], four)] }, { 1: four }), null);
+// A voucher reveals its own key by vouching, so the reader can say who restored her and leave the
+// judgement to someone who knows which of them share a hand.
+assert.deepEqual(walk({ chain: [...chain1, restore(A1, fresh, [BRO, paper], pair)] }, { 1: pair }).restoredBy, [BRO.key.x, paper.key.x]);
 // A changed list reaches a checkpointed reader only through a link: the held list at length 1 stays.
 const held = adoptRecoveryLists({}, { chain: chain1, recovery: one }, 0);
 adoptRecoveryLists(held, { chain: [...chain1, rotation(A1, A2, REC)], recovery: REC }, 1);
@@ -175,12 +184,14 @@ assert.deepEqual([held[1], held[2]], [one, REC]);
 assert.deepEqual([ok.verdict, ok.chain.restored], ['ok', true]);
 console.log(`  a list of bro alone       bro restores to his own key: 1 of 1 — refused`);
 console.log(`  bro and the backup key    ${spokenCode(paper.key.x).join(' ')}   2 of 2 — she is back`);
+console.log(`  bro holding both leaves   2 of 2, and 2 of 3 — the same restore, to his own key`);
+console.log(`  a fourth leaf             2 of 4 is not a majority — refused`);
 console.log(`  after she lists three and rotates, a reader that saw the list of one keeps it at length 1\n`);
-rule('3.3', `A publisher SHOULD create and list a backup key at setup, so that one other person plus that key
-restores. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
-through a new link; changing the key means writing the profile and then the index (§4.4). A reader
-SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
-verdict (§7.2).`);
+rule('3.3', `A publisher SHOULD create and list a backup key at setup, beside at least three other members, so that
+no member holding that key and one leaf of their own reaches a majority. A publisher SHOULD rotate when the
+list changes, because a changed list reaches readers only through a new link; changing the key means writing
+the profile and then the index (§4.4). A reader SHOULD flag a restored identity "recently restored" for seven
+days and report the keys that vouched; the flag is presentation, not a verdict (§7.2).`);
 
 // ---- §3.6 the reading key ----
 const unread = read({ ...v3, read: undefined }, A3);

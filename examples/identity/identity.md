@@ -223,27 +223,38 @@ match, so no voucher can ever count, so no restore is possible and a lost key is
 Where the list is not empty, a member can be a person, a backup key you keep in a drawer, or your
 hub. A leaf does not say which, and nothing outside your own app knows.
 
-**Starting alone: a backup key you keep yourself.** For the first person on the protocol — or
-anyone whose people are not on it yet — the list has nobody to name. §3.4 says an app SHOULD create
-a backup key at setup and list it, and the example stages exactly that: a list of one leaf, the
-backup key's six-word spoken code (§3.7) printed as it would go on paper, and a restore to a new
-phone vouched by that key alone. A majority of one is one, so the paper is the whole recovery. When
-people join later she lists them and rotates (§3.3); nothing in the protocol has to change for her
-to go from one member to several, and nothing about recovery waits on having friends first.
+**Starting alone does not work, and that is the honest answer.** For the first person on the
+protocol — or anyone whose people are not on it yet — the list has nobody to name. A backup key of
+her own is one leaf, and a list of one cannot restore (§3.2), so she has no recovery at all: a lost
+key is a lost identity until there is somebody to name. The example stages the refusal rather than a
+workaround — the backup key's six-word spoken code (§3.7) printed as it would go on paper, and a
+restore vouched by that key alone, refused. When people join she lists them and rotates (§3.3);
+nothing in the protocol has to change for her to go from nobody to several.
 
-**A list with one other person hands that person the identity.** The example stages it: Alice lists
-bro and nobody else, bro restores to a key of his own, one of one counted — a majority — and the
-chain walks to his key. Then the half that makes it worse. Alice replaces the list with the
-three and rotates so the change reaches readers at all (§3.3), and her new link at chain length 1
-carries the new list — but a reader that already saw the list of one there keeps it (§3.4 rule 2,
-staged in `examples/contests/`). Bro's ability to restore at that length does not expire with the
-list; it lasts as long as that reader does. That is why §3.4 says an app SHOULD require two or more
-members beyond your own keys: a majority of one is one, which is the right answer for your own
-backup key and the wrong one for somebody else's.
+**Two leaves in one hand are one leaf.** §3.2's floor stops the list of one: bro listed alone
+restores to a key of his own, one of one, and the link is refused. What the floor does not stop is
+one person holding two leaves — and the backup key is exactly where that happens, because it is
+generated on the phone, and whoever set the phone up was holding it. The example stages the
+arithmetic: bro plus that key is two of two, bro and mum plus that key is two of three, both are
+majorities, and both walk the chain to a key of bro's. A fourth leaf is the first width that refuses
+him, since a majority of four is three. That is why §3.3 asks for a backup key beside at least
+**three** other members rather than one.
+
+Then the half that makes it worse. Alice replaces the list and rotates so the change reaches readers
+at all (§3.3), and her new link at chain length 1 carries the new list — but a reader that already
+saw the old list there keeps it (§3.4 rule 2, staged in `examples/contests/`). His ability to restore
+at that length does not expire with the list; it lasts as long as that reader does.
+
+No rule can do better than the width. A leaf is a hash of a salt and a key, and nothing distinguishes
+two keys of one person from two people: `test/setup.test.js` stages the honest rescue and the
+takeover side by side, and they are the same bytes in every respect a reader checks. What a reader
+can do is say **who** vouched, and §3.3 asks it to — the vouchers are in the link, so the answer was
+on the wire the whole time.
 
 **"Recently restored" is presentation, not a verdict.** The read is **ok**; `restored` is a fact
-about the chain, and reading apps SHOULD show it for seven days. The vouchers stay in the chain and
-stay readable a year later — who moved this identity is part of the record, not a transient notice.
+about the chain, and reading apps SHOULD show it for seven days, along with the keys that vouched.
+The vouchers stay in the chain and stay readable a year later — who moved this identity is part of
+the record, not a transient notice.
 The three verdicts (§7.2) are ok, tampered, and contested; a
 fourth state that cried "restored" would be a state users learn to click past.
 

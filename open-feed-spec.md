@@ -132,11 +132,11 @@ posts valid but cannot sign an index (§4.4) or hold a number against the owner 
 random salt per member, so a member vouching reveals only itself. The list MUST NOT exceed 32 leaves, and a
 reader MUST reject a longer one. It MAY be empty, and a list of fewer than 2 cannot restore.
 
-A publisher SHOULD create and list a backup key at setup, so that one other person plus that key
-restores. A publisher SHOULD rotate when the list changes, because a changed list reaches readers only
-through a new link; changing the key means writing the profile and then the index (§4.4). A reader
-SHOULD flag a restored identity "recently restored" for seven days; the flag is presentation, not a
-verdict (§7.2).
+A publisher SHOULD create and list a backup key at setup, beside at least three other members, so that
+no member holding that key and one leaf of their own reaches a majority. A publisher SHOULD rotate when the
+list changes, because a changed list reaches readers only through a new link; changing the key means writing
+the profile and then the index (§4.4). A reader SHOULD flag a restored identity "recently restored" for seven
+days and report the keys that vouched; the flag is presentation, not a verdict (§7.2).
 
 ### 3.4. Contests
 

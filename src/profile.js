@@ -29,15 +29,22 @@ export const signProfile = (fields, key) => signFile(fields, key);
 // Both bound the signature checks a hostile profile can demand of a reader.
 export const MAX_LINKS = 64, MAX_LEAVES = 32, MIN_RESTORABLE_LEAVES = 2;
 const isList = (c) => c && Array.isArray(c.leaves) && c.leaves.length <= MAX_LEAVES && c.leaves.every((l) => typeof l === 'string');
-/** Distinct voucher keys whose signatures verify and whose leaves are in `recovery`. */
-export function vouches(from, link, recovery) {
+/**
+ * Distinct voucher keys whose signatures verify and whose leaves are in `recovery`. A voucher
+ * reveals its own key by vouching (§3.2), so a reader that keeps them can say who restored an
+ * identity — the one thing that separates an honest rescue from a takeover by whoever set up the
+ * device, since two leaves in one hand are two leaves (§3.3).
+ */
+export function vouchedBy(from, link, recovery) {
   const leaves = new Set(recovery?.leaves ?? []);
   const ok = new Set();
   for (const v of link?.vouchers ?? []) {
     if (v && typeof v.key === 'string' && typeof v.salt === 'string' && linkVerifies(from, link.key, v.key, v.signature) && leaves.has(leaf(v.salt, v.key))) ok.add(v.key);
   }
-  return ok.size;
+  return [...ok];
 }
+/** How many of them there are — the bar §3.2 measures against. */
+export const vouches = (from, link, recovery) => vouchedBy(from, link, recovery).length;
 // §3.3 / §3.4 rule 4: more than half of the held list vouches, and the list holds at least two.
 // A list of one is one person who can take the identity alone, at any moment, with nothing asked of
 // its owner — and §3.4 rule 2 makes that permanent at the length the reader first saw it.
@@ -68,7 +75,12 @@ export function walk(p, recoveryLists) {
     if (!recovery) return null;
     if (!linkVerifies(from, link.key, from, link.signature) && !majority(from, link, recovery)) return null;
   }
-  return { keys: p.chain.map((h) => h.key), current: p.chain.at(-1).key, restored: p.chain.length > 1 && p.chain.at(-1).signature === undefined };
+  const last = p.chain.at(-1), restored = p.chain.length > 1 && last.signature === undefined;
+  return {
+    keys: p.chain.map((h) => h.key), current: last.key, restored,
+    // Who vouched, for a reader to show: the link published these keys, so keeping them costs nothing.
+    restoredBy: restored ? vouchedBy(p.chain.at(-2).key, last, recoveryLists[p.chain.length - 1]) : null,
+  };
 }
 
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
