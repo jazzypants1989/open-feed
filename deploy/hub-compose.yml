@@ -1,0 +1,43 @@
+# The hub behind the Traefik that already fronts this host. Separate from docker-compose.yml on
+# purpose: `up -d --build` there would rebuild and restart the bridge, and the bridge restarting is
+# how a federated identity loses the key remote instances have cached. These two never move together.
+#
+#   docker compose -f deploy/hub-compose.yml up -d --build
+#
+# The certificate is issued by the `letsencrypt` resolver over the HTTP-01 challenge, so the A record
+# must resolve to this host BEFORE the container starts. `.page` is HSTS-preloaded, which is a
+# browser rule and does not affect the challenge.
+services:
+  openfeed-hub:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.hub
+    container_name: openfeed-hub
+    restart: unless-stopped
+    # The origin is here rather than in the image so it sits beside the Host rule it must match.
+    command: ["node", "bin/openfeed.js", "hub", "--host", "0.0.0.0", "--port", "4567", "--data", "/app/data", "--origin", "https://pence.page"]
+    volumes:
+      - hub-data:/app/data
+    networks:
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      # HTTPS router
+      - "traefik.http.routers.hub.rule=Host(`pence.page`)"
+      - "traefik.http.routers.hub.entrypoints=https"
+      - "traefik.http.routers.hub.tls.certresolver=letsencrypt"
+      # HTTP -> HTTPS redirect
+      - "traefik.http.routers.hub-http.rule=Host(`pence.page`)"
+      - "traefik.http.routers.hub-http.entrypoints=http"
+      - "traefik.http.routers.hub-http.middlewares=hub-https-redirect"
+      - "traefik.http.middlewares.hub-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.hub-https-redirect.redirectscheme.permanent=true"
+      # Service
+      - "traefik.http.services.hub.loadbalancer.server.port=4567"
+
+volumes:
+  hub-data:
+
+networks:
+  traefik-public:
+    external: true

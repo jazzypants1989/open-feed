@@ -1,0 +1,30 @@
+# An Open Feed hub (§8) at a real origin behind a reverse proxy.
+# Build context is the repository root -- the image needs src/, bin/ and package.json, and nothing
+# else. bridge/ is deliberately absent: a hub is storage for signed files and knows no other protocol.
+#   docker compose -f deploy/hub-compose.yml up -d --build
+FROM node:22-alpine
+
+WORKDIR /app
+
+# No dependencies to install: the implementation is stdlib-only, so there is no npm install here.
+COPY package.json ./
+COPY src/ src/
+COPY bin/ bin/
+
+RUN mkdir -p /app/data && \
+    addgroup -g 1001 -S openfeed && \
+    adduser -u 1001 -S openfeed -G openfeed && \
+    chown -R openfeed:openfeed /app
+
+USER openfeed
+EXPOSE 4567
+
+# "Is it accepting connections" is the whole question. Every path 404s until somebody claims a name
+# (§8.4), so there is no URL that answers 200 on a first boot to probe instead.
+# 127.0.0.1, not localhost: busybox resolves localhost to [::1] first and the probe would fail.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD nc -z 127.0.0.1 4567 || exit 1
+
+# --host 0.0.0.0, because the CLI defaults to loopback and a container that binds loopback is
+# unreachable from the proxy. Compose overrides this to name the real origin.
+CMD ["node", "bin/openfeed.js", "hub", "--host", "0.0.0.0", "--port", "4567", "--data", "/app/data"]

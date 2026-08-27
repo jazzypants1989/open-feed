@@ -1,8 +1,75 @@
-# Deploying the bridge
+# Deploying
+
+Two independent services on one host behind one Traefik, and they never move together:
+
+| service | compose file | what it is |
+| --- | --- | --- |
+| **the hub** | `deploy/hub-compose.yml` | §8 at `pence.page`. Storage for signed files. Holds no key |
+| **the bridge** | `deploy/docker-compose.yml` | `bridge/` at `bridge.jovialpenguin.com`. Interop, not spec. **Holds keys** |
+
+Both are **test deployments of a draft protocol** — see the version policy in `CLAUDE.md`.
+
+The separation is not tidiness. `up -d --build` on the bridge restarts it, and a bridge restarting
+with a lost volume is how a federated identity loses the key remote instances have cached. There is
+no such failure on the hub side, because a hub never holds a key at all (§4.4).
+
+---
+
+# The hub
+
+`openfeed hub` (`src/cli.js`, `bin/openfeed.js`) serving `https://pence.page`. Members live at
+`pence.page/<name>`: `pence.page/jesse`, `pence.page/mom`.
+
+**It holds no private key.** Signing happens on the device that publishes; this process stores
+signed files and serves back the exact bytes it was given (§2.3). So the disaster here is losing
+*files*, not losing an identity — every publisher keeps its own copy (§8.9) and can re-`PUT` the lot.
+That is the third floor item in `docs/GOALS.md` as an operational fact rather than a claim.
+
+| flag | meaning |
+| --- | --- |
+| `--host 0.0.0.0` | **required in a container.** The CLI defaults to loopback, and a container bound to loopback is invisible to the proxy |
+| `--port 4567` | must match the `loadbalancer.server.port` label |
+| `--data /app/data` | the store, on the `hub-data` volume. Without it the hub is in memory and a restart is empty |
+| `--origin https://pence.page` | the public origin, used for WebFinger |
+
+## Deploy
+
+```bash
+# 1. DNS first -- the HTTP-01 challenge fails without it, and failures count against a rate limit
+dig +short pence.page A                   # must answer with the host's public IP
+
+# 2. Build and start
+cd ~/services/openfeed && git pull        # or clone https://github.com/jazzypants1989/open-feed.git
+docker compose -f deploy/hub-compose.yml up -d --build
+docker logs -f openfeed-hub               # "It holds no key" on every start
+```
+
+Cloudflare fronts `pence.page`, and the A record must be **grey-cloud (DNS only)**. Orange-cloud
+proxying puts a third party in the serving path holding the TLS key for an origin whose whole premise
+is that the serving path is not trusted — and it breaks the HTTP-01 challenge depending on the SSL mode.
+
+## Verify
+
+```bash
+curl -sI https://pence.page/jesse/profile                  # 200 once claimed, 404 before
+curl -s https://pence.page/jesse/index | tail -1           # the signature line
+curl -sI https://pence.page/jesse/posts/1 | grep -i etag   # the address is the hash of the body
+
+npx . verify <anchor key> https://pence.page/jesse         # from a machine that is not the host
+```
+
+The last one is the only check that matters: it is the reader (§7), run against the live origin,
+returning `ok`, `tampered` or `contested` and nothing else. Run it from off the host's network.
+
+To confirm persistence: `docker compose -f deploy/hub-compose.yml restart`, then re-fetch a post and
+compare the ETag. Same bytes, same hash, or the store did not survive.
+
+---
+
+# The bridge
 
 The interop bridge (`bridge/`) serving one Open Feed identity at a real origin, so the ActivityPub,
-Nostr, and IndieWeb translations can be tested against real instances rather than in memory. This is
-a **test deployment of a draft protocol** — see the version policy in `CLAUDE.md`.
+Nostr, and IndieWeb translations can be tested against real instances rather than in memory.
 
 ## What runs
 
