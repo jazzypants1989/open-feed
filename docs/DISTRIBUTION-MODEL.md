@@ -105,14 +105,34 @@ anchor. First come, with the profile as the proof.
 **3. The recovery list is relatives, and it is set up now.** The recovery list is a set of hashed
 leaves — `SHA-256(salt ‖ "|" ‖ member key)` with a distinct salt per member — so the list itself
 reveals nobody (§3.3). If the member loses their key, a majority of the listed members vouch for a
-new one and the identity survives (§3.2). The spec asks for a backup key of the member's own plus two
-or more other members, and the app should ask for exactly that during setup, in these words rather
-than in cryptographic ones: _"if you lose your phone, who can vouch that it's still you?"_
+new one and the identity survives (§3.2). The spec asks for a backup key of the member's own plus
+**three or more** other members, and the width is the whole defense: a member who holds the backup key
+and one leaf of their own is a majority of any list of three or fewer, and the backup key is generated
+on the device — which somebody else may have been holding. Four leaves is the first shape in which
+that person is outvoted (`test/setup.test.js`).
 
 This replaces the printed-card ceremony an earlier design used, and it is better on the axis that
 matters here. A card in a drawer is an artifact the hostile-custodian adversary has physical access
 to. A threshold across relatives is not, and the operator holding the server gains nothing toward it
 unless he also holds a majority of the list — which is a social fact the member can see and choose.
+
+**Setup is the one screen the adversary may be standing at.** The person walking a member through
+onboarding is often the person the list most needs to outvote, so the app must ask in words that do
+not hand him the pen:
+
+- Ask for **people, by name, out loud** — _"name three people who would know it was really you"_ —
+  rather than _"who can vouch for you?"_, which invites whoever is holding the phone to add himself.
+- Say that the person helping **should not be the only one on the list**, at the moment the list is
+  built, not in a help page.
+- Read the list back as names the member recognizes, and let them change it later. A changed list
+  reaches readers only through a new link, so the app rotates when it changes (§3.3).
+- Never let the flow finish with fewer than three people beside the backup key. The spec's SHOULD is
+  the app's MUST here: nobody comes back later to widen a list that already works.
+
+And state the limit rather than implying the arithmetic is a guarantee: nothing in the protocol tells
+two keys of one person from two people (§3.3). What a reader can do is report **who** vouched for a
+restore, because the link publishes their keys — so the app shows those names beside "recently
+restored", which is the only thing that separates a rescue from a takeover.
 
 **4. First contact happens out of band, once.** A reader must learn an anchor key by a route the hub
 does not control (§3, §3.7). The app supports both routes the spec defines: a link with the key in
