@@ -69,8 +69,20 @@ So a change to the protocol is a change to an example:
 npm test            # no dependencies, Node >= 20
 npm run spec        # re-run every example; fail if the spec is not what they printed
 npm run vectors     # check test-vectors.md, verifying every vector with both readers
+npm run conform     # run the reader suite against both of ours
 npm run check       # all of the above, plus this page's word budgets
 ```
+
+**Writing your own implementation?** `tools/conform.js` runs our suite against it — the same checks
+`test-vectors.md` is verified with, aimed at your code:
+
+```sh
+node tools/conform.js reader ./my-reader.mjs        # exports read(get, { learned, at, checkpoint })
+node tools/conform.js hub https://my-hub.example/   # drives §8 over the network
+```
+
+Every check names the spec section it comes from, and none of them is a rule the spec does not
+already carry.
 
 New concepts get their own example, under the contract in
 [`examples/README.md`](examples/README.md). Bug reports, questions, and "have you considered" do not

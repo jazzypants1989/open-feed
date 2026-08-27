@@ -3,109 +3,28 @@
 //   node tools/regen.js           verify the vectors and check test-vectors.md carries them verbatim
 //   node tools/regen.js --write   regenerate test-vectors.md
 //
-// NO SECOND IMPLEMENTATION LIVES HERE. The files are produced by the weekend publisher
-// (examples/weekend-publisher) and the envelope by src/envelope.js. Verification runs TWO readers
-// over an in-memory fetcher, in the order §7 states: the weekend reader (examples/weekend-reader,
-// written from the text alone) and src/reader.js. Two independent readers agreeing on every vector
-// is the interop check the spec exists for.
-import crypto from 'node:crypto';
+// NO SECOND IMPLEMENTATION LIVES HERE. The corpus is `tools/corpus.js` — files produced by the
+// weekend publisher (examples/weekend-publisher) and the envelope by src/envelope.js — and so is the
+// suite of checks a §7 reader must pass. This file renders that corpus and runs the suite with TWO
+// readers: the weekend reader (examples/weekend-reader, written from the text alone) and
+// src/reader.js. Two independent readers agreeing on every vector is the interop check the spec
+// exists for; `tools/conform.js` runs the same suite against anybody else's.
 import fs from 'node:fs';
 
-import * as pub from '../examples/weekend-publisher/weekend-publisher.js';
 import { read } from '../examples/weekend-reader/weekend-reader.js';
 import { createReader } from '../src/reader.js';
 import { spokenIndices as spokenIndicesRef, spokenCode } from '../src/spoken.js';
-import { encrypt, decrypt as unseal, postBinding, readingKeyFromSeed } from '../src/envelope.js';
-
-// A deterministic X25519 key from a label — for vectors only, never for a real identity.
-const xKey = (label) => ({ label, ...readingKeyFromSeed(crypto.createHash('sha256').update(`envelope:${label}`).digest()) });
+import { decrypt as unseal, postBinding } from '../src/envelope.js';
+import {
+  A1, A2, A3, AT, BRO, MUM, READ_ALICE, READ_MUM, REC, SIS,
+  body, edKey, envelope, head1, head2, head3, p1, p2, p3, png, pngHash,
+  address, post1, post2, post3, post4, post5, readerSuite, sha256, sigLine, spokenIndices, xKey,
+} from './corpus.js';
 
 const OUT = new URL('../test-vectors.md', import.meta.url);
 const write = process.argv.includes('--write');
 
-const sha256 = (b) => crypto.createHash('sha256').update(b).digest('base64url');
-const body = (f) => f.subarray(0, f.lastIndexOf(0x0a));
-const sigLine = (f) => f.subarray(f.lastIndexOf(0x0a) + 1).toString('latin1');
-
-// ---- deterministic keys, so every byte below reproduces on any machine ----
-// Ed25519 signing is deterministic (RFC 8032), so a fixed seed fixes the whole file. §2.2 exists
-// because a library MAY randomize it; a verifier that hashes the body is unaffected either way.
-const PKCS8_ED25519 = Buffer.from('302e020100300506032b657004220420', 'hex');
-const edKey = (label) => {
-  const seed = crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest();
-  const privateKey = crypto.createPrivateKey({ key: Buffer.concat([PKCS8_ED25519, seed]), format: 'der', type: 'pkcs8' });
-  return { label, privateKey, x: crypto.createPublicKey(privateKey).export({ format: 'jwk' }).x };
-};
-
-// ---- §3.7's spoken code ----
-export function spokenIndices(keyX) {
-  const bits = Buffer.from(crypto.hkdfSync('sha256', Buffer.from(keyX, 'base64url'), Buffer.alloc(0), 'openfeed/v1/spoken', 9));
-  let acc = 0n;
-  for (const b of bits) acc = (acc << 8n) | BigInt(b);      // 72 bits
-  return Array.from({ length: 6 }, (_, i) => Number((acc >> BigInt(72 - 11 * (i + 1))) & 0x7ffn));
-}
-
-// ---- the identity ----
-const A1 = edKey('alice/anchor'), A2 = edKey('alice/rotated'), A3 = edKey('alice/restored');
-const MUM = { key: edKey('mum'), salt: 'saltmum' };
-const SIS = { key: edKey('sis'), salt: 'saltsis' };
-const BRO = { key: edKey('bro'), salt: 'saltbro' };
-const REC = pub.commit([MUM, SIS, BRO]);
-const AT = 'https://alice.example/alice';
-
-const READ_ALICE = xKey('vector:alice-read');
-const READ_MUM = xKey('vector:mum-read');
-
-const chain1 = [{ key: A1.x }];
-// Every link carries the list that stood BEFORE it (§3.3); Alice never changed hers, so it is REC throughout.
-const chain2 = [...chain1, pub.rotation(A1, A2, REC)];
-const chain3 = [...chain2, pub.restore(A2, A3, [MUM, SIS], REC)];
-
-const base = { anchor: A1.x, name: 'Alice', recovery: REC, locations: [AT], read: READ_ALICE.x };
-const p1 = pub.profile({ ...base, version: 1, chain: chain1 }, A1);
-const p2 = pub.profile({ ...base, version: 2, chain: chain2 }, A2);
-const p3 = pub.profile({ ...base, version: 3, chain: chain3 }, A3);
-
-// ---- the posts ----
-const post1 = pub.post(1, { at: '2026-07-04T10:15:00Z', text: 'the peonies came back' }, A1);
-const post2 = pub.post(2, { at: '2026-07-11T18:02:00Z', text: 'deleted this one' }, A1);
-const post3 = pub.post(3, {
-  at: '2026-07-19T09:30:00Z', text: 'congratulations, both of you',
-  rel: 'reply',
-  target: { key: edKey('mum').x, number: 12, hash: sha256(Buffer.from('a post of mum\'s')), location: 'https://mom.example/mom' },
-}, A2);
-const png = Buffer.from('\x89PNG\r\n\x1a\n a tiny photograph', 'latin1');
-const pngHash = sha256(png);
-const post4 = pub.post(4, { at: '2026-08-15T07:00:00Z', text: 'the morning after', media: [pngHash] }, A3);
-// A encrypted post: number and at in the clear, everything else — text, rel, target, media — inside (§6.5).
-const envelope = encrypt({
-  content: { text: 'I am leaving him on Friday', rel: 'root' },
-  audience: [{ key: A1.x, read: READ_ALICE.x, location: AT }, { key: MUM.key.x, read: READ_MUM.x, location: 'https://mom.example/mom' }],
-  binding: postBinding(A1.x, 5),
-  ephemeral: xKey('vector:ephemeral/5'),
-  contentKey: crypto.createHash('sha256').update('openfeed/v1/vector:contentkey/5').digest(),
-});
-const post5 = pub.post(5, { at: '2026-08-18T21:40:00Z', encrypted: envelope }, A3);
-
-const H = (f) => pub.address(f);
-const h1 = H(post1), h2 = H(post2), h3 = H(post3), h4 = H(post4), h5 = H(post5);
-
-// ---- the indexes: three versions of one file ----
-const head1 = pub.index({ entries: [[1, h1], [2, h2], [3, h3]], version: 1, highest: 3 }, A3);
-const head2 = pub.index({ entries: [[1, h1], [2, h2], [3, h3], [2, null], [4, h4], [5, h5], [pngHash]], version: 2, highest: 5 }, A3);
-// The rewrite drops the lines the withdrawal left behind (§4.5), and post 2 comes back at the hash
-// it had (§4.1).
-const head3 = pub.index({ entries: [[1, h1], [3, h3], [4, h4], [5, h5], [pngHash], [2, h2]], version: 3, highest: 5 }, A3);
-
-// ---- verification: the composed reader over an in-memory fetcher, no socket ----
-const files = new Map([
-  [`${AT}/posts/1`, post1], [`${AT}/posts/2`, post2], [`${AT}/posts/3`, post3],
-  [`${AT}/posts/4`, post4], [`${AT}/posts/5`, post5],
-  [`${AT}/media/${pngHash}`, png], [`${AT}/profile`, p3],
-]);
-const get = async (p) => files.get(p) ?? null;
-const serveIndex = (h) => files.set(`${AT}/index`, h);
-
+// ---- verification: two readers over the corpus, no socket ----
 const fail = [];
 let ran = 0;
 const check = (what, ok) => { ran++; if (!ok) fail.push(what); return ok; };
@@ -117,27 +36,21 @@ for (const [name, f] of [['profile version 1', p1], ['profile version 2', p2], [
   check(`${name}: the signature line is 86 base64url characters that re-encode to themselves`,
     /^[A-Za-z0-9_-]{86}$/.test(line) && Buffer.from(line, 'base64url').toString('base64url') === line);
   check(`${name}: the address is the hash of the body, not of the file`,
-    pub.address(f) === sha256(body(f)) && pub.address(f) !== sha256(f));
+    address(f) === sha256(body(f)) && address(f) !== sha256(f));
   check(`${name}: the body is one line of UTF-8 JSON`, !body(f).includes(0x0a) && typeof JSON.parse(body(f)) === 'object');
 }
 
-serveIndex(head1);
-const cold = await read(get, { learned: A1.x, at: AT });
-check('a cold read of version 1 is ok, with three posts and "recently restored" as a note',
-  cold.verdict === 'ok' && cold.posts.size === 3 && cold.note.includes('recently restored'));
+// The suite is in tools/corpus.js so tools/conform.js can run the same one against anybody's reader.
+// Both of ours must pass it, and must return the same verdict in the same order for every scenario —
+// agreeing on what to accept is only half of it, and the negative vectors are the other half.
+const weekend = await readerSuite(read, (what, ok) => check(`weekend: ${what}`, ok));
+const reference = await readerSuite(
+  (get, opts) => createReader({ get: async (u) => { const b = await get(u); return b ? { bytes: b, etag: '"t"' } : null; } }).read(opts),
+  (what, ok) => check(`src: ${what}`, ok),
+);
+check('the two readers return the same verdict for every scenario', weekend.join() === reference.join());
 
-serveIndex(head2);
-const checkpointed = await read(get, { learned: A1.x, at: AT, checkpoint: cold.checkpoint });
-check('a checkpointed read of version 2 is ok, notes the withdrawal, and holds posts 4 and 5 and the media file',
-  checkpointed.verdict === 'ok' && checkpointed.note.includes('withdrawn: 2') && checkpointed.posts.has(4) && checkpointed.posts.has(5) && checkpointed.media.has(pngHash));
-
-serveIndex(head3);
-const rewritten = await read(get, { learned: A1.x, at: AT, checkpoint: checkpointed.checkpoint });
-check('the rewrite is accepted by a reader that held the index before it, and post 2 is back at the hash it had',
-  rewritten.verdict === 'ok' && [...rewritten.posts.keys()].sort().join(',') === '1,2,3,4,5' && !rewritten.note.some((n) => n.startsWith('withdrawn')));
-check('a number that came back at another hash would be tampered', (await read(get, { learned: A1.x, at: AT, checkpoint: { ...checkpointed.checkpoint, withdrawn: new Map([[2, 'x']]) } })).verdict === 'tampered');
-check('the reader hands back the verified profile\'s reading key', rewritten.read === READ_ALICE.x);
-
+// ---- §6: the envelope, which no reader is required to open ----
 const sealedField = JSON.parse(body(post5)).encrypted;
 const post5FieldOf = () => sealedField;
 const opened = unseal(sealedField, READ_MUM.privateKey, postBinding(A1.x, 5));
@@ -150,75 +63,11 @@ check('a non-recipient cannot open it', unseal(post5FieldOf(), xKey('vector:hub-
 check('one slot per recipient, every slot the same width',
   envelope.slots.length === 2 && new Set(envelope.slots.map(([t, w]) => `${t.length}/${w.length}`)).size === 1);
 
+// ---- §3.7: the spoken code, computed twice ----
 const idx = spokenIndices(A1.x);
 check('the spoken code is six 11-bit indices', idx.length === 6 && idx.every((i) => Number.isInteger(i) && i >= 0 && i < 2048));
-
-// ---- the second reader: src/ must read the same bytes to the same verdicts ----
-{
-  const r2 = createReader({ get: async (p) => (files.has(p) ? { bytes: files.get(p), etag: '"t"' } : null) });
-  serveIndex(head1);
-  const c2 = await r2.read({ learned: A1.x, at: AT });
-  check('src: the cold read agrees', c2.verdict === 'ok' && [...c2.posts.keys()].sort().join() === [...cold.posts.keys()].sort().join() && c2.note.includes('recently restored'));
-  serveIndex(head2);
-  const p2r = await r2.read({ learned: A1.x, at: AT, checkpoint: c2.checkpoint });
-  check('src: the checkpointed read agrees', p2r.verdict === 'ok' && p2r.note.includes('withdrawn: 2') && p2r.posts.has(4) && p2r.posts.has(5));
-  serveIndex(head3);
-  const w2 = await r2.read({ learned: A1.x, at: AT, checkpoint: p2r.checkpoint });
-  check('src: the rewrite and the re-listing agree', w2.verdict === 'ok' && [...w2.posts.keys()].sort().join(',') === '1,2,3,4,5' && w2.read === READ_ALICE.x);
-  check("src: the spoken code agrees", spokenIndicesRef(A1.x).join() === idx.join());
-  check('src: the six words are the BIP-39 words at those indices', spokenCode(A1.x).length === 6 && spokenCode(A1.x).every((w) => /^[a-z]+$/.test(w)));
-}
-
-// ---- negative vectors: the two readers must agree on REJECTION, not only on acceptance ----
-// Every vector above is well-formed, so the two-reader check proves the readers agree on what to
-// accept and says nothing about what they refuse. That is the gap the archived review found twice:
-// `src/` and the weekend reader diverged on a shape failure, and both accepted the `k` defects,
-// with no vector driving a failure through either. Each case below is built by the weekend
-// publisher — no second implementation lives here — and both readers must return the same verdict.
-{
-  const bad = new Map(files);
-  const r2 = createReader({ get: async (p) => (bad.has(p) ? { bytes: bad.get(p), etag: '"t"' } : null) });
-  const getBad = async (p) => bad.get(p) ?? null;
-  const flip = (f, needle, to) => { const i = f.indexOf(Buffer.from(needle)); const c = Buffer.from(f); c[i] = to.charCodeAt(0); return c; };
-  const T = edKey('vector:thief');
-
-  // A recovery list of one, and the same restore under a list of two: §3.2's bar, from both sides.
-  const ONE = pub.commit([MUM]);
-  const soloProfile = pub.profile({ anchor: A1.x, version: 4, name: 'Alice', chain: [{ key: A1.x }, pub.restore(A1, T, [MUM], ONE)], recovery: ONE, locations: [AT] }, T);
-  // The positive twin EXTENDS the real chain, so the posts still verify under a key in it.
-  const realChain = JSON.parse(body(p3)).chain;
-  const pairProfile = pub.profile({ anchor: A1.x, version: 4, name: 'Alice', chain: [...realChain, pub.restore(A3, T, [MUM, SIS], REC)], recovery: REC, locations: [AT] }, T);
-  const wide = pub.commit(Array.from({ length: 33 }, (_, i) => ({ key: edKey(`vector:leaf${i}`), salt: `s${i}` })));
-  const wideProfile = pub.profile({ anchor: A1.x, version: 4, name: 'Alice', chain: [{ key: A1.x }, pub.restore(A1, T, [MUM, SIS], wide)], recovery: wide, locations: [AT] }, T);
-
-  const cases = [
-    ['a flipped byte in a post body', () => bad.set(`${AT}/posts/1`, flip(post1, 'text', 'T')), 'tampered'],
-    ['a post whose `number` is not the number it is served at (§5.1)', () => bad.set(`${AT}/posts/3`, post4), 'tampered'],
-    ['a listed post that is not served', () => bad.delete(`${AT}/posts/3`), 'tampered'],
-    ['media bytes that do not hash to the listed address (§4.3)', () => bad.set(`${AT}/media/${pngHash}`, Buffer.from('not the picture')), 'tampered'],
-    ['a signature line that decodes but does not re-encode (§2.1)', () => bad.set(`${AT}/profile`, Buffer.concat([body(p3), Buffer.from(`\n${sigLine(p3).slice(0, 85)}=`)])), 'contested'],
-    ['a duplicate member in the profile body (§2.4)', () => bad.set(`${AT}/profile`, Buffer.concat([Buffer.from(body(p3).toString('utf8').replace('{"anchor"', '{"anchor":"x","anchor"')), Buffer.from(`\n${sigLine(p3)}`)])), 'contested'],
-    ['a restore vouched by a recovery list of one (§3.2)', () => bad.set(`${AT}/profile`, soloProfile), 'contested'],
-    ['a recovery list past 32 leaves (§3.3)', () => bad.set(`${AT}/profile`, wideProfile), 'contested'],
-    ['an index signed by a key the chain has rotated away from (§4.4)', () => bad.set(`${AT}/index`, pub.index(JSON.parse(body(head3)), A1)), 'tampered'],
-  ];
-  for (const [what, mutate, want] of cases) {
-    bad.clear(); for (const [k, v] of files) bad.set(k, v); bad.set(`${AT}/index`, head3);
-    mutate();
-    const w = await read(getBad, { learned: A1.x, at: AT });
-    const r = await r2.read({ learned: A1.x, at: AT });
-    check(`negative: ${what} — both readers say ${want}`, w.verdict === want && r.verdict === want);
-    check(`negative: ${what} — the two readers agree`, w.verdict === r.verdict);
-  }
-  // And the positive twin of the recovery bar, so the rule is proved from both sides.
-  bad.clear(); for (const [k, v] of files) bad.set(k, v);
-  bad.set(`${AT}/profile`, pairProfile);
-  bad.set(`${AT}/index`, pub.index(JSON.parse(body(head3)), T));            // §4.4: the key the chain now ends on
-  const wOk = await read(getBad, { learned: A1.x, at: AT }), rOk = await r2.read({ learned: A1.x, at: AT });
-  check('negative: two of two restores, and both readers say ok', wOk.verdict === 'ok' && rOk.verdict === 'ok');
-}
-
-serveIndex(head3);
+check('src: the spoken code agrees', spokenIndicesRef(A1.x).join() === idx.join());
+check('src: the six words are the BIP-39 words at those indices', spokenCode(A1.x).length === 6 && spokenCode(A1.x).every((w) => /^[a-z]+$/.test(w)));
 
 // ---- render ----
 const f = (bytes) => bytes.toString('utf8');

@@ -19,7 +19,8 @@
     "spec": "node tools/spec.js",
     "vectors": "node tools/regen.js",
     "tldr": "node tools/tldr.js",
-    "check": "npm test && npm run spec && npm run vectors && npm run refs && npm run tldr",
+    "conform": "node tools/conform.js reader",
+    "check": "npm test && npm run spec && npm run vectors && npm run conform && npm run refs && npm run tldr",
     "refs": "node tools/refs.js"
   }
 }

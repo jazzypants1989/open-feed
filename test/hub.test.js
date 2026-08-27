@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { createHub } from '../src/hub.js';
 import { signFile, address, sha256 } from '../src/file.js';
 import { rotation, signProfile } from '../src/profile.js';
-import { memIo, person, list, claim, readerOver } from './helpers/site.js';
+import { memIo, person, list, claim, readerOver, tlsHub, consumerFetcher } from './helpers/site.js';
+import { hubSuite } from '../tools/conform.js';
 
 const put = (hub, path, body, ifMatch = null) => hub.handle({ method: 'PUT', path, headers: ifMatch ? { 'if-match': ifMatch } : {}, body });
 const get = (hub, path) => hub.handle({ method: 'GET', path });
@@ -105,4 +106,12 @@ test('§8.8 a hub may drop what the index does not list, and nothing the index l
   const gone = s.hub.collect('alice');
   assert.deepEqual(gone, ['alice/posts/2']);
   assert.equal(readerOver(s.io) && (await readerOver(s.io).read({ learned: s.alice.key.x, at: s.AT })).verdict, 'ok');
+});
+
+test('§8 conformance: tools/conform.js passes against a conforming hub, over a socket', async (t) => {
+  const { url } = await tlsHub(t);
+  const results = [];
+  await hubSuite(url, { check: (what, ok) => results.push([what, !!ok]), fetcher: consumerFetcher(), name: 'conformer' });
+  assert.deepEqual(results.filter(([, ok]) => !ok).map(([w]) => w), [], 'the reference hub must pass its own suite');
+  assert.ok(results.length >= 12, `only ${results.length} checks ran — the suite is not doing its job`);
 });
