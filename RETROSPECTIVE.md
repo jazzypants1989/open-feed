@@ -1,19 +1,38 @@
-# Where this has been
+# What happened to the spec
 
-Written 2026-08-26, at the point where `archive/` was about to be deleted. It is the archive's
-replacement and nothing more: the shape of five generations, the decisions that are settled and the
-reasoning that settled them, and an honest account of what the simplifications cost. `COMPARISON.md`
-already argues the trades against other protocols; this document is internal history only.
+This started as an IndieWeb-shaped thing: your identity was your URL, you discovered people by
+sniffing `<link>` tags, content was JSON Feed with signature extensions, and interactions were POSTed
+to an inbox behind OAuth. Private content wasn't even a goal yet. That was 17 KB, and it had zero
+RFC 2119 keywords. It was a sketch.
 
-It is a snapshot, not a maintained file. When it stops being true, delete it — `git log` is the
-record.
+Then attacks started arriving. Each one got a patch, and each patch got a MUST. The URL kept being
+the identity, and the patches kept defending it: `kid` rebinding rules, anchor-confirmation fetches,
+`_next_update`, a `_recovery_sig` ordering rule, item-carried pins for split-view detection, four
+conformance levels. By the time it peaked, the spec was 271 KB with 293 MUSTs, three independent
+hash chains, seventeen security items, and a whole new chapter (section 16) that existed purely so
+the compare rule had the second observation it needed. The reference implementation was 7,413 lines.
+Nobody had built it.
 
----
+Six people were given the brief cold. All six made identity a key and rejected domain identity.
+Three of them independently named their design "Hearth."
 
-## 1. The shape of it
+That one change — identity is a key you hold, not a URL someone serves — collapsed the spec from
+271 KB to 67 KB in a single commit (`6791a91`). URL normalization, percent-encoding, migration
+links, `successor`/`predecessor` chains, author binding, `kid` naming, the `feeds[]` array, the
+per-feed manifest: all gone. Not because any of them were wrong, but because they were all answering
+the question "what happens when your identifier can change or be taken," and that question doesn't
+exist when the identifier is a key.
 
-Five generations in about five weeks. The curve is not a slow simplification; it is a sawtooth with
-one enormous inflation and two collapses.
+The pattern repeated everywhere: anything whose correctness depended on the hub keeping history got
+replaced by the reader keeping state. Gen 2 kept every prior version of the profile and manifest
+forever, and a reader walked `prev` links back to its pin. Now the publisher overwrites both files
+and the reader remembers a checkpoint.
+
+A second compression brought 67 KB down to 26 KB. The mechanism barely changed — MUSTs only fell
+from 98 to 78 — but the prose went: rationale, worked examples, the conformance section, the
+security section, both appendices. And the spec stopped being hand-written. `tools/spec.js`
+assembles it from `rule()` strings that the runnable examples print after the assertions that prove
+them. 58 rules, each machine-checked. 1,338 lines of implementation. 4,400 words.
 
 | | Gen 0 | Gen 1 | Gen 2 | Gen 3 | Gen 4 (now) |
 |---|---|---|---|---|---|
@@ -27,240 +46,135 @@ one enormous inflation and two collapses.
 | reference impl. | none | none | **7,413 lines** | ~2,100 | **1,338** |
 | machine-checked rules | — | — | — | — | **58** |
 
-**Gen 0** believed an identity was an HTTPS URL serving an HTML page. Discovery was IndieWeb
-`<link rel="pubkey"/"feed"/"inbox">` sniffing, content was JSON Feed with `_sig` extension fields,
-interactions were a second wire schema POSTed to an inbox, and authentication was OAuth 2.0 plus
-IndieAuth with five scopes. Private content was an explicit non-goal. It already said "small enough
-to implement in a weekend," and it had zero RFC 2119 keywords — it was a sketch wearing a spec's
-clothes.
+---
 
-**Gen 2** is the one worth staring at. 271 KB, 293 MUSTs, three independent hash chains, four
-conformance levels. Almost none of that growth was decoration: each new MUST answered an attack
-found on the previous draft. The `kid` rebinding rule, the `typ` kind-binding, the `_recovery_sig`
-ordering rule, the anchor-confirmation fetch, `_next_update` — every one is a patch. By its section 13 it
-carried seventeen numbered security items and needed a whole new chapter, section 16, item-carried
-pins, purely to supply the second observations its compare rule demanded. **That is what a
-design looks like when it is defending a bad premise.**
+## What kept coming back
 
-**Gen 3** changed the premise, and 271 KB became 67 KB in one commit (`6791a91`).
+Some things got cut, came back, got cut again. Worth knowing about because they'll look tempting
+again.
 
-**Gen 4** compressed 2.6× further while losing almost no mechanism — MUSTs only fell 98 → 78. What
-went was prose: rationale, worked examples, the conformance section, the security section, both
-appendices. And the spec stopped being written: `tools/spec.js` now assembles it from `rule()`
-strings the runnable examples print after the assertions that prove them.
+**Contests and first contact** were both retired in the redesign as unnecessary complexity. The spec
+reinstated both: two branches of a chain need a tiebreak, and without first contact nothing stops a
+hub from introducing an identity it also publishes.
 
-## 2. The one change
+**Item-carried pins** were retired, brought back as a split-view detector, and dropped for good.
+As specified, they were a forgery vector — any replier could make an honest hub read as withholding.
 
-**Identity is a key, not a URL.**
+**`prev`** was added to both overwritten files (profile and index) and then cut. A field that only
+the reader who saw the immediately prior version can check is a field no reader can rely on. A
+member nobody reads is a member implementers get wrong.
 
-That single inversion deleted, simultaneously and without any of them being argued separately: URL
-normalization and its six clauses, percent-encoding rules, migration links, `successor`/`predecessor`
-chains, predecessor equivalence "and its seven sites", author binding, `kid` naming and rebinding,
-the `feeds[]` array, and a manifest per feed. None of those mechanisms was wrong. They were all
-correct answers to "what happens when the thing that identifies you can change or be taken," and
-that question stops existing when the identifier is a key you hold.
+**`k`** (the author-set recovery threshold) survived three reviews and then fell. A threshold below
+a majority is a second door into the identity, and the contest rule never watched it.
 
-Six of six outside models, given the brief cold and no access to the repo, made identity a key and
-rejected domain identity. Three of the six independently named their design "Hearth."
+**Padding** — dummy audience slots and a 512-byte floor — was wanted by five of six outside models,
+adopted as a SHOULD, and cut outright. Hiding the audience size from the hub is not a goal.
 
-The generalisation worth keeping: **every mechanism whose correctness depended on the hub keeping
-history was replaced by one that depends on the reader keeping state.** Gen 2 retained every prior
-version of the identity document and the manifest at derived URLs forever, and a reader walked
-`prev` links back to its pin. Gen 4 overwrites both files and the reader remembers a checkpoint
-(§7.3). That is the same trade in nine different places.
+**Scheduled posts** were kept, rescued by a `pending` mechanism, and then both were cut. Removing
+`pending` removed eighteen spec lines.
 
-## 3. Settled, and why — do not re-litigate without answering these
+**The tiny counter** (`{sequence, top, withdrawn, prev}`, 138 bytes) was chosen over a list, then
+reversed for the append-only entries list. The counter can't express an edit.
 
-Each of these was decided against a specific alternative for a specific reason. Reversing one means
-answering the reason.
+---
 
-**Identity and keys**
+## What the simplifications cost
 
-- *Recovery is named-in-advance, not social.* "Enough peers a reader already trusts" was rejected
-  because the hostile operator **is** a peer the mother already trusts, and because it makes identity
-  viewer-relative — mother and sister end up disagreeing about who Alice is, both certain, no
-  warning, identical bytes on both phones.
-- *The recovery list is committed as salted hashes, revealed only on vouching.* Cleartext lists leak
-  the family; a Merkle root hides the size, and a majority needs the size.
-- *A restore changes the key and nothing else* (§3.2). One sentence, and it converts a permanent
-  takeover into one the owner's own people can undo.
-- *No revocation mechanism.* A key rotated away from keeps its posts valid but cannot sign an index
-  (§4.4) or hold a number (§8.5). Eleven words that prevent an entire feature being invented.
-- *One key per person, synced between devices by the app.* Per-device keys need a vouching key, and
-  every home for it contradicts something already decided: at the hub, the hub can vouch for a device
-  of its own and post as her; on paper in a drawer, it is the file Grandma was promised she would
-  never have to keep. Recorded caveat: **defensible for families and wrong for journalists, and the
-  first thing to revisit if the audience widens.**
-- *A separate X25519 reading key*, not one derived from the signing key. Deriving means hand-written
-  Edwards-to-Montgomery arithmetic, which no mainstream standard library exposes. Settled by priority
-  1, not really a choice.
+Four things looked like they might be real losses. Instead of arguing about them, each got a script
+that staged the scenario against the adversary from `GOALS.md`. Three turned out to be real defects
+and got spec fixes. One turned out to be free.
 
-**The index**
+**A recovery list of one** is not a weak configuration — it's a complete, silent, permanent transfer
+of the identity. The person listed mints a restore to their own key, re-signs the index, and every
+reader reads `ok` with the note "recently restored" (the same note an honest rescue shows). The
+owner can't win it back: §3.4 rule 4 says `signature` is not a vote, and rule 2 keeps the first
+recovery list a reader saw at each chain length, so that length stays his permanently. A SHOULD was
+the only thing between Grandma and whoever set up her phone. §3.2 now refuses a restore under fewer
+than two leaves. `test/scenarios.test.js` stages Grandma's scenario in exactly this arrangement.
 
-- *The generated feed view is never the index.* Unanimous across all six outside models. A view is
-  something the hub can regenerate; the index must be producible only by the author's key.
-- *`highest` never decreases* (§4.2). Without it, withdrawing your newest post turns every reply to
-  it into a rumor about a post the author deliberately deleted.
-- *The index is signed by the key the chain currently ends on* (§4.4). A thief holding a rotated-away
-  key can otherwise sign an index, and the index is what admits posts. Re-signing the index is what a
-  restore actually restores.
-- *Posts are immutable; an edit is a new post that withdraws the old.* In-place editing is
-  indistinguishable from a compromised-key rewrite, leaves two files claiming one number that the
-  family archive cannot order, and strands every old reply.
-- *The full 32-byte hash, not a 16-byte prefix.* Rejected on minimality, not safety: two widths must
-  be kept in step forever.
+**A stale reading key**: §3.6 said "a `read` taken from a profile it verified" and said nothing
+about *when*. So a publisher doing everything the spec asked would keep encrypting to a key the
+owner had replaced, indefinitely, with no signal to either party. The recipient can't read her own
+family's messages and can't tell why. §3.6 now names the highest verified version. The
+back-catalogue loss stays — rotation is prospective only, nothing re-encrypts, and a restore
+doesn't recover the key.
 
-**Encryption**
+**A hub that freezes**: serving the last index she ever wrote, unchanged, is invisible to a reader
+on its own. Cold or checkpointed, first read or hundredth, every rule in §7 passes, because every
+rule asks what was *served*, not whether it's *current*. The answer turned out to be §7.4: one reply
+from one person the reader also follows, naming a number above the frozen `highest`, and the reader
+finds her. The rule now names that job and its precondition.
 
-- *The audience list goes inside the ciphertext* (§6.4). Taken as a bug fix, not a choice — without
-  it a reply to a family-only post reaches the original author and nobody else, silently, and the
-  thread splits in half with no error anywhere.
-- *The post binding is associated data, not fields compared afterwards* (§6.2). A thief lifts her
-  envelope into a post of his own, signed by his key, listed in his index; her family decrypts it and
-  her words render under his name. As AAD there is no "forgot to compare."
-- *Audience entries are `{key, read, location}`.* Reading keys alone leave a replier holding an
-  X25519 key and nothing that leads to a profile.
+**The offline archive** turned out not to be a loss at all. Both readers verify a directory of kept
+bytes with no hub and no network, and both catch a single flipped byte. §2.1 makes every file
+self-checking, §8.9 hands her the files, and the directory is the export bundle Gen 2 spent a
+chapter defining. `test/archive.test.js` defends this.
 
-**Publishing**
+**Still uncosted, by design.** No forward secrecy. No removal from a past audience. No metadata
+privacy — who published, when, at what number, who replied to whom, all public. No deletion. No
+discovery. No push (latency is polling latency). No moderation layer. The index is one file that
+grows by a line per post.
 
-- *No accounts, tokens or sessions.* The request is the signed file; claiming a name is first-come
-  with the profile as proof. A hub MAY require more — that is the market, not the protocol.
-- *Serve back the exact bytes.* Pretty-printing, sorting keys, or adding a trailing newline each make
-  every post read as forged, and all three are things ordinary servers do unasked.
-- *A collision is reclaimed, not refused* (§8.5). Flat refusal lets a griefer PUT five files under
-  Alice's next five numbers and lock her out forever, for five requests.
-- *Publishing is "put this file here," not "make your state match mine."* The sync-shaped version
-  means a device with a partial copy erases the hub, and the loss reads to every reader as censorship.
+---
 
-**Scope**
+## Two open questions
 
-- *Everything is pull. There is no inbox* (§5.6). A dead-drop inbox was built and demonstrated over
-  real HTTP in ~25 server lines. It works — and it costs the recipient the ability to be a plain
-  static file server.
-- *No global resolver.* The moment you add a resolver you have a registry, and the moment you have a
-  registry you have a central authority.
-- *No canonicalization.* The design signs served bytes. RFC 8785's serializer went; its hygiene
-  residue is §2.4.
-- *Three roles, no conformance levels.*
-
-## 4. What was decided twice
-
-Worth keeping because each is a case of the design arguing back at its own record.
-
-- **Contests** and **first contact** were both retired by the redesign as complexity, and the spec
-  reinstated both — two branches need a tiebreak, and nothing else stops a hub introducing an
-  identity it also publishes. The goals document was wrong in the productive direction.
-- **Item-carried pins** were retired, re-adopted by the fresh-start design as a split-view detector,
-  then dropped for good: as specified they were a forgery vector, letting any replier make an honest
-  hub read as withholding.
-- **The tiny counter** (138 bytes, `{sequence, top, withdrawn, prev}`) was chosen over a list, then
-  reversed for the append-only entries list — the counter cannot express an edit.
-- **`prev`** was added to both overwritten files and then cut: a field only checkable by the reader
-  that saw the version immediately before is a field no reader can rely on, and a member nobody reads
-  is a member implementers get wrong.
-- **Scheduled posts** were kept, rescued by a `pending` mechanism, and then both were cut. Removing
-  `pending` removed eighteen spec lines.
-- **`k`**, the author-set recovery threshold, survived three reviews and then fell: a threshold below
-  a majority was a second door into the identity that the contest rule never watched.
-- **Padding** — dummy slots and a 512-byte floor — was wanted by five of six outside models, adopted
-  as a SHOULD, and then cut outright on the ruling that hiding the size of an audience from the hub
-  is not a goal.
-
-## 5. What it cost, tested
-
-The four candidate regrets were not argued. Each got a script that staged it against the adversary in
-`GOALS.md`, and an item whose script showed no harm was struck rather than softened. Three showed
-harm and produced spec changes in this session; one was struck.
-
-**A recovery list of one — fixed.** A list of one is not a weak configuration; it is a complete,
-silent, permanent transfer of the identity to that member. He mints a restore to his own key,
-re-signs the index, and every reader in the family reads `ok` with the note `recently restored` — the
-same note an honest rescue shows. The owner, still holding her key, cannot win it back, because §3.4
-rule 4 says `signature` is not a vote. She cannot outrun it either: rule 2 keeps the first list a
-reader saw at each chain length, so that length stays his permanently. §3.3 had SHOULDed against this
-since the beginning, which meant a SHOULD was the only thing between Grandma and whoever set up her
-phone — and `test/scenarios.test.js` staged her scenario in exactly that arrangement. §3.2 now
-refuses a restore under fewer than two leaves. It cost one leaf and the scenario survives intact.
-
-**A stale reading key — fixed.** §3.6 said "a `read` taken from a profile it verified" and said
-nothing about *when*. So a publisher doing everything the spec asked would keep sealing new content
-to a key its owner had replaced, indefinitely, with no signal to either party; the recipient could
-not read her own family's messages and could not tell why. That was a defect, not a limit. §3.6 now
-names the highest verified version. The back-catalogue loss is real and stays: rotation is
-prospective only, nothing re-seals, and a restore does not recover the key.
-
-**A hub that freezes — stated.** Serving the last index she ever wrote there, unchanged, is invisible
-to a reader on its own: cold or checkpointed, first read or hundredth, every rule in §7 passes,
-because every rule in §7 asks what was *served* and not whether it is *current*. §7.4 was already the
-answer and never said so — one reply from one person the reader also reads, naming a number above the
-frozen `highest`, and the reader finds her. The rule now names that job and its precondition. This is
-the closest thing to an answer the record has for kimi's challenge (section 7 below).
-
-**The offline archive — struck.** The record signed this off as lost: "hand someone the archive and
-they can check it with no host has no sentence." It is true today. Both readers verify a directory of
-kept bytes with no hub and no network, and both catch a single flipped byte, because §2.1 makes every
-file self-checking and §8.9 hands her the files. The directory *is* the export bundle Gen 2 spent a
-chapter defining. Nothing was written down, because there was nothing to write down.
-
-**Still uncosted, by design.** No forward secrecy and no removal from a past audience. No metadata
-privacy — who published, when, at what number, and from any reply's `target` who replied to whom, are
-public on every tier. No deletion. No discovery. No push, so latency is polling latency. No moderation
-layer. No scale into items-per-identity: the index is one file that grows by a line per post.
-
-## 6. What this session's survey found
-
-Defects that were live, none of which any existing gate could see:
-
-- **§6.1's "One X25519 ephemeral key pair per message" carried no RFC 2119 keyword.** Reuse one
-  across two posts to the same recipient and both slots derive the same `(kek, knonce)`, so the
-  wrapped content keys are a two-time pad. A review found this and the fix never reached the text.
-- **§7.4 fixed a location order and unmade it two sentences later with a `MAY`** — and the two
-  readers had genuinely diverged there, which matters because two independent readers agreeing is the
-  repo's headline evidence.
-- **"A static file server is a fully conforming hub"** contradicted §8.5's "MUST NOT ignore a
-  collision," which needs an index parser.
-- **32 references to appendices deleted three weeks earlier**, in twelve files including `src/` and
-  both capstones.
-- **A comment claiming a code path the assertion beneath it disproved** — floor item 4's most
-  interesting half, documented and unstaged.
-
-Four gates now exist so these cannot recur, all in `npm run check`:
-
-- `tools/refs.js` fails on a `§N` that is not a heading, an appendix reference, a link or `Run:` line
-  naming a file that does not exist, retired vocabulary in our own prose, a `package.json` version
-  that disagrees with the spec, and a spec over its word ceiling. It found 83 defects on its first
-  run — including one this session had introduced an hour earlier.
-- `tools/regen.js` gained **negative vectors**: nine failure cases both readers must reject, with the
-  same verdict. Previously every vector was well-formed, so the two-reader check proved they agreed
-  on acceptance and nothing about refusal — which is exactly how the `k` defects and an earlier
-  reader divergence both got through.
-
-Two things are reported and not changed, because they are the owner's:
-
-- `GOALS.md`'s staging table sends scenario 7 to `test/scenarios.test.js`, where only the views half
-  lives; the bridge and re-meeting halves are in `test/interop.test.js`, `test/bridge.test.js` and
-  `test/views.test.js`. The scenario is covered; the table is wrong about where.
-- §8.6 weakened between generations. Gen 3 made a hub MUST refuse media bytes that do not hash to the
-  name; Gen 4 says MAY. It reads like drift rather than a decision.
-
-## 7. Still open
-
-**kimi's challenge**, the sharpest thing the outside review produced, which the record flags as
-deserving a written answer and never gets one:
+**kimi's challenge**, the sharpest thing the outside review produced:
 
 > The chain defends the archive; the push channel defends the person. If forced to choose, the floor
 > needs the person. Their error was not refusing the lattice; it was refusing the lattice *and* the
 > push channel, leaving nothing.
 
-The freeze demonstration is a partial answer and the first evidence anyone has offered: something did
-remain, it is §7.4, and it works — but only when someone the reader already reads has replied. That
-precondition is now written into the rule rather than assumed. Whether it is enough is still a live
-question, and it is the one to reopen first if any of this is reopened.
+The freeze demonstration is a partial answer: something did remain, it's §7.4, and it works — but
+only when someone the reader already follows has replied. That precondition is now written into the
+rule. Whether it's enough is still live.
 
-**glm's root-of-trust gap**, also unanswered:
+**glm's root-of-trust gap:**
 
 > Whoever chooses her app — the daughter, or in a worse family, the son-in-law "helping her set it
 > up" — is her undeclared root of trust, and the spec is silent about it.
 
-This session narrowed it by exactly one notch: that person can no longer be a recovery list of one.
-Everything else about it stands.
+That person can no longer be a recovery list of one. Everything else about it stands.
+
+---
+
+## Decisions ledger
+
+Why each thing is the way it is. Reversing one means answering its reason.
+
+**Identity and keys**
+
+- *Recovery is named-in-advance, not social.* The hostile operator **is** a peer the mother already trusts. Social recovery makes identity viewer-relative: mother and sister disagree about who Alice is, both certain, no warning.
+- *The recovery list is salted hashes, revealed only on vouching.* Cleartext lists leak the family.
+- *A restore changes the key and nothing else* (§3.2). Converts a permanent takeover into one the owner's people can undo.
+- *No revocation.* A rotated-away key keeps its posts valid but can't sign an index (§4.4) or hold a number (§8.5).
+- *One key per person, synced between devices.* Per-device keys need a vouching key, and every home for it contradicts something. Caveat: **defensible for families, wrong for journalists.**
+- *A separate X25519 reading key.* Deriving from the signing key needs Edwards-to-Montgomery math no standard library exposes.
+
+**The index**
+
+- *The generated feed view is never the index.* Unanimous across all six outside models. A view is something the hub can regenerate; the index must need the author's key.
+- *`highest` never decreases* (§4.2). Otherwise withdrawing your newest post turns every reply into a rumor.
+- *The index is signed by the key the chain currently ends on* (§4.4). A rotated-away key can't sign an index, and re-signing is what a restore actually restores.
+- *Posts are immutable; an edit is a new post that withdraws the old.* In-place editing is indistinguishable from a compromised-key rewrite.
+- *The full 32-byte hash, not a 16-byte prefix.* Two widths must be kept in step forever.
+
+**Encryption**
+
+- *The audience list goes inside the ciphertext* (§6.4). Without it, a reply to a family-only post reaches only the original author, and the thread silently splits.
+- *The post binding is AAD, not fields compared afterwards* (§6.2). Otherwise a thief lifts her envelope into his own post and her words render under his name.
+- *Audience entries are `{key, read, location}`.* Reading keys alone leave a replier with no way to find a profile.
+
+**Publishing**
+
+- *No accounts, tokens, or sessions.* The request is the signed file; claiming a name is first-come with the profile as proof.
+- *Serve back the exact bytes.* Pretty-printing, key reordering, or a trailing newline each make every post read as forged.
+- *A collision is reclaimed, not refused* (§8.5). Flat refusal lets a griefer lock Alice out with five requests.
+- *"Put this file here," not "make your state match mine."* The sync version means a partial-copy device erases the hub.
+
+**Scope**
+
+- *No inbox* (§5.6). A dead-drop inbox was built in ~25 server lines. It costs static file serving.
+- *No global resolver.* A resolver is a registry is a central authority.
+- *No canonicalization.* The design signs served bytes. §2.4 is what's left of RFC 8785.
+- *Three roles, no conformance levels.*
