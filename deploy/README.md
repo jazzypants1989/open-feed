@@ -9,6 +9,12 @@ Two independent services on one host behind one Traefik, and they never move tog
 
 Both are **test deployments of a draft protocol** — see the version policy in `CLAUDE.md`.
 
+**Compose project names.** Both files live in `deploy/`, so Compose would derive the same project
+name for both and put them in one project — where a single `--remove-orphans` on either would delete
+the other's container. `hub-compose.yml` declares `name: openfeed-hub`; `docker-compose.yml`
+deliberately declares nothing, because its running container and its `deploy_bridge-data` volume
+already exist under the derived name and renaming the project now would hide them.
+
 The separation is not tidiness. `up -d --build` on the bridge restarts it, and a bridge restarting
 with a lost volume is how a federated identity loses the key remote instances have cached. There is
 no such failure on the hub side, because a hub never holds a key at all (§4.4).

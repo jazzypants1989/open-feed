@@ -1,6 +1,12 @@
 # The bridge behind the Traefik that already fronts this host.
 #   docker compose -f deploy/docker-compose.yml up -d --build
 #
+# DO NOT add a `name:` here. This file has no project name on purpose: the running bridge and its
+# volume were created under the project Compose derives from this directory, `deploy` -- the volume
+# is `deploy_bridge-data`. Naming the project now would point every later command at an empty project
+# that cannot see the running container or the volume holding keys.json. hub-compose.yml carries a
+# `name:` because it was named before it was ever deployed.
+#
 # Traefik runs with exposedByDefault:false, so `traefik.enable=true` is what attaches the router.
 # The certificate is issued by the `letsencrypt` resolver over the HTTP-01 challenge, which means
 # the A record must resolve to this host BEFORE the container starts.

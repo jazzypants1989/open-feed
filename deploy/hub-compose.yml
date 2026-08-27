@@ -7,6 +7,13 @@
 # The certificate is issued by the `letsencrypt` resolver over the HTTP-01 challenge, so the A record
 # must resolve to this host BEFORE the container starts. `.page` is HSTS-preloaded, which is a
 # browser rule and does not affect the challenge.
+#
+# `name:` is not decoration. Without it Compose derives the project from the compose file's parent
+# directory -- `deploy` for BOTH files here -- and the two services land in one project. The bridge
+# would then be an orphan of the hub's project, and one `--remove-orphans` would delete the container
+# holding keys.json. The volume is therefore `openfeed-hub_hub-data`.
+name: openfeed-hub
+
 services:
   openfeed-hub:
     build:
