@@ -187,6 +187,15 @@ constant: it is the size of one read of the target, so the naive rule's bill gro
 look-again per identity per pass**, and **one line per person** — are REQUIRED by §7.4, and a reader
 with only one of them is still broken in the other direction.
 
+**Which address the look-again ends at.** The held locations come first and the address the replier
+chose comes last — but *which* reply supplies that address matters, and the answer is the replier's
+highest-numbered one naming that author. Somebody who replied once before a move and once after names
+two addresses, and a reader taking whichever reply it met first would try the dead one, fail, and try
+it again on every later pass, because the same reply is met first every time. The example strands a
+reader deliberately — the only location it holds is gone — and it still arrives, because the later
+reply is the later word. This is as much a bound as a rule: still one look-again per identity per
+pass, over one chosen address, not over every address the replier ever named.
+
 **A rumor is never raised over a post the author withdrew.** The reader that watched the withdrawal
 holds `3` in its checkpoint's withdrawn map, with the hash it had. Mum's reply names that exact hash, 3 is
 at or below the `highest`, and the reader stays quiet at a cost of zero fetches. Note that this reader

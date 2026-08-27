@@ -73,6 +73,11 @@ adopted as a SHOULD, and cut outright. Hiding the audience size from the hub is 
 **Scheduled posts** were kept, rescued by a `pending` mechanism, and then both were cut. Removing
 `pending` removed eighteen spec lines.
 
+**A signed freshness claim** — an index saying when to expect the next one — was Gen 2's
+`_next_update`, fell with the redesign, and was priced again against a hub that freezes. It detects
+the freeze with no replier at all, and fires identically on a publisher who is merely quiet. Cut,
+with the measurement in `test/freeze.test.js`.
+
 **The tiny counter** (`{sequence, top, withdrawn, prev}`, 138 bytes) was chosen over a list, then
 reversed for the append-only entries list. The counter can't express an edit.
 
@@ -117,7 +122,7 @@ grows by a line per post.
 
 ---
 
-## One open question, and one that closed
+## The two open questions, and what staging them cost
 
 **kimi's challenge**, the sharpest thing the outside review produced:
 
@@ -125,9 +130,28 @@ grows by a line per post.
 > needs the person. Their error was not refusing the lattice; it was refusing the lattice *and* the
 > push channel, leaving nothing.
 
-The freeze demonstration is a partial answer: something did remain, it's §7.4, and it works — but
-only when someone the reader already follows has replied. That precondition is now written into the
-rule. Whether it's enough is still live.
+`test/freeze.test.js` measures it. The freeze is as invisible as feared: cold or checkpointed, a year
+or a decade on, both readers return **ok** over February's index with no note at all, because every
+rule in §7 asks what was *served* and none of them consults a clock. What breaks it is one reply,
+from one person the reader already reads, naming a number above the frozen `highest` — and where she
+has moved, the address in that reply carries the reader to her outright, without asking the hub she
+left.
+
+Staging it found a defect in the channel itself. The look-again took its address from whichever reply
+it met first, so somebody who replied both *before* and *after* a move stranded the reader at the
+address they gave first — permanently, since the same reply is met first on every pass. Both readers
+had it, independently, from the same wording. §7.4 now names the replier's highest-numbered reply.
+
+The mechanism that would remove the precondition was priced rather than dismissed: a signed freshness
+claim in the index, the shape Gen 2 carried as `_next_update`. It works — a lone reader with no
+replier anywhere detects the freeze. It also fires identically on Grandma's honest hub when she has
+nothing to say for two months, and the only way she clears it is republishing her index on a cadence,
+from a device that has to be awake, for no new post. It buys the difference between *quiet* and
+*withheld* by making every quiet publisher look withheld. Not adopted.
+
+So the answer to kimi is a number: **one other reader in common**. Below that the freeze is total,
+and what is left is exit and first contact (§3.7) — the person rather than the archive, which was his
+point. Whether one is a floor or a hope is a judgement about families, not about the protocol.
 
 **glm's root-of-trust gap** — answered, and the answer cost two spec changes:
 

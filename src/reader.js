@@ -78,6 +78,14 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
    */
   async function rumors(seen, posts, replier, { now = Date.now() } = {}) {
     const out = [], refreshed = new Set();
+    // The address tried last, per author: the one named by this replier's highest-numbered reply.
+    // Taking it from whichever reply is met first makes the beacon order-dependent — somebody who
+    // replied both before and after a move would strand the reader at the address they gave first.
+    const beacon = new Map();
+    for (const [number, p] of posts) {
+      const t = p?.target;
+      if (t && typeof t.key === 'string' && typeof t.location === 'string' && !(beacon.get(t.key)?.number > number)) beacon.set(t.key, { number, location: t.location });
+    }
     for (const p of posts.values()) {
       const t = p.target;
       if (!t || typeof t.key !== 'string' || !seen.has(t.key)) continue;
@@ -89,7 +97,7 @@ export function createReader({ get, maxIdentities = MAX_IDENTITIES_PER_PASS }) {
         refreshed.add(t.key);
         // The locations already held are tried before the address in the reply (§7.4): the reply's
         // `location` is both the relocation mechanism and a beacon, and it is hit last.
-        for (const where of [...new Set([...(s.locations ?? []), t.location])]) {
+        for (const where of [...new Set([...(s.locations ?? []), beacon.get(t.key)?.location])]) {
           if (typeof where !== 'string') continue;
           let again = null;
           try { again = await read({ learned: t.key, at: where, checkpoint: seen.get(t.key), now }); } catch { /* no verdict: try the next */ }

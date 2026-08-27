@@ -387,9 +387,10 @@ its hashes, and the hash of every number it saw withdrawn.
 
 ### 7.4. Targets and the rumor rule
 
-A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the reply's
-`location`, in that order because the reply's `location` is an address the replier chose, and updates the checkpoint
-on an ok read. This is also the only way a reader learns of posts a hub holds and does not serve, and it reaches
+A look-again re-reads the target's author at the locations the reader holds (§3.5) and then at the
+`location` of that replier's highest-numbered reply naming that author, in that order because the second address is
+one the replier chose, and updates the checkpoint on an ok read. Taking it from any other reply MUST NOT change which
+address is reached. This is also the only way a reader learns of posts a hub holds and does not serve, and it reaches
 them only when someone the reader already reads has replied to one. Two bounds are REQUIRED: look again at most
 once per identity per pass, and say one line per replier — *"X replied to something I cannot see"* — however
 many replies they wrote.

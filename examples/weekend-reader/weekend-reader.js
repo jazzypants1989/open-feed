@@ -219,6 +219,14 @@ export async function read(get, { learned, at, checkpoint = null, now = Date.now
 // hub still will not show it, say so.
 export async function rumors(get, seen, posts, replier) {
   const out = [], refreshed = new Set();
+  // Per author, the address their highest-numbered reply named: the replier's latest word on where
+  // that person is. Taking it from whichever reply comes first would strand a reader at an address
+  // given before a move, permanently, because the same reply is met first on every pass.
+  const beacon = new Map();
+  for (const [number, p] of posts) {
+    const t = p?.target;
+    if (t && typeof t.key === 'string' && typeof t.location === 'string' && !(beacon.get(t.key)?.number > number)) beacon.set(t.key, { number, location: t.location });
+  }
   for (const p of posts.values()) {
     const t = p.target;
     if (!t || !seen.has(t.key)) continue;
@@ -231,7 +239,8 @@ export async function rumors(get, seen, posts, replier) {
       refreshed.add(t.key);
       // §7.4: the locations already held first, the address in the reply last — that one is a place
       // the replier chose, and following it tells them who is reading.
-      for (const where of [...new Set([...(seen.get(t.key).locations ?? []), t.location])]) {
+      for (const where of [...new Set([...(seen.get(t.key).locations ?? []), beacon.get(t.key)?.location])]) {
+        if (typeof where !== 'string') continue;
         const again = await read(get, { learned: t.key, at: where, checkpoint: seen.get(t.key) });
         if (again.verdict === 'ok') { seen.set(t.key, again.checkpoint); if (again.checkpoint.highest >= t.number) break; }
       }
