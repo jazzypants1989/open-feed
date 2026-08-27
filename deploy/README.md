@@ -36,6 +36,7 @@ That is the third floor item in `docs/GOALS.md` as an operational fact rather th
 | `--host 0.0.0.0` | **required in a container.** The CLI defaults to loopback, and a container bound to loopback is invisible to the proxy |
 | `--port 4567` | must match the `loadbalancer.server.port` label |
 | `--data /app/data` | the store, on the `hub-data` volume. Without it the hub is in memory and a restart is empty |
+| | *`fileStore` rewrites the whole store on every write — right for a family, wrong at scale. See the bound in `src/hub.js`* |
 | `--origin https://pence.page` | the public origin, used for WebFinger |
 
 ## Deploy

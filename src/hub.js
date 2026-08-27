@@ -112,6 +112,13 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
  * A store that survives a restart: path → bytes over one JSON file of path → base64, written
  * atomically so a torn write cannot lose the identity. A store is "a Map-like of path → Buffer"
  * (§8) and this is one; a hub holds no key, so the only thing at risk here is the files it serves.
+ *
+ * THE BOUND, because the docs point at this as the hub store: every `set` rewrites the whole file,
+ * so a write costs O(total bytes held), not O(the file written). That is right for a family hub —
+ * atomic, dependency-free, inspectable, and a few hundred kilobytes — and it is NOT the answer to
+ * `docs/GOALS.md` scenario 5, where ten thousand identities on one hub must keep per-identity cost
+ * flat. A hub at that size wants one file per path or a database, which §8 allows and says nothing
+ * about. Do not read this store as the protocol's opinion on storage; it has none.
  */
 export function fileStore(dir) {
   fs.mkdirSync(dir, { recursive: true });
