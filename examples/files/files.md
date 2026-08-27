@@ -24,12 +24,12 @@ the protocol — a profile, an index and a post are all this, and differ only in
 **Three parts, and nothing else.** The example signs the spec's own `test-vectors.md`.6 post and prints
 the resulting 153 bytes: 66 of body, one separator, 86 of signature. You can hold the whole format
 in your head, which is the point — a second implementer has to reproduce it from the text alone
-(`GOALS.md` scenario 6, the weekend).
+(`docs/GOALS.md` scenario 6, the weekend).
 
 **The signature says who.** `verifyFile` hands back four things: the parsed object, the bytes it
 verified, the address, and *which key signed*. Under mum's key the same file is not a file at all.
 Nothing else in the protocol establishes authorship — not the domain it came from, not a field
-inside the object claiming a name, not the path it was served at. This is `GOALS.md` floor item 1,
+inside the object claiming a name, not the path it was served at. This is `docs/GOALS.md` floor item 1,
 the hub cannot speak for you, reduced to a single function call.
 
 **86 characters that re-encode to themselves.** Base64 admits more than one spelling of the same 64

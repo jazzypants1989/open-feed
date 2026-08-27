@@ -81,7 +81,7 @@ reversed for the append-only entries list. The counter can't express an edit.
 ## What the simplifications cost
 
 Four things looked like they might be real losses. Instead of arguing about them, each got a script
-that staged the scenario against the adversary from `GOALS.md`. Three turned out to be real defects
+that staged the scenario against the adversary from `docs/GOALS.md`. Three turned out to be real defects
 and got spec fixes. One turned out to be free.
 
 **A recovery list of one** is not a weak configuration — it's a complete, silent, permanent transfer

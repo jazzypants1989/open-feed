@@ -1,4 +1,4 @@
-// The scenarios of GOALS.md, end to end over src/: the divorce, Grandma onboards, two hubs one
+// The scenarios of docs/GOALS.md, end to end over src/: the divorce, Grandma onboards, two hubs one
 // thread, the domain goes, the stranger, the big lazy hub. Code defends scenarios, not rules.
 // The weekend is the seventh, and it is staged by examples/weekend-publisher/ and
 // examples/weekend-reader/ rather than here — the second reader that verifies test-vectors.md.

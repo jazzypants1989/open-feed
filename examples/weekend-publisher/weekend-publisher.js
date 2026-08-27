@@ -1,4 +1,4 @@
-// §8 — the whole publisher in one file, standard library only, and the other half of `GOALS.md`
+// §8 — the whole publisher in one file, standard library only, and the other half of `docs/GOALS.md`
 // scenario 6: a second implementer writes a publisher, then a reader, from the text alone. It
 // imports nothing from `src/` and nothing from the weekend reader. Every file in `test-vectors.md` is
 // signed by this publisher (`tools/regen.js`).

@@ -84,7 +84,7 @@ existed. The Open Feed reader returns `tampered` and names the reason. The stran
 a network attacker, because §9 makes every fetch HTTPS to a public address, and against nobody else:
 the hub he is reading can invent, edit, backdate and unpublish anything on that page, and he has no
 way to know. He has no key, does no verification, and runs no protocol code — which is exactly the
-deal. This is `GOALS.md` scenario 7, the stranger, and priority 3, interop ("our content reaches
+deal. This is `docs/GOALS.md` scenario 7, the stranger, and priority 3, interop ("our content reaches
 existing feed readers and the fediverse/Bluesky with nothing built"). Scenario 7's other two halves
 — a bridge to Mastodon, and re-meeting the author after key loss — are not this example's; the
 second is §3.4 and the recovery list (§3.3).

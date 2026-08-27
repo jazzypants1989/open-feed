@@ -20,11 +20,11 @@ them**: a script proves a rule with an assertion and then prints it with `rule()
 - **`<slug>.md`** — the concept in plain words: the spec section it illustrates and what the output
   shows. This is where supporting prose lives when it leaves the spec. It should read well beside
   the script and its output on a docs page. Comparisons with other protocols live in
-  `COMPARISON.md` at the repo root.
+  `docs/COMPARISON.md`.
 
 Every example illustrates the **current spec only**. Designs that were considered and not adopted do
-not belong in a script: the ones that are settled are in `RETROSPECTIVE.md`, and the reasoning behind
-each is in `git log`.
+not belong in a script: the ones that are settled are in `docs/RETROSPECTIVE.md`, and the reasoning
+behind each is in `git log`.
 
 ## Reading order
 
@@ -46,5 +46,5 @@ runs in well under a second, and `npm run spec` runs all of them.
 | — | [weekend-reader](weekend-reader/) | §7 | **capstone**: the whole reader in one file, standard library only |
 | — | [weekend-publisher](weekend-publisher/) | §8 | **capstone**: the whole publisher in one file |
 
-`GOALS.md`'s seven scenarios are staged as tests (`test/scenarios.test.js`), not as examples; each
+`docs/GOALS.md`'s seven scenarios are staged as tests (`test/scenarios.test.js`), not as examples; each
 example's `.md` names the scenario it serves.

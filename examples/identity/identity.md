@@ -74,7 +74,7 @@ key's. It is one block here on purpose; `examples/contests/` is where §3.4 live
 
 **A user is never shown a key.** Everything a person handles in this example is a link or six
 English words. The 43 characters appear in the output because it is a program printing its working;
-they are not a thing an app puts in front of anybody. That is `GOALS.md` scenario 2 — Grandma
+they are not a thing an app puts in front of anybody. That is `docs/GOALS.md` scenario 2 — Grandma
 installs an app, picks a name, is never shown a key — and it is a design constraint, not a UI
 preference: a protocol whose safety check is 43 characters of base64url has a safety check nobody
 performs.
@@ -169,7 +169,7 @@ that verifies writes checks the index against the profile it holds (§8.4). Prof
 second. Between the two writes an honest hub is briefly serving an index its own profile disowns;
 §7.1 step 7 answers that — an index that will not verify is not an accusation against anyone.
 
-This is `GOALS.md` scenario 2, *Grandma onboards*: she "loses her phone a year later and is back by
+This is `docs/GOALS.md` scenario 2, *Grandma onboards*: she "loses her phone a year later and is back by
 calling her daughter." The daughter is a leaf in a recovery list; the phone call is a restore link;
 the chain is why the grandchildren's readers follow her to the new key instead of meeting a
 stranger.
@@ -188,7 +188,7 @@ and sign the move, and the link in your chain (§3.3) carries that voucher forev
 Nothing is shared out, and nothing is reconstructed. Your people do not hold pieces of your key;
 they hold their own keys, and what they can do with them is sign one sentence about *you* — that
 the identity anchored at this key now uses that one. The key they move you to is a key you made
-yourself. This is the mechanism behind `GOALS.md` scenario 2: Grandma loses her phone, calls her
+yourself. This is the mechanism behind `docs/GOALS.md` scenario 2: Grandma loses her phone, calls her
 daughter, and is back — without ever having been shown a key or asked to store a file.
 
 ### What the output shows

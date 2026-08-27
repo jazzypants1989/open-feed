@@ -72,11 +72,11 @@ business and the spec explicitly allows them (§8).
 
 ### Deployment models
 
-| model | shape | reader sees |
-|---|---|---|
-| **Family hub** | everyone under one origin: `pence.family/mom`, `pence.family/dad` | an anchor key and a location |
-| **Mixed** | most on the hub, one relative on `jessepence.com/jesse` | an anchor key and a location |
-| **Self-hosted** | each member on their own domain | an anchor key and a location |
+| model           | shape                                                             | reader sees                  |
+| --------------- | ----------------------------------------------------------------- | ---------------------------- |
+| **Family hub**  | everyone under one origin: `pence.family/mom`, `pence.family/dad` | an anchor key and a location |
+| **Mixed**       | most on the hub, one relative on `jessepence.com/jesse`           | an anchor key and a location |
+| **Self-hosted** | each member on their own domain                                   | an anchor key and a location |
 
 The three are indistinguishable to a reader on purpose, and the app must not distinguish them either.
 A reply from `pence.family/dad` and a reply from `jessepence.com/jesse` arrive by the same route,
@@ -96,7 +96,7 @@ detail in this document.
 X25519 reading key (§3.6) on the member's own device, and stores them in the platform keystore. The
 hub is not present for this step and never receives either private half.
 
-**2. The app writes the genesis profile and an empty index.** The profile carries `anchor`,
+**2. The app writes the anchor profile and an empty index.** The profile carries `anchor`,
 `version`, `chain` (one link, the anchor itself), `recovery`, `locations`, and `read` (§3.1); the app
 signs it and `PUT`s it, then `PUT`s an empty index, because claiming a name requires both (§8.4). The
 hub answers 403 for a profile that does not verify and 409 for a name already held under another
@@ -107,7 +107,7 @@ leaves — `SHA-256(salt ‖ "|" ‖ member key)` with a distinct salt per membe
 reveals nobody (§3.3). If the member loses their key, a majority of the listed members vouch for a
 new one and the identity survives (§3.2). The spec asks for a backup key of the member's own plus two
 or more other members, and the app should ask for exactly that during setup, in these words rather
-than in cryptographic ones: *"if you lose your phone, who can vouch that it's still you?"*
+than in cryptographic ones: _"if you lose your phone, who can vouch that it's still you?"_
 
 This replaces the printed-card ceremony an earlier design used, and it is better on the axis that
 matters here. A card in a drawer is an artifact the hostile-custodian adversary has physical access
@@ -135,28 +135,28 @@ a profile edit into a recovery.
 
 The product's objects are the protocol's four kinds of file (§2). There is no fifth thing.
 
-| product object | on the wire |
-|---|---|
-| journal entry | a post at `/<name>/posts/<number>` with `text`, `at`, and any `media` (§5) |
-| comment | a post with `rel: "reply"` and a `target` naming the entry (§5.3, §5.4) |
-| reaction | a post with `rel: "like"`, and the same `target` |
-| photograph | a media file at `/<name>/media/<hash>`, listed in the index (§4.3) |
-| edit | a new post with `rel: "supersedes"` naming the old one, which is withdrawn (§5.3) |
-| delete | a withdrawal line in the index, `[number, null]` (§4.1) |
-| the journal itself | the index (§4) — the list of what is live, signed, at one URL |
+| product object     | on the wire                                                                       |
+| ------------------ | --------------------------------------------------------------------------------- |
+| journal entry      | a post at `/<name>/posts/<number>` with `text`, `at`, and any `media` (§5)        |
+| comment            | a post with `rel: "reply"` and a `target` naming the entry (§5.3, §5.4)           |
+| reaction           | a post with `rel: "like"`, and the same `target`                                  |
+| photograph         | a media file at `/<name>/media/<hash>`, listed in the index (§4.3)                |
+| edit               | a new post with `rel: "supersedes"` naming the old one, which is withdrawn (§5.3) |
+| delete             | a withdrawal line in the index, `[number, null]` (§4.1)                           |
+| the journal itself | the index (§4) — the list of what is live, signed, at one URL                     |
 
 A comment is a post in **its author's own index**, not in the recipient's. This is the largest single
 change from any inbox-shaped design and section 6 is about what follows from it.
 
 ### Three audiences, not four
 
-| audience | how |
-|---|---|
-| **anyone** | an ordinary post, cleartext (§5) |
+| audience          | how                                                                           |
+| ----------------- | ----------------------------------------------------------------------------- |
+| **anyone**        | an ordinary post, cleartext (§5)                                              |
 | **chosen people** | an encrypted post: the content is sealed to each recipient's reading key (§6) |
-| **nobody** | not published at all — it stays in the app and in the member's copy (§8.9) |
+| **nobody**        | not published at all — it stays in the app and in the member's copy (§8.9)    |
 
-An earlier design had a fourth tier, *unlisted*: published but not advertised. It does not survive
+An earlier design had a fourth tier, _unlisted_: published but not advertised. It does not survive
 here and should not be reintroduced. The index is the head (§4), a reader finds posts by replaying it,
 and a post that is not listed is simply absent. "Published but hidden" would mean serving one thing
 and claiming another, which is exactly the equivocation the reading rules catch (§7.1).
@@ -220,7 +220,7 @@ So a conversation is assembled by the reader, not routed by a server:
    at the reply's location (§7.4).
 
 The rumor rule bounds that lookup: at most one look-again per identity per pass, and one line per
-replier however many replies they wrote — *"Jesse replied to something I cannot see"* (§7.4). The app
+replier however many replies they wrote — _"Jesse replied to something I cannot see"_ (§7.4). The app
 should render that line literally, because it is the honest state and the alternative is a thread with
 a hole in it and no explanation.
 
@@ -258,7 +258,7 @@ must never reverse them, because an index naming a post the hub does not serve r
 every reader (§7.1 step 12).
 
 The index write is compare-and-swap: send `If-Match` with the tag read, and on a 412 re-read the index
-the hub now serves and merge the new line into *that* file's entries (§8.1). A member posting from a
+the hub now serves and merge the new line into _that_ file's entries (§8.1). A member posting from a
 phone and a laptop will hit this, so it is ordinary app plumbing rather than an error case. A post
 number is created once and may not be reused (§8.2); a device that comes back must abandon a number it
 cannot prove it listed rather than list it late.
@@ -273,10 +273,10 @@ never goes on the wire.
 
 A read returns exactly one of three verdicts, and the app must not invent a fourth (§7.2):
 
-| verdict | what the app should say |
-|---|---|
-| **ok** | nothing — render the journal. Notes ride along: *recently restored*, *withdrawn: 7*, *no index I can verify* |
-| **tampered** | "This hub is not serving Mom's journal correctly." Name the hub, not the person. Keep showing the last good read |
+| verdict       | what the app should say                                                                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ok**        | nothing — render the journal. Notes ride along: _recently restored_, _withdrawn: 7_, _no index I can verify_                                                          |
+| **tampered**  | "This hub is not serving Mom's journal correctly." Name the hub, not the person. Keep showing the last good read                                                      |
 | **contested** | "Two versions of this identity are in circulation." Show both, follow neither, and offer the one thing that resolves it: get the current key from her directly (§3.7) |
 
 The wording matters more than usual. **tampered** is an accusation against the serving path;
@@ -293,16 +293,16 @@ typical client, because the rumor rule follows a URL a replier chose (§9).
 
 The companion is the product. Everything above is how it stays honest.
 
-| task | what it does |
-|---|---|
-| daily conversation | asks about the day, prompts reflection |
-| entry drafting | synthesizes the conversation into an entry in the member's voice |
+| task                | what it does                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| daily conversation  | asks about the day, prompts reflection                                               |
+| entry drafting      | synthesizes the conversation into an entry in the member's voice                     |
 | audience suggestion | "this mentions health — family only?" — a suggestion, never a default that publishes |
-| photo descriptions | alt text for attached media |
-| digest | "Dad reacted to your cookies post" |
+| photo descriptions  | alt text for attached media                                                          |
+| digest              | "Dad reacted to your cookies post"                                                   |
 
 **It runs in the member's client.** Not as a privacy nicety — as the only place it can run. Content
-for chosen people is sealed to reading keys the hub does not hold (§6), so there is no plaintext on
+for chosen people is encrypted to reading keys the hub does not hold (§6), so there is no plaintext on
 the server for a server-side companion to read, and building one would mean either weakening the
 encryption or splitting the product into two companions with different reach. One companion, on the
 device, over content that device can decrypt.
@@ -318,8 +318,8 @@ conversations, any private key, and anything the member's own keys cannot open.
 
 **Cross-member consent.** Family content this member can read includes entries other relatives
 addressed to an audience this member is in, and feeding it to a model is a disclosure those authors
-did not explicitly agree to. Client-side execution does not make that go away; it makes it *the
-reading member's own disclosure to make*, which is the version that can be consented to honestly.
+did not explicitly agree to. Client-side execution does not make that go away; it makes it _the
+reading member's own disclosure to make_, which is the version that can be consented to honestly.
 Three things follow: disclose during onboarding that entries shared with a member may be processed by
 a model that member chose; provide a per-member exclusion that keeps their content out of others'
 companion context; and never put another member's private entries or drafts into any context, because
@@ -335,7 +335,7 @@ A member must be able to leave without the operator's cooperation. Under device 
 nearly free, which is the strongest practical argument for the custody decision.
 
 **1. Your copy is already yours.** A publisher must keep the signed bytes of everything it publishes
-(§8.9), and here the publisher *is* the member's app. Export is a directory: profile versions, the
+(§8.9), and here the publisher _is_ the member's app. Export is a directory: profile versions, the
 index, every post, every media file, byte-verbatim, so every hash and signature still checks. No
 server-side export endpoint has to exist, no admin has to approve it, and nothing can be rate-limited
 into uselessness.
@@ -361,24 +361,24 @@ only test that proves the property.
 
 ### Order
 
-**Phase 1 — the client.** Keys on the device, genesis profile and index, recovery list at onboarding,
+**Phase 1 — the client.** Keys on the device, anchor profile and index, recovery list at onboarding,
 first-contact card, entry composition, photographs, publishing (post then index, compare-and-swap),
-the reader with checkpoints and the three verdicts, views, and export. *Test: Mom posts, Dad replies
+the reader with checkpoints and the three verdicts, views, and export. _Test: Mom posts, Dad replies
 from another domain, Grandma subscribes in a feed reader, an independent verifier checks every
-signature, and Mom exports her whole journal while the admin refuses to help.*
+signature, and Mom exports her whole journal while the admin refuses to help._
 
 **Phase 2 — audiences.** Encrypted posts and encrypted media (§6), the audience picker, encrypted
 replies and reactions to the same audience, and the UI lines that state what the audience claim is
-worth and that adding someone is prospective. *Test: a family-only entry readable by a self-hosted
-relative and opaque to the hub's own operator.*
+worth and that adding someone is prospective. _Test: a family-only entry readable by a self-hosted
+relative and opaque to the hub's own operator._
 
 **Phase 3 — the companion.** Conversation, drafting, audience suggestions, digests, running on the
-member's device against content it can decrypt, with the engine choice and its disclosure. *Test: Mom
-talks to the companion and publishes a family-only entry the hub cannot read.*
+member's device against content it can decrypt, with the engine choice and its disclosure. _Test: Mom
+talks to the companion and publishes a family-only entry the hub cannot read._
 
 **Phase 4 — the hard middle.** Rotation and restore flows, the contest UI, moving between locations,
-notification polish, search over the local cache. *Test: Mom moves to her own domain and every reader
-follows without touching the old hub.*
+notification polish, search over the local cache. _Test: Mom moves to her own domain and every reader
+follows without touching the old hub._
 
 **Phase 5 — the wider internet.** Interop through `bridge/` — ActivityPub, Nostr, AT Protocol, and
 the IndieWeb, each holding its own stable key so protocol identity survives Open Feed key rotation.
@@ -386,7 +386,7 @@ This is interop, not spec, and nothing here changes a rule.
 
 The companion is the product, so Phase 3 looking late deserves an answer: it is client-side, so it has
 no technical dependency on Phase 2 and the two could swap. The order above ships the audience layer
-first because an audience tier offered before the layer that seals it cannot be corrected afterward —
+first because an audience tier offered before the layer that encrypts it cannot be corrected afterward —
 cleartext already served is served — while a companion that arrives a release later costs only time.
 
 ### Security
@@ -408,15 +408,15 @@ ignore a number collision (§8.5), and answer cross-origin reads (§8.7).
 
 ### Limits
 
-| resource | limit |
-|---|---|
-| profile, index, or post fetch | 1 MB (§9) |
-| chain | 64 links, a hard reader-side reject (§3.2) |
-| recovery list | 32 leaves (§3.3) |
-| redirects per fetch | 5, never cross-origin (§9) |
-| concurrent sockets per origin | 10 (§9) |
-| photo upload | 10 MB; 10 per entry |
-| companion conversation history | 30 days on the device |
+| resource                       | limit                                      |
+| ------------------------------ | ------------------------------------------ |
+| profile, index, or post fetch  | 1 MB (§9)                                  |
+| chain                          | 64 links, a hard reader-side reject (§3.2) |
+| recovery list                  | 32 leaves (§3.3)                           |
+| redirects per fetch            | 5, never cross-origin (§9)                 |
+| concurrent sockets per origin  | 10 (§9)                                    |
+| photo upload                   | 10 MB; 10 per entry                        |
+| companion conversation history | 30 days on the device                      |
 
 Open Feed scales across identities rather than into items-per-identity, and the index is where that
 boundary shows up: it is one file that grows by a line per post. A member with a decade of daily
@@ -447,7 +447,7 @@ first use of the bridge in this product, and it is additive: nothing about it to
 file.
 
 **Real-time updates.** If polling latency becomes the thing members complain about, the answer is a
-notification channel *beside* the protocol, never a delivery path inside it. The index stays the
+notification channel _beside_ the protocol, never a delivery path inside it. The index stays the
 source of truth; anything faster is a hint that something changed.
 
 **A second reader.** `examples/weekend-reader/` is an independent implementation of §7 and is one of

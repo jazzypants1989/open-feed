@@ -28,9 +28,9 @@ const files = walk(root).map((f) => ({ rel: path.relative(root, f), text: fs.rea
 const spec = fs.readFileSync(path.join(root, SPEC), 'utf8');
 const headings = new Set([...spec.matchAll(/^#{2,4} (\d+(?:\.\d+)?)\./gm)].map((m) => m[1]));
 
-// GOALS.md and DISTRIBUTION-MODEL.md are the owner's documents (CLAUDE.md). Drift in them is
-// reported and never fails the build, because fixing it is not an agent's call to make unasked.
-const OWNED = /^(GOALS|DISTRIBUTION-MODEL)\.md$/;
+// docs/GOALS.md and docs/DISTRIBUTION-MODEL.md are the owner's documents (CLAUDE.md). Drift in them
+// is reported and never fails the build, because fixing it is not an agent's call to make unasked.
+const OWNED = /^docs\/(GOALS|DISTRIBUTION-MODEL)\.md$/;
 const problems = [], notices = [];
 const flag = (rel, line, message) => (OWNED.test(rel) ? notices : problems).push(`${rel}:${line}  ${message}`);
 const lines = ({ rel, text }) => text.split('\n').map((l, i) => [rel, i + 1, l]);
@@ -50,7 +50,7 @@ const RETIRED = [
 ];
 // bridge/ is interop and holds no rule of ours, so it keeps the other protocols' words (AT
 // Protocol's genesis operation, HTTP's Host header). The wordlist is BIP-39's, not ours.
-const VOCAB_SKIP = /^(tools\/refs\.js|COMPARISON\.md|RETROSPECTIVE\.md|HANDOFF\.md|src\/wordlist\.js|bridge\/)/;
+const VOCAB_SKIP = /^(tools\/refs\.js|docs\/(COMPARISON|RETROSPECTIVE)\.md|src\/wordlist\.js|bridge\/)/;
 
 for (const f of files) {
   for (const [rel, n, line] of lines(f)) {

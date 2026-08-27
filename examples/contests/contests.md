@@ -18,7 +18,7 @@ it concrete. Everything in §3.4 exists because the walk is free.
 
 The person doing this is not a stranger. He is the hub operator, he is family, he is on the recovery
 list because he was on it before the divorce, and he will not cooperate (`CLAUDE.md`'s threat model;
-`GOALS.md` scenario 1). This example stages him by name.
+`docs/GOALS.md` scenario 1). This example stages him by name.
 
 Four rules settle a contest, and a reader MUST apply all four. Each is staged here so that the rule,
 and not the fact that a chain walks, is what decides the verdict; `tools/revert.js` holds the edit
@@ -136,7 +136,7 @@ rather than papering over it.
 ### What the output shows
 
 **Where she is hosted changed; who she is did not.** alice is on `pence.family`, which becomes
-unaffordable (`GOALS.md` scenario 4). She writes her files to `alice.example` and publishes a
+unaffordable (`docs/GOALS.md` scenario 4). She writes her files to `alice.example` and publishes a
 profile at `version` 2 naming both places; the anchor key printed under before and after is the same
 43 characters, and it signed both files. The posts she carried across are the *same bytes* she
 signed (§2.3), so post 1 keeps its address and the index entry that lists it is unchanged — a
@@ -156,7 +156,7 @@ has no social path to alice, reads `ok`: `version` 1, `highest` 1, one post, no 
 Not an error, not a redirect, not a "moved" marker — there is nowhere for a marker to come from that
 she would have any reason to believe. The identical bytes read against mum's checkpoint, which has followed
 alice, are refused as `identity — an older profile than the one this reader saw`. Only a reader that
-has been somewhere else can read the frozen copy as old, which is why `GOALS.md` scenario 1 was
+has been somewhere else can read the frozen copy as old, which is why `docs/GOALS.md` scenario 1 was
 reworded to say exactly that.
 
 **When one location stops answering, the reader tries the others.** The domain finally lapses.

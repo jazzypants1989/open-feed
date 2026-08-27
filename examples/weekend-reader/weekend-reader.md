@@ -8,7 +8,7 @@ from the protocol's text alone with nothing but Node's standard library, and it 
 implementation that `tools/regen.js` verifies every vector in `test-vectors.md` with. Two independent
 readers agreeing on every byte is the closest thing to interop this spec has had.
 
-It exists to answer a question `GOALS.md` puts second in its priority list: **a second implementer
+It exists to answer a question `docs/GOALS.md` puts second in its priority list: **a second implementer
 finishes a publisher or a reader in a weekend from the text alone.** That is not a claim you can
 argue your way to. It was tested by writing the thing, under one rule: if the reader needs something
 the text does not say, that is a finding about the text, not about the code.
@@ -80,7 +80,7 @@ a checkpoint with named fields. This file is one flat page written by somebody w
 agree on all 49 vectors, and the disagreements they had along the way became the three findings
 above.
 
-The line count is the argument. `GOALS.md`'s first priority is no dependencies — Ed25519, SHA-256,
+The line count is the argument. `docs/GOALS.md`'s first priority is no dependencies — Ed25519, SHA-256,
 HTTP, JSON, base64url, and nothing else — and its second is that a person can implement this in a
 weekend. Those two pull against each other: every dependency you refuse is code somebody has to
 write. A reader in this many lines, with no canonicalizer, no JOSE library, and no third-party

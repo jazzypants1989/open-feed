@@ -76,14 +76,14 @@ New concepts get their own example, under the contract in
 [`examples/README.md`](examples/README.md). Bug reports, questions, and "have you considered" do not
 need any of this — open an issue.
 
-| where                                    | what                                                                             |
-| ---------------------------------------- | -------------------------------------------------------------------------------- |
-| [`open-feed-spec.md`](open-feed-spec.md) | the specification — **generated** from the examples                              |
-| [`test-vectors.md`](test-vectors.md)     | known-good files, verified by two independent readers                            |
-| [`src/`](src/)                           | the reference implementation: zero dependencies, one module per spec chapter     |
-| [`examples/`](examples/)                 | one small program per concept; read them in order and you have read the protocol |
-| [`bridge/`](bridge/)                     | four other protocols — **interop, not spec**                                     |
-| [`RETROSPECTIVE.md`](RETROSPECTIVE.md)  | the five generations, what is settled, and what the simplifications cost        |
+| where                                            | what                                                                             |
+| ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| [`open-feed-spec.md`](open-feed-spec.md)         | the specification — **generated** from the examples                              |
+| [`test-vectors.md`](test-vectors.md)             | known-good files, verified by two independent readers                            |
+| [`src/`](src/)                                   | the reference implementation: zero dependencies, one module per spec chapter     |
+| [`examples/`](examples/)                         | one small program per concept; read them in order and you have read the protocol |
+| [`bridge/`](bridge/)                             | four other protocols — **interop, not spec**                                     |
+| [`docs/`](docs/)                                 | the goals, the comparison, the distribution model, and the retrospective         |
 
 ## Interop
 
@@ -96,8 +96,8 @@ files.
 IndieWeb, stdlib-only and adding no rule to the protocol — **interop, not spec**. Each bridge holds
 its own key, so the account a follower sees on Mastodon survives Open Feed key rotation.
 
-[`COMPARISON.md`](COMPARISON.md) sets each of Open Feed's decisions beside the way those protocols
-made it.
+[`docs/COMPARISON.md`](docs/COMPARISON.md) sets each of Open Feed's decisions beside the way those
+protocols made it.
 
 ## License
 

@@ -17,7 +17,7 @@ compares an entity tag, and — if it accepts writes at all — checks that the 
 handed hang together under their own keys. Everything else the interface does is arithmetic about
 numbers and hashes.
 
-That anyone's client can write to anyone's hub is the point, not an oversight. `GOALS.md` states it
+That anyone's client can write to anyone's hub is the point, not an oversight. `docs/GOALS.md` states it
 as a decision: *bring-your-own-client is the security property, since a hub that ships the app can
 take the key.* The publish interface exists so that clients and hubs are a market rather than a
 pairing — which is what makes floor item 3, *the hub cannot keep you*, mean anything. The example
@@ -120,7 +120,7 @@ section is a consequence of it: those bytes verify with no hub in reach, the peo
 to hold a copy of whatever they were shown, your own last index says how much there was, and leaving
 is writing the same files somewhere else.
 
-This is the example the threat model is for. The hub operator in `GOALS.md` is a loved one who is an
+This is the example the threat model is for. The hub operator in `docs/GOALS.md` is a loved one who is an
 abuser: he controls the serving path, he will not cooperate, and no confidentiality mechanism
 defeats him for anything he was an audience of. The protocol's answer to him is **exit** — floor
 item 3, *the hub cannot keep you* — and exit is not a feature that gets built later. It is what the
@@ -146,7 +146,7 @@ lies, serving post 1's bytes at post 3 (`tampered: post 3 is not what the index 
 on her phone, checked against her anchor key with **no fetcher at all**: the profile is signed by
 the key the chain ends on, the index verifies and replays, and each post's address is the line the
 index carries. There is no export format here and no bundle to define — the file on the wire already
-*is* the archive format. `GOALS.md` retired the export bundle in one clause: *you always had the
+*is* the archive format. `docs/GOALS.md` retired the export bundle in one clause: *you always had the
 copy*.
 
 **Anyone you published to is a backup nobody set up on purpose.** Mum's reader is an ordinary reader

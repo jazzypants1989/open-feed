@@ -225,7 +225,7 @@ cannot overwrite her own post, and replay refuses a withdrawal of something that
 (§8.8). An honest hub **MAY** remove a file the current index does not list, which is how it can
 honour a deletion request, and it is a MAY because no reader depends on it either way. And an
 operator who kept every version he ever served still holds version 4, which contains `[3,null]` —
-the line, the hash, and the hour he served it. That is `GOALS.md` scenario 1, the divorce, and
+the line, the hash, and the hour he served it. That is `docs/GOALS.md` scenario 1, the divorce, and
 scenario 5, the same operator at commercial scale: against him the protocol's answer is never
 confidentiality after the fact, it is **exit** (§8.9).
 

@@ -115,7 +115,7 @@ than a phrase an app is expected to show verbatim.
 
 ## Scenarios
 
-`GOALS.md` scenario 1 (**the divorce**) is the centre. Its ending is the frozen copy: after she
+`docs/GOALS.md` scenario 1 (**the divorce**) is the centre. Its ending is the frozen copy: after she
 leaves, Mom's app follows her with one tap and reads the ex's frozen copy "as an older version of
 her, not as her" — which is precisely `contested: an older profile than the one this reader saw`, and
 precisely not `tampered`. Getting that one verdict wrong turns the scenario's resolution into an

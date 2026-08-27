@@ -49,4 +49,4 @@ posts — and the loss reads to every reader as an ordinary withdrawal, which is
 the author did on purpose.
 
 The demo below the marker in the source file is not part of the publisher — it includes a hub in
-eleven lines, which is `GOALS.md` scenario 6's third implementer in miniature.
+eleven lines, which is `docs/GOALS.md` scenario 6's third implementer in miniature.
