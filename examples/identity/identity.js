@@ -7,6 +7,7 @@ import { signFile, verifyFile, decodeStrict, sha256, signingKeyFromSeed } from '
 import { commit, leaf, rotation, restore, vouched, vouches, walk, wellFormed, adoptRecoveryLists, signProfile, verifyProfile, MAX_LINKS, MAX_LEAVES, MIN_RESTORABLE_LEAVES } from '../../src/profile.js';
 import { spokenCode, spokenIndices } from '../../src/spoken.js';
 import { WORDS } from '../../src/wordlist.js';
+import { newReadingKey, encrypt, decrypt, postBinding } from '../../src/envelope.js';
 
 // The test vectors' keys and salts.
 const key = (label) => signingKeyFromSeed(crypto.createHash('sha256').update(`openfeed/v1/vector:${label}`).digest());
@@ -188,9 +189,32 @@ console.log(`  read   ${ok.raw.read}   32-byte X25519 public key, from a profile
 assert.equal(decodeStrict(ok.raw.read, 32).length, 32);
 assert.equal(unread.raw.read, undefined);
 assert.equal(verifyProfile(hostile, { learned: A1.x }).raw, undefined);                     // nothing to encrypt to from a failed read
-// UNPROVEN (HANDOFF.md job 2a): the three assertions above test the key's shape, not this rule. The
-// stale-key case — a publisher encrypting from a checkpoint older than the owner's current `read` —
-// has to be staged here before this rule has anything behind it.
+
+const staleRead = newReadingKey(), freshRead = newReadingKey();
+const v1r = read({ ...base, version: 1, chain: chain1, read: staleRead.x }, A1);
+const pin1 = pinOf(v1r);
+const v2r = read({ ...base, version: 2, chain: chain1, read: freshRead.x }, A1, pin1);
+assert.equal(v1r.fields[3], staleRead.x);
+assert.equal(v2r.fields[3], freshRead.x);
+
+const staleBinding = postBinding(A1.x, 99);
+const staleEnv = encrypt({
+  content: { text: 'encrypted to the old key' },
+  audience: [{ key: A1.x, read: pin1.fields[3], location: LOC }],
+  binding: staleBinding,
+});
+assert.ok(decrypt(staleEnv, staleRead.privateKey, staleBinding));
+assert.equal(decrypt(staleEnv, freshRead.privateKey, staleBinding), null);
+
+const freshEnv = encrypt({
+  content: { text: 'encrypted to the current key' },
+  audience: [{ key: A1.x, read: v2r.fields[3], location: LOC }],
+  binding: staleBinding,
+});
+assert.ok(decrypt(freshEnv, freshRead.privateKey, staleBinding));
+assert.equal(decrypt(freshEnv, staleRead.privateKey, staleBinding), null);
+console.log(`  stale checkpoint (v1)   encrypts to ${staleRead.x.slice(0, 12)}…  old holder opens, new does not`);
+console.log(`  highest verified (v2)   encrypts to ${freshRead.x.slice(0, 12)}…  new holder opens, old does not\n`);
 rule('3.6', `\`read\` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to the
 \`read\` of the highest profile \`version\` it has verified, and SHOULD read the profile again before encrypting:
 a \`read\` the owner has replaced still verifies, and content encrypted to it is readable by whoever took it and
