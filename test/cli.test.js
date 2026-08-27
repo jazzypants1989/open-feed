@@ -63,3 +63,37 @@ test('hub: the command is §8 behind a socket, over a store that outlives the pr
   assert.equal(again.handle({ method: 'GET', path: '/alice/posts/1' }).status, 200);
   assert.deepEqual(again.store.get('alice/posts/1'), pub.copy.get('/posts/1'), '§2.3: the exact bytes it was given');
 });
+
+test('key, claim, post, views, verify: the whole publisher over a socket, and the copy §8.9 requires', async (t) => {
+  const { hub, url } = await tlsHub(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openfeed-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const f = consumerFetcher();
+  const kf = path.join(dir, 'jesse.json'), at = `${url}/jesse`;
+
+  assert.equal((await run(['key', '--out', kf], f)).code, 0);
+  assert.equal(fs.statSync(kf).mode & 0o777, 0o600, 'the keyfile IS the identity');
+  assert.equal((await run(['key', '--out', kf], f)).code, 2, 'and it will not overwrite one');
+  const anchor = JSON.parse(fs.readFileSync(kf, 'utf8')).anchor;
+
+  assert.equal((await run(['claim', '--key', kf, '--at', at], f)).code, 0);
+  const one = await run(['post', '--key', kf, '--at', at, '--text', 'the peonies came back', '--time', '2026-08-01T09:00:00Z'], f);
+  const two = await run(['post', '--key', kf, '--at', at, '--text', 'rain all day', '--time', '2026-08-02T09:00:00Z'], f);
+  assert.deepEqual([one.code, two.code], [0, 0], `${one.err}${two.err}`);
+  assert.match(one.out, /\/posts\/1\n$/);
+  assert.match(two.out, /\/posts\/2\n$/, 'the next number comes from the index it kept, not from probing');
+
+  // §8.9: her copy is on disk, and it is the bytes the hub serves rather than a re-rendering of them.
+  const copy = path.join(dir, 'jesse.copy');
+  for (const p of ['profile', 'index', 'posts/1', 'posts/2']) {
+    assert.deepEqual(fs.readFileSync(path.join(copy, p)), hub.store.get(`jesse/${p}`), `${p} differs from what the hub was given`);
+  }
+
+  assert.equal((await run(['views', '--key', kf, '--at', at], f)).code, 0);
+  assert.ok(hub.store.has('jesse/feed.json') && hub.store.has('jesse/index.html'));
+  assert.equal(fs.existsSync(path.join(copy, 'feed.json')), false, '§10: a view is regenerable, so it is not kept');
+
+  const ok = await run(['verify', anchor, at], f);
+  assert.equal(ok.code, 0, ok.err);
+  assert.match(ok.out, /2 post\(s\)/);
+});

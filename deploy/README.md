@@ -50,8 +50,24 @@ is that the serving path is not trusted — and it breaks the HTTP-01 challenge 
 
 ## Verify
 
+An empty hub 404s every path until a name is claimed (§8.4), so the first check is that the container
+answers at all rather than Traefik answering for it.
+
+Claiming and publishing happen **from your own machine**, never on the host — the key never goes near
+the server:
+
 ```bash
-curl -sI https://pence.page/jesse/profile                  # 200 once claimed, 404 before
+npx . key   --out ~/.openfeed/jesse.json                    # 0600. This file is the identity
+npx . claim --key ~/.openfeed/jesse.json --at https://pence.page/jesse
+npx . post  --key ~/.openfeed/jesse.json --at https://pence.page/jesse --text 'the peonies came back'
+npx . views --key ~/.openfeed/jesse.json --at https://pence.page/jesse
+```
+
+`~/.openfeed/jesse.copy/` is §8.9's copy: every signed byte, kept as it was sent. It is the export,
+and re-uploading it at another origin is how a move works.
+
+```bash
+curl -sI https://pence.page/jesse/profile                  # 200, valid cert
 curl -s https://pence.page/jesse/index | tail -1           # the signature line
 curl -sI https://pence.page/jesse/posts/1 | grep -i etag   # the address is the hash of the body
 
@@ -59,7 +75,8 @@ npx . verify <anchor key> https://pence.page/jesse         # from a machine that
 ```
 
 The last one is the only check that matters: it is the reader (§7), run against the live origin,
-returning `ok`, `tampered` or `contested` and nothing else. Run it from off the host's network.
+returning `ok`, `tampered` or `contested` and nothing else. Run it from off the host's network, and
+take the anchor key from your own keyfile rather than from anything the hub served.
 
 To confirm persistence: `docker compose -f deploy/hub-compose.yml restart`, then re-fetch a post and
 compare the ETag. Same bytes, same hash, or the store did not survive.
