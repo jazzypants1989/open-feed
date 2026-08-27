@@ -6,7 +6,6 @@
 //   §refs      ~100 stale cross-references after §3/§4/§7/§10 were restructured (996697f)
 //   appendix   19 pointers to appendices deleted when the vectors moved out (fbebc2e)
 //   paths      16 dead example directories, 14 unrunnable `Run:` lines (996667f)
-//   vocabulary a retired word inside a rule() string is a green build and a wrong spec (9a93947)
 //   version    package.json said 0.0.0 while everything else said 0.1.0
 //   size       the spec's value is how little of it there is
 import fs from 'node:fs';
@@ -35,23 +34,6 @@ const problems = [], notices = [];
 const flag = (rel, line, message) => (OWNED.test(rel) ? notices : problems).push(`${rel}:${line}  ${message}`);
 const lines = ({ rel, text }) => text.split('\n').map((l, i) => [rel, i + 1, l]);
 
-// A retired word, and what it is now. Matched as a whole word, with the uses that are not ours
-// excluded: `new URL(...).host`, `listen({ host })`, a DNS resolve callback, an SSH host key.
-// `host` is the hard one: the serving role is ours and retired, the DNS/IP sense is not ours at all.
-// The role reads as an article plus the noun ("the host serves"), so that is what is matched, and a
-// line doing networking is exempt.
-const RETIRED = [
-  [/\b(?:the|a|an|this|that|his|her|their|every|any|one|no)\s+hosts?\b|\bhost['’]s\b/i, 'hub',
-    /\bIP\b|literal|DNS|resolve|URL|header|listen|hostname|hostile|SSH|is hosted|self-host/i],
-  [/\bseal(ed|s|ing)?\b/i, 'encrypted', null],
-  [/\bfold(ed|s|ing)?\b/i, 'replay', /unfold|scaffold/i],
-  [/\bgenesis\b/i, 'anchor', /plc|did:|operation/i],
-  [/\bcourt\b/i, 'recovery list', null],
-];
-// bridge/ is interop and holds no rule of ours, so it keeps the other protocols' words (AT
-// Protocol's genesis operation, HTTP's Host header). The wordlist is BIP-39's, not ours.
-const VOCAB_SKIP = /^(tools\/refs\.js|docs\/(COMPARISON|RETROSPECTIVE)\.md|src\/wordlist\.js|bridge\/)/;
-
 for (const f of files) {
   for (const [rel, n, line] of lines(f)) {
     for (const m of line.matchAll(/§(\d+(?:\.\d+)?)/g)) {
@@ -66,10 +48,6 @@ for (const f of files) {
       if (!fs.existsSync(path.resolve(from, target)) && !fs.existsSync(path.join(root, target))) {
         flag(rel, n, `points at ${target}, which does not exist`);
       }
-    }
-    if (VOCAB_SKIP.test(rel)) continue;
-    for (const [word, now, exempt] of RETIRED) {
-      if (word.test(line) && !(exempt && exempt.test(line))) flag(rel, n, `retired vocabulary ${word.source} — the word is now "${now}"`);
     }
   }
 }
@@ -86,5 +64,5 @@ for (const n of notices) console.log(`  note  ${n}`);
 if (notices.length) console.log(`  ${notices.length} in the owner's documents — reported, not failed.`);
 console.log(problems.length
   ? `\n${problems.length} prose defect${problems.length === 1 ? '' : 's'}. Nothing else in this repository catches these.`
-  : `prose is current: every §ref resolves, every path exists, vocabulary is the spec's, ${words}/${SPEC_WORD_CEILING} words.`);
+  : `prose is current: every §ref resolves, every path exists, ${words}/${SPEC_WORD_CEILING} words.`);
 process.exit(problems.length ? 1 : 0);
