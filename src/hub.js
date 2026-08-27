@@ -7,8 +7,10 @@
 // owner's reclaim on numbered posts (§8.2, §8.5); the content-addressed twin on media (§8.6);
 // cross-origin reads and a browser publisher's preflight (§8.7). Nothing on the ordinary path of a
 // post or a media file.
+import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
+import path from 'node:path';
 import { sha256, splitFile, parseBody, verifyFile } from './file.js';
 import { wellFormed, walk, adoptRecoveryLists } from './profile.js';
 import { replay } from './index.js';
@@ -104,6 +106,32 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
   }
 
   return { handle, store, collect };
+}
+
+/**
+ * A store that survives a restart: path → bytes over one JSON file of path → base64, written
+ * atomically so a torn write cannot lose the identity. A store is "a Map-like of path → Buffer"
+ * (§8) and this is one; a hub holds no key, so the only thing at risk here is the files it serves.
+ */
+export function fileStore(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'hub.json');
+  let obj = {};
+  try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { obj = {}; }
+  const map = new Map(Object.entries(obj).map(([k, v]) => [k, Buffer.from(v, 'base64')]));
+  const flush = () => {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries([...map].map(([k, v]) => [k, v.toString('base64')]))), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  };
+  return {
+    get: (k) => map.get(k),
+    has: (k) => map.has(k),
+    keys: () => map.keys(),
+    set: (k, v) => { map.set(k, v); flush(); return map; },
+    delete: (k) => { const had = map.delete(k); if (had) flush(); return had; },
+    get size() { return map.size; },
+  };
 }
 
 /** The socket adapter: an http or https server (pass `tls: { key, cert }`) in front of `handle`. */

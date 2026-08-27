@@ -13,6 +13,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { signingKeyFromSeed } from '../src/file.js';
+// The hub's own persistent store lives with the hub (§8); the keys and followers below are the
+// bridge's, and are not a protocol concern.
+export { fileStore } from '../src/hub.js';
 import { schnorrPubkey } from './schnorr.js';
 
 const write = (file, data) => {
@@ -21,23 +24,6 @@ const write = (file, data) => {
   fs.renameSync(tmp, file);                                   // atomic: a torn write loses the identity
 };
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
-
-/** A hub store (§8) over a single JSON file of path → base64. Three posts and two views; a database would be the wrong shape. */
-export function fileStore(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'hub.json');
-  const obj = readJson(file) ?? {};
-  const map = new Map(Object.entries(obj).map(([k, v]) => [k, Buffer.from(v, 'base64')]));
-  const flush = () => write(file, JSON.stringify(Object.fromEntries([...map].map(([k, v]) => [k, v.toString('base64')]))));
-  return {
-    get: (k) => map.get(k),
-    has: (k) => map.has(k),
-    keys: () => map.keys(),
-    set: (k, v) => { map.set(k, v); flush(); return map; },
-    delete: (k) => { const had = map.delete(k); if (had) flush(); return had; },
-    get size() { return map.size; },
-  };
-}
 
 /**
  * The three keys, generated on first boot and read back on every later one.

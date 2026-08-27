@@ -123,7 +123,7 @@ accusation against a hub that did nothing.
 
 Scenario 6 (**the weekend**) is the other. The three verdicts were not decided and then implemented:
 a second implementer wrote a whole reader from the text alone, ran thirteen staged moments through
-it, and the distinct verdicts came out three (`examples/_seeds/weekend-gate.md`). That reader is
+it, and the distinct verdicts came out three. That reader is
 still in the repo as `weekend-reader/`, and it is the second reader `tools/regen.js` verifies
 `test-vectors.md` with. This example re-measures the same claim against `src/reader.js` and its own
 battery, because a number quoted from a design document is not evidence.

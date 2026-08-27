@@ -11,6 +11,9 @@
   "exports": {
     ".": "./src/openfeed.js"
   },
+  "bin": {
+    "openfeed": "bin/openfeed.js"
+  },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "spec": "node tools/spec.js",

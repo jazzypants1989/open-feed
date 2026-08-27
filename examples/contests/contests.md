@@ -21,8 +21,7 @@ list because he was on it before the divorce, and he will not cooperate (`CLAUDE
 `docs/GOALS.md` scenario 1). This example stages him by name.
 
 Four rules settle a contest, and a reader MUST apply all four. Each is staged here so that the rule,
-and not the fact that a chain walks, is what decides the verdict; `tools/revert.js` holds the edit
-to `src/` that turns each one off and must turn this example red. The verdict *strings* printed
+and not the fact that a chain walks, is what decides the verdict. The verdict *strings* printed
 below are `src/profile.js`'s wording; the spec fixes only the three verdicts (§7.2).
 
 ### What the output shows

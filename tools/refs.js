@@ -5,7 +5,8 @@
 //
 //   §refs      ~100 stale cross-references after §3/§4/§7/§10 were restructured (996697f)
 //   appendix   19 pointers to appendices deleted when the vectors moved out (fbebc2e)
-//   paths      16 dead example directories, 14 unrunnable `Run:` lines (996667f)
+//   paths      16 dead example directories, 14 unrunnable `Run:` lines (996667f), and a shim
+//              src/cli.js documented for months without it existing
 //   version    package.json said 0.0.0 while everything else said 0.1.0
 //   size       the spec's value is how little of it there is
 import fs from 'node:fs';
@@ -41,6 +42,15 @@ for (const f of files) {
     }
     for (const m of line.matchAll(/\bAppendix [A-Z]\b/g)) {
       flag(rel, n, `"${m[0]}" — the spec has no appendices; the vectors are test-vectors.md`);
+    }
+    // A path named in backticks, in prose or in a source comment. `bin/openfeed.js` was documented
+    // in src/cli.js's header without existing, because only Run: lines and markdown links were checked.
+    for (const m of line.matchAll(/`([.\w][\w./-]*\/[\w.-]+\.(?:js|md))`/g)) {
+      const target = m[1].replace(/^\.\//, '');
+      const from = path.dirname(path.join(root, rel));
+      if (!fs.existsSync(path.resolve(from, target)) && !fs.existsSync(path.join(root, target))) {
+        flag(rel, n, `names ${target}, which does not exist`);
+      }
     }
     for (const m of line.matchAll(/(?:^\s*(?:\/\/\s*)?Run:\s*|\]\()([.\w][\w./-]*\.(?:js|md))\)?/g)) {
       const target = m[1].replace(/^\.\//, '');
