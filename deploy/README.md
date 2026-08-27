@@ -80,6 +80,17 @@ curl -sI https://pence.page/jesse/posts/1 | grep -i etag   # the address is the 
 npx . verify <anchor key> https://pence.page/jesse         # from a machine that is not the host
 ```
 
+**If `openfeed` says `ENOTFOUND` while `dig` answers the record**, your system resolver cached the
+NXDOMAIN from before the record existed. `dig` queries the resolver directly and bypasses that cache;
+`getaddrinfo` — which is what Node, curl and everything else use — does not. The negative TTL is the
+last field of the SOA (`dig +short pence.page SOA`), 1800s here, so it clears within half an hour.
+To not wait:
+
+```bash
+sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder    # macOS
+sudo resolvectl flush-caches                                       # systemd-resolved
+```
+
 The last one is the only check that matters: it is the reader (§7), run against the live origin,
 returning `ok`, `tampered` or `contested` and nothing else. Run it from off the host's network, and
 take the anchor key from your own keyfile rather than from anything the hub served.
