@@ -181,6 +181,19 @@ following a reply's `location` is both the feature and a beacon, which is why it
 identity per pass. (A reply that does not verify never reaches the rumor step at all — that is §7.4,
 and `examples/reading/` stages it.)
 
+**The name can sit in the hostname.** `https://alice.hub.example` is a location the same way
+`https://alice.example/alice` is: a base the §2 paths hang off. The example serves it through a front
+that turns the hostname back into a name — what a reverse proxy's Host rule does — and the reader
+cannot tell and does not care; the identity is the anchor key either way. What the spec's sentence
+prices is the leak the prettier URL buys. A hostname is broadcast in cleartext on every connection —
+in the DNS query and in the TLS SNI field — and a certificate issued per name publishes the hub's
+roster permanently in Certificate Transparency logs, where it is a search box away (crt.sh). A
+wildcard certificate keeps the roster out of CT, but nothing keeps a hostname off the wire. A
+path-shaped name crosses only inside TLS. Under this project's threat model, where the observer may
+share your network, that is the difference between *someone read `pence.page`* and *someone read
+Mom's feed*. Which trade to make is the operator's call; the spec insists only that both shapes are
+legal and a reader is indifferent.
+
 **Relocation rides along in public replies only.** The `rel`, the `target` and its `location` of an
 encrypted reply are inside the envelope (§6.5; `examples/envelope/` shows the public members are
 `number`, `at` and `encrypted` and nothing else), so an encrypted reply moves nobody who was not already

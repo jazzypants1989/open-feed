@@ -163,6 +163,9 @@ profile has ever named. Moving is publishing a profile with a higher `version` n
 reply carries its target's location as the replier knows it (§5.4), and a reader that sees a newer
 location in a verified post follows it.
 
+A name MAY sit in a location's path or its hostname. A hostname crosses the wire in cleartext (DNS,
+TLS SNI) and a per-name certificate enters Certificate Transparency logs; a path travels only inside TLS.
+
 ### 3.6. The reading key
 
 `read` is an X25519 public key; it is what others encrypt to (§6). A publisher MUST encrypt only to the

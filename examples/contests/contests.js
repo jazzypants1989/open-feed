@@ -132,3 +132,14 @@ rule('3.5', `\`locations\` lists every base the paths of §2 hang off. A reader 
 profile has ever named. Moving is publishing a profile with a higher \`version\` naming the new place. A
 reply carries its target's location as the replier knows it (§5.4), and a reader that sees a newer
 location in a verified post follows it.`);
+
+// The name can sit in the hostname instead of the path: alice.hub.example is a front that turns the
+// host back into a name -- what a reverse proxy's Host rule does -- and the reader cannot tell.
+const SUB = 'https://alice.hub.example';
+sites.set(SUB, { hub: { handle: (r) => sites.get(new URL(NEW).origin).hub.handle({ ...r, path: `/alice${r.path}` }) }, up: true });
+await home.updateProfile(profileOf(4, [NEW, SUB]));
+const sub = await reader.read({ learned: A.x, at: SUB, checkpoint: now.checkpoint });
+console.log(`  read at ${new URL(SUB).host}: ${say(sub)} — version ${sub.checkpoint.profileVersion}, remembered: ${hosts(sub.checkpoint.locations)}\n`);
+assert.deepEqual([sub.verdict, sub.checkpoint.profileVersion, sub.checkpoint.locations.includes(SUB)], ['ok', 4, true]);
+rule('3.5', `A name MAY sit in a location's path or its hostname. A hostname crosses the wire in cleartext (DNS,
+TLS SNI) and a per-name certificate enters Certificate Transparency logs; a path travels only inside TLS.`);
