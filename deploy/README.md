@@ -9,11 +9,23 @@ Two independent services on one host behind one Traefik, and they never move tog
 
 Both are **test deployments of a draft protocol** — see the version policy in `CLAUDE.md`.
 
+**Which machine runs what.** Both services run on `jovial-penguin-3` (production since 2026-08-27;
+`jovial-penguin-1` is a spare running nothing), each from its **own clone of this repo on that
+host** — `~/services/openfeed` for the hub, `~/services/openfeed-bridge` for the bridge — so that
+updating one can never rebuild the other from a moved tree. Deploys are driven **from the laptop**
+by the homelab repo: `homelab deploy openfeed-hub` (or `openfeed-bridge`) plans, `--apply --yes`
+acts; the tool pulls the host's clone, refuses a dirty tree, dry-runs compose, applies with the
+right project name, and probes every hostname before and after. The ssh blocks below are what the
+tool does, kept as the manual fallback — they run **on the host**. Publishing and verifying
+(`npx . claim|post|views|verify`) run **from your own machine**, never the host.
+
 **Compose project names.** Both files live in `deploy/`, so Compose would derive the same project
 name for both and put them in one project — where a single `--remove-orphans` on either would delete
 the other's container. `hub-compose.yml` declares `name: openfeed-hub`; `docker-compose.yml`
 deliberately declares nothing, because its running container and its `deploy_bridge-data` volume
-already exist under the derived name and renaming the project now would hide them.
+already exist under the derived name and renaming the project now would hide them. The homelab
+repo's `services/openfeed-hub` and `services/openfeed-bridge` manifests encode the same two names,
+so a deploy through `homelab deploy` cannot get this wrong.
 
 The separation is not tidiness. `up -d --build` on the bridge restarts it, and a bridge restarting
 with a lost volume is how a federated identity loses the key remote instances have cached. There is
@@ -40,6 +52,15 @@ That is the third floor item in `docs/GOALS.md` as an operational fact rather th
 | `--origin https://pence.page` | the public origin, used for WebFinger |
 
 ## Deploy
+
+From the homelab repo, on the laptop:
+
+```bash
+homelab deploy openfeed-hub                 # plan only; nothing changes
+homelab deploy openfeed-hub --apply --yes   # production needs both flags
+```
+
+What it does on the host, which is also the manual fallback (over ssh):
 
 ```bash
 # 1. DNS first -- the HTTP-01 challenge fails without it, and failures count against a rate limit
@@ -106,6 +127,14 @@ compare the ETag. Same bytes, same hash, or the store did not survive.
 The interop bridge (`bridge/`) serving one Open Feed identity at a real origin, so the ActivityPub,
 Nostr, and IndieWeb translations can be tested against real instances rather than in memory.
 
+**Status: a finished experiment, deliberately left running** (decided 2026-08-27). It proved
+Mastodon and AT Protocol interop on a real domain, and it stays up because remote instances have
+cached its keys — taking it down teaches nothing and destroys the one thing it still holds. A 404
+at `/` is expected, not a bug. The production bridge, when POSSE work starts, will be **born at
+`bridge.pence.page`**, not migrated: an ActivityPub identity is domain-bound, so there is nothing
+to move — and this domain stays the sandbox, keeping experiments off the family domain's
+federation reputation.
+
 ## What runs
 
 `bridge/mastodon-test.js` starts a hub, an identity, three posts, and the unified bridge in one
@@ -138,7 +167,10 @@ same of. Use a real hostname with a real certificate.
 ## Deploy
 
 Requires a reverse proxy terminating TLS. This compose file targets the Traefik on
-`jovial-penguin-1`, which routes by Docker label on the external `traefik-public` network.
+`jovial-penguin-3`, which routes by Docker label on the external `traefik-public` network.
+
+From the homelab repo, on the laptop: `homelab deploy openfeed-bridge` to plan,
+`--apply --yes` to act. The manual fallback, on the host:
 
 ```bash
 # 1. DNS first -- the HTTP-01 challenge fails without it, and failures count against a rate limit
@@ -174,12 +206,16 @@ hold exactly posts 1-3.
 
 ## Update
 
+`homelab deploy openfeed-bridge --apply --yes` from the laptop, or on the host:
+
 ```bash
 cd ~/services/openfeed-bridge && git pull
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-The volume survives, so the identity does.
+The volume survives, so the identity does. The homelab manifest marks `deploy_bridge-data`
+irreplaceable and checksums its files on every `homelab verify` — that, not this README, is the
+live guard on the keys.
 
 ## Known gap
 
