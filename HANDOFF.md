@@ -6,8 +6,9 @@ when its jobs are done.**
 
 ## Where it stands
 
-`npm run check` is green: 174 tests, 58 machine-checked rules, 71 vector checks under two readers, 30
-conformance checks, prose refs, word budgets. There is a live hub at `https://pence.page` running
+`npm run check` is green: 174 tests, 60 machine-checked rules, 71 vector checks under two readers, 30
+conformance checks, prose refs, word budgets. The spec's word ceiling is nearly spent (4488/4500);
+the next rule added pays for its space. There is a live hub at `https://pence.page` running
 `openfeed hub` behind Traefik, and one live identity, `pence.page/jesse`, whose key has never been on
 the server. `tools/conform.js hub https://pence.page --claim <name>` passes 15/15 against it.
 
@@ -124,7 +125,33 @@ The steps, smallest first:
   One workflow file.
 - **POSSE.** `bridge/` and the live identity now both exist and have never been connected.
   The notes for future development in `docs/DISTRIBUTION-MODEL.md` call this the natural first use of
-  the bridge, and it is additive: nothing about it touches the four kinds of file.
+  the bridge, and it is additive: nothing about it touches the four kinds of file. The naming is
+  decided — see §7 below before starting.
+
+---
+
+## 7. Decided 2026-08-30: names, hosting, and the bridge's future
+
+Owner decisions from the session that fixed the h-card links. They shape items 4–6 and are
+recorded nowhere else but `git log`:
+
+- **The fediverse handle will be `@jesse@pence.page`** — not `@jesse@bridge.<anything>`. That
+  requires the apex WebFinger to serve one merged JRD: the hub's §10 response plus an ActivityPub
+  actor link pointing at wherever the bridge actor lives. This is the first sanctioned coupling
+  between `src/` and `bridge/`, and the mechanism (extend the hub's `--origin` WebFinger, or merge
+  at the proxy) must be settled **before anyone learns a handle** — a handle cannot rotate.
+- **The production bridge is born at `bridge.pence.page` when POSSE starts — never migrated.** An
+  ActivityPub identity is domain-bound, so there is nothing to move. `bridge.jovialpenguin.com`
+  stays up as the sandbox; `deploy/README.md` says why (federation blocks are domain-scoped and
+  sticky, and experiments must not spend the family domain's reputation).
+- **The owner wants his profile to live at `jesse.pence.page` eventually** — the name in the
+  hostname, not the path. He heard the trade the new §3.5 rule prices (a wildcard certificate
+  closes the CT-log roster leak; the per-connection DNS/SNI leak stays open) and took it, saying
+  he is not his own adversary. What it needs: a wildcard DNS record plus a wildcard certificate
+  (DNS-01 challenge — a scoped DNS token or acme-dns delegation; changing Traefik's resolvers
+  restarts every site on the box, so plan it), and name-from-Host routing in front of the hub,
+  because §8's write API is path-shaped — that routing is the real work. The move itself is a
+  §3.5 location change; checkpointed readers follow by the normal rules.
 
 ---
 
