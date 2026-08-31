@@ -507,3 +507,5 @@ The h-card page SHOULD include `<link rel="alternate">` entries pointing to the 
 | media | whatever the bytes are |
 
 A reader MUST NOT reject a signed file for its declared media type.
+
+A hub that holds `/<name>/index.html` SHOULD serve those bytes at `/<name>` and `/<name>/` as well.

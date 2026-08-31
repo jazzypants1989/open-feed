@@ -47,6 +47,12 @@ export function createHub({ store = new Map(), mediaTypeOf = () => 'application/
       const jrd = Buffer.from(webfinger(acct[1], `${origin}/${acct[1]}`), 'utf8');
       return { status: 200, headers: { ...CORS, 'content-type': 'application/jrd+json', 'content-length': String(jrd.length) }, body: jrd };
     }
+    const home = /^\/([A-Za-z0-9_-]{1,64})\/?$/.exec(path);
+    if (home && (method === 'GET' || method === 'HEAD')) {      // §10: the h-card page at the location itself, so a link (§3.7) opens in a browser
+      const page = store.get(`${home[1]}/index.html`) ?? null;
+      if (!page) return { status: 404, headers: CORS };
+      return { status: 200, headers: { ...CORS, etag: etag(page), 'content-type': TYPES['index.html'], 'content-length': String(page.length) }, body: method === 'GET' ? page : undefined };
+    }
     const m = PATH.exec(path);
     if (!m) return { status: 404, headers: CORS };
     const [, name, kind, num, hash] = m, key = `${name}/${kind}`, cur = store.get(key) ?? null;

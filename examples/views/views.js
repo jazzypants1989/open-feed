@@ -41,6 +41,7 @@ assert.equal(feed.version, 'https://jsonfeed.org/version/1.1');
 assert.deepEqual(feed.items.map((i) => i.id), [`urn:openfeed:${alice.x}:1`, `urn:openfeed:${alice.x}:2`]);
 assert.ok(atom(read, AT).includes('<feed xmlns="http://www.w3.org/2005/Atom">') && atom(read, AT).includes(`<id>urn:openfeed:${alice.x}</id>`));
 assert.ok(hcard(read, AT).includes('class="h-card"') && hcard(read, AT).includes('>Alice</a>'));
+assert.ok(hcard(read, AT).includes(`href="${AT}#${alice.x}"`));   // the u-url is the link (§3.7), byte for byte
 // Same ids at a new location.
 for (const [k, v] of [...store]) store.set(k.replace(AT, NEW), v);
 store.set(`${NEW}/profile`, profileAt(2, [AT, NEW]));
@@ -106,3 +107,15 @@ rule('10', `| kind | media type |
 | media | whatever the bytes are |
 
 A reader MUST NOT reject a signed file for its declared media type.`);
+
+// The location itself: a link is `https://alice.example/alice#<anchor>` (§3.7), and a browser
+// clicking it fetches `/alice` — which serves the h-card page, with or without a trailing slash.
+for (const p of ['/alice', '/alice/']) {
+  const r = hub.handle({ method: 'GET', path: p });
+  assert.equal(r.status, 200, p);
+  assert.equal(r.headers['content-type'], 'text/html; charset=utf-8');
+  assert.equal(r.body.toString(), '<html/>');
+}
+assert.equal(hub.handle({ method: 'GET', path: '/nobody' }).status, 404);
+console.log('  GET /alice serves the h-card page itself: a link (§3.7) opens in a browser\n');
+rule('10', 'A hub that holds `/<name>/index.html` SHOULD serve those bytes at `/<name>` and `/<name>/` as well.');

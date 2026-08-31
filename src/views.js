@@ -56,7 +56,7 @@ export function webfinger(name, location) {
 }
 
 function authorCard(name, location, anchor) {
-  return `<a class="p-author h-card" href="${esc(`${location}/#${anchor}`)}">${esc(name)}</a>`;
+  return `<a class="p-author h-card" href="${esc(`${location}#${anchor}`)}">${esc(name)}</a>`;
 }
 
 function replyLink(p) {
@@ -71,7 +71,7 @@ export function hcard(read, location) {
 <html lang="en"><head><meta charset="utf-8"><title>${esc(name)}</title>
 <link rel="alternate" type="application/feed+json" href="${esc(`${location}/feed.json`)}">
 <link rel="alternate" type="application/atom+xml" href="${esc(`${location}/feed.xml`)}"></head>
-<body><div class="h-card"><a class="p-name u-url" href="${esc(`${location}/#${read.anchor}`)}">${esc(name)}</a></div>
+<body><div class="h-card"><a class="p-name u-url" href="${esc(`${location}#${read.anchor}`)}">${esc(name)}</a></div>
 <ul class="h-feed">
 ${items(read, location).map(({ p, url }) => `<li class="h-entry"><a class="u-url" href="${esc(url)}"><time class="dt-published" datetime="${esc(p.at)}">${esc(p.at)}</time></a> ${authorCard(name, location, read.anchor)}<span class="e-content">${esc(p.text ?? '')}</span>${replyLink(p)}</li>`).join('\n')}
 </ul></body></html>
